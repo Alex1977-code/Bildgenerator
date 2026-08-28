@@ -1,0 +1,5 @@
+Roboto-Schriftarten (Roboto-Regular/Italic/Medium/Bold.ttf)
+Copyright 2011 Google Inc. All Rights Reserved.
+Lizenziert unter der Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+Quelle: Flutter SDK material_fonts Cache / https://fonts.google.com/specimen/Roboto
