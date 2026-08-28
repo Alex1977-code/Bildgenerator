@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -214,6 +215,31 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
     super.dispose();
   }
 
+  /// Expliziter Einfügen-Knopf: Safari (iOS) zeigt bei verdeckten
+  /// Feldern oft kein „Einsetzen“-Menü an.
+  Future<void> _pasteFromClipboard() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim();
+      if (text == null || text.isEmpty) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('Zwischenablage ist leer oder der Zugriff '
+                'wurde nicht erlaubt.')));
+        return;
+      }
+      setState(() => _controller.text = text);
+      messenger.showSnackBar(const SnackBar(
+          content:
+              Text('Schlüssel eingefügt – jetzt „Speichern“ antippen.')));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Einfügen nicht möglich. Alternativ das '
+              'Auge-Symbol antippen und den Schlüssel lang gedrückt '
+              'ins Feld einsetzen.')));
+    }
+  }
+
   Future<void> _save() async {
     final settings = context.read<SettingsService>();
     final messenger = ScaffoldMessenger.of(context);
@@ -280,11 +306,21 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                     ? 'Neuen Schlüssel eingeben (ersetzt den vorhandenen)'
                     : 'API-Schlüssel eingeben',
                 border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  tooltip: _obscure ? 'Anzeigen' : 'Verbergen',
-                  icon: Icon(
-                      _obscure ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _obscure = !_obscure),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Aus Zwischenablage einfügen',
+                      icon: const Icon(Icons.content_paste),
+                      onPressed: _pasteFromClipboard,
+                    ),
+                    IconButton(
+                      tooltip: _obscure ? 'Anzeigen' : 'Verbergen',
+                      icon: Icon(
+                          _obscure ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                  ],
                 ),
               ),
             ),
