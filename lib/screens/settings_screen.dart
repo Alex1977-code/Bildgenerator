@@ -33,6 +33,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Kurzvorschau des gespeicherten Schlüssels, z. B. "AIza…f2k · 39 Zeichen".
+  String? _keySummary(SettingsService settings, GenProvider p) {
+    final key = settings.apiKeyFor(p)?.trim();
+    if (key == null || key.isEmpty) return null;
+    if (key.length <= 8) return '••• · ${key.length} Zeichen';
+    return '${key.substring(0, 4)}…${key.substring(key.length - 3)}'
+        ' · ${key.length} Zeichen';
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
@@ -115,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ApiKeyCard(
           title: 'OpenAI-API-Schlüssel',
           provider: GenProvider.openai,
-          hasKey: settings.hasApiKeyFor(GenProvider.openai),
+          keySummary: _keySummary(settings, GenProvider.openai),
           helpLabel: 'Schlüssel erstellen auf platform.openai.com',
           onHelp: () => _openUrl('https://platform.openai.com/api-keys'),
         ),
@@ -123,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ApiKeyCard(
           title: 'Stability-AI-API-Schlüssel',
           provider: GenProvider.stability,
-          hasKey: settings.hasApiKeyFor(GenProvider.stability),
+          keySummary: _keySummary(settings, GenProvider.stability),
           helpLabel: 'Schlüssel erstellen auf platform.stability.ai',
           onHelp: () => _openUrl('https://platform.stability.ai/account/keys'),
         ),
@@ -131,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ApiKeyCard(
           title: 'Gemini-API-Schlüssel (Google)',
           provider: GenProvider.gemini,
-          hasKey: settings.hasApiKeyFor(GenProvider.gemini),
+          keySummary: _keySummary(settings, GenProvider.gemini),
           helpLabel: 'Schlüssel erstellen auf aistudio.google.com (gratis)',
           onHelp: () => _openUrl('https://aistudio.google.com/apikey'),
         ),
@@ -190,16 +199,20 @@ class _ApiKeyCard extends StatefulWidget {
   const _ApiKeyCard({
     required this.title,
     required this.provider,
-    required this.hasKey,
+    required this.keySummary,
     required this.helpLabel,
     required this.onHelp,
   });
 
   final String title;
   final GenProvider provider;
-  final bool hasKey;
+
+  /// Vorschau des gespeicherten Schlüssels (null = keiner hinterlegt).
+  final String? keySummary;
   final String helpLabel;
   final VoidCallback onHelp;
+
+  bool get hasKey => keySummary != null;
 
   @override
   State<_ApiKeyCard> createState() => _ApiKeyCardState();
@@ -229,9 +242,9 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
         return;
       }
       setState(() => _controller.text = text);
-      messenger.showSnackBar(const SnackBar(
-          content:
-              Text('Schlüssel eingefügt – jetzt „Speichern“ antippen.')));
+      messenger.showSnackBar(SnackBar(
+          content: Text('Schlüssel eingefügt (${text.length} Zeichen) – '
+              'jetzt „Speichern“ antippen.')));
     } catch (_) {
       messenger.showSnackBar(const SnackBar(
           content: Text('Einfügen nicht möglich. Alternativ das '
@@ -290,7 +303,7 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                   Chip(
                     avatar: Icon(Icons.check_circle,
                         size: 18, color: theme.colorScheme.primary),
-                    label: const Text('Hinterlegt'),
+                    label: Text(widget.keySummary!),
                     visualDensity: VisualDensity.compact,
                   ),
               ],
@@ -299,12 +312,20 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
             TextField(
               controller: _controller,
               obscureText: _obscure,
+              // Sichtbar geschaltet darf der Schlüssel umbrechen, damit er
+              // vollständig kontrolliert werden kann.
+              maxLines: _obscure ? 1 : 4,
+              minLines: 1,
               autocorrect: false,
               enableSuggestions: false,
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: widget.hasKey
                     ? 'Neuen Schlüssel eingeben (ersetzt den vorhandenen)'
                     : 'API-Schlüssel eingeben',
+                counterText: _controller.text.isEmpty
+                    ? ''
+                    : '${_controller.text.length} Zeichen',
                 border: const OutlineInputBorder(),
                 suffixIcon: Row(
                   mainAxisSize: MainAxisSize.min,
