@@ -8,7 +8,11 @@ name: Web-Version veröffentlichen (GitHub Pages)
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+      # Aktueller Default-Branch dieses Repositories:
+      - claude/image-generator-text-descriptions-hxsqas
   workflow_dispatch:
 
 permissions:
