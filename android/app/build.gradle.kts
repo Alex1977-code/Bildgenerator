@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "de.alexmay.bildgenerator"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_secure_storage 11.x benötigt mindestens compileSdk 37.
+    compileSdk = maxOf(37, flutter.compileSdkVersion)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -8,14 +8,19 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
 
 - **Text → Bild**: Bildbeschreibung (Prompt) eingeben, Bild generieren.
 - **Mehrere Referenzbilder** (bis zu 16): eigene Fotos/Bilder als Vorlage
-  mitgeben – das Ergebnis orientiert sich daran (Provider OpenAI).
+  mitgeben – das Ergebnis orientiert sich daran (OpenAI und Gemini).
 - **Bildgröße/Seitenverhältnis wählbar**: Quadrat, Quer-, Hochformat
   (OpenAI) bzw. 9 Seitenverhältnisse von 21:9 bis 9:21 (Stability AI).
 - **Qualität wählbar**: Auto / Niedrig / Mittel / Hoch.
 - **Transparenter Hintergrund** (für Logos & Icons, PNG/WebP) – mit
   Schachbrett-Vorschau.
 - **Profi-Features**:
-  - Zwei Provider: **OpenAI gpt-image-1** und **Stability AI Stable Image Core**
+  - Drei Provider: **OpenAI GPT Image**, **Stability AI Stable Image**
+    (Core/Ultra) und **Google Gemini** („Nano Banana“ / „Nano Banana Pro“
+    mit bis zu 4K-Auflösung)
+  - **Modell frei wählbar**: bekannte Modelle per Klick, zusätzlich freie
+    Eingabe beliebiger Modell-IDs – neue Modelle der Anbieter (z. B. ein
+    künftiges gpt-image-2) lassen sich sofort ohne App-Update nutzen
   - Ausgabeformat PNG / JPEG / WebP inkl. Kompressionsgrad
   - Batch-Generierung (1–4 Bilder pro Anfrage)
   - Negativ-Prompt, Seed (reproduzierbare Bilder) und 16 Style-Presets
@@ -36,6 +41,8 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
 - **OpenAI** (empfohlen, alle Funktionen): <https://platform.openai.com/api-keys>
   – für `gpt-image-1` muss die Organisation einmalig verifiziert werden
   (platform.openai.com → Settings → Organization → Verify).
+- **Google Gemini** („Nano Banana“, **kostenloses Kontingent** zum
+  Ausprobieren): <https://aistudio.google.com/apikey>
 - **Stability AI** (Alternative): <https://platform.stability.ai/account/keys>
 
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt

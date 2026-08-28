@@ -61,9 +61,17 @@ class SettingsService extends ChangeNotifier {
   int compression = 90;
   int count = 1;
   String stylePreset = '';
+  String geminiAspect = '1:1';
+  String geminiImageSize = '1K';
+
+  // Gewähltes Modell je Provider (auch freie IDs für neue Modelle möglich).
+  String openAiModel = 'gpt-image-1';
+  String stabilityModel = 'core';
+  String geminiModel = 'gemini-2.5-flash-image';
 
   String? _openAiKey;
   String? _stabilityKey;
+  String? _geminiKey;
 
   Future<void> init() async {
     try {
@@ -81,6 +89,11 @@ class SettingsService extends ChangeNotifier {
       compression = prefs.getInt('compression') ?? compression;
       count = prefs.getInt('count') ?? count;
       stylePreset = prefs.getString('stylePreset') ?? stylePreset;
+      geminiAspect = prefs.getString('geminiAspect') ?? geminiAspect;
+      geminiImageSize = prefs.getString('geminiImageSize') ?? geminiImageSize;
+      openAiModel = prefs.getString('openAiModel') ?? openAiModel;
+      stabilityModel = prefs.getString('stabilityModel') ?? stabilityModel;
+      geminiModel = prefs.getString('geminiModel') ?? geminiModel;
     } catch (_) {
       // Ohne Persistenz weiterlaufen (z. B. in Tests).
     }
@@ -92,6 +105,9 @@ class SettingsService extends ChangeNotifier {
       _stabilityKey = await _secure
           .read('stability_api_key')
           .timeout(const Duration(seconds: 5));
+      _geminiKey = await _secure
+          .read('gemini_api_key')
+          .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Secure Storage nicht verfügbar – Schlüssel müssen erneut
       // eingegeben werden.
@@ -99,22 +115,55 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String? apiKeyFor(GenProvider p) =>
-      p == GenProvider.openai ? _openAiKey : _stabilityKey;
+  String? apiKeyFor(GenProvider p) => switch (p) {
+        GenProvider.openai => _openAiKey,
+        GenProvider.stability => _stabilityKey,
+        GenProvider.gemini => _geminiKey,
+      };
 
   bool hasApiKeyFor(GenProvider p) {
     final key = apiKeyFor(p);
     return key != null && key.trim().isNotEmpty;
   }
 
+  /// Gewähltes Modell des Providers.
+  String modelFor(GenProvider p) => switch (p) {
+        GenProvider.openai => openAiModel,
+        GenProvider.stability => stabilityModel,
+        GenProvider.gemini => geminiModel,
+      };
+
+  void setModelFor(GenProvider p, String value) {
+    final model = value.trim();
+    if (model.isEmpty) return;
+    switch (p) {
+      case GenProvider.openai:
+        openAiModel = model;
+        _persistString('openAiModel', model);
+      case GenProvider.stability:
+        stabilityModel = model;
+        _persistString('stabilityModel', model);
+      case GenProvider.gemini:
+        geminiModel = model;
+        _persistString('geminiModel', model);
+    }
+    notifyListeners();
+  }
+
   Future<void> setApiKey(GenProvider p, String value) async {
     final trimmed = value.trim();
-    final storageKey =
-        p == GenProvider.openai ? 'openai_api_key' : 'stability_api_key';
-    if (p == GenProvider.openai) {
-      _openAiKey = trimmed.isEmpty ? null : trimmed;
-    } else {
-      _stabilityKey = trimmed.isEmpty ? null : trimmed;
+    final storageKey = switch (p) {
+      GenProvider.openai => 'openai_api_key',
+      GenProvider.stability => 'stability_api_key',
+      GenProvider.gemini => 'gemini_api_key',
+    };
+    switch (p) {
+      case GenProvider.openai:
+        _openAiKey = trimmed.isEmpty ? null : trimmed;
+      case GenProvider.stability:
+        _stabilityKey = trimmed.isEmpty ? null : trimmed;
+      case GenProvider.gemini:
+        _geminiKey = trimmed.isEmpty ? null : trimmed;
     }
     if (trimmed.isEmpty) {
       await _secure.delete(storageKey);
@@ -190,6 +239,18 @@ class SettingsService extends ChangeNotifier {
   void setStylePreset(String v) {
     stylePreset = v;
     _persistString('stylePreset', v);
+    notifyListeners();
+  }
+
+  void setGeminiAspect(String v) {
+    geminiAspect = v;
+    _persistString('geminiAspect', v);
+    notifyListeners();
+  }
+
+  void setGeminiImageSize(String v) {
+    geminiImageSize = v;
+    _persistString('geminiImageSize', v);
     notifyListeners();
   }
 

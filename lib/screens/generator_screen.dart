@@ -139,7 +139,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       provider: settings.provider,
       prompt: prompt,
       negativePrompt: _negativeCtrl.text,
-      references: isOpenAi ? List.of(_references) : const [],
+      references: settings.provider.supportsReferences
+          ? List.of(_references)
+          : const [],
       openAiSize: settings.openAiSize,
       stabilityAspect: settings.stabilityAspect,
       quality: settings.quality,
@@ -149,6 +151,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       count: settings.count,
       seed: int.tryParse(_seedCtrl.text.trim()) ?? 0,
       stylePreset: settings.stylePreset,
+      model: settings.modelFor(settings.provider),
+      geminiAspect: settings.geminiAspect,
+      geminiImageSize: settings.geminiImageSize,
     );
 
     setState(() {
@@ -261,13 +266,12 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   }
 
   List<Widget> _buildControls(SettingsService settings) {
-    final isOpenAi = settings.provider == GenProvider.openai;
     return [
       _buildPromptCard(),
       const SizedBox(height: 12),
-      _buildReferenceCard(isOpenAi),
+      _buildReferenceCard(settings.provider.supportsReferences),
       const SizedBox(height: 12),
-      _buildOptionsCard(settings, isOpenAi),
+      _buildOptionsCard(settings),
       const SizedBox(height: 16),
       FilledButton.icon(
         onPressed: _generating ? null : _generate,
@@ -373,7 +377,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  Widget _buildReferenceCard(bool isOpenAi) {
+  Widget _buildReferenceCard(bool supportsReferences) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -390,7 +394,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                if (isOpenAi)
+                if (supportsReferences)
                   TextButton.icon(
                     onPressed: _generating ? null : _pickReferences,
                     icon: const Icon(Icons.add),
@@ -398,11 +402,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   ),
               ],
             ),
-            if (!isOpenAi)
+            if (!supportsReferences)
               Text(
-                'Referenzbilder werden vom Provider OpenAI (gpt-image-1) '
-                'unterstützt. Provider in den Einstellungen wechseln, um '
-                'sie zu nutzen.',
+                'Referenzbilder werden von den Providern OpenAI und '
+                'Google Gemini unterstützt. Provider in den Einstellungen '
+                'wechseln, um sie zu nutzen.',
                 style: Theme.of(context).textTheme.bodySmall,
               )
             else if (_references.isEmpty)
@@ -459,7 +463,21 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  Widget _buildOptionsCard(SettingsService settings, bool isOpenAi) {
+  Widget _buildOptionsCard(SettingsService settings) {
+    final provider = settings.provider;
+    final isOpenAi = provider == GenProvider.openai;
+    final isStability = provider == GenProvider.stability;
+    final isGemini = provider == GenProvider.gemini;
+    final sizeOptions = switch (provider) {
+      GenProvider.openai => openAiSizeOptions,
+      GenProvider.stability => stabilityAspectOptions,
+      GenProvider.gemini => geminiAspectOptions,
+    };
+    final sizeValue = switch (provider) {
+      GenProvider.openai => settings.openAiSize,
+      GenProvider.stability => settings.stabilityAspect,
+      GenProvider.gemini => settings.geminiAspect,
+    };
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -468,39 +486,57 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           children: [
             const SectionLabel('Format & Größe'),
             DropdownMenu<String>(
-              key: ValueKey('size-${settings.provider.name}'),
-              initialSelection:
-                  isOpenAi ? settings.openAiSize : settings.stabilityAspect,
+              key: ValueKey('size-${provider.name}'),
+              initialSelection: sizeValue,
               label: Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
               expandedInsets: EdgeInsets.zero,
               dropdownMenuEntries: [
-                for (final option
-                    in isOpenAi ? openAiSizeOptions : stabilityAspectOptions)
+                for (final option in sizeOptions)
                   DropdownMenuEntry(value: option.$1, label: option.$2),
               ],
               onSelected: (value) {
                 if (value == null) return;
-                if (isOpenAi) {
-                  settings.setOpenAiSize(value);
-                } else {
-                  settings.setStabilityAspect(value);
+                switch (provider) {
+                  case GenProvider.openai:
+                    settings.setOpenAiSize(value);
+                  case GenProvider.stability:
+                    settings.setStabilityAspect(value);
+                  case GenProvider.gemini:
+                    settings.setGeminiAspect(value);
                 }
               },
             ),
-            const SizedBox(height: 12),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: SegmentedButton<String>(
-                segments: [
-                  for (final option in formatOptions)
-                    ButtonSegment(value: option.$1, label: Text(option.$2)),
+            if (isGemini && settings.geminiModel.contains('pro')) ...[
+              const SizedBox(height: 12),
+              DropdownMenu<String>(
+                initialSelection: settings.geminiImageSize,
+                label: const Text('Auflösung'),
+                expandedInsets: EdgeInsets.zero,
+                dropdownMenuEntries: [
+                  for (final option in geminiImageSizeOptions)
+                    DropdownMenuEntry(value: option.$1, label: option.$2),
                 ],
-                selected: {settings.outputFormat},
-                onSelectionChanged: (selection) =>
-                    settings.setOutputFormat(selection.first),
+                onSelected: (value) {
+                  if (value != null) settings.setGeminiImageSize(value);
+                },
               ),
-            ),
+            ],
+            if (!isGemini) ...[
+              const SizedBox(height: 12),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: SegmentedButton<String>(
+                  segments: [
+                    for (final option in formatOptions)
+                      ButtonSegment(value: option.$1, label: Text(option.$2)),
+                  ],
+                  selected: {settings.outputFormat},
+                  onSelectionChanged: (selection) =>
+                      settings.setOutputFormat(selection.first),
+                ),
+              ),
+            ],
             if (isOpenAi) ...[
               const SectionLabel('Qualität'),
               FittedBox(
@@ -555,7 +591,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               onSelectionChanged: (selection) =>
                   settings.setCount(selection.first),
             ),
-            if (!isOpenAi) ...[
+            if (isStability) ...[
               const SectionLabel('Profi-Optionen'),
               TextField(
                 controller: _negativeCtrl,
@@ -565,19 +601,21 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 12),
-              DropdownMenu<String>(
-                initialSelection: settings.stylePreset,
-                label: const Text('Style-Preset'),
-                expandedInsets: EdgeInsets.zero,
-                dropdownMenuEntries: [
-                  for (final option in stylePresetOptions)
-                    DropdownMenuEntry(value: option.$1, label: option.$2),
-                ],
-                onSelected: (value) {
-                  if (value != null) settings.setStylePreset(value);
-                },
-              ),
+              if (settings.stabilityModel == 'core') ...[
+                const SizedBox(height: 12),
+                DropdownMenu<String>(
+                  initialSelection: settings.stylePreset,
+                  label: const Text('Style-Preset'),
+                  expandedInsets: EdgeInsets.zero,
+                  dropdownMenuEntries: [
+                    for (final option in stylePresetOptions)
+                      DropdownMenuEntry(value: option.$1, label: option.$2),
+                  ],
+                  onSelected: (value) {
+                    if (value != null) settings.setStylePreset(value);
+                  },
+                ),
+              ],
               const SizedBox(height: 12),
               TextField(
                 controller: _seedCtrl,

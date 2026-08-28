@@ -3,11 +3,15 @@ import 'dart:typed_data';
 
 /// Verfügbare Bild-Provider.
 enum GenProvider {
-  openai('OpenAI (gpt-image-1)'),
-  stability('Stability AI (Stable Image Core)');
+  openai('OpenAI (GPT Image)'),
+  stability('Stability AI (Stable Image)'),
+  gemini('Google Gemini (Nano Banana)');
 
   const GenProvider(this.label);
   final String label;
+
+  /// Unterstützt der Provider Referenzbilder?
+  bool get supportsReferences => this != GenProvider.stability;
 
   static GenProvider fromName(String? name) => GenProvider.values.firstWhere(
         (p) => p.name == name,
@@ -60,12 +64,24 @@ class GenerationRequest {
     this.count = 1,
     this.seed = 0,
     this.stylePreset = '',
+    this.model = '',
+    this.geminiAspect = '1:1',
+    this.geminiImageSize = '1K',
   });
 
   final GenProvider provider;
   final String prompt;
   final String negativePrompt;
   final List<ReferenceImage> references;
+
+  /// Modell-ID bzw. Engine des Providers ('' = Standardmodell).
+  final String model;
+
+  /// Gemini: Seitenverhältnis ('1:1', '16:9', …).
+  final String geminiAspect;
+
+  /// Gemini (nur Pro-Modelle): Auflösung '1K', '2K' oder '4K'.
+  final String geminiImageSize;
 
   /// OpenAI: 'auto', '1024x1024', '1536x1024', '1024x1536'
   final String openAiSize;
@@ -97,20 +113,25 @@ class GenerationRequest {
   /// Lesbare Parameter-Zusammenfassung für Verlauf/Metadaten.
   Map<String, String> describeParams() {
     final map = <String, String>{'Provider': provider.label};
-    if (provider == GenProvider.openai) {
-      map['Größe'] = openAiSize;
-      map['Qualität'] = quality;
-      map['Transparenz'] = transparent ? 'ja' : 'nein';
-      if (references.isNotEmpty) {
-        map['Referenzbilder'] = '${references.length}';
-      }
-    } else {
-      map['Seitenverhältnis'] = stabilityAspect;
-      if (negativePrompt.trim().isNotEmpty) {
-        map['Negativ-Prompt'] = negativePrompt.trim();
-      }
-      if (stylePreset.isNotEmpty) map['Style'] = stylePreset;
-      if (seed != 0) map['Seed'] = '$seed';
+    if (model.isNotEmpty) map['Modell'] = model;
+    switch (provider) {
+      case GenProvider.openai:
+        map['Größe'] = openAiSize;
+        map['Qualität'] = quality;
+        map['Transparenz'] = transparent ? 'ja' : 'nein';
+      case GenProvider.stability:
+        map['Seitenverhältnis'] = stabilityAspect;
+        if (negativePrompt.trim().isNotEmpty) {
+          map['Negativ-Prompt'] = negativePrompt.trim();
+        }
+        if (stylePreset.isNotEmpty) map['Style'] = stylePreset;
+        if (seed != 0) map['Seed'] = '$seed';
+      case GenProvider.gemini:
+        map['Seitenverhältnis'] = geminiAspect;
+        if (model.contains('pro')) map['Auflösung'] = geminiImageSize;
+    }
+    if (references.isNotEmpty) {
+      map['Referenzbilder'] = '${references.length}';
     }
     map['Format'] = outputFormat.toUpperCase();
     return map;
@@ -224,6 +245,43 @@ const List<Option> formatOptions = [
   ('png', 'PNG'),
   ('jpeg', 'JPEG'),
   ('webp', 'WebP'),
+];
+
+const List<Option> geminiAspectOptions = [
+  ('1:1', 'Quadrat (1:1)'),
+  ('16:9', 'Breitbild (16:9)'),
+  ('9:16', 'Hochkant (9:16)'),
+  ('3:2', 'Foto quer (3:2)'),
+  ('2:3', 'Foto hoch (2:3)'),
+  ('4:3', 'Klassisch quer (4:3)'),
+  ('3:4', 'Klassisch hoch (3:4)'),
+  ('4:5', 'Portrait (4:5)'),
+  ('5:4', 'Landschaft (5:4)'),
+  ('21:9', 'Ultrabreit (21:9)'),
+];
+
+const List<Option> geminiImageSizeOptions = [
+  ('1K', '1K (Standard)'),
+  ('2K', '2K'),
+  ('4K', '4K'),
+];
+
+/// Bekannte Modelle je Provider. Über die Einstellungen kann auch eine
+/// beliebige andere Modell-ID eingetragen werden (z. B. wenn ein Anbieter
+/// ein neueres Modell veröffentlicht).
+const List<Option> openAiModelOptions = [
+  ('gpt-image-1', 'gpt-image-1 (Standard)'),
+  ('gpt-image-1-mini', 'gpt-image-1-mini (günstiger)'),
+];
+
+const List<Option> stabilityModelOptions = [
+  ('core', 'Core (günstig, Style-Presets)'),
+  ('ultra', 'Ultra (höchste Qualität)'),
+];
+
+const List<Option> geminiModelOptions = [
+  ('gemini-2.5-flash-image', 'Nano Banana (schnell)'),
+  ('gemini-3-pro-image-preview', 'Nano Banana Pro (bis 4K)'),
 ];
 
 const List<Option> stylePresetOptions = [

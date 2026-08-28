@@ -54,35 +54,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
-                SegmentedButton<GenProvider>(
-                  segments: const [
-                    ButtonSegment(
-                      value: GenProvider.openai,
-                      label: Text('OpenAI'),
-                      icon: Icon(Icons.auto_awesome),
-                    ),
-                    ButtonSegment(
-                      value: GenProvider.stability,
-                      label: Text('Stability AI'),
-                      icon: Icon(Icons.blur_on),
-                    ),
-                  ],
-                  selected: {settings.provider},
-                  onSelectionChanged: (selection) =>
-                      settings.setProvider(selection.first),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: SegmentedButton<GenProvider>(
+                    segments: const [
+                      ButtonSegment(
+                        value: GenProvider.openai,
+                        label: Text('OpenAI'),
+                      ),
+                      ButtonSegment(
+                        value: GenProvider.stability,
+                        label: Text('Stability AI'),
+                      ),
+                      ButtonSegment(
+                        value: GenProvider.gemini,
+                        label: Text('Gemini'),
+                      ),
+                    ],
+                    selected: {settings.provider},
+                    onSelectionChanged: (selection) =>
+                        settings.setProvider(selection.first),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  settings.provider == GenProvider.openai
-                      ? 'OpenAI gpt-image-1: Referenzbilder, Qualitätsstufen, '
-                          'transparenter Hintergrund, PNG/JPEG/WebP.'
-                      : 'Stability AI Stable Image Core: Seitenverhältnisse, '
+                  switch (settings.provider) {
+                    GenProvider.openai =>
+                      'OpenAI GPT Image: Referenzbilder, Qualitätsstufen, '
+                          'transparenter Hintergrund, PNG/JPEG/WebP.',
+                    GenProvider.stability =>
+                      'Stability AI Stable Image: Seitenverhältnisse, '
                           'Negativ-Prompt, Seed und Style-Presets.',
+                    GenProvider.gemini =>
+                      'Google Gemini („Nano Banana“): Referenzbilder, '
+                          'Seitenverhältnisse, bis 4K (Pro). API-Schlüssel '
+                          'mit kostenlosem Kontingent.',
+                  },
                   style: theme.textTheme.bodySmall,
                 ),
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        _ModelCard(
+          key: ValueKey('model-${settings.provider.name}'),
+          provider: settings.provider,
+          currentModel: settings.modelFor(settings.provider),
+          knownModels: switch (settings.provider) {
+            GenProvider.openai => openAiModelOptions,
+            GenProvider.stability => stabilityModelOptions,
+            GenProvider.gemini => geminiModelOptions,
+          },
+          onChanged: (value) =>
+              settings.setModelFor(settings.provider, value),
         ),
         const SizedBox(height: 12),
         _ApiKeyCard(
@@ -99,6 +125,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           hasKey: settings.hasApiKeyFor(GenProvider.stability),
           helpLabel: 'Schlüssel erstellen auf platform.stability.ai',
           onHelp: () => _openUrl('https://platform.stability.ai/account/keys'),
+        ),
+        const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'Gemini-API-Schlüssel (Google)',
+          provider: GenProvider.gemini,
+          hasKey: settings.hasApiKeyFor(GenProvider.gemini),
+          helpLabel: 'Schlüssel erstellen auf aistudio.google.com (gratis)',
+          onHelp: () => _openUrl('https://aistudio.google.com/apikey'),
         ),
         const SizedBox(height: 12),
         Card(
@@ -275,6 +309,93 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                   label: Text(widget.helpLabel),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Karte zur Modell-Auswahl des aktiven Providers – inklusive freier
+/// Eingabe einer Modell-ID, damit neue Modelle ohne App-Update nutzbar sind.
+class _ModelCard extends StatefulWidget {
+  const _ModelCard({
+    super.key,
+    required this.provider,
+    required this.currentModel,
+    required this.knownModels,
+    required this.onChanged,
+  });
+
+  final GenProvider provider;
+  final String currentModel;
+  final List<Option> knownModels;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_ModelCard> createState() => _ModelCardState();
+}
+
+class _ModelCardState extends State<_ModelCard> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.currentModel);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _apply(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed == widget.currentModel) return;
+    widget.onChanged(trimmed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Modell (${widget.provider.label})',
+                style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 0,
+              children: [
+                for (final option in widget.knownModels)
+                  ChoiceChip(
+                    label: Text(option.$2),
+                    visualDensity: VisualDensity.compact,
+                    selected: widget.currentModel == option.$1,
+                    onSelected: (_) {
+                      _controller.text = option.$1;
+                      widget.onChanged(option.$1);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _controller,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: 'Modell-ID',
+                helperText:
+                    'Freie Eingabe möglich – neue Modelle des Anbieters '
+                    'lassen sich hier sofort nutzen, ohne App-Update.',
+                helperMaxLines: 3,
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: _apply,
+              onTapOutside: (_) => _apply(_controller.text),
             ),
           ],
         ),
