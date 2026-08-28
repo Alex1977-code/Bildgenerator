@@ -150,6 +150,9 @@ class OpenAiGenerator implements ImageGenerator {
     } else if (response.statusCode == 404) {
       hint = ' Existiert die gewählte Modell-ID? Sie kann in den '
           'Einstellungen angepasst werden.';
+    } else if (response.statusCode == 429) {
+      hint = ' Rate-Limit erreicht oder kein Guthaben auf dem '
+          'OpenAI-Konto (platform.openai.com → Billing prüfen).';
     }
     return 'OpenAI-Fehler (${response.statusCode}): $detail$hint';
   }
@@ -360,10 +363,19 @@ class GeminiGenerator implements ImageGenerator {
     if (response.statusCode == 400 || response.statusCode == 401 ||
         response.statusCode == 403) {
       hint = ' Bitte den Gemini-API-Schlüssel in den Einstellungen prüfen '
-          '(kostenlos erhältlich auf aistudio.google.com).';
+          '(erhältlich auf aistudio.google.com).';
     } else if (response.statusCode == 404) {
       hint = ' Existiert die gewählte Modell-ID? Sie kann in den '
           'Einstellungen angepasst werden.';
+    } else if (response.statusCode == 429) {
+      hint = detail.contains('limit: 0')
+          ? '\n\nHinweis: „limit: 0“ bedeutet, dass dieses Modell für deinen '
+              'Schlüssel KEIN Gratis-Kontingent hat – erneutes Versuchen '
+              'hilft nicht. Lösung: In Google AI Studio die Abrechnung '
+              'aktivieren (ca. 4 Cent pro Bild) oder in den Einstellungen '
+              'einen anderen Provider wählen.'
+          : '\n\nHinweis: Kontingent vorübergehend erschöpft – kurz warten '
+              'und erneut versuchen.';
     }
     return 'Gemini-Fehler (${response.statusCode}): $detail$hint';
   }
