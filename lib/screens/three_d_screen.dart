@@ -742,9 +742,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         : 'Modell wird generiert (Stable Point Aware 3D) …');
     // Detailgrad → foreground_ratio je Engine (Wertebereiche
     // unterscheiden sich, siehe Stability3dService.generateModel).
+    // „Fein“ bewusst moderat: Extremwerte ohne Rand (SPAR3D 1.0)
+    // liegen außerhalb der Trainingsverteilung und haben in Tests
+    // Formen aufgebläht und Texturen verschmiert.
     final isSpar = _stabilityEngine == 'stable-point-aware-3d';
     final foregroundRatio = switch (_stabilityDetail) {
-      'fine' => isSpar ? 1.0 : 0.95,
+      'fine' => isSpar ? 1.15 : 0.9,
       'safe' => isSpar ? 1.85 : 0.6,
       _ => 0.0, // API-Vorgabe
     };
@@ -1605,10 +1608,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               'Rückseite. Ehrlich: Die Textur erzeugt '
                               'Stability intern mit fester Auflösung – '
                               'ein noch schärferes Ausgangsbild bringt ab '
-                              'einem Punkt nichts mehr. Spürbar mehr '
-                              'Schärfe: Detailgrad „Fein“ testen (Objekt '
-                              'füllt das Bild) oder für Spitzenklasse zu '
-                              'Meshy/Tripo wechseln.'
+                              'einem Punkt nichts mehr, und weniger Rand '
+                              '(„Fein“) hilft nur begrenzt. Spürbar mehr '
+                              'Schärfe gibt es erst mit Meshy/Tripo '
+                              '(Spitzenklasse).'
                           : 'Die 4 Ansichten (vorn/links/rechts/hinten) '
                               'werden automatisch mit der Bild-KI aus dem '
                               'Generator-Tab (${settings.provider.label}) '
@@ -2205,7 +2208,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               label: 'Ausgewogen (Standard – API-Vorgabe)'),
                           DropdownMenuEntry(
                               value: 'fine',
-                              label: 'Fein (Objekt füllt das Bild)'),
+                              label: 'Fein (etwas weniger Rand)'),
                           DropdownMenuEntry(
                               value: 'safe',
                               label: 'Sicher (mehr Rand ums Objekt)'),
@@ -2217,10 +2220,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         },
                       ),
                       _optionInfo(
-                          '„Fein“ lässt das Objekt das Bild ausfüllen – '
-                          'mehr Pixel pro Fläche, kann aber ohne Rand zu '
-                          'Artefakten an den Objekträndern führen. '
-                          '„Ausgewogen“ ist die empfohlene Vorgabe, '
+                          '„Fein“ rückt das Objekt moderat näher (etwas '
+                          'mehr Pixel pro Fläche). Ganz ohne Rand '
+                          'verformt Stability Modelle nachweislich '
+                          '(aufgeblähte Formen) – deshalb ist '
+                          '„Ausgewogen“ die empfohlene Vorgabe; '
                           '„Sicher“ lässt extra viel Rand.'),
                     ],
                   ),
