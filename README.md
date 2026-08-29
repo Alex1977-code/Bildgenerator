@@ -48,7 +48,9 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     optional T-Pose). So funktioniert auch der lokale Generator rein per
     Text; bei Meshy/Tripo ist die Pipeline im Text-Modus zuschaltbar.
     Bereits erzeugte Ansichten werden wiederverwendet und lassen sich
-    einzeln austauschen.
+    einzeln austauschen. Auch im Bild-Modus: Wer weniger als 4 Ansichten
+    hochlädt, bekommt die fehlenden auf Wunsch automatisch aus der
+    Vorderansicht ergänzt – mit denselben Konsistenz-Vorgaben.
   - **Qualitäts-Optionen (Profi)** für Meshy/Tripo: KI-Generation
     wählbar (Meshy 5/6/Neueste bzw. Tripo v2.5/v3.0), Polygonzahl,
     Quad-Topologie, Symmetrie-Modus, PBR-Material, Textur-Qualität

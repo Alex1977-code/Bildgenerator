@@ -61,6 +61,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// sich deutlich besser räumlich rekonstruieren.
   bool _tPose = false;
 
+  /// Bild-Modus: fehlende Ansichten (links/rechts/hinten) automatisch
+  /// per Bild-KI aus der Vorderansicht ergänzen, damit ein konsistenter
+  /// 4-Ansichten-Satz als Referenz entsteht.
+  bool _completeViews = true;
+
   // Qualitäts-Optionen (Profi) für Meshy/Tripo. Leer/0/auto = die
   // API-Vorgabe wird nicht überschrieben.
   String _meshyAiModel = '';
@@ -179,6 +184,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Text-Modus: „Lokal“ geht immer über KI-Ansichten, bei Meshy/Tripo
     // ist die Ansichten-Pipeline zuschaltbar.
     final viewPipeline = !_imageMode && (isLocal || _viewsFromText);
+    // Bild-Modus: fehlende Ansichten optional per Bild-KI ergänzen –
+    // gleiche Konsistenz-Prompts, Vorderansicht als Referenz.
+    final augmentViews = _imageMode &&
+        _completeViews &&
+        (!isLocal || _localMode == 'hull') &&
+        _views.values.any((view) => view == null);
     if (!_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
       return;
@@ -192,7 +203,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _running = true;
       _cancelRequested = false;
       _error = null;
-      _stage = viewPipeline
+      _stage = viewPipeline || augmentViews
           ? 'Ansichten werden vorbereitet …'
           : 'Task wird angelegt …';
     });
@@ -202,7 +213,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
 
     try {
-      if (viewPipeline) {
+      if (viewPipeline || augmentViews) {
         final generated = await generateViewsFromText(
           settings: settings,
           description: prompt,
@@ -884,21 +895,36 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   const SizedBox(height: 4),
                   Text(
                     isLocal && _localMode == 'hull'
-                        ? 'Vorderansicht ist Pflicht; je mehr Ansichten '
-                            '(links/rechts/hinten), desto genauer wird das '
-                            'räumliche Modell. Alle Bilder brauchen einen '
-                            'transparenten Hintergrund und dasselbe Motiv '
-                            'in gleicher Pose.'
+                        ? 'Vorderansicht ist Pflicht; je mehr echte '
+                            'Ansichten (links/rechts/hinten), desto '
+                            'genauer wird das räumliche Modell. Alle '
+                            'Bilder: dasselbe Motiv in gleicher Pose, '
+                            'möglichst transparenter Hintergrund.'
                         : 'Nur die Vorderansicht ist Pflicht. Mit '
-                            'zusätzlichen Ansichten von links, rechts und '
-                            'hinten entsteht ein deutlich genaueres '
-                            'Rundum-Modell. Tipp: Ansichten im '
-                            'Generator-Tab erzeugen (gleiche Figur als '
-                            'Referenzbild anhängen und z. B. „gleiche '
-                            'Figur, Ansicht von links, transparenter '
-                            'Hintergrund“ anfordern).',
+                            'Ansichten von links, rechts und hinten '
+                            'entsteht ein deutlich genaueres '
+                            'Rundum-Modell.',
                     style: theme.textTheme.bodySmall,
                   ),
+                  if (!isLocal || _localMode == 'hull')
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                          'Fehlende Ansichten per Bild-KI ergänzen'),
+                      subtitle: Text(
+                          'Erzeugt fehlende Ansichten automatisch aus der '
+                          'Vorderansicht – mit denselben '
+                          'Konsistenz-Vorgaben wie im Text-Modus '
+                          '(identisches Motiv, gleiche Skalierung, '
+                          'orthographisch, transparenter Hintergrund). '
+                          'Nutzt ${settings.provider.label} aus dem '
+                          'Generator-Tab, ca. 1 Bildgenerierung je '
+                          'fehlender Ansicht.'),
+                      value: _completeViews,
+                      onChanged: _running
+                          ? null
+                          : (v) => setState(() => _completeViews = v),
+                    ),
                 ],
                 const SectionLabel('Optionen'),
                 if (isLocal) ...[
@@ -1194,7 +1220,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'nur ein Bild, verbessert das Modell aber stark.\n'
                       '• Eigene Bilder: Motiv vollständig sichtbar, '
                       'möglichst transparenter oder neutraler Hintergrund, '
-                      'gleichmäßiges Licht ohne harte Schatten.\n'
+                      'gleichmäßiges Licht ohne harte Schatten. Fehlende '
+                      'Ansichten ergänzt die Bild-KI auf Wunsch '
+                      'automatisch und konsistent.\n'
                       '• Meshy/Tripo: In den Qualitäts-Optionen die '
                       'neueste KI-Generation wählen – der größte '
                       'Qualitätssprung. Mehr Polygone und PBR bzw. '
