@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
+import '../services/model_catalog.dart';
 import '../services/prompt_relay.dart';
 import '../services/settings_service.dart';
 import '../services/watermark.dart';
@@ -65,6 +66,33 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     _negativeCtrl.dispose();
     _seedCtrl.dispose();
     super.dispose();
+  }
+
+  bool _refreshingModels = false;
+
+  /// Holt die aktuell verfügbaren Modelle direkt vom Anbieter.
+  Future<void> _refreshModels() async {
+    final settings = context.read<SettingsService>();
+    final provider = settings.provider;
+    final apiKey = settings.apiKeyFor(provider)?.trim() ?? '';
+    if (provider != GenProvider.stability && apiKey.isEmpty) {
+      _showSnack('Für die Modell-Liste wird der API-Schlüssel von '
+          '${provider.label} benötigt (Einstellungen).');
+      return;
+    }
+    setState(() => _refreshingModels = true);
+    try {
+      final models = await fetchAvailableModels(provider, apiKey);
+      await settings.setFetchedModels(provider, models);
+      if (mounted) {
+        _showSnack('${models.length} Modelle geladen – Liste ist auf '
+            'dem neuesten Stand.');
+      }
+    } on GenerationException catch (e) {
+      if (mounted) _showSnack(e.message);
+    } finally {
+      if (mounted) setState(() => _refreshingModels = false);
+    }
   }
 
   void _showSnack(String message) {
@@ -548,11 +576,18 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       GenProvider.stability => settings.stabilityAspect,
       GenProvider.gemini => settings.geminiAspect,
     };
-    final knownModels = switch (provider) {
+    final staticModels = switch (provider) {
       GenProvider.openai => openAiModelOptions,
       GenProvider.stability => stabilityModelOptions,
       GenProvider.gemini => geminiModelOptions,
     };
+    // Vom Anbieter abgerufene Modelle ergänzen die eingebaute Liste –
+    // so bleiben neue Modelle ohne App-Update wählbar.
+    final knownModels = [
+      ...staticModels,
+      for (final id in settings.fetchedModelsFor(provider))
+        if (!staticModels.any((option) => option.$1 == id)) (id, id),
+    ];
     final currentModel = settings.modelFor(provider);
     return Card(
       child: Padding(
@@ -561,23 +596,46 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SectionLabel('KI-Modell'),
-            DropdownMenu<String>(
-              key: ValueKey('model-${provider.name}-$currentModel'),
-              initialSelection: currentModel,
-              label: const Text('Modell'),
-              expandedInsets: EdgeInsets.zero,
-              dropdownMenuEntries: [
-                for (final option in knownModels)
-                  DropdownMenuEntry(value: option.$1, label: option.$2),
-                if (!knownModels.any((o) => o.$1 == currentModel))
-                  DropdownMenuEntry(
-                    value: currentModel,
-                    label: '$currentModel (eigene ID)',
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: DropdownMenu<String>(
+                    key: ValueKey('model-${provider.name}-$currentModel'
+                        '-${knownModels.length}'),
+                    initialSelection: currentModel,
+                    label: const Text('Modell'),
+                    expandedInsets: EdgeInsets.zero,
+                    dropdownMenuEntries: [
+                      for (final option in knownModels)
+                        DropdownMenuEntry(
+                            value: option.$1, label: option.$2),
+                      if (!knownModels.any((o) => o.$1 == currentModel))
+                        DropdownMenuEntry(
+                          value: currentModel,
+                          label: '$currentModel (eigene ID)',
+                        ),
+                    ],
+                    onSelected: (value) {
+                      if (value != null) {
+                        settings.setModelFor(provider, value);
+                      }
+                    },
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Aktuelle Modelle vom Anbieter laden',
+                  icon: _refreshingModels
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  onPressed: _refreshingModels ? null : _refreshModels,
+                ),
               ],
-              onSelected: (value) {
-                if (value != null) settings.setModelFor(provider, value);
-              },
             ),
             const SectionLabel('Format & Größe'),
             DropdownMenu<String>(

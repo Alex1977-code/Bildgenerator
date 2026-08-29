@@ -350,12 +350,15 @@ String geminiAspectPixelLabel(String aspect, String imageSize) {
 /// beliebige andere Modell-ID eingetragen werden (z. B. wenn ein Anbieter
 /// ein neueres Modell veröffentlicht).
 const List<Option> openAiModelOptions = [
-  ('gpt-image-1', 'gpt-image-1 (Standard)'),
-  ('gpt-image-1-mini', 'gpt-image-1-mini (günstiger)'),
+  ('gpt-image-2', 'gpt-image-2 (neuestes Modell)'),
+  ('gpt-image-1.5', 'gpt-image-1.5'),
+  ('gpt-image-1', 'gpt-image-1 (bewährt)'),
+  ('gpt-image-1-mini', 'gpt-image-1-mini (am günstigsten)'),
 ];
 
 const List<Option> stabilityModelOptions = [
   ('core', 'Core (günstig, Style-Presets)'),
+  ('sd3', 'SD 3.5 (fotorealistisch)'),
   ('ultra', 'Ultra (höchste Qualität)'),
 ];
 

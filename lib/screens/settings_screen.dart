@@ -117,11 +117,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           key: ValueKey('model-${settings.provider.name}'),
           provider: settings.provider,
           currentModel: settings.modelFor(settings.provider),
-          knownModels: switch (settings.provider) {
-            GenProvider.openai => openAiModelOptions,
-            GenProvider.stability => stabilityModelOptions,
-            GenProvider.gemini => geminiModelOptions,
-          },
+          knownModels: [
+            ...switch (settings.provider) {
+              GenProvider.openai => openAiModelOptions,
+              GenProvider.stability => stabilityModelOptions,
+              GenProvider.gemini => geminiModelOptions,
+            },
+            // Vom Anbieter abgerufene Modelle (Aktualisieren-Knopf im
+            // Generator-Tab) ergänzen die eingebaute Liste.
+            for (final id in settings.fetchedModelsFor(settings.provider))
+              if (!switch (settings.provider) {
+                GenProvider.openai => openAiModelOptions,
+                GenProvider.stability => stabilityModelOptions,
+                GenProvider.gemini => geminiModelOptions,
+              }.any((option) => option.$1 == id))
+                (id, id),
+          ],
           onChanged: (value) =>
               settings.setModelFor(settings.provider, value),
         ),

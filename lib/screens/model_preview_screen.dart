@@ -10,6 +10,7 @@ import '../services/animation_bake.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
+import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
@@ -249,6 +250,25 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     );
   }
 
+  /// OBJ-Export (mit Vertexfarben, Originalmaße).
+  Future<void> _exportObj() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final obj = await glbToObj(widget.glbBytes);
+      final message = await exportImageBytes(
+        obj,
+        'modell_${DateTime.now().millisecondsSinceEpoch}.obj',
+        'model/obj',
+      );
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('OBJ-Export fehlgeschlagen: $e')));
+    }
+  }
+
   /// STL-Export (nur Form) mit wählbarer Druckgröße.
   Future<void> _exportStl() async {
     final size = await _askPrintSize(
@@ -339,6 +359,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                   _export();
                 case 'glb_anim':
                   _export(withAnimations: true);
+                case 'obj':
+                  _exportObj();
                 case 'stl':
                   _exportStl();
                 case '3mf':
@@ -352,6 +374,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                 const PopupMenuItem(
                     value: 'glb_anim',
                     child: Text('GLB + Testanimationen exportieren')),
+              const PopupMenuItem(
+                  value: 'obj',
+                  child: Text('OBJ exportieren (mit Vertexfarben)')),
               const PopupMenuItem(
                   value: 'stl',
                   child: Text('STL für 3D-Druck exportieren …')),

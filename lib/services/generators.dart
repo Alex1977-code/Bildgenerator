@@ -188,8 +188,11 @@ class OpenAiGenerator implements ImageGenerator {
 /// Negativ-Prompt, Seed und Style-Presets (Core).
 class StabilityGenerator implements ImageGenerator {
   /// Nur bekannte Engines als URL-Pfad zulassen.
-  static String _engine(GenerationRequest request) =>
-      request.model == 'ultra' ? 'ultra' : 'core';
+  static String _engine(GenerationRequest request) => switch (request.model) {
+        'ultra' => 'ultra',
+        'sd3' => 'sd3',
+        _ => 'core',
+      };
 
   @override
   Future<GenerationResult> generate(

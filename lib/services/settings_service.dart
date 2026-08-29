@@ -150,6 +150,11 @@ class SettingsService extends ChangeNotifier {
           prefs.getInt('watermarkSizePercent') ?? watermarkSizePercent;
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
+      for (final provider in GenProvider.values) {
+        _fetchedModels[provider] =
+            prefs.getStringList('fetchedModels_${provider.name}') ??
+                const [];
+      }
       final logoBase64 = prefs.getString('watermarkLogo');
       if (logoBase64 != null && logoBase64.isNotEmpty) {
         try {
@@ -192,6 +197,21 @@ class SettingsService extends ChangeNotifier {
   bool hasApiKeyFor(GenProvider p) {
     final key = apiKeyFor(p);
     return key != null && key.trim().isNotEmpty;
+  }
+
+  /// Vom Anbieter abgerufene, aktuell verfügbare Modell-IDs.
+  final Map<GenProvider, List<String>> _fetchedModels = {};
+
+  List<String> fetchedModelsFor(GenProvider p) =>
+      _fetchedModels[p] ?? const [];
+
+  Future<void> setFetchedModels(GenProvider p, List<String> models) async {
+    _fetchedModels[p] = models;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('fetchedModels_${p.name}', models);
+    } catch (_) {}
+    notifyListeners();
   }
 
   /// Gewähltes Modell des Providers.

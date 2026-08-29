@@ -9,6 +9,7 @@ import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
 import 'package:bildgenerator/services/mesh_check.dart';
+import 'package:bildgenerator/services/obj_export.dart';
 import 'package:bildgenerator/services/stl_export.dart';
 import 'package:bildgenerator/services/threemf_export.dart';
 import 'package:archive/archive.dart';
@@ -414,6 +415,35 @@ void main() {
     );
     expect(open.watertight, isFalse);
     expect(open.openEdges, 3);
+  });
+
+  test('OBJ-Export: Vertices mit Farben und 1-basierte Flächen',
+      () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    final obj = String.fromCharCodes(await glbToObj(glb));
+
+    final vertexLines = [
+      for (final line in obj.split('\n'))
+        if (line.startsWith('v ')) line,
+    ];
+    final faceLines = [
+      for (final line in obj.split('\n'))
+        if (line.startsWith('f ')) line,
+    ];
+    expect(vertexLines, hasLength(mesh.positions.length ~/ 3));
+    expect(faceLines, hasLength(mesh.indices.length ~/ 3));
+    // Vertexzeile: Position + Farbe = 6 Zahlen.
+    expect(vertexLines.first.split(RegExp(r'\s+')), hasLength(7));
+    // OBJ-Indizes sind 1-basiert.
+    for (final part in faceLines.first.split(' ').skip(1)) {
+      expect(int.parse(part), greaterThan(0));
+    }
   });
 
   test('3MF-Export: gültiger Container mit Farbpalette', () async {
