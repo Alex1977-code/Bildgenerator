@@ -47,25 +47,36 @@ const rigPoseParts = {
       'without any occlusion',
 };
 
-const _stagingPart = 'single subject only, perfectly centered, completely '
+/// Studio-Vorgaben der Ansichten. Nur OpenAI liefert echte
+/// Transparenz; alle anderen Provider bekommen einen Greenscreen
+/// angefordert, der anschließend per Chroma-Key entfernt wird –
+/// deutlich robuster als das Erraten „neutraler“ Hintergründe, die
+/// Bild-KIs gern mit Studioboden und Schatten füllen.
+String _stagingPart(bool trueAlpha) =>
+    'single subject only, perfectly centered, completely '
     'visible with a small margin, orthographic view without perspective '
-    'distortion, plain fully transparent background, no ground plane, no '
-    'shadow, no reflections, even diffuse studio lighting, crisp details';
+    'distortion, '
+    '${trueAlpha ? 'plain fully transparent background' : 'the ENTIRE '
+        'background is a perfectly uniform bright green screen '
+        '(chroma key green #00B140), the subject itself contains no '
+        'green'}, no ground plane, no '
+    'floor, no shadow, no reflections, even diffuse studio lighting, '
+    'crisp details';
 
 String _frontPrompt(String description, String? pose,
-        {bool threeQuarter = false}) =>
+        {bool threeQuarter = false, required bool trueAlpha}) =>
     '$description. ${pose == null ? '' : '$pose, '}'
     '${threeQuarter ? 'three-quarter view from the front left with the '
         'camera slightly elevated, front AND left side of the subject '
         'clearly visible' : 'exact FRONT view (subject facing the camera '
-        'directly)'}, $_stagingPart';
+        'directly)'}, ${_stagingPart(trueAlpha)}';
 
-String _turnPrompt(String viewInstruction) =>
+String _turnPrompt(String viewInstruction, {required bool trueAlpha}) =>
     'Exactly the same subject as in the reference image: identical shape, '
     'proportions, colors, materials, clothing and details – do not change '
     'anything about the subject itself. $viewInstruction Keep exactly the '
     'same scale, framing and camera distance as the reference image, '
-    '$_stagingPart';
+    '${_stagingPart(trueAlpha)}';
 
 /// Prüft den konfigurierten Bild-Provider und liefert Provider,
 /// Schlüssel und Generator. [needsReferences] verlangt zusätzlich
@@ -176,16 +187,20 @@ Future<GeneratedViews> generateViewsFromText({
       throw GenerationException('Ansicht „$label“ wurde nicht erzeugt.');
     }
     var bytes = result.images.first.bytes;
-    // Gemini liefert keine echte Transparenz – Hintergrund freistellen.
-    bytes = await ensureTransparentBackground(bytes);
+    // Provider ohne echte Transparenz: angeforderten Greenscreen
+    // entfernen (Chroma-Key); Rückfall ist der generische Flutlauf.
+    bytes = await removeGeneratedBackground(bytes,
+        expectGreenScreen: provider != GenProvider.openai);
     return ReferenceImage(bytes: bytes, name: 'ansicht_$label.png');
   }
 
+  final trueAlpha = provider == GenProvider.openai;
   final front = existing['front'] ??
       await generateOne(
           'Vorn',
           _frontPrompt(description, pose,
-              threeQuarter: threeQuarterFront && frontOnly));
+              threeQuarter: threeQuarterFront && frontOnly,
+              trueAlpha: trueAlpha));
   final views = <String, ReferenceImage>{'front': front};
   if (!frontOnly) {
     const labels = {'left': 'Links', 'right': 'Rechts', 'back': 'Hinten'};
@@ -193,7 +208,7 @@ Future<GeneratedViews> generateViewsFromText({
       views[entry.key] = existing[entry.key] ??
           await generateOne(
             labels[entry.key]!,
-            _turnPrompt(entry.value),
+            _turnPrompt(entry.value, trueAlpha: trueAlpha),
             references: [front],
           );
     }
@@ -247,6 +262,118 @@ Future<Uint8List> generateDepthMap({
     throw GenerationException('Tiefenkarte „$label“ wurde nicht erzeugt.');
   }
   return result.images.first.bytes;
+}
+
+/// Entfernt den Hintergrund einer generierten Ansicht. Bei
+/// [expectGreenScreen] wurde ein Greenscreen angefordert: alle grünen,
+/// vom Bildrand aus zusammenhängenden Pixel werden transparent
+/// (Chroma-Key), anschließend werden Grünsäume an den Objekträndern
+/// entschärft. Grüne Flächen IM Motiv bleiben erhalten (kein
+/// Rand-Verbund). Hat die Bild-KI den Greenscreen ignoriert, greift
+/// der generische Flutlauf [ensureTransparentBackground].
+Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
+    {required bool expectGreenScreen}) async {
+  if (!expectGreenScreen) return ensureTransparentBackground(imageBytes);
+  final codec = await ui.instantiateImageCodec(imageBytes);
+  final frame = await codec.getNextFrame();
+  final image = frame.image;
+  try {
+    final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (raw == null) return imageBytes;
+    final pixels = raw.buffer.asUint8List();
+    final width = image.width, height = image.height;
+
+    bool isGreen(int o) {
+      final r = pixels[o], g = pixels[o + 1], b = pixels[o + 2];
+      return g > 80 && g > r + 40 && g > b + 40;
+    }
+
+    // Greenscreen nur akzeptieren, wenn der Bildrand klar grün ist.
+    var borderGreen = 0;
+    var borderTotal = 0;
+    void sample(int x, int y) {
+      borderTotal++;
+      if (isGreen((y * width + x) * 4)) borderGreen++;
+    }
+
+    for (var x = 0; x < width; x += 4) {
+      sample(x, 0);
+      sample(x, height - 1);
+    }
+    for (var y = 0; y < height; y += 4) {
+      sample(0, y);
+      sample(width - 1, y);
+    }
+    if (borderGreen < borderTotal * 0.3) {
+      return await ensureTransparentBackground(imageBytes);
+    }
+
+    // Flutlauf über grüne Pixel ab dem Rand (grüne Flächen im Motiv
+    // bleiben stehen).
+    final visited = Uint8List(width * height);
+    final queue = Queue<int>();
+    void seed(int x, int y) {
+      final index = y * width + x;
+      if (visited[index] == 0 && isGreen(index * 4)) {
+        visited[index] = 1;
+        queue.add(index);
+      }
+    }
+
+    for (var x = 0; x < width; x++) {
+      seed(x, 0);
+      seed(x, height - 1);
+    }
+    for (var y = 0; y < height; y++) {
+      seed(0, y);
+      seed(width - 1, y);
+    }
+    while (queue.isNotEmpty) {
+      final index = queue.removeFirst();
+      pixels[index * 4 + 3] = 0;
+      final x = index % width, y = index ~/ width;
+      if (x > 0) seed(x - 1, y);
+      if (x < width - 1) seed(x + 1, y);
+      if (y > 0) seed(x, y - 1);
+      if (y < height - 1) seed(x, y + 1);
+    }
+
+    // Entgrünung: Randpixel des Motivs, die ans entfernte Grün grenzen,
+    // verlieren ihren Grünstich (g auf max(r, b) begrenzen).
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        final index = y * width + x;
+        if (visited[index] != 0) continue;
+        final nearRemoved = (x > 0 && visited[index - 1] != 0) ||
+            (x < width - 1 && visited[index + 1] != 0) ||
+            (y > 0 && visited[index - width] != 0) ||
+            (y < height - 1 && visited[index + width] != 0);
+        if (!nearRemoved) continue;
+        final o = index * 4;
+        final cap = pixels[o] > pixels[o + 2] ? pixels[o] : pixels[o + 2];
+        if (pixels[o + 1] > cap) pixels[o + 1] = cap;
+      }
+    }
+
+    final buffer = await ui.ImmutableBuffer.fromUint8List(pixels);
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: width,
+      height: height,
+      pixelFormat: ui.PixelFormat.rgba8888,
+    );
+    final outCodec = await descriptor.instantiateCodec();
+    final outFrame = await outCodec.getNextFrame();
+    try {
+      final png =
+          await outFrame.image.toByteData(format: ui.ImageByteFormat.png);
+      return png?.buffer.asUint8List() ?? imageBytes;
+    } finally {
+      outFrame.image.dispose();
+    }
+  } finally {
+    image.dispose();
+  }
 }
 
 /// Stellt sicher, dass das Bild einen transparenten Hintergrund hat.
