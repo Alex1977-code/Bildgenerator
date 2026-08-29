@@ -27,9 +27,10 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
   - Generierte Bilder als neue Referenz übernehmen (iteratives Verfeinern)
-  - **3D-Bereich (Meshy AI)**: 3D-Figuren und -Objekte aus Text oder Bild,
-    optional mit Textur und Auto-Rigging (T-Pose wird automatisch
-    berücksichtigt), Export als GLB für Blender/Unity/Unreal/Godot
+  - **3D-Bereich (Meshy AI oder Tripo3D)**: 3D-Figuren und -Objekte aus
+    Text oder Bild, optional mit Textur und Auto-Rigging (T-Pose wird
+    automatisch berücksichtigt, Tripo prüft die Riggbarkeit vorab),
+    Export als GLB für Blender/Unity/Unreal/Godot
   - Wasserzeichen mit eigenem Logo (Position, Größe, Deckkraft)
   - Galerie/Verlauf mit Prompt, Parametern und „Erneut verwenden“
   - Bilder speichern, teilen bzw. herunterladen
@@ -48,8 +49,10 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
 - **Google Gemini** („Nano Banana“, **kostenloses Kontingent** zum
   Ausprobieren): <https://aistudio.google.com/apikey>
 - **Stability AI** (Alternative): <https://platform.stability.ai/account/keys>
-- **Meshy AI** (für den 3D-Bereich, Gratis-Credits für neue Konten):
+- **Meshy AI** (3D-Bereich, API-Zugang ab Pro-Plan):
   <https://www.meshy.ai/api>
+- **Tripo3D** (3D-Bereich, Bezahlung nach Verbrauch, Startguthaben):
+  <https://platform.tripo3d.ai>
 
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt
 ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.

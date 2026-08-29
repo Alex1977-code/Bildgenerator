@@ -9,6 +9,7 @@ import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
 import '../services/meshy_service.dart';
 import '../services/settings_service.dart';
+import '../services/tripo_service.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
 
@@ -37,7 +38,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   bool _cancelRequested = false;
   String? _stage;
   String? _error;
-  final List<Meshy3dResult> _results = [];
+  final List<ThreeDResult> _results = [];
 
   static const _tPoseSuffix =
       'full body character in T-pose, arms stretched out horizontally, '
@@ -68,15 +69,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
   }
 
-  Future<void> _showMissingKeyDialog() async {
+  Future<void> _showMissingKeyDialog(bool isTripo) async {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Meshy-API-Schlüssel fehlt'),
-        content: const Text(
-          'Für den 3D-Bereich wird ein API-Schlüssel von Meshy AI benötigt '
-          '(meshy.ai – neue Konten erhalten kostenlose Credits). Bitte in '
-          'den Einstellungen hinterlegen.',
+        title: Text(isTripo
+            ? 'Tripo3D-API-Schlüssel fehlt'
+            : 'Meshy-API-Schlüssel fehlt'),
+        content: Text(
+          isTripo
+              ? 'Für Tripo3D wird ein API-Schlüssel benötigt '
+                  '(platform.tripo3d.ai – Bezahlung nach Verbrauch, '
+                  'Startguthaben für neue Konten). Bitte in den '
+                  'Einstellungen hinterlegen.'
+              : 'Für Meshy AI wird ein API-Schlüssel benötigt (meshy.ai – '
+                  'API-Zugang ab dem Pro-Plan). Bitte in den Einstellungen '
+                  'hinterlegen.',
         ),
         actions: [
           TextButton(
@@ -97,9 +105,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   Future<void> _generate() async {
     final settings = context.read<SettingsService>();
-    final apiKey = settings.meshyApiKey;
+    final isTripo = settings.threeDProvider == 'tripo';
+    final apiKey = isTripo ? settings.tripoApiKey : settings.meshyApiKey;
     if (apiKey == null || apiKey.trim().isEmpty) {
-      await _showMissingKeyDialog();
+      await _showMissingKeyDialog(isTripo);
       return;
     }
     final prompt = _promptCtrl.text.trim();
@@ -112,7 +121,6 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       return;
     }
 
-    final service = MeshyService(apiKey.trim());
     setState(() {
       _running = true;
       _cancelRequested = false;
@@ -125,6 +133,57 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
 
     try {
+      if (isTripo) {
+        await _runTripo(
+            TripoService(apiKey.trim()), prompt, cancelled, progress);
+      } else {
+        await _runMeshy(
+            MeshyService(apiKey.trim()), prompt, cancelled, progress);
+      }
+    } on GenerationException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Unerwarteter Fehler: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stage = null;
+        });
+      }
+    }
+  }
+
+  void _addResult({
+    required Uint8List glbBytes,
+    required String prompt,
+    required String providerLabel,
+    Uint8List? thumbnail,
+    required bool rigged,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _results.insert(
+        0,
+        ThreeDResult(
+          glbBytes: glbBytes,
+          label: _imageMode ? 'Aus Bild' : prompt,
+          providerLabel: providerLabel,
+          thumbnailBytes: thumbnail,
+          rigged: rigged,
+          textured: _texture,
+        ),
+      );
+    });
+  }
+
+  Future<void> _runMeshy(
+    MeshyService service,
+    String prompt,
+    bool Function() cancelled,
+    void Function(String) progress,
+  ) async {
+    {
       String taskPath;
       String taskId;
       MeshyTaskStatus status;
@@ -209,34 +268,105 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         } catch (_) {}
       }
 
-      if (!mounted) return;
-      setState(() {
-        _results.insert(
-          0,
-          Meshy3dResult(
-            glbBytes: glbBytes,
-            label: _imageMode ? 'Aus Bild' : prompt,
-            thumbnailBytes: thumbnail,
-            rigged: rigged,
-            textured: _texture,
-          ),
-        );
-      });
-    } on GenerationException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Unerwarteter Fehler: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _running = false;
-          _stage = null;
-        });
-      }
+      _addResult(
+        glbBytes: glbBytes,
+        prompt: prompt,
+        providerLabel: 'Meshy',
+        thumbnail: thumbnail,
+        rigged: rigged,
+      );
     }
   }
 
-  Future<void> _exportGlb(Meshy3dResult result) async {
+  Future<void> _runTripo(
+    TripoService service,
+    String prompt,
+    bool Function() cancelled,
+    void Function(String) progress,
+  ) async {
+    String modelTaskId;
+    if (_imageMode) {
+      final source = _sourceImage!;
+      progress('Bild wird hochgeladen …');
+      final token = await service.uploadImage(source.bytes, source.mimeType);
+      modelTaskId = await service.createImageTask(
+        token,
+        source.mimeType,
+        texture: _texture,
+      );
+    } else {
+      // Für Rigging braucht das Modell eine T-Pose – wird automatisch
+      // an den Prompt angehängt.
+      final effectivePrompt = _rigging ? '$prompt, $_tPoseSuffix' : prompt;
+      modelTaskId =
+          await service.createTextTask(effectivePrompt, texture: _texture);
+    }
+    final modelData = await service.waitForTask(
+      modelTaskId,
+      stageLabel: _imageMode ? '3D-Modell aus Bild' : '3D-Modell',
+      onProgress: progress,
+      isCancelled: cancelled,
+    );
+
+    var glbUrl = TripoService.findGlbUrl(modelData);
+    var rigged = false;
+    if (_rigging) {
+      try {
+        final checkId = await service.createPrerigCheck(modelTaskId);
+        final checkData = await service.waitForTask(
+          checkId,
+          stageLabel: 'Rigging-Prüfung',
+          onProgress: progress,
+          isCancelled: cancelled,
+        );
+        final output = checkData['output'];
+        final riggable = output is Map && output['riggable'] == true;
+        if (!riggable) {
+          throw GenerationException(
+              'Tripo3D hat keine riggbare Figur erkannt.');
+        }
+        final rigId = await service.createRig(modelTaskId);
+        final rigData = await service.waitForTask(
+          rigId,
+          stageLabel: 'Rigging (Skelett)',
+          onProgress: progress,
+          isCancelled: cancelled,
+        );
+        glbUrl = TripoService.findGlbUrl(rigData) ?? glbUrl;
+        rigged = true;
+      } on GenerationException catch (e) {
+        // Rigging kann bei Nicht-Figuren scheitern – Modell trotzdem
+        // liefern und den Grund anzeigen.
+        _showSnack('Rigging nicht möglich: ${e.message} – '
+            'das Modell wird ohne Skelett exportiert.');
+      }
+    }
+
+    if (glbUrl == null) {
+      throw GenerationException(
+          'Tripo3D hat keine GLB-Datei zurückgegeben.');
+    }
+    progress('GLB wird heruntergeladen …');
+    final glbBytes = await service.downloadFile(glbUrl);
+
+    Uint8List? thumbnail;
+    final thumbnailUrl = TripoService.findThumbnailUrl(modelData);
+    if (thumbnailUrl != null) {
+      try {
+        thumbnail = await service.downloadFile(thumbnailUrl);
+      } catch (_) {}
+    }
+
+    _addResult(
+      glbBytes: glbBytes,
+      prompt: prompt,
+      providerLabel: 'Tripo3D',
+      thumbnail: thumbnail,
+      rigged: rigged,
+    );
+  }
+
+  Future<void> _exportGlb(ThreeDResult result) async {
     final fileName =
         'modell_${DateTime.now().millisecondsSinceEpoch}.glb';
     try {
@@ -251,6 +381,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final settings = context.watch<SettingsService>();
+    final isTripo = settings.threeDProvider == 'tripo';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -264,10 +396,31 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     style: theme.textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
-                  'Erzeugt über Meshy AI ein 3D-Modell aus einer '
-                  'Beschreibung oder einem Foto – optional mit Textur und '
-                  'Skelett (Rigging) für Animationen. Export als GLB '
-                  '(Blender, Unity, Unreal, Godot …).',
+                  'Erzeugt ein 3D-Modell aus einer Beschreibung oder einem '
+                  'Foto – optional mit Textur und Skelett (Rigging) für '
+                  'Animationen. Export als GLB (Blender, Unity, Unreal, '
+                  'Godot …).',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SectionLabel('3D-Provider'),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'meshy', label: Text('Meshy')),
+                    ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
+                  ],
+                  selected: {settings.threeDProvider},
+                  onSelectionChanged: _running
+                      ? null
+                      : (selection) =>
+                          settings.setThreeDProvider(selection.first),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isTripo
+                      ? 'Tripo3D: Bezahlung nach Verbrauch, Startguthaben '
+                          'für neue Konten (platform.tripo3d.ai).'
+                      : 'Meshy: ca. 20 Credits pro Modell, API-Zugang ab '
+                          'Pro-Plan (meshy.ai).',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -294,18 +447,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                          value: 'realistic', label: Text('Realistisch')),
-                      ButtonSegment(
-                          value: 'sculpture', label: Text('Skulptur')),
-                    ],
-                    selected: {_artStyle},
-                    onSelectionChanged: (selection) =>
-                        setState(() => _artStyle = selection.first),
-                  ),
+                  if (!isTripo) ...[
+                    const SizedBox(height: 12),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                            value: 'realistic', label: Text('Realistisch')),
+                        ButtonSegment(
+                            value: 'sculpture', label: Text('Skulptur')),
+                      ],
+                      selected: {_artStyle},
+                      onSelectionChanged: (selection) =>
+                          setState(() => _artStyle = selection.first),
+                    ),
+                  ],
                 ] else ...[
                   Row(
                     children: [
@@ -509,6 +664,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 title: Text(result.label,
                     maxLines: 2, overflow: TextOverflow.ellipsis),
                 subtitle: Text([
+                  result.providerLabel,
                   '${(result.glbBytes.length / (1024 * 1024)).toStringAsFixed(1)} MB',
                   result.textured ? 'mit Textur' : 'ohne Textur',
                   if (result.rigged) 'geriggt',

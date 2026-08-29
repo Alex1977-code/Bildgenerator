@@ -213,6 +213,25 @@ class HistoryEntry {
   }
 }
 
+/// Ein fertiges 3D-Ergebnis (gilt für die aktuelle Sitzung).
+class ThreeDResult {
+  ThreeDResult({
+    required this.glbBytes,
+    required this.label,
+    required this.providerLabel,
+    this.thumbnailBytes,
+    this.rigged = false,
+    this.textured = false,
+  });
+
+  final Uint8List glbBytes;
+  final String label;
+  final String providerLabel;
+  final Uint8List? thumbnailBytes;
+  final bool rigged;
+  final bool textured;
+}
+
 /// Auswahloptionen (Wert, Anzeigename).
 typedef Option = (String value, String label);
 

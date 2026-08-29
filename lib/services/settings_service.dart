@@ -83,9 +83,16 @@ class SettingsService extends ChangeNotifier {
   String? _stabilityKey;
   String? _geminiKey;
   String? _meshyKey;
+  String? _tripoKey;
+
+  /// Gewählter 3D-Provider: 'meshy' oder 'tripo'.
+  String threeDProvider = 'meshy';
 
   /// API-Schlüssel für den 3D-Provider Meshy.
   String? get meshyApiKey => _meshyKey;
+
+  /// API-Schlüssel für den 3D-Provider Tripo3D.
+  String? get tripoApiKey => _tripoKey;
 
   Future<void> setMeshyApiKey(String value) async {
     final trimmed = value.trim();
@@ -95,6 +102,23 @@ class SettingsService extends ChangeNotifier {
     } else {
       await _secure.write('meshy_api_key', trimmed);
     }
+    notifyListeners();
+  }
+
+  Future<void> setTripoApiKey(String value) async {
+    final trimmed = value.trim();
+    _tripoKey = trimmed.isEmpty ? null : trimmed;
+    if (trimmed.isEmpty) {
+      await _secure.delete('tripo_api_key');
+    } else {
+      await _secure.write('tripo_api_key', trimmed);
+    }
+    notifyListeners();
+  }
+
+  void setThreeDProvider(String v) {
+    threeDProvider = v;
+    _persistString('threeDProvider', v);
     notifyListeners();
   }
 
@@ -125,6 +149,7 @@ class SettingsService extends ChangeNotifier {
       watermarkSizePercent =
           prefs.getInt('watermarkSizePercent') ?? watermarkSizePercent;
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
+      threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
       final logoBase64 = prefs.getString('watermarkLogo');
       if (logoBase64 != null && logoBase64.isNotEmpty) {
         try {
@@ -147,6 +172,9 @@ class SettingsService extends ChangeNotifier {
           .timeout(const Duration(seconds: 5));
       _meshyKey = await _secure
           .read('meshy_api_key')
+          .timeout(const Duration(seconds: 5));
+      _tripoKey = await _secure
+          .read('tripo_api_key')
           .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Secure Storage nicht verfügbar – Schlüssel müssen erneut

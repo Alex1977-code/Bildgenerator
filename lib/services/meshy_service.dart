@@ -25,23 +25,6 @@ class MeshyTaskStatus {
   bool get isFailed => status == 'FAILED' || status == 'CANCELED';
 }
 
-/// Ein fertiges 3D-Ergebnis (Sitzung).
-class Meshy3dResult {
-  Meshy3dResult({
-    required this.glbBytes,
-    required this.label,
-    this.thumbnailBytes,
-    this.rigged = false,
-    this.textured = false,
-  });
-
-  final Uint8List glbBytes;
-  final String label;
-  final Uint8List? thumbnailBytes;
-  final bool rigged;
-  final bool textured;
-}
-
 /// Anbindung an die Meshy-API (Text→3D, Bild→3D, Auto-Rigging).
 ///
 /// Alle Endpunkte arbeiten asynchron: Task anlegen, Status pollen,

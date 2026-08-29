@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/settings_service.dart';
+import '../services/tripo_service.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
 
@@ -154,12 +155,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Meshy-API-Schlüssel (3D-Bereich)',
           onSave: settings.setMeshyApiKey,
           keySummary: _keySummary(settings.meshyApiKey),
-          helpLabel: 'Schlüssel erstellen auf meshy.ai (Gratis-Credits)',
+          helpLabel: 'Schlüssel erstellen auf meshy.ai (API ab Pro-Plan)',
           onHelp: () => _openUrl('https://www.meshy.ai/api'),
+        ),
+        const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'Tripo3D-API-Schlüssel (3D-Bereich)',
+          onSave: settings.setTripoApiKey,
+          keySummary: _keySummary(settings.tripoApiKey),
+          helpLabel:
+              'Schlüssel erstellen auf platform.tripo3d.ai (Startguthaben)',
+          onHelp: () => _openUrl('https://platform.tripo3d.ai/api-keys'),
         ),
         const SizedBox(height: 12),
         _UsageCard(
           hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
+          hasTripoKey:
+              settings.tripoApiKey != null &&
+                  settings.tripoApiKey!.trim().isNotEmpty,
           onOpenUrl: _openUrl,
         ),
         const SizedBox(height: 12),
@@ -487,10 +500,12 @@ class _ModelCardState extends State<_ModelCard> {
 class _UsageCard extends StatefulWidget {
   const _UsageCard({
     required this.hasStabilityKey,
+    required this.hasTripoKey,
     required this.onOpenUrl,
   });
 
   final bool hasStabilityKey;
+  final bool hasTripoKey;
   final Future<void> Function(String url) onOpenUrl;
 
   @override
@@ -499,6 +514,7 @@ class _UsageCard extends StatefulWidget {
 
 class _UsageCardState extends State<_UsageCard> {
   String? _stabilityBalance;
+  String? _tripoBalance;
   bool _loading = false;
 
   Future<void> _fetchStabilityBalance() async {
@@ -519,6 +535,29 @@ class _UsageCardState extends State<_UsageCard> {
       });
     } catch (e) {
       if (mounted) setState(() => _stabilityBalance = 'Fehler: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchTripoBalance() async {
+    final settings = context.read<SettingsService>();
+    final apiKey = settings.tripoApiKey?.trim();
+    if (apiKey == null || apiKey.isEmpty) return;
+    setState(() {
+      _loading = true;
+      _tripoBalance = null;
+    });
+    try {
+      final credits = await TripoService(apiKey).fetchBalance();
+      if (!mounted) return;
+      setState(() {
+        _tripoBalance = credits == null
+            ? 'Keine Angabe erhalten'
+            : '${credits.toStringAsFixed(1)} Credits';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _tripoBalance = 'Fehler: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -560,6 +599,30 @@ class _UsageCardState extends State<_UsageCard> {
                         )
                       : TextButton.icon(
                           onPressed: _fetchStabilityBalance,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Abrufen'),
+                        ),
+                ],
+              ),
+            if (widget.hasTripoKey)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _tripoBalance == null
+                          ? 'Tripo3D-Guthaben'
+                          : 'Tripo3D-Guthaben: $_tripoBalance',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : TextButton.icon(
+                          onPressed: _fetchTripoBalance,
                           icon: const Icon(Icons.refresh, size: 18),
                           label: const Text('Abrufen'),
                         ),
