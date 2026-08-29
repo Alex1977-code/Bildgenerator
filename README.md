@@ -112,7 +112,9 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Providers an
   - **Erstellungsnachweis (PDF)**: Zu jedem generierten Bild (Knopf
     unter dem Ergebnis) und 3D-Modell (Knopf am Ergebnis und im
-    Export-Menü des Viewers) lässt
+    Export-Menü des Viewers) sowie **zu jedem Galerie-Eintrag**
+    (Nachweis-Knopf auf der Kachel, mit dem gespeicherten
+    Original-Erstellungszeitpunkt) lässt
     sich ein druckbares PDF erzeugen, das Zeitpunkt, Ersteller,
     KI-Dienst/Modell, Eingabe und die **SHA-256-Prüfsumme** der Datei
     dokumentiert – mit Unterschriftszeile zum Ausdrucken. Die

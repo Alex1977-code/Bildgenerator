@@ -1366,12 +1366,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       onDragDone: (detail) => _openDroppedModel(detail.files),
       // Auf breiten Bildschirmen begrenzte Inhaltsbreite: Optionen und
       // ihre Schalter bleiben beieinander, die Seite wirkt aufgeräumt.
+      // Der Scrollbereich läuft dabei über die VOLLE Breite (Padding
+      // statt schmaler Spalte) – so scrollt die Seite überall und der
+      // Scrollbalken sitzt am Fensterrand.
       child: LayoutBuilder(
-        builder: (context, constraints) => Center(
-          child: SizedBox(
-            width: constraints.maxWidth > 860 ? 860 : constraints.maxWidth,
-            child: ListView(
-      padding: const EdgeInsets.all(16),
+        builder: (context, constraints) => ListView(
+      padding: EdgeInsets.symmetric(
+        vertical: 16,
+        horizontal: constraints.maxWidth > 892
+            ? (constraints.maxWidth - 860) / 2
+            : 16,
+      ),
       children: [
         Card(
           child: Padding(
@@ -2450,8 +2455,6 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
             ),
       ],
-            ),
-          ),
         ),
       ),
     );

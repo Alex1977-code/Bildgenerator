@@ -57,15 +57,22 @@ bool _isPngOrJpeg(Uint8List b) =>
     (b.length > 3 && b[0] == 0xFF && b[1] == 0xD8);
 
 /// Baut das Nachweis-PDF (A4, druckbar, mit Unterschriftszeile).
+/// [createdAt] ist der Erstellungszeitpunkt des Werks (z. B. aus der
+/// Galerie) – ohne Angabe gilt der aktuelle Zeitpunkt. Liegt die
+/// Erstellung zurück, weist das PDF zusätzlich den Ausstellungs-
+/// zeitpunkt des Nachweises aus.
 Future<Uint8List> buildProvenancePdf({
   required ProvenanceInfo info,
   required String fileType,
   required Uint8List fileBytes,
   required String creatorName,
+  DateTime? createdAt,
 }) async {
   final hash = sha256.convert(fileBytes).toString();
   final now = DateTime.now();
-  final utc = now.toUtc();
+  final created = createdAt ?? now;
+  final utc = created.toUtc();
+  final issuedLater = now.difference(created).inMinutes >= 1;
 
   // Gebündelte Roboto-Schriften (volle Umlaut-/Sonderzeichen-Abdeckung).
   final regular = pw.Font.ttf(
@@ -152,8 +159,10 @@ Future<Uint8List> buildProvenancePdf({
       row('Dateigröße', '${fileBytes.length} Bytes'),
       row('SHA-256-Prüfsumme', hash),
       heading('Erstellung'),
-      row('Datum/Uhrzeit', '${_stamp(now)} (Ortszeit)'),
+      row('Datum/Uhrzeit', '${_stamp(created)} (Ortszeit)'),
       row('Datum/Uhrzeit (UTC)', _stamp(utc)),
+      if (issuedLater)
+        row('Nachweis ausgestellt', '${_stamp(now)} (Ortszeit)'),
       row('Software', '3DGenerator'),
       row('Dienst', info.providerLabel),
       if (info.model != null && info.model!.isNotEmpty)

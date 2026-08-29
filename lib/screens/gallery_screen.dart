@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/exporter.dart';
 import '../services/history_service.dart';
 import '../services/prompt_relay.dart';
 import '../services/provenance.dart';
+import '../services/settings_service.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
 import 'model_preview_screen.dart';
@@ -134,6 +136,52 @@ class _GalleryTile extends StatelessWidget {
   final String dateLabel;
   final void Function(Uint8List bytes) onOpen;
 
+  /// Erstellungsnachweis-PDF zum Galerie-Eintrag herunterladen: mit
+  /// dem gespeicherten Erstellungszeitpunkt, den Original-Angaben und
+  /// der SHA-256-Prüfsumme der abgelegten Datei.
+  Future<void> _downloadProvenance(BuildContext context) async {
+    final history = context.read<HistoryService>();
+    final settings = context.read<SettingsService>();
+    final messenger = ScaffoldMessenger.of(context);
+    final name = await askCreatorName(context, settings);
+    if (name == null) return;
+    try {
+      final fileBytes = await history.readImage(entry);
+      if (fileBytes == null) {
+        messenger.showSnackBar(const SnackBar(
+            content:
+                Text('Die Datei ist nicht mehr im Speicher vorhanden.')));
+        return;
+      }
+      final preview = entry.isModel
+          ? await history.readThumbnail(entry)
+          : fileBytes;
+      final pdf = await buildProvenancePdf(
+        info: ProvenanceInfo(
+          kind: entry.isModel ? '3D-Modell' : 'Bild',
+          description: entry.prompt,
+          providerLabel: entry.providerLabel,
+          details: entry.params,
+          previewBytes: preview,
+        ),
+        fileType: entry.isModel
+            ? 'GLB'
+            : entry.fileExtension.toUpperCase(),
+        fileBytes: fileBytes,
+        creatorName: name,
+        createdAt: entry.createdAt,
+      );
+      final message = await exportImageBytes(
+          pdf, 'erstellungsnachweis_${entry.id}.pdf', 'application/pdf');
+      if (message != null) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Nachweis fehlgeschlagen: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final history = context.read<HistoryService>();
@@ -232,21 +280,35 @@ class _GalleryTile extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text(
-                        entry.prompt,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.prompt,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              dateLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.outline),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        dateLabel,
-                        style: theme.textTheme.labelSmall
-                            ?.copyWith(color: theme.colorScheme.outline),
+                      IconButton(
+                        tooltip: 'Erstellungsnachweis (PDF)',
+                        iconSize: 20,
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.workspace_premium_outlined),
+                        onPressed: () => _downloadProvenance(context),
                       ),
                     ],
                   ),
