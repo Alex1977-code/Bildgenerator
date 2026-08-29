@@ -205,6 +205,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'Gib nur den fertigen englischen Prompt aus.',
     ),
     (
+      'Motiv-Beschreibung (App erzeugt die Ansichten)',
+      'Nur das Motiv – Ansicht, Pose, Licht und Hintergrund ergänzt '
+          'die App selbst',
+      'Aufgabe: Schreibe eine englische MOTIV-BESCHREIBUNG für eine '
+          '3D-Pipeline. WICHTIG: Die App ergänzt Ansicht/Kamerawinkel, '
+          'Pose, Beleuchtung und Hintergrund automatisch selbst – die '
+          'Beschreibung darf NUR das Motiv enthalten:\n\n'
+          '- KEINE Kamera- oder Ansichts-Wörter (front view, '
+          'three-quarter, orthographic, camera, telephoto, '
+          'perspective …).\n'
+          '- KEINE Licht-, Hintergrund- oder Studio-Angaben (lighting, '
+          'background, shadow, reflections, studio …) und KEINE '
+          'Qualitäts-Floskeln (8k, photorealistic, sharp focus).\n'
+          '- KEINE Pose- oder Aufstellungs-Anweisungen (T-pose, '
+          'standing, facing …) – die App wählt die zum Figurtyp '
+          'passende Pose.\n'
+          '- Nur das Motiv: Objektklasse zuerst, dann Silhouette und '
+          'Proportionen, dann markante Details, Materialien und '
+          'Farben – als kommagetrennte Stichwortliste in einer '
+          'Zeile.\n\n'
+          'Mein Motiv: [HIER BESCHREIBEN]\n\n'
+          'Gib nur die fertige englische Beschreibung aus.',
+    ),
+    (
       'Natives Text→3D (Meshy/Tripo)',
       'Knapper 3D-Prompt + Negativ-Prompt',
       'Aufgabe: Schreibe einen KNAPPEN englischen Text-zu-3D-Prompt '
@@ -240,19 +264,29 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   /// Prompt-Hilfe direkt an der Eingabe: Schalter Figur/Objekt und ein
   /// Knopf, der die jeweils passende Vorlage für die Prompt-KI kopiert.
-  /// [forImages] = die Beschreibung wird zu Bildern (Lokal, Stability,
-  /// Ansichten-Pipeline) bzw. es werden eigene Bilder verwendet – dann
-  /// gelten die Bild→3D-Briefings; sonst das knappe native Text→3D.
-  Widget _promptHelp(ThemeData theme, {required bool forImages}) {
-    final (title, _, text) = forImages
-        ? (_promptSubject == 'figure'
-            ? _promptTemplates[0]
-            : _promptTemplates[1])
-        : _promptTemplates[2];
+  /// [mode]: 'images' = eigene Bildvorlagen (Aus Bild) → vollständige
+  /// Bild-Prompts mit Kamera/Licht; 'wrapped' = die App erzeugt die
+  /// Ansichten aus der Beschreibung (Lokal, Stability,
+  /// Ansichten-Pipeline) → reine Motiv-Beschreibung, denn Kamera, Pose,
+  /// Licht und Hintergrund hängt die App selbst an; 'native' =
+  /// direktes Text→3D (Meshy/Tripo) → knapper 3D-Prompt.
+  Widget _promptHelp(ThemeData theme, {required String mode}) {
+    final (title, _, text) = switch (mode) {
+      'images' => _promptSubject == 'figure'
+          ? _promptTemplates[0]
+          : _promptTemplates[1],
+      'wrapped' => _promptTemplates[2],
+      _ => _promptTemplates[3],
+    };
     final String hint;
-    if (!forImages) {
+    if (mode == 'native') {
       hint = 'Kopiert die Anleitung für knappe native Text→3D-Prompts '
           '(inkl. Negativ-Prompt) – gilt für Figuren und Objekte.';
+    } else if (mode == 'wrapped') {
+      hint = 'Kopiert das Briefing „Motiv-Beschreibung“: Deine '
+          'Prompt-KI liefert NUR das Motiv – Ansicht (Figur: '
+          'Vorderansicht, Objekt: Dreiviertelansicht), Pose, Licht und '
+          'Hintergrund ergänzt die App automatisch.';
     } else if (_promptSubject == 'figure') {
       hint = 'Kopiert das Briefing „Figur“ (Vorderansicht, T-Pose): bei '
           'deiner Prompt-KI einfügen und das Motiv ergänzen.';
@@ -269,7 +303,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           runSpacing: 4,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (forImages)
+            if (mode != 'native')
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(
@@ -1505,7 +1539,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ),
                   const SizedBox(height: 8),
                   _promptHelp(theme,
-                      forImages: isLocal || isStability || _viewsFromText),
+                      mode: isLocal || isStability || _viewsFromText
+                          ? 'wrapped'
+                          : 'native'),
                   if (!isLocal && !isStability && !_viewsFromText) ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -1559,12 +1595,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   if (isLocal || isStability)
                     Text(
                       isStability
-                          ? 'Die Vorderansicht wird automatisch mit der '
+                          ? 'Die Ansicht wird automatisch mit der '
                               'Bild-KI aus dem Generator-Tab '
                               '(${settings.provider.label}) erzeugt; das '
                               'trainierte Stability-Modell rekonstruiert '
                               'daraus das komplette 3D-Modell inklusive '
-                              'Rückseite.'
+                              'Rückseite. Tipp: Die Schärfe dieser '
+                              'Ansicht bestimmt direkt die Textur-Schärfe '
+                              '– bei Gemini lohnt ein Pro-Bildmodell mit '
+                              '2K/4K (Auswahl im Generator-Tab).'
                           : 'Die 4 Ansichten (vorn/links/rechts/hinten) '
                               'werden automatisch mit der Bild-KI aus dem '
                               'Generator-Tab (${settings.provider.label}) '
@@ -1619,7 +1658,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   // Prompt-Hilfe auch im Bild-Modus: Die Bildvorlagen
                   // entstehen meist im Generator-Tab – hier steht die
                   // passende Vorlage zum Kopieren bereit.
-                  _promptHelp(theme, forImages: true),
+                  _promptHelp(theme, mode: 'images'),
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
                     final showAllViews = !isStability;

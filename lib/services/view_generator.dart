@@ -147,7 +147,10 @@ Future<GeneratedViews> generateViewsFromText({
       outputFormat: 'png',
       count: 1,
       model: settings.modelFor(provider),
-      geminiImageSize: '1K',
+      // Eingestellte Gemini-Bildgröße nutzen: Die Ansicht ist die
+      // Detailquelle des 3D-Modells – 2K/4K (Pro-Modelle) ergibt
+      // sichtbar schärfere Texturen als das 1K-Minimum.
+      geminiImageSize: settings.geminiImageSize,
     );
   }
 
@@ -227,7 +230,7 @@ Future<Uint8List> generateDepthMap({
       outputFormat: 'png',
       count: 1,
       model: settings.modelFor(provider),
-      geminiImageSize: '1K',
+      geminiImageSize: settings.geminiImageSize,
     ),
     apiKey,
   );
