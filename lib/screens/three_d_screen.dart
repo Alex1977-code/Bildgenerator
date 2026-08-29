@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -178,9 +179,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// (2048/1024 px) oder kompakte Vertex-Farben.
   String _localTextureMode = 'atlas2048';
 
-  /// Zuletzt angewendete Vorlage (nur zur Anzeige – danach lassen
-  /// sich alle Optionen weiterhin einzeln ändern).
-  String? _lastPreset;
+  /// Zuletzt angewendete Vorlage als Anzeigetext (nur informativ –
+  /// danach lassen sich alle Optionen weiterhin einzeln ändern).
+  String? _lastPresetInfo;
 
   /// Bewährte Voreinstellungen: (Kennung, Name, Symbol, 3D-Provider,
   /// Kurzbeschreibung). Eine Vorlage setzt Provider, Modell und alle
@@ -244,7 +245,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final previousSubject = _promptSubject;
     settings.setThreeDProvider(preset.$4);
     setState(() {
-      _lastPreset = id;
+      _lastPresetInfo = '${preset.$2} – ${preset.$5}';
       // Gemeinsame Grundlage aller Vorlagen.
       _texture = true;
       _pbr = true;
@@ -310,6 +311,305 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     _showSnack('Vorlage „${preset.$2}“: ${preset.$5}.'
         '${missing ? ' Achtung: Der Zugang für diesen Anbieter fehlt '
             'noch – bitte in den Einstellungen hinterlegen.' : ''}');
+  }
+
+  /// Alle Einstellungen des 3D-Tabs als speicherbare Karte – die
+  /// Grundlage der eigenen Vorlagen.
+  Map<String, dynamic> _snapshotSettings(SettingsService settings) => {
+        'provider': settings.threeDProvider,
+        'imageMode': _imageMode,
+        'promptSubject': _promptSubject,
+        'texture': _texture,
+        'rigging': _rigging,
+        'rigType': _rigType,
+        'tPose': _tPose,
+        'artStyle': _artStyle,
+        'viewsFromText': _viewsFromText,
+        'completeViews': _completeViews,
+        'negativePrompt': _negative3dCtrl.text,
+        'texturePrompt': _texturePromptCtrl.text,
+        'meshyAiModel': _meshyAiModel,
+        'meshyUltra': _meshyUltra,
+        'meshyPolycount': _meshyPolycount,
+        'symmetryMode': _symmetryMode,
+        'quadTopology': _quadTopology,
+        'pbr': _pbr,
+        'tripoVersion': _tripoVersion,
+        'tripoDetailedTexture': _tripoDetailedTexture,
+        'falModel': _falModel,
+        'falCustom': _falCustomCtrl.text,
+        'replicateModel': _replicateModel,
+        'replicateCustom': _replicateCustomCtrl.text,
+        'rodinTier': _rodinTier,
+        'rodinQuad': _rodinQuad,
+        'rodinPolycount': _rodinPolycount,
+        'stabilityEngine': _stabilityEngine,
+        'stabilityTextureRes': _stabilityTextureRes,
+        'stabilityRemesh': _stabilityRemesh,
+        'stabilityPolycount': _stabilityPolycount,
+        'stabilityDetail': _stabilityDetail,
+        'refineSymmetrize': _refineSymmetrize,
+        'refineProjectTexture': _refineProjectTexture,
+        'localDepthAi': _localDepthAi,
+        'localResolution': _localResolution,
+        'localTargetTriangles': _localTargetTriangles,
+        'localSmoothing': _localSmoothing,
+        'localSurface': _localSurface,
+        'localTextureMode': _localTextureMode,
+      };
+
+  /// Setzt eine gespeicherte Karte wieder ein. Unbekannte oder
+  /// beschädigte Werte behalten den aktuellen Stand – so bleiben auch
+  /// Vorlagen aus älteren App-Versionen brauchbar.
+  void _restoreSettings(
+      Map<String, dynamic> data, SettingsService settings) {
+    T pick<T>(String key, T fallback) {
+      final value = data[key];
+      return value is T ? value : fallback;
+    }
+
+    final previousSubject = _promptSubject;
+    settings.setThreeDProvider(pick('provider', settings.threeDProvider));
+    setState(() {
+      _imageMode = pick('imageMode', _imageMode);
+      _promptSubject = pick('promptSubject', _promptSubject);
+      _texture = pick('texture', _texture);
+      _rigging = pick('rigging', _rigging);
+      _rigType = pick('rigType', _rigType);
+      _tPose = pick('tPose', _tPose);
+      _artStyle = pick('artStyle', _artStyle);
+      _viewsFromText = pick('viewsFromText', _viewsFromText);
+      _completeViews = pick('completeViews', _completeViews);
+      _negative3dCtrl.text = pick('negativePrompt', _negative3dCtrl.text);
+      _texturePromptCtrl.text =
+          pick('texturePrompt', _texturePromptCtrl.text);
+      _meshyAiModel = pick('meshyAiModel', _meshyAiModel);
+      _meshyUltra = pick('meshyUltra', _meshyUltra);
+      _meshyPolycount = pick('meshyPolycount', _meshyPolycount);
+      _symmetryMode = pick('symmetryMode', _symmetryMode);
+      _quadTopology = pick('quadTopology', _quadTopology);
+      _pbr = pick('pbr', _pbr);
+      _tripoVersion = pick('tripoVersion', _tripoVersion);
+      _tripoDetailedTexture =
+          pick('tripoDetailedTexture', _tripoDetailedTexture);
+      _falModel = pick('falModel', _falModel);
+      _falCustomCtrl.text = pick('falCustom', _falCustomCtrl.text);
+      _replicateModel = pick('replicateModel', _replicateModel);
+      _replicateCustomCtrl.text =
+          pick('replicateCustom', _replicateCustomCtrl.text);
+      _rodinTier = pick('rodinTier', _rodinTier);
+      _rodinQuad = pick('rodinQuad', _rodinQuad);
+      _rodinPolycount = pick('rodinPolycount', _rodinPolycount);
+      _stabilityEngine = pick('stabilityEngine', _stabilityEngine);
+      _stabilityTextureRes =
+          pick('stabilityTextureRes', _stabilityTextureRes);
+      _stabilityRemesh = pick('stabilityRemesh', _stabilityRemesh);
+      _stabilityPolycount = pick('stabilityPolycount', _stabilityPolycount);
+      _stabilityDetail = pick('stabilityDetail', _stabilityDetail);
+      _refineSymmetrize = pick('refineSymmetrize', _refineSymmetrize);
+      _refineProjectTexture =
+          pick('refineProjectTexture', _refineProjectTexture);
+      _localDepthAi = pick('localDepthAi', _localDepthAi);
+      _localResolution =
+          pick<int>('localResolution', _localResolution).clamp(48, 160);
+      _localTargetTriangles =
+          pick('localTargetTriangles', _localTargetTriangles);
+      _localSmoothing =
+          pick<int>('localSmoothing', _localSmoothing).clamp(0, 5);
+      _localSurface = pick('localSurface', _localSurface);
+      _localTextureMode = pick('localTextureMode', _localTextureMode);
+      // Figur und Objekt brauchen unterschiedliche Ansichten – eine
+      // automatisch erzeugte Kachel würde sonst still weiterverwendet.
+      if (_promptSubject != previousSubject &&
+          _views['front']?.name == 'ansicht_Vorn.png') {
+        _views['front'] = null;
+      }
+    });
+  }
+
+  /// Name einer eigenen Vorlage (null = freier Platz).
+  String? _customPresetName(SettingsService settings, int index) {
+    final raw = settings.customPresets[index];
+    if (raw.isEmpty) return null;
+    try {
+      final name =
+          ((jsonDecode(raw) as Map<String, dynamic>)['name'] as String?)
+              ?.trim();
+      return (name == null || name.isEmpty)
+          ? 'Vorlage ${index + 1}'
+          : name;
+    } catch (_) {
+      return 'Vorlage ${index + 1}';
+    }
+  }
+
+  void _applyCustomPreset(int index, SettingsService settings) {
+    final name = _customPresetName(settings, index) ?? 'Vorlage';
+    try {
+      _restoreSettings(
+          jsonDecode(settings.customPresets[index]) as Map<String, dynamic>,
+          settings);
+    } catch (_) {
+      _showSnack('Die Vorlage „$name“ konnte nicht gelesen werden.');
+      return;
+    }
+    setState(() => _lastPresetInfo = 'eigene Vorlage „$name“');
+    _showSnack('Eigene Vorlage „$name“ angewendet.');
+  }
+
+  Future<void> _saveCustomPreset(SettingsService settings) async {
+    final free = settings.customPresets.indexWhere((e) => e.isEmpty);
+    var slot = free >= 0 ? free : 0;
+    final nameCtrl = TextEditingController(
+        text: _customPresetName(settings, slot) ??
+            'Eigene Vorlage ${slot + 1}');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Eigene Vorlage speichern'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'Sichert alle aktuellen Einstellungen des 3D-Tabs: '
+                    'Anbieter, Modell, Qualitäts-Optionen, Rigging und '
+                    'Veredelung.'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Name der Vorlage',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('Platz (belegte werden überschrieben):'),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (var i = 0;
+                        i < SettingsService.customPresetSlots;
+                        i++)
+                      ChoiceChip(
+                        label: Text('${i + 1} · '
+                            '${_customPresetName(settings, i) ?? 'frei'}'),
+                        selected: slot == i,
+                        onSelected: (_) => setDialogState(() {
+                          slot = i;
+                          nameCtrl.text =
+                              _customPresetName(settings, i) ??
+                                  'Eigene Vorlage ${i + 1}';
+                        }),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Speichern'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final name = nameCtrl.text.trim();
+    nameCtrl.dispose();
+    if (saved != true || !mounted) return;
+    final label = name.isEmpty ? 'Eigene Vorlage ${slot + 1}' : name;
+    settings.setCustomPreset(
+        slot,
+        jsonEncode({
+          ..._snapshotSettings(settings),
+          'name': label,
+        }));
+    setState(() => _lastPresetInfo = 'eigene Vorlage „$label“ (gesichert)');
+    _showSnack('Eigene Vorlage „$label“ auf Platz ${slot + 1} '
+        'gespeichert.');
+  }
+
+  Future<void> _deleteCustomPreset(
+      int index, SettingsService settings) async {
+    final name = _customPresetName(settings, index) ?? 'Vorlage';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eigene Vorlage löschen'),
+        content: Text('„$name“ von Platz ${index + 1} entfernen?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    settings.setCustomPreset(index, '');
+    _showSnack('Eigene Vorlage „$name“ gelöscht.');
+  }
+
+  /// Fünf frei belegbare Plätze für eigene Vorlagen.
+  Widget _customPresetBar(ThemeData theme, SettingsService settings) {
+    final saved = <(int, String)>[
+      for (var i = 0; i < SettingsService.customPresetSlots; i++)
+        if (_customPresetName(settings, i) case final name?) (i, name),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Eigene Vorlagen (${saved.length} von '
+          '${SettingsService.customPresetSlots} Plätzen belegt): beliebige '
+          'Kombination aus Anbieter, Modell und Optionen sichern und '
+          'jederzeit zurückholen – bleibt auch nach einem Neustart '
+          'erhalten.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final (index, name) in saved)
+              InputChip(
+                avatar: const Icon(Icons.bookmark_outline, size: 18),
+                label: Text(name),
+                onPressed: _running
+                    ? null
+                    : () => _applyCustomPreset(index, settings),
+                onDeleted: _running
+                    ? null
+                    : () => _deleteCustomPreset(index, settings),
+                deleteButtonTooltipMessage: 'Vorlage löschen',
+              ),
+            ActionChip(
+              avatar: const Icon(Icons.save_outlined, size: 18),
+              label: Text(saved.length >= SettingsService.customPresetSlots
+                  ? 'Platz überschreiben'
+                  : 'Aktuelle Einstellungen sichern'),
+              onPressed: _running ? null : () => _saveCustomPreset(settings),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   /// Oberflächen-Vorwahlen (PBR): (Wert, Name, Metall, Rauheit).
@@ -1934,17 +2234,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                   ],
                 ),
-                if (_lastPreset != null) ...[
+                const SizedBox(height: 10),
+                _customPresetBar(theme, settings),
+                if (_lastPresetInfo != null) ...[
                   const SizedBox(height: 6),
-                  Builder(builder: (context) {
-                    final preset = _presets
-                        .firstWhere((p) => p.$1 == _lastPreset);
-                    return Text(
-                      'Zuletzt angewendet: ${preset.$2} – ${preset.$5}.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.primary),
-                    );
-                  }),
+                  Text(
+                    'Zuletzt angewendet: $_lastPresetInfo.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.primary),
+                  ),
                 ],
                 const SectionLabel('3D-Provider'),
                 Builder(builder: (context) {

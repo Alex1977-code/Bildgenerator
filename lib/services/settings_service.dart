@@ -182,6 +182,22 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bis zu 5 eigene 3D-Vorlagen als JSON-Text (leerer Text = freier
+  /// Platz). Inhalt und Aufbau bestimmt der 3D-Tab.
+  List<String> customPresets = List<String>.filled(5, '');
+
+  /// Anzahl der Plätze für eigene Vorlagen.
+  static const customPresetSlots = 5;
+
+  void setCustomPreset(int index, String json) {
+    if (index < 0 || index >= customPresetSlots) return;
+    final list = [...customPresets];
+    list[index] = json;
+    customPresets = list;
+    _prefs?.setStringList('customPresets', list);
+    notifyListeners();
+  }
+
   void setThreeDProvider(String v) {
     threeDProvider = v;
     _persistString('threeDProvider', v);
@@ -217,6 +233,13 @@ class SettingsService extends ChangeNotifier {
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
       selfHostUrl = prefs.getString('selfHostUrl') ?? selfHostUrl;
+      final storedPresets = prefs.getStringList('customPresets');
+      if (storedPresets != null) {
+        customPresets = [
+          for (var i = 0; i < customPresetSlots; i++)
+            i < storedPresets.length ? storedPresets[i] : '',
+        ];
+      }
       creatorName = prefs.getString('creatorName') ?? creatorName;
       for (final provider in GenProvider.values) {
         _fetchedModels[provider] =

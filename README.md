@@ -57,7 +57,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     „Schnelltest“ (fal.ai TRELLIS für wenige Cent), „Eigene GPU“
     (eigener Server), „Höchste Detailtreue“ (Meshy 7 Ultra) und
     „3D-Druck“ (lokaler Generator, 128er-Raster, ohne Skelett);
-    danach bleibt jede Option einzeln änderbar
+    danach bleibt jede Option einzeln änderbar. Dazu **5 frei
+    belegbare Plätze für eigene Vorlagen**: eine beliebige Kombination
+    aus Anbieter, Modell, Qualitäts-Optionen, Rigging, Veredelung und
+    Negativ-/Textur-Prompt unter eigenem Namen sichern, per Klick
+    zurückholen und wieder löschen – bleibt auch nach einem Neustart
+    erhalten
   - **Rodin (Hyper3D, Beta)** als 3D-Provider: Spitzenklasse für
     Game-Assets – Rodin Gen-2.5 liefert produktionsreife Meshes mit
     sauberer **Quad-Topologie**, PBR-Texturen und wählbarer
