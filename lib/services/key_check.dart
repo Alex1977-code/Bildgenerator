@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 
 import 'generators.dart' show GenerationException;
+import 'self_host_service.dart';
 
 /// Prüft einen API-Schlüssel mit einer günstigen, harmlosen Anfrage
 /// (Modell-Liste bzw. Guthaben – kostet keine Credits). Kehrt bei
@@ -39,6 +40,12 @@ Future<void> validateApiKey(String provider, String apiKey) async {
         Uri.parse('https://queue.fal.run/fal-ai/trellis/requests/'
             '00000000-0000-0000-0000-000000000000/status'),
         {'Authorization': 'Key $apiKey'},
+      ),
+    // Eigener 3D-Server: hier ist der „Schlüssel“ die Server-Adresse –
+    // geprüft wird der /health-Endpunkt.
+    'selfhost' => (
+        Uri.parse('${SelfHostService.normalizeBaseUrl(apiKey)}/health'),
+        const <String, String>{},
       ),
     _ => throw GenerationException('Unbekannter Anbieter.'),
   };

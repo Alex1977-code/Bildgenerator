@@ -152,6 +152,11 @@ CostQualityEstimate estimate3dRun(
           spar ? 0.04 : 0.02,
           spar ? 0.04 : 0.02));
       tier = spar ? 2 : 1;
+    case 'selfhost':
+      // Eigener PC: keine laufenden Kosten; Qualität je nach Backend
+      // (TripoSR solide, TRELLIS besser) – Mittelklasse als Schätzung.
+      items.add(const CostItem('Eigener 3D-Server (TripoSR/TRELLIS)', 0, 0));
+      tier = 3;
     case 'fal':
       // Pay per Use, Preis hängt am gewählten Marktplatz-Modell;
       // eigene Modell-IDs bekommen eine breite Spanne.

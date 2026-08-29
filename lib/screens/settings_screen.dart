@@ -8,6 +8,7 @@ import '../build_info.dart';
 import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/key_check.dart';
+import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
 import '../services/watermark.dart';
@@ -202,6 +203,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onHelp: () => _openUrl('https://fal.ai/dashboard/keys'),
         ),
         const SizedBox(height: 12),
+        const _ServerUrlCard(),
+        const SizedBox(height: 12),
         _UsageCard(
           hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
           hasTripoKey:
@@ -270,6 +273,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Karte für den eigenen 3D-Server (server/local3d_server.py):
+/// Adresse eintragen, speichern und per /health-Endpunkt testen.
+class _ServerUrlCard extends StatefulWidget {
+  const _ServerUrlCard();
+
+  @override
+  State<_ServerUrlCard> createState() => _ServerUrlCardState();
+}
+
+class _ServerUrlCardState extends State<_ServerUrlCard> {
+  late final TextEditingController _ctrl;
+  String? _status;
+  bool _ok = false;
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(
+        text: context.read<SettingsService>().selfHostUrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveAndTest() async {
+    final settings = context.read<SettingsService>();
+    final url = _ctrl.text.trim();
+    settings.setSelfHostUrl(url);
+    if (url.isEmpty) {
+      setState(() {
+        _status = 'Adresse entfernt.';
+        _ok = false;
+      });
+      return;
+    }
+    setState(() {
+      _checking = true;
+      _status = null;
+    });
+    try {
+      final info = await SelfHostService(url).health();
+      if (mounted) {
+        setState(() {
+          _status = 'Verbunden – $info.';
+          _ok = true;
+        });
+      }
+    } on GenerationException catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = e.message;
+          _ok = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Eigener 3D-Server (3D-Bereich)',
+                style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Bild→3D auf dem eigenen PC mit NVIDIA-GPU – kostenlos '
+              'und komplett lokal (Open-Source-Modelle TripoSR/TRELLIS, '
+              'MIT-Lizenz). Einrichtung: Ordner „server“ im Projekt, '
+              'Anleitung in server/README.md.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ctrl,
+              decoration: const InputDecoration(
+                labelText: 'Server-Adresse',
+                hintText: 'http://127.0.0.1:8765',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _checking ? null : _saveAndTest,
+                  icon: _checking
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.link, size: 18),
+                  label: const Text('Speichern & testen'),
+                ),
+              ],
+            ),
+            if (_status != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _status!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: _ok
+                      ? Colors.green.shade700
+                      : theme.colorScheme.error,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

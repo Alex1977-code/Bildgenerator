@@ -28,6 +28,7 @@ import '../services/provenance.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
+import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
@@ -468,6 +469,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               'Bezahlung pro Lauf, Startguthaben für neue Konten). '
               'Bitte in den Einstellungen hinterlegen.'
         ),
+      'selfhost' => (
+          'Server-Adresse fehlt',
+          'Für den eigenen 3D-Server die Adresse in den Einstellungen '
+              'eintragen (z. B. http://127.0.0.1:8765). Einrichtung mit '
+              'NVIDIA-GPU und Python: Anleitung in server/README.md im '
+              'Projekt.'
+        ),
       _ => (
           'Meshy-API-Schlüssel fehlt',
           'Für Meshy AI wird ein API-Schlüssel benötigt (meshy.ai – '
@@ -503,28 +511,36 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isTripo = settings.threeDProvider == 'tripo';
     final isStability = settings.threeDProvider == 'stability';
     final isFal = settings.threeDProvider == 'fal';
+    final isSelfHost = settings.threeDProvider == 'selfhost';
+    // Beim eigenen Server steht an Stelle des Schlüssels die Adresse.
     final apiKey = isLocal
         ? ''
         : isStability
             ? settings.apiKeyFor(GenProvider.stability)
             : isFal
                 ? settings.falApiKey
-                : (isTripo ? settings.tripoApiKey : settings.meshyApiKey);
+                : isSelfHost
+                    ? settings.selfHostUrl
+                    : (isTripo
+                        ? settings.tripoApiKey
+                        : settings.meshyApiKey);
     if (!isLocal && (apiKey == null || apiKey.trim().isEmpty)) {
       await _showMissingKeyDialog(settings.threeDProvider);
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    // Text-Modus: „Lokal“, Stability und fal.ai gehen immer über
-    // KI-Ansichten, bei Meshy/Tripo ist die Pipeline zuschaltbar.
+    // Text-Modus: „Lokal“, Stability, fal.ai und der eigene Server
+    // gehen immer über KI-Ansichten, bei Meshy/Tripo ist die Pipeline
+    // zuschaltbar.
     final viewPipeline = !_imageMode &&
-        (isLocal || isStability || isFal || _viewsFromText);
+        (isLocal || isStability || isFal || isSelfHost || _viewsFromText);
     // Bild-Modus: fehlende Ansichten optional per Bild-KI ergänzen –
     // gleiche Konsistenz-Prompts, Vorderansicht als Referenz.
     final augmentViews = _imageMode &&
         _completeViews &&
         !isStability &&
         !isFal &&
+        !isSelfHost &&
         _views.values.any((view) => view == null);
     if (!_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
@@ -554,7 +570,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // Pose der Ansichten: beim eigenen Auto-Rigging die zum
         // Figurtyp passende Rig-Pose, sonst optional T-Pose.
         String? pose;
-        if (_rigging && (isLocal || isStability || isFal)) {
+        if (_rigging && (isLocal || isStability || isFal || isSelfHost)) {
           pose = rigPoseParts[_rigType];
         } else if (_rigging || _tPose) {
           pose = rigPoseParts['biped'];
@@ -565,13 +581,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           pose: pose,
           onProgress: progress,
           isCancelled: cancelled,
-          // Stability und fal.ai brauchen nur ein Bild – spart Kosten.
-          frontOnly: isStability || isFal,
+          // Stability, fal.ai und der eigene Server brauchen nur ein
+          // Bild – das spart Kosten.
+          frontOnly: isStability || isFal || isSelfHost,
           // Objekte/Fahrzeuge aus EINEM Bild: Dreiviertelansicht statt
           // Frontalansicht, sonst rekonstruiert Stability nur eine
           // flache Platte ohne Tiefe. Figuren behalten die bewährte
           // Vorderansicht.
-          threeQuarterFront: (isStability || isFal) &&
+          threeQuarterFront: (isStability || isFal || isSelfHost) &&
               (_promptSubject == 'object' ||
                   (_rigging && _rigType == 'vehicle')),
           // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
@@ -602,6 +619,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             label: label);
       } else if (isFal) {
         await _runFal(FalService(apiKey!.trim()), cancelled, progress,
+            label: label);
+      } else if (isSelfHost) {
+        await _runSelfHost(
+            SelfHostService(apiKey!.trim()), cancelled, progress,
             label: label);
       } else if (isTripo) {
         await _runTripo(
@@ -809,17 +830,39 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       targetPolycount: _stabilityPolycount,
       foregroundRatio: foregroundRatio,
     );
-    // Lokale Veredelung: erst die Textur aus dem Originalbild schärfen
-    // (braucht den Kamera-Raum der Rekonstruktion), dann gerade
-    // ausrichten (Fahrzeuge aus Dreiviertelansichten stehen sonst
-    // schräg und die Rad-Erkennung greift nicht), dann optional
-    // symmetrisieren.
+    glb = await _applyLocalRefinements(glb, source.bytes, progress);
+    final unrigged = glb;
+    // Stability rekonstruiert im Kamera-Raum: Die im Bild sichtbare
+    // Seite (Vorderansicht) zeigt im Modell nach -z.
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress,
+        knownFrontSign: -1);
+    _addResult(
+      glbBytes: glb,
+      label: label,
+      providerLabel: 'Stability',
+      thumbnail: source.bytes,
+      rigged: rigged,
+      textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
+    );
+  }
+
+  /// Lokale Veredelung nach der Generierung: Textur aus dem
+  /// Originalbild schärfen (greift nur, wenn die automatische
+  /// Kalibrierung Bild und Modell sicher zusammenbringt), fürs
+  /// Fahrzeug-Rig gerade ausrichten, optional symmetrisieren.
+  Future<Uint8List> _applyLocalRefinements(
+    Uint8List glb,
+    Uint8List sourceImageBytes,
+    void Function(String) progress,
+  ) async {
     final refineNotes = <String>[];
     if (_refineProjectTexture) {
       progress('Veredelung: Textur wird aus dem Originalbild geschärft …');
       try {
         final sharpened =
-            await reprojectSourceImageTexture(glb, source.bytes);
+            await reprojectSourceImageTexture(glb, sourceImageBytes);
         if (sharpened != null) {
           glb = sharpened;
           refineNotes.add('Textur aus dem Originalbild geschärft');
@@ -850,21 +893,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (refineNotes.isNotEmpty) {
       _showSnack('Veredelung: ${refineNotes.join(' · ')}.');
     }
-    final unrigged = glb;
-    // Stability rekonstruiert im Kamera-Raum: Die im Bild sichtbare
-    // Seite (Vorderansicht) zeigt im Modell nach -z.
-    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress,
-        knownFrontSign: -1);
-    _addResult(
-      glbBytes: glb,
-      label: label,
-      providerLabel: 'Stability',
-      thumbnail: source.bytes,
-      rigged: rigged,
-      textured: true,
-      unriggedGlb: rigged ? unrigged : null,
-      rigTypeUsed: rigged ? _rigType : null,
-    );
+    return glb;
   }
 
   Future<void> _runFal(
@@ -886,53 +915,49 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       onProgress: progress,
       isCancelled: cancelled,
     );
-    // Gleiche lokale Veredelung wie bei Stability. Die Ausrichtung der
-    // Marktplatz-Modelle variiert je nach Anbieter – deshalb entscheidet
-    // beim Rigging die geometrische Blickrichtungs-Schätzung statt
-    // Pipeline-Wissen, und die Textur-Reprojektion greift nur, wenn ihre
-    // automatische Kalibrierung Bild und Modell sicher zusammenbringt.
-    final refineNotes = <String>[];
-    if (_refineProjectTexture) {
-      progress('Veredelung: Textur wird aus dem Originalbild geschärft …');
-      try {
-        final sharpened =
-            await reprojectSourceImageTexture(glb, source.bytes);
-        if (sharpened != null) {
-          glb = sharpened;
-          refineNotes.add('Textur aus dem Originalbild geschärft');
-        }
-      } catch (_) {}
-    }
-    if (_rigging && _rigType == 'vehicle') {
-      progress('Veredelung: Ausrichtung wird geprüft …');
-      try {
-        final (aligned, degrees) = canonicalizeYawGlb(glb);
-        if (degrees != 0) {
-          glb = aligned;
-          refineNotes.add('um ${degrees.abs().round()}° gerade '
-              'ausgerichtet');
-        }
-      } catch (_) {}
-    }
-    if (_refineSymmetrize) {
-      progress('Veredelung: Modell wird symmetrisiert …');
-      try {
-        glb = await mirrorSymmetrizeGlb(glb);
-        refineNotes.add('symmetrisiert (bessere Hälfte gespiegelt)');
-      } on Exception catch (e) {
-        _showSnack('Symmetrisieren nicht möglich: '
-            '${e.toString().replaceFirst('Exception: ', '')}');
-      }
-    }
-    if (refineNotes.isNotEmpty) {
-      _showSnack('Veredelung: ${refineNotes.join(' · ')}.');
-    }
+    // Die Ausrichtung der Marktplatz-Modelle variiert je nach Anbieter –
+    // beim Rigging entscheidet daher die geometrische
+    // Blickrichtungs-Schätzung statt Pipeline-Wissen.
+    glb = await _applyLocalRefinements(glb, source.bytes, progress);
     final unrigged = glb;
     final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
       label: label,
       providerLabel: 'fal.ai',
+      thumbnail: source.bytes,
+      rigged: rigged,
+      textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
+    );
+  }
+
+  Future<void> _runSelfHost(
+    SelfHostService service,
+    bool Function() cancelled,
+    void Function(String) progress, {
+    required String label,
+  }) async {
+    final source = _front;
+    if (source == null) {
+      throw GenerationException('Keine Vorderansicht vorhanden.');
+    }
+    var glb = await service.generateModel(
+      imageBytes: source.bytes,
+      mimeType: source.mimeType,
+      onProgress: progress,
+    );
+    if (cancelled()) throw GenerationException('Abgebrochen.');
+    // Wie bei fal.ai: Ausrichtung je nach Backend unterschiedlich –
+    // Blickrichtung fürs Rigging per geometrischer Schätzung.
+    glb = await _applyLocalRefinements(glb, source.bytes, progress);
+    final unrigged = glb;
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
+    _addResult(
+      glbBytes: glb,
+      label: label,
+      providerLabel: 'Eigener Server',
       thumbnail: source.bytes,
       rigged: rigged,
       textured: true,
@@ -1561,10 +1586,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isLocal = settings.threeDProvider == 'local';
     final isStability = settings.threeDProvider == 'stability';
     final isFal = settings.threeDProvider == 'fal';
+    final isSelfHost = settings.threeDProvider == 'selfhost';
     final riggingForcesTPose = _rigging;
     // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
     // der T-Pose-Schalter wäre dann irreführend.
-    final rigPoseActive = _rigging && (isLocal || isStability || isFal);
+    final rigPoseActive =
+        _rigging && (isLocal || isStability || isFal || isSelfHost);
     return DropTarget(
       enable: widget.isActive &&
           (ModalRoute.of(context)?.isCurrent ?? true),
@@ -1616,6 +1643,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         settings.tripoApiKey?.trim().isNotEmpty ?? false;
                     final hasFal =
                         settings.falApiKey?.trim().isNotEmpty ?? false;
+                    final hasServer =
+                        settings.selfHostUrl.trim().isNotEmpty;
                     return SegmentedButton<String>(
                       showSelectedIcon: false,
                       segments: [
@@ -1640,6 +1669,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             value: 'fal',
                             label: const Text('fal.ai'),
                             icon: ready(hasFal)),
+                        ButtonSegment(
+                            value: 'selfhost',
+                            label: const Text('Server'),
+                            icon: ready(hasServer)),
                       ],
                       selected: {settings.threeDProvider},
                       onSelectionChanged: _running
@@ -1680,8 +1713,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                       'TripoSR, Hunyuan3D) – Abrechnung '
                                       'pro Lauf ab ca. 1–2 US-Cent, '
                                       'Schlüssel und Verbrauch auf fal.ai.'
-                                  : 'Meshy: ca. 20 Credits pro Modell, '
-                                      'API-Zugang ab Pro-Plan (meshy.ai).',
+                                  : isSelfHost
+                                      ? 'Eigener Server: TripoSR oder '
+                                          'TRELLIS (MIT-Lizenz) auf dem '
+                                          'eigenen PC mit NVIDIA-GPU – '
+                                          'kostenlos, alle Daten bleiben '
+                                          'lokal. Einrichtung: '
+                                          'server/README.md im Projekt, '
+                                          'Adresse in den Einstellungen.'
+                                      : 'Meshy: ca. 20 Credits pro '
+                                          'Modell, API-Zugang ab '
+                                          'Pro-Plan (meshy.ai).',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -1723,12 +1765,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   const SizedBox(height: 8),
                   _promptHelp(theme,
                       mode: isLocal || isStability || isFal ||
-                              _viewsFromText
+                              isSelfHost || _viewsFromText
                           ? 'wrapped'
                           : 'native'),
                   if (!isLocal &&
                       !isStability &&
                       !isFal &&
+                      !isSelfHost &&
                       !_viewsFromText) ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -1746,8 +1789,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ),
                   ],
                   // Kunststil ist ein reiner Meshy-Parameter – bei
-                  // Stability/Tripo/Lokal/fal ohne Wirkung, versteckt.
-                  if (!isTripo && !isLocal && !isStability && !isFal) ...[
+                  // allen anderen Providern ohne Wirkung, versteckt.
+                  if (!isTripo &&
+                      !isLocal &&
+                      !isStability &&
+                      !isFal &&
+                      !isSelfHost) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
@@ -1779,15 +1826,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           : (v) => setState(() => _tPose = v),
                     ),
                   const SizedBox(height: 4),
-                  if (isLocal || isStability || isFal)
+                  if (isLocal || isStability || isFal || isSelfHost)
                     Text(
-                      isFal
+                      isFal || isSelfHost
                           ? 'Die Ansicht wird automatisch mit der '
                               'Bild-KI aus dem Generator-Tab '
-                              '(${settings.provider.label}) erzeugt; das '
-                              'gewählte fal.ai-Modell rekonstruiert '
-                              'daraus das komplette 3D-Modell inklusive '
-                              'Rückseite.'
+                              '(${settings.provider.label}) erzeugt; '
+                              '${isFal ? 'das gewählte fal.ai-Modell' : 'dein eigener Server (TripoSR/TRELLIS)'} '
+                              'rekonstruiert daraus das komplette '
+                              '3D-Modell inklusive Rückseite.'
                           : isStability
                           ? 'Die Ansicht wird automatisch mit der '
                               'Bild-KI aus dem Generator-Tab '
@@ -1825,11 +1872,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? null
                           : (v) => setState(() => _viewsFromText = v),
                     ),
-                  if (isLocal || isStability || isFal ||
+                  if (isLocal || isStability || isFal || isSelfHost ||
                       _viewsFromText) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
-                      final showAllViews = !isStability && !isFal;
+                      final showAllViews =
+                          !isStability && !isFal && !isSelfHost;
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -1859,7 +1907,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   _promptHelp(theme, mode: 'images'),
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
-                    final showAllViews = !isStability && !isFal;
+                    final showAllViews =
+                        !isStability && !isFal && !isSelfHost;
                     return Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -1875,7 +1924,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   }),
                   const SizedBox(height: 4),
                   Text(
-                    isStability || isFal
+                    isStability || isFal || isSelfHost
                         ? 'Dieser 3D-Dienst nutzt genau ein Bild: '
                             'Rückseite, Vertiefungen und Verdecktes '
                             'rekonstruiert das trainierte Modell selbst.'
@@ -1891,7 +1940,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                 'Rundum-Modell.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (!isStability && !isFal)
+                  if (!isStability && !isFal && !isSelfHost)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
@@ -1916,18 +1965,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 // seitliche Qualitäts-/Kostenanzeige für den gesamten
                 // Lauf (Bild-KI-Schritte + 3D-Dienst).
                 Builder(builder: (context) {
-                  final viewKeys = isStability || isFal
+                  final viewKeys = isStability || isFal || isSelfHost
                       ? const ['front']
                       : const ['front', 'left', 'right', 'back'];
                   final generatesViews = (!_imageMode &&
                           (isLocal ||
                               isStability ||
                               isFal ||
+                              isSelfHost ||
                               _viewsFromText)) ||
                       (_imageMode &&
                           _completeViews &&
                           !isStability &&
-                          !isFal);
+                          !isFal &&
+                          !isSelfHost);
                   final viewsToGenerate = generatesViews
                       ? viewKeys
                           .where((key) => _views[key] == null)
@@ -1941,7 +1992,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     rigging: _rigging &&
                         !isLocal &&
                         !isStability &&
-                        !isFal,
+                        !isFal &&
+                        !isSelfHost,
                     meshyAiModel: _meshyAiModel,
                     tripoVersion: _tripoVersion,
                     falModel: _falModelEffective,
@@ -1989,6 +2041,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'Point Aware 3D rekonstruiert Rückseite und '
                           'Hohlräume am besten; Fast 3D ist die '
                           'schnellere, einfachere Variante.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 12),
+                      ] else if (isSelfHost) ...[
+                        Text(
+                          'Das 3D-Modell bestimmt dein Server beim '
+                          'Start (--backend triposr oder trellis). '
+                          'Adresse: '
+                          '${settings.selfHostUrl.trim().isEmpty ? 'noch nicht eingetragen' : settings.selfHostUrl} '
+                          '– änderbar in den Einstellungen '
+                          '(dort auch „Speichern & testen“).',
                           style: theme.textTheme.bodySmall,
                         ),
                         const SizedBox(height: 12),
@@ -2537,12 +2600,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                     ],
                   ),
-                ] else if (isFal) ...[
+                ] else if (isFal || isSelfHost) ...[
                   Text(
-                    'Textur ist im Modell enthalten. Rigging übernimmt '
-                    'der eigene lokale Auto-Rigger (kostenlos) – die '
-                    'lokale Veredelung (Symmetrisieren, Textur schärfen) '
-                    'steht wie bei Stability zur Verfügung.',
+                    isSelfHost
+                        ? 'Der Server liefert das Modell inklusive '
+                            'Farben – alles kostenlos auf der eigenen '
+                            'GPU. Rigging übernimmt der eigene lokale '
+                            'Auto-Rigger, die lokale Veredelung '
+                            '(Symmetrisieren, Textur schärfen) steht '
+                            'wie bei Stability zur Verfügung.'
+                        : 'Textur ist im Modell enthalten. Rigging '
+                            'übernimmt der eigene lokale Auto-Rigger '
+                            '(kostenlos) – die lokale Veredelung '
+                            '(Symmetrisieren, Textur schärfen) steht '
+                            'wie bei Stability zur Verfügung.',
                     style: theme.textTheme.bodySmall,
                   ),
                   _autoRigSwitch(),
@@ -2570,8 +2641,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         'Projiziert das scharfe Ausgangsbild zurück auf '
                         'die sichtbare Modellseite – greift nur, wenn '
                         'die automatische Kalibrierung Bild und Modell '
-                        'sicher zusammenbringt (die Ausrichtung der '
-                        'fal.ai-Modelle variiert je nach Anbieter). '
+                        'sicher zusammenbringt (die Ausrichtung dieser '
+                        'Modelle variiert je nach Anbieter). '
                         'Komplett lokal, keine Zusatzkosten.'),
                     value: _refineProjectTexture,
                     onChanged: _running

@@ -1,0 +1,6 @@
+# Basis-Abhängigkeiten des Servers (die Modell-Backends TripoSR/TRELLIS
+# werden separat installiert – siehe README.md in diesem Ordner).
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2
+pillow>=10

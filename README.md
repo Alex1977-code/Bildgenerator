@@ -40,7 +40,16 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Bilderzeugung; einstellbar sind Textur-Auflösung, Polygonform
     (Original/Quads/Dreiecke), Ziel-Polygonzahl und Detailgrad – jede
     Option mit Infotext
-  - **fal.ai-Marktplatz (Beta)** als vierter 3D-Provider: Bild→3D mit
+  - **Eigener 3D-Server** als Provider „Server“: Bild→3D komplett auf
+    dem eigenen PC mit NVIDIA-GPU – kostenlos, ohne Cloud, alle Daten
+    bleiben lokal. Mitgelieferter Python-Server
+    (`server/local3d_server.py`, FastAPI) mit den MIT-lizenzierten
+    Open-Source-Modellen **TripoSR** (Sekunden, ~4–6 GB VRAM) oder
+    **TRELLIS** (beste Qualität, ~12–16 GB VRAM); Einrichtung in
+    `server/README.md`. Adresse in den Einstellungen eintragen
+    („Speichern & testen“ zeigt Backend und GPU an) – Rigging und
+    Veredelung übernimmt wie gewohnt die App
+  - **fal.ai-Marktplatz (Beta)** als 3D-Provider: Bild→3D mit
     wählbarem Marktplatz-Modell – TRELLIS (Microsoft, ab wenigen
     Cent), TRELLIS.2, TripoSR (am schnellsten), Hunyuan3D 2.0 und
     Hunyuan3D 3.1 Pro (Tencent, Spitzenklasse) – plus freiem Feld für

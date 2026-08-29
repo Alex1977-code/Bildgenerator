@@ -86,9 +86,19 @@ class SettingsService extends ChangeNotifier {
   String? _tripoKey;
   String? _falKey;
 
-  /// Gewählter 3D-Provider: 'local', 'stability', 'meshy', 'tripo'
-  /// oder 'fal'.
+  /// Gewählter 3D-Provider: 'local', 'stability', 'meshy', 'tripo',
+  /// 'fal' oder 'selfhost' (eigener 3D-Server, siehe server/README.md).
   String threeDProvider = 'local';
+
+  /// Adresse des eigenen 3D-Servers (server/local3d_server.py),
+  /// z. B. http://127.0.0.1:8765 – leer = nicht eingerichtet.
+  String selfHostUrl = '';
+
+  void setSelfHostUrl(String v) {
+    selfHostUrl = v.trim();
+    _persistString('selfHostUrl', selfHostUrl);
+    notifyListeners();
+  }
 
   /// Ersteller-Name für Erstellungsnachweise (PDF).
   String creatorName = '';
@@ -175,6 +185,7 @@ class SettingsService extends ChangeNotifier {
           prefs.getInt('watermarkSizePercent') ?? watermarkSizePercent;
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
+      selfHostUrl = prefs.getString('selfHostUrl') ?? selfHostUrl;
       creatorName = prefs.getString('creatorName') ?? creatorName;
       for (final provider in GenProvider.values) {
         _fetchedModels[provider] =
