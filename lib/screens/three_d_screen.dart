@@ -83,6 +83,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String _stabilityEngine = 'stable-point-aware-3d';
   int _stabilityTextureRes = 2048;
 
+  /// Stability: Polygonform ('none', 'quad', 'triangle'), optionale
+  /// Ziel-Polygonzahl (0 = keine Reduktion) und Detailgrad-Vorwahl.
+  String _stabilityRemesh = 'none';
+  int _stabilityPolycount = 0;
+  String _stabilityDetail = 'fine'; // 'fine' | 'auto' | 'safe'
+
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
 
@@ -93,6 +99,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   // Optionen des lokalen Generators (360°-Modell).
   int _localResolution = 96;
+  int _localTargetTriangles = 0; // 0 = alle Polygone behalten
+  int _localSmoothing = 2; // Glättungsdurchläufe 0–5
+  String _localSurface = 'matt';
+
+  /// Oberflächen-Vorwahlen (PBR): (Wert, Name, Metall, Rauheit).
+  static const _surfaceOptions = [
+    ('matt', 'Matt (Standard)', 0.0, 0.95),
+    ('silk', 'Seidenmatt', 0.0, 0.6),
+    ('gloss', 'Glänzend', 0.0, 0.3),
+    ('metal', 'Metallisch', 0.9, 0.35),
+  ];
 
   bool _running = false;
   bool _cancelRequested = false;
@@ -392,6 +409,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     progress('Ansichten werden ausgewertet, Volumen wird geschnitzt …');
     Uint8List glb;
     try {
+      final (_, _, metallic, roughness) = _surfaceOptions
+          .firstWhere((s) => s.$1 == _localSurface,
+              orElse: () => _surfaceOptions.first);
       glb = await generateLocalHullGlb(
         frontBytes: source.bytes,
         leftBytes: _views['left']?.bytes,
@@ -399,7 +419,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         backBytes: _views['back']?.bytes,
         frontDepthBytes: frontDepthMap,
         backDepthBytes: backDepthMap,
-        resolution: _localResolution.clamp(48, 120),
+        resolution: _localResolution.clamp(48, 160),
+        smoothingPasses: _localSmoothing,
+        targetTriangles: _localTargetTriangles,
+        metallic: metallic,
+        roughness: roughness,
       );
     } on Exception catch (e) {
       throw GenerationException(
@@ -445,12 +469,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     progress(_stabilityEngine == 'stable-fast-3d'
         ? 'Modell wird generiert (Stable Fast 3D) …'
         : 'Modell wird generiert (Stable Point Aware 3D) …');
+    // Detailgrad → foreground_ratio je Engine (Wertebereiche
+    // unterscheiden sich, siehe Stability3dService.generateModel).
+    final isSpar = _stabilityEngine == 'stable-point-aware-3d';
+    final foregroundRatio = switch (_stabilityDetail) {
+      'fine' => isSpar ? 1.0 : 0.95,
+      'safe' => isSpar ? 1.85 : 0.6,
+      _ => 0.0, // API-Vorgabe
+    };
     var glb = await service.generateModel(
       imageBytes: source.bytes,
       mimeType: source.mimeType,
       engine: _stabilityEngine,
       textureResolution: _stabilityTextureRes,
-      quadRemesh: _quadTopology,
+      remesh: _stabilityRemesh,
+      targetPolycount: _stabilityPolycount,
+      foregroundRatio: foregroundRatio,
     );
     final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
@@ -736,6 +770,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       textured: _texture,
     );
   }
+
+  /// Kleiner Infotext unter einer Option.
+  Widget _optionInfo(String text) => Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 12),
+        child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+      );
 
   /// Rigging-Schalter für Lokal und Stability: eigenes Auto-Rigging,
   /// das lokal ein Standard-Skelett ins GLB einbaut – mit wählbarem
@@ -1181,7 +1221,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     'Echtes räumliches 360°-Modell: Aus den Silhouetten '
                     'von Vorn/Links/Rechts/Hinten wird ein Volumen '
                     'geschnitzt (Visual Hull), die Oberfläche geglättet '
-                    'und mit den Bildfarben eingefärbt.',
+                    'und mit den Bildfarben eingefärbt – die Ansichten '
+                    'werden dabei weich nach Blickrichtung gemischt '
+                    '(keine harten Farbnähte).',
                     style: theme.textTheme.bodySmall,
                   ),
                   SwitchListTile(
@@ -1219,6 +1261,86 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       Text('$_localResolution'),
                     ],
                   ),
+                  _optionInfo(
+                      'Auflösung des Schnitz-Rasters (Voxel je Achse): '
+                      'höher = feinere Details und mehr Polygone, aber '
+                      'spürbar mehr Rechenzeit. 96 ist ein guter '
+                      'Kompromiss, 160 das Maximum für feinste Details.'),
+                  Row(
+                    children: [
+                      const SizedBox(width: 90, child: Text('Glättung')),
+                      Expanded(
+                        child: Slider(
+                          value: _localSmoothing.toDouble(),
+                          min: 0,
+                          max: 5,
+                          divisions: 5,
+                          label: '$_localSmoothing',
+                          onChanged: _running
+                              ? null
+                              : (v) => setState(
+                                  () => _localSmoothing = v.round()),
+                        ),
+                      ),
+                      Text('$_localSmoothing'),
+                    ],
+                  ),
+                  _optionInfo(
+                      'Glättungsdurchläufe der Oberfläche: mehr = '
+                      'weichere, organischere Formen; weniger = kantiger '
+                      'und erhält kleine Details. 2 ist der bewährte '
+                      'Standard.'),
+                  DropdownMenu<int>(
+                    key: ValueKey('ltris-$_localTargetTriangles'),
+                    enabled: !_running,
+                    initialSelection: _localTargetTriangles,
+                    label: const Text('Polygonzahl (Dreiecke)'),
+                    expandedInsets: EdgeInsets.zero,
+                    dropdownMenuEntries: const [
+                      DropdownMenuEntry(
+                          value: 0, label: 'Alle behalten (Standard)'),
+                      DropdownMenuEntry(
+                          value: 50000, label: '≈ 50.000 (hohe Qualität)'),
+                      DropdownMenuEntry(
+                          value: 20000, label: '≈ 20.000 (Spiele/AR)'),
+                      DropdownMenuEntry(
+                          value: 10000, label: '≈ 10.000 (Web/Vorschau)'),
+                      DropdownMenuEntry(
+                          value: 5000, label: '≈ 5.000 (sehr schlank)'),
+                    ],
+                    onSelected: (value) {
+                      if (value != null) {
+                        setState(() => _localTargetTriangles = value);
+                      }
+                    },
+                  ),
+                  _optionInfo(
+                      'Reduziert das fertige Netz auf ungefähr diese '
+                      'Dreieckszahl (Vertex-Clustering, die Farben '
+                      'bleiben erhalten) – kleinere Dateien für Spiele, '
+                      'AR und Web. Für 3D-Druck besser „Alle behalten“.'),
+                  DropdownMenu<String>(
+                    key: ValueKey('lsurf-$_localSurface'),
+                    enabled: !_running,
+                    initialSelection: _localSurface,
+                    label: const Text('Oberfläche (PBR-Material)'),
+                    expandedInsets: EdgeInsets.zero,
+                    dropdownMenuEntries: [
+                      for (final (value, name, _, _) in _surfaceOptions)
+                        DropdownMenuEntry(value: value, label: name),
+                    ],
+                    onSelected: (value) {
+                      if (value != null) {
+                        setState(() => _localSurface = value);
+                      }
+                    },
+                  ),
+                  _optionInfo(
+                      'PBR-Materialwerte (Metall/Rauheit) im GLB: '
+                      'bestimmen, wie Blender, Unity, Godot & Co. das '
+                      'Modell beleuchten – von matt bis metallisch '
+                      'glänzend. Die App-Vorschau zeigt diesen Effekt '
+                      'nicht an.'),
                 ] else if (isStability) ...[
                   Text(
                     'Textur (PBR) ist immer im Modell enthalten.',
@@ -1231,7 +1353,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     initiallyExpanded: true,
                     title: const Text('Qualitäts-Optionen (Profi)'),
                     subtitle: Text(
-                      'Engine, Textur-Auflösung, Topologie',
+                      'Engine, Textur, Polygonform & -zahl, Detailgrad',
                       style: theme.textTheme.bodySmall,
                     ),
                     children: [
@@ -1252,7 +1374,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           }
                         },
                       ),
-                      const SizedBox(height: 12),
+                      _optionInfo(
+                          'Point Aware 3D rekonstruiert auch Rückseite '
+                          'und Hohlräume am besten (Standard); Fast 3D '
+                          'liefert in Sekunden ein Ergebnis und schätzt '
+                          'zusätzlich PBR-Materialwerte.'),
                       DropdownMenu<int>(
                         key: ValueKey('stex-$_stabilityTextureRes'),
                         enabled: !_running,
@@ -1265,7 +1391,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           DropdownMenuEntry(
                               value: 1024, label: '1024 px'),
                           DropdownMenuEntry(
-                              value: 2048, label: '2048 px (Standard)'),
+                              value: 2048,
+                              label: '2048 px (Standard, am schärfsten)'),
                         ],
                         onSelected: (value) {
                           if (value != null) {
@@ -1273,17 +1400,98 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           }
                         },
                       ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Quad-Topologie'),
-                        subtitle: const Text(
-                            'Viereck-Netz statt Dreiecke – sauberer für '
-                            'Blender, Animation und Weiterbearbeitung'),
-                        value: _quadTopology,
-                        onChanged: _running
-                            ? null
-                            : (v) => setState(() => _quadTopology = v),
+                      _optionInfo(
+                          'Größe der Textur im GLB: 2048 px liefert die '
+                          'schärfsten Oberflächen, 512 px die kleinste '
+                          'Datei. Kosten bleiben gleich.'),
+                      DropdownMenu<String>(
+                        key: ValueKey('sremesh-$_stabilityRemesh'),
+                        enabled: !_running,
+                        initialSelection: _stabilityRemesh,
+                        label: const Text('Polygonform (Remesh)'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: const [
+                          DropdownMenuEntry(
+                              value: 'none',
+                              label: 'Original (Standard – volle Details)'),
+                          DropdownMenuEntry(
+                              value: 'quad',
+                              label: 'Vierecke (Quads)'),
+                          DropdownMenuEntry(
+                              value: 'triangle',
+                              label: 'Dreiecke (gleichmäßig neu vernetzt)'),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _stabilityRemesh = value);
+                          }
+                        },
                       ),
+                      _optionInfo(
+                          'Form der Polygone: „Vierecke“ erzeugt ein '
+                          'sauberes Quad-Netz – ideal für Blender, '
+                          'Animation und Weiterbearbeitung; „Dreiecke“ '
+                          'vernetzt gleichmäßig neu; „Original“ behält '
+                          'das unveränderte Netz mit allen Details.'),
+                      DropdownMenu<int>(
+                        key: ValueKey('spoly-$_stabilityPolycount'),
+                        enabled: !_running,
+                        initialSelection: _stabilityPolycount,
+                        label: const Text('Polygonzahl'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: const [
+                          DropdownMenuEntry(
+                              value: 0,
+                              label: 'Maximum (Standard – keine Reduktion)'),
+                          DropdownMenuEntry(
+                              value: 20000, label: '≈ 20.000 (hoch)'),
+                          DropdownMenuEntry(
+                              value: 10000, label: '≈ 10.000 (Spiele/AR)'),
+                          DropdownMenuEntry(
+                              value: 5000, label: '≈ 5.000 (Web)'),
+                          DropdownMenuEntry(
+                              value: 2000, label: '≈ 2.000 (sehr schlank)'),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _stabilityPolycount = value);
+                          }
+                        },
+                      ),
+                      _optionInfo(
+                          'Ziel-Polygonzahl des Modells: „Maximum“ '
+                          'behält die volle Geometrie; kleinere Werte '
+                          'lassen Stability das Netz direkt auf die '
+                          'Zielzahl reduzieren (bei Fast 3D wirksam in '
+                          'Kombination mit einem Remesh).'),
+                      DropdownMenu<String>(
+                        key: ValueKey('sdetail-$_stabilityDetail'),
+                        enabled: !_running,
+                        initialSelection: _stabilityDetail,
+                        label: const Text('Detailgrad'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: const [
+                          DropdownMenuEntry(
+                              value: 'fine',
+                              label: 'Fein (Standard – Objekt füllt das Bild)'),
+                          DropdownMenuEntry(
+                              value: 'auto', label: 'API-Vorgabe'),
+                          DropdownMenuEntry(
+                              value: 'safe',
+                              label: 'Sicher (mehr Rand ums Objekt)'),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _stabilityDetail = value);
+                          }
+                        },
+                      ),
+                      _optionInfo(
+                          '„Fein“ lässt das Objekt das Bild ausfüllen – '
+                          'mehr Pixel pro Fläche, also mehr Details in '
+                          'Form und Textur. „Sicher“ lässt mehr Rand, '
+                          'falls bei „Fein“ Ränder abgeschnitten '
+                          'wirken.'),
                     ],
                   ),
                 ] else ...[

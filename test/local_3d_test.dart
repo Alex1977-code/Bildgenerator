@@ -509,6 +509,50 @@ void main() {
     expect(model, contains('<item objectid="2"/>'));
   });
 
+  test('Dezimierung reduziert die Dreieckszahl und erhält Farben', () {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 24,
+    );
+    final before = mesh.indices.length ~/ 3;
+    expect(before, greaterThan(400));
+    final target = before ~/ 4;
+    final small = decimateLocalMesh(mesh, target);
+    final after = small.indices.length ~/ 3;
+    expect(after, greaterThan(0));
+    expect(after, lessThanOrEqualTo(target));
+    // Farben bleiben je Vertex erhalten.
+    expect(small.colors.length, small.positions.length);
+  });
+
+  test('Bilineare Farbabtastung mischt Pixel und meldet Transparenz', () {
+    // 2×1: links rot, rechts grün.
+    final img = RgbaImage(
+        Uint8List.fromList([255, 0, 0, 255, 0, 255, 0, 255]), 2, 1);
+    final mid = img.colorBilinear(0.5, 0)!;
+    expect(mid.$1, closeTo(0.5, 0.02));
+    expect(mid.$2, closeTo(0.5, 0.02));
+    final clear = RgbaImage(Uint8List(8), 2, 1);
+    expect(clear.colorBilinear(0.5, 0), isNull);
+  });
+
+  test('GLB-Material übernimmt Oberflächen-Werte (PBR)', () {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 10,
+    );
+    final glb = buildGlb(mesh, metallic: 0.9, roughness: 0.35);
+    final json = _readGlbJson(glb);
+    final pbr = ((json['materials'] as List).first
+        as Map)['pbrMetallicRoughness'] as Map;
+    expect(pbr['metallicFactor'], closeTo(0.9, 1e-6));
+    expect(pbr['roughnessFactor'], closeTo(0.35, 1e-6));
+  });
+
   test('Auto-Rigging vermisst Chibi-Proportionen (Hals unter dem Kopf)',
       () {
     // Synthetische Chibi-Figur: kurze getrennte Beine unten, schmaler

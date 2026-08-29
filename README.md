@@ -37,11 +37,18 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Stable Point Aware 3D) nutzt trainierte generative Modelle, die aus
     einem einzigen Bild auch Rückseite, Vertiefungen und Hohlräume
     rekonstruieren – mit demselben Stability-Schlüssel wie die
-    Bilderzeugung
+    Bilderzeugung; einstellbar sind Textur-Auflösung, Polygonform
+    (Original/Quads/Dreiecke), Ziel-Polygonzahl und Detailgrad – jede
+    Option mit Infotext
   - **Eigener lokaler 3D-Generator** (Standard, ohne API, kostenlos):
     baut direkt in der App ein farbiges 360°-Modell (Visual Hull aus
-    bis zu 4 Ansichten mit Farbprojektion und geglätteter
-    Surface-Nets-Oberfläche); eigener glTF-2.0-Writer in Dart.
+    bis zu 4 Ansichten mit geglätteter Surface-Nets-Oberfläche);
+    eigener glTF-2.0-Writer in Dart. Die Ansichtsfarben werden weich
+    nach Blickrichtung gemischt und bilinear abgetastet (keine harten
+    Farbnähte); einstellbar sind Detailgrad (bis 160er-Raster),
+    Glättung, Ziel-Polygonzahl (Dezimierung per Vertex-Clustering)
+    und die PBR-Oberfläche (matt bis metallisch) – jede Option mit
+    Infotext.
     Optional **KI-Tiefenschätzung**: Per Bild-KI geschätzte
     Tiefenkarten formen Mulden und Vertiefungen in Vorder- und
     Rückseite – über die Silhouetten-Grenze des Visual Hull hinaus

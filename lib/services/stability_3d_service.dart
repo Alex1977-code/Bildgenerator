@@ -65,12 +65,23 @@ class Stability3dService {
   }
 
   /// Erzeugt aus einem Bild ein GLB-Modell.
+  ///
+  /// [remesh]: 'none' (Original-Netz), 'quad' (Vierecke) oder
+  /// 'triangle' (gleichmäßig neu vernetzte Dreiecke).
+  /// [targetPolycount]: Ziel-Polygonzahl; 0 = keine Reduktion
+  /// (Point Aware 3D: target_type=face/target_count, Fast 3D:
+  /// vertex_count – dort wirksam bei aktivem Remesh).
+  /// [foregroundRatio]: Bildausschnitt/Detailgrad; 0 = API-Vorgabe
+  /// (Point Aware 3D: 1.0–2.0, kleiner = Objekt größer im Bild = mehr
+  /// Details; Fast 3D: 0.1–1.0, größer = mehr Details).
   Future<Uint8List> generateModel({
     required Uint8List imageBytes,
     required String mimeType,
     required String engine,
     int textureResolution = 1024,
-    bool quadRemesh = false,
+    String remesh = 'none',
+    int targetPolycount = 0,
+    double foregroundRatio = 0,
   }) async {
     final subtype = mimeType.split('/').last;
     final request = http.MultipartRequest('POST', Uri.parse('$_base/$engine'))
@@ -82,7 +93,29 @@ class Stability3dService {
         filename: 'vorlage.${subtype == 'jpeg' ? 'jpg' : subtype}',
         contentType: MediaType('image', subtype),
       ));
-    if (quadRemesh) request.fields['remesh'] = 'quad';
+    if (remesh == 'quad' || remesh == 'triangle') {
+      request.fields['remesh'] = remesh;
+    }
+    if (engine == 'stable-point-aware-3d') {
+      if (targetPolycount > 0) {
+        request.fields['target_type'] = 'face';
+        request.fields['target_count'] =
+            '${targetPolycount.clamp(100, 20000)}';
+      }
+      if (foregroundRatio > 0) {
+        request.fields['foreground_ratio'] =
+            foregroundRatio.clamp(1.0, 2.0).toStringAsFixed(2);
+      }
+    } else {
+      if (targetPolycount > 0) {
+        request.fields['vertex_count'] =
+            '${targetPolycount.clamp(100, 20000)}';
+      }
+      if (foregroundRatio > 0) {
+        request.fields['foreground_ratio'] =
+            foregroundRatio.clamp(0.1, 1.0).toStringAsFixed(2);
+      }
+    }
 
     http.Response response;
     try {

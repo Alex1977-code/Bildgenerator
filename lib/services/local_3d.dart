@@ -103,6 +103,33 @@ class RgbaImage {
     if (bytes[o + 3] < 16) return (0.6, 0.6, 0.6);
     return (bytes[o] / 255.0, bytes[o + 1] / 255.0, bytes[o + 2] / 255.0);
   }
+
+  /// Bilinear interpolierte, alpha-gewichtete Farbe – deutlich weichere
+  /// Übergänge als [colorAt]; null, wenn die Stelle transparent ist.
+  (double, double, double)? colorBilinear(double u, double v) {
+    final fx = (u * (width - 1)).clamp(0.0, width - 1.0);
+    final fy = (v * (height - 1)).clamp(0.0, height - 1.0);
+    final x0 = fx.floor(), y0 = fy.floor();
+    final x1 = math.min(x0 + 1, width - 1);
+    final y1 = math.min(y0 + 1, height - 1);
+    final tx = fx - x0, ty = fy - y0;
+    var r = 0.0, g = 0.0, b = 0.0, a = 0.0;
+    void tap(int x, int y, double w) {
+      final o = (y * width + x) * 4;
+      final wa = w * bytes[o + 3] / 255.0;
+      r += wa * bytes[o];
+      g += wa * bytes[o + 1];
+      b += wa * bytes[o + 2];
+      a += wa;
+    }
+
+    tap(x0, y0, (1 - tx) * (1 - ty));
+    tap(x1, y0, tx * (1 - ty));
+    tap(x0, y1, (1 - tx) * ty);
+    tap(x1, y1, tx * ty);
+    if (a < 0.05) return null;
+    return (r / a / 255.0, g / a / 255.0, b / a / 255.0);
+  }
 }
 
 /// Relief: Höhenfeld aus der Bildhelligkeit, mit Seitenwänden und Boden.
@@ -271,7 +298,10 @@ LocalMesh buildStandeeMesh(
 /// Entweder mit eingebetteter PNG-Textur ([pngTexture]) oder – falls das
 /// Mesh Vertex-Farben trägt – mit COLOR_0-Attribut statt Textur.
 Uint8List buildGlb(LocalMesh mesh,
-    {Uint8List? pngTexture, bool alphaMask = false}) {
+    {Uint8List? pngTexture,
+    bool alphaMask = false,
+    double metallic = 0.0,
+    double roughness = 0.9}) {
   final positions = Float32List.fromList(mesh.positions);
   final normals = mesh.computeNormals();
   final vertexCount = positions.length ~/ 3;
@@ -407,8 +437,8 @@ Uint8List buildGlb(LocalMesh mesh,
         'pbrMetallicRoughness': {
           if (hasTexture) 'baseColorTexture': {'index': 0},
           if (!hasTexture) 'baseColorFactor': [1.0, 1.0, 1.0, 1.0],
-          'metallicFactor': 0.0,
-          'roughnessFactor': 0.9,
+          'metallicFactor': metallic.clamp(0.0, 1.0),
+          'roughnessFactor': roughness.clamp(0.0, 1.0),
         },
         'doubleSided': true,
         if (alphaMask) 'alphaMode': 'MASK',
@@ -529,6 +559,7 @@ LocalMesh buildVisualHullMesh({
   RgbaImage? frontDepth,
   RgbaImage? backDepth,
   required int resolution,
+  int smoothingPasses = 2,
 }) {
   final side = left ?? right;
   final yExtent = front.height / front.width; // xExtent = 1
@@ -628,26 +659,53 @@ LocalMesh buildVisualHullMesh({
     carveWithDepth(backDepth, fromFront: false, mirrored: true);
   }
 
-  // Farbwahl je Blickrichtung der Fläche.
-  (double, double, double) faceColor(
-      int axis, int dir, double x, double y, double z) {
-    final uF = x, vF = 1 - y / yExtent;
-    if (axis == 2) {
-      if (dir > 0) return front.colorAt(uF, vF);
-      return (back ?? front).colorAt(back != null ? 1 - uF : uF, vF);
+  // Farbwahl: Die Ansichten werden weich nach Blickrichtung der
+  // Oberfläche gemischt (Gewicht = Zugewandtheit², bilinear und
+  // alpha-gewichtet abgetastet) statt hart eine Ansicht zu wählen –
+  // das beseitigt fleckige Dreiecke und harte Nähte an den Übergängen
+  // (z. B. an Armen und Schultern).
+  (double, double, double) blendedColor(
+      double ox, double oy, double oz, double x, double y, double z) {
+    final uF = x.clamp(0.0, 1.0);
+    final vF = (1 - y / yExtent).clamp(0.0, 1.0);
+    final len = math.sqrt(ox * ox + oy * oy + oz * oz);
+    if (len < 1e-9) {
+      return front.colorBilinear(uF, vF) ?? front.colorAt(uF, vF);
     }
-    if (axis == 0) {
-      if (dir < 0 && left != null) return left.colorAt(z / zExtent, vF);
-      if (dir > 0 && right != null) {
-        return right.colorAt(1 - z / zExtent, vF);
-      }
-      final mirror = left ?? right;
-      if (mirror != null) {
-        return mirror.colorAt(
-            left != null ? z / zExtent : 1 - z / zExtent, vF);
-      }
+    final dx = ox / len, dz = oz / len;
+    var wr = 0.0, wg = 0.0, wb = 0.0, wsum = 0.0;
+    void add(double w, (double, double, double)? c) {
+      if (w <= 0 || c == null) return;
+      final wq = w * w; // zugewandte Ansicht dominiert deutlich
+      wr += wq * c.$1;
+      wg += wq * c.$2;
+      wb += wq * c.$3;
+      wsum += wq;
     }
-    return front.colorAt(uF, vF);
+
+    add(dz, front.colorBilinear(uF, vF));
+    add(
+        -dz,
+        back != null
+            ? back.colorBilinear((1 - uF).clamp(0.0, 1.0), vF)
+            : front.colorBilinear(uF, vF));
+    final uSide = (z / zExtent).clamp(0.0, 1.0);
+    final leftView = left ?? right;
+    if (leftView != null) {
+      add(-dx,
+          leftView.colorBilinear(left != null ? uSide : 1 - uSide, vF));
+    }
+    final rightView = right ?? left;
+    if (rightView != null) {
+      add(dx,
+          rightView.colorBilinear(right != null ? 1 - uSide : uSide, vF));
+    }
+    if (wsum < 1e-6) {
+      // Alle zugewandten Ansichten sind an dieser Stelle transparent –
+      // deckende Farbe der Vorderansicht als Rückfall.
+      return front.colorAt(uF, vF);
+    }
+    return (wr / wsum, wg / wsum, wb / wsum);
   }
 
   final sx = 1.0 / nx, sy = yExtent / ny, sz = zExtent / nz;
@@ -786,9 +844,10 @@ LocalMesh buildVisualHullMesh({
     }
   }
 
-  // Zwei Laplace-Glättungsläufe über die Quad-Kanten.
+  // Laplace-Glättungsläufe über die Quad-Kanten (einstellbar: mehr =
+  // weicher/organischer, weniger = kantiger mit mehr Details).
   final vertexCount = vertexPos.length ~/ 3;
-  for (var pass = 0; pass < 2; pass++) {
+  for (var pass = 0; pass < smoothingPasses.clamp(0, 6); pass++) {
     final sums = Float64List(vertexCount * 3);
     final counts = Int32List(vertexCount);
     void link(int a, int b) {
@@ -839,23 +898,10 @@ LocalMesh buildVisualHullMesh({
     final gx = (sideSum(1, 0, 0, 0) - sideSum(0, 0, 0, 0)) / sx;
     final gy = (sideSum(0, 1, 0, 1) - sideSum(0, 0, 0, 1)) / sy;
     final gz = (sideSum(0, 0, 1, 2) - sideSum(0, 0, 0, 2)) / sz;
-    final ox = -gx, oy = -gy, oz = -gz;
-    int axis;
-    int dir;
-    if (ox.abs() >= oy.abs() && ox.abs() >= oz.abs()) {
-      axis = 0;
-      dir = ox >= 0 ? 1 : -1;
-    } else if (oy.abs() >= oz.abs()) {
-      axis = 1;
-      dir = oy >= 0 ? 1 : -1;
-    } else {
-      axis = 2;
-      dir = oz >= 0 ? 1 : -1;
-    }
     final x = vertexPos[v * 3].clamp(0.0, 1.0);
     final y = vertexPos[v * 3 + 1].clamp(0.0, yExtent);
     final z = vertexPos[v * 3 + 2].clamp(0.0, zExtent);
-    final (r, g, b) = faceColor(axis, dir, x, y, z);
+    final (r, g, b) = blendedColor(-gx, -gy, -gz, x, y, z);
     mesh.addVertex(vertexPos[v * 3] - 0.5, vertexPos[v * 3 + 1] - yExtent / 2,
         vertexPos[v * 3 + 2] - zExtent / 2, 0, 0,
         r: r, g: g, b: b);
@@ -864,6 +910,99 @@ LocalMesh buildVisualHullMesh({
     mesh.addQuad(quads[q], quads[q + 1], quads[q + 2], quads[q + 3]);
   }
   return mesh;
+}
+
+/// Reduziert die Dreieckszahl per Vertex-Clustering auf ungefähr
+/// [targetTriangles]: Vertices werden in Rasterzellen zusammengelegt
+/// (Position und Farbe gemittelt), degenerierte und doppelte Dreiecke
+/// entfallen. Die Rastergröße wird binär gesucht, bis die Zielzahl
+/// erreicht ist – praktisch für schlanke Modelle (Spiele, AR, Web).
+LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
+  final triCount = mesh.indices.length ~/ 3;
+  if (targetTriangles <= 0 || triCount <= targetTriangles) return mesh;
+
+  final pos = mesh.positions;
+  final vCount = pos.length ~/ 3;
+  var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
+  var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
+  for (var v = 0; v < vCount; v++) {
+    final x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  final maxExtent = math.max(
+      maxX - minX, math.max(maxY - minY, maxZ - minZ));
+  if (maxExtent <= 0) return mesh;
+  final hasColors = mesh.colors.length == pos.length;
+
+  (int, LocalMesh) attempt(int grid) {
+    final cell = maxExtent / grid;
+    final cellIndex = <int, int>{};
+    final vertexMap = Int32List(vCount);
+    final sums = <double>[]; // x,y,z,r,g,b,Anzahl je neuem Vertex
+    for (var v = 0; v < vCount; v++) {
+      final gx = ((pos[v * 3] - minX) / cell).floor();
+      final gy = ((pos[v * 3 + 1] - minY) / cell).floor();
+      final gz = ((pos[v * 3 + 2] - minZ) / cell).floor();
+      final key = (gx * 1024 + gy) * 1024 + gz;
+      var idx = cellIndex[key];
+      if (idx == null) {
+        idx = cellIndex.length;
+        cellIndex[key] = idx;
+        sums.addAll([0, 0, 0, 0, 0, 0, 0]);
+      }
+      vertexMap[v] = idx;
+      final o = idx * 7;
+      sums[o] += pos[v * 3];
+      sums[o + 1] += pos[v * 3 + 1];
+      sums[o + 2] += pos[v * 3 + 2];
+      if (hasColors) {
+        sums[o + 3] += mesh.colors[v * 3];
+        sums[o + 4] += mesh.colors[v * 3 + 1];
+        sums[o + 5] += mesh.colors[v * 3 + 2];
+      }
+      sums[o + 6]++;
+    }
+    final out = LocalMesh();
+    for (var i = 0; i < cellIndex.length; i++) {
+      final o = i * 7;
+      final n = sums[o + 6];
+      out.addVertex(sums[o] / n, sums[o + 1] / n, sums[o + 2] / n, 0, 0,
+          r: hasColors ? sums[o + 3] / n : null,
+          g: hasColors ? sums[o + 4] / n : null,
+          b: hasColors ? sums[o + 5] / n : null);
+    }
+    final seen = <(int, int, int)>{};
+    for (var t = 0; t < mesh.indices.length; t += 3) {
+      final a = vertexMap[mesh.indices[t]];
+      final b = vertexMap[mesh.indices[t + 1]];
+      final c = vertexMap[mesh.indices[t + 2]];
+      if (a == b || b == c || a == c) continue;
+      final sorted = [a, b, c]..sort();
+      if (!seen.add((sorted[0], sorted[1], sorted[2]))) continue;
+      out.addTriangle(a, b, c);
+    }
+    return (out.indices.length ~/ 3, out);
+  }
+
+  // Größtes Raster suchen, dessen Ergebnis die Zielzahl einhält.
+  var lo = 8, hi = 512;
+  LocalMesh best = attempt(lo).$2;
+  while (lo <= hi) {
+    final mid = (lo + hi) ~/ 2;
+    final (count, result) = attempt(mid);
+    if (count <= targetTriangles) {
+      best = result;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
 }
 
 /// Komplettpaket: bis zu vier Ansichten → farbiges 360°-GLB.
@@ -875,6 +1014,10 @@ Future<Uint8List> generateLocalHullGlb({
   Uint8List? frontDepthBytes,
   Uint8List? backDepthBytes,
   required int resolution,
+  int smoothingPasses = 2,
+  int targetTriangles = 0,
+  double metallic = 0.0,
+  double roughness = 0.9,
 }) async {
   Future<RgbaImage?> decode(Uint8List? bytes) async {
     if (bytes == null) return null;
@@ -883,7 +1026,7 @@ Future<Uint8List> generateLocalHullGlb({
   }
 
   final front = (await decode(frontBytes))!;
-  final mesh = buildVisualHullMesh(
+  var mesh = buildVisualHullMesh(
     front: front,
     left: await decode(leftBytes),
     right: await decode(rightBytes),
@@ -891,6 +1034,7 @@ Future<Uint8List> generateLocalHullGlb({
     frontDepth: await decode(frontDepthBytes),
     backDepth: await decode(backDepthBytes),
     resolution: resolution,
+    smoothingPasses: smoothingPasses,
   );
   if (mesh.indices.isEmpty) {
     throw Exception(
@@ -898,5 +1042,8 @@ Future<Uint8List> generateLocalHullGlb({
         'transparenten Hintergrund (im Generator-Tab mit „Transparenter '
         'Hintergrund“ erzeugen).');
   }
-  return buildGlb(mesh);
+  if (targetTriangles > 0) {
+    mesh = decimateLocalMesh(mesh, targetTriangles);
+  }
+  return buildGlb(mesh, metallic: metallic, roughness: roughness);
 }
