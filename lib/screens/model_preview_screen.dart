@@ -35,6 +35,7 @@ class ModelPreviewScreen extends StatefulWidget {
     this.unriggedGlb,
     this.rigType,
     this.onGlbUpdated,
+    this.showExport = true,
   });
 
   final Uint8List glbBytes;
@@ -53,6 +54,11 @@ class ModelPreviewScreen extends StatefulWidget {
   /// Wird nach dem Rig-Editor mit dem neuen GLB aufgerufen (damit das
   /// Ergebnis in der Liste den angepassten Stand exportiert).
   final void Function(Uint8List bytes)? onGlbUpdated;
+
+  /// Export-Menü anzeigen? Aus der Ergebnisliste geöffnete Modelle
+  /// exportieren über den Export-Knopf am Ergebnis – der Viewer bleibt
+  /// dort aufs Betrachten und Rig-Anpassen fokussiert.
+  final bool showExport;
 
   @override
   State<ModelPreviewScreen> createState() => _ModelPreviewScreenState();
@@ -171,15 +177,70 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   static IconData _clipIcon(String name) {
     final n = name.toLowerCase();
     if (n.contains('vierbein')) return Icons.pets;
+    if (n.contains('rennen')) return Icons.directions_run;
     if (n.contains('gehen')) return Icons.directions_walk;
+    if (n.contains('wedel')) return Icons.waving_hand;
     if (n.contains('wink')) return Icons.waving_hand;
+    if (n.contains('spring')) return Icons.arrow_upward;
+    if (n.contains('verbeug')) return Icons.emoji_people;
+    if (n.contains('nicken')) return Icons.expand_circle_down;
+    if (n.contains('schütteln')) return Icons.sync_alt;
+    if (n.contains('tanz')) return Icons.music_note;
+    if (n.contains('atmen')) return Icons.self_improvement;
+    if (n.contains('drehen')) return Icons.threesixty;
     if (n.contains('flügel')) return Icons.flight;
     if (n.contains('krabbel')) return Icons.bug_report;
     if (n.contains('schwimm')) return Icons.pool;
     if (n.contains('schläng')) return Icons.waves;
+    if (n.contains('kurven')) return Icons.alt_route;
     if (n.contains('fahren')) return Icons.directions_car;
     if (n.contains('wackel')) return Icons.vibration;
     return Icons.movie;
+  }
+
+  /// Linke Werkzeugleiste (analog zur Menüleiste des Hauptbildschirms):
+  /// Skelett anzeigen, Rig anpassen, Ansicht zurücksetzen.
+  Widget _toolRail(ThemeData theme, PreviewRig? rig) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (rig != null)
+            IconButton(
+              tooltip: _showSkeleton
+                  ? 'Skelett ausblenden'
+                  : 'Skelett anzeigen',
+              style: IconButton.styleFrom(
+                backgroundColor: _showSkeleton
+                    ? theme.colorScheme.primaryContainer
+                    : null,
+                foregroundColor: _showSkeleton
+                    ? theme.colorScheme.onPrimaryContainer
+                    : null,
+              ),
+              icon: const Icon(Icons.polyline),
+              onPressed: () =>
+                  setState(() => _showSkeleton = !_showSkeleton),
+            ),
+          if (widget.unriggedGlb != null && widget.rigType != null)
+            IconButton(
+              tooltip: 'Rig anpassen (Gelenke manuell verschieben)',
+              icon: const Icon(Icons.settings_accessibility),
+              onPressed: _editRig,
+            ),
+          IconButton(
+            tooltip: 'Ansicht zurücksetzen',
+            icon: const Icon(Icons.restart_alt),
+            onPressed: _resetView,
+          ),
+        ],
+      ),
+    );
   }
 
   /// Seitliche Icon-Leiste zur Animationsauswahl (statt Dropdown).
@@ -461,32 +522,20 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     final rig = mesh?.rig;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title, overflow: TextOverflow.ellipsis),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Modell-Viewer'),
+            Text(
+              widget.title,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
         actions: [
-          if (rig != null)
-            IconButton(
-              tooltip: _showSkeleton
-                  ? 'Skelett ausblenden'
-                  : 'Skelett anzeigen',
-              icon: Icon(
-                Icons.polyline,
-                color: _showSkeleton ? theme.colorScheme.primary : null,
-              ),
-              onPressed: () =>
-                  setState(() => _showSkeleton = !_showSkeleton),
-            ),
-          if (widget.unriggedGlb != null && widget.rigType != null)
-            IconButton(
-              tooltip: 'Rig anpassen (Gelenke manuell verschieben)',
-              icon: const Icon(Icons.settings_accessibility),
-              onPressed: _editRig,
-            ),
-          IconButton(
-            tooltip: 'Ansicht zurücksetzen',
-            icon: const Icon(Icons.restart_alt),
-            onPressed: _resetView,
-          ),
-          PopupMenuButton<String>(
+          if (widget.showExport)
+            PopupMenuButton<String>(
             tooltip: 'Exportieren',
             icon: const Icon(Icons.download),
             onSelected: (choice) {
@@ -613,6 +662,12 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                                 child: _animationStrip(theme),
                               ),
                             ),
+                          // Linke Werkzeugleiste: Skelett, Rig, Ansicht.
+                          Positioned(
+                            left: 8,
+                            top: 8,
+                            child: _toolRail(theme, rig),
+                          ),
                         ],
                       ),
                     ),

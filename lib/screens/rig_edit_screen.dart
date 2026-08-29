@@ -47,6 +47,11 @@ class _RigEditScreenState extends State<RigEditScreen> {
   bool _snap = true;
   bool _applying = false;
 
+  /// Einflussbereich je Gelenk (Faktor auf die Knochen-Radien der
+  /// Abstands-Gewichtung): 1,0 = Automatik; größer = das Gelenk nimmt
+  /// mehr umliegende Geometrie mit, kleiner = schärfere Abgrenzung.
+  final Map<int, double> _influence = {};
+
   double _rotX = -0.1;
   double _rotY = 0.0;
   double _zoom = 1.0;
@@ -91,7 +96,18 @@ class _RigEditScreenState extends State<RigEditScreen> {
           for (final j in _joints) [j.x, j.y, j.z],
         ];
         _selected.clear();
+        _influence.clear();
       });
+
+  /// Mittlerer Einfluss-Faktor der aktuellen Auswahl (für den Regler).
+  double get _selectedInfluence {
+    if (_selected.isEmpty) return 1.0;
+    var sum = 0.0;
+    for (final j in _selected) {
+      sum += _influence[j] ?? 1.0;
+    }
+    return sum / _selected.length;
+  }
 
   /// Rasterweite des unsichtbaren Snap-Rasters (1/64 der Modellgröße).
   double get _gridStep => (_mesh?.extent ?? 1) / 64;
@@ -217,6 +233,10 @@ class _RigEditScreenState extends State<RigEditScreen> {
         jointPositions: {
           for (var j = 0; j < _joints.length; j++)
             _joints[j].name: _effective(j),
+        },
+        jointInfluence: {
+          for (final entry in _influence.entries)
+            if (entry.value != 1.0) _joints[entry.key].name: entry.value,
         },
       );
       if (mounted) Navigator.of(context).pop(rigged);
@@ -367,14 +387,50 @@ class _RigEditScreenState extends State<RigEditScreen> {
                         ],
                       ),
                     ),
+                    if (_selected.isNotEmpty)
+                      Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 140,
+                              child: Text(
+                                'Einflussbereich '
+                                '×${_selectedInfluence.toStringAsFixed(1)}',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ),
+                            Expanded(
+                              child: Slider(
+                                value: _selectedInfluence
+                                    .clamp(0.4, 2.5)
+                                    .toDouble(),
+                                min: 0.4,
+                                max: 2.5,
+                                divisions: 21,
+                                label:
+                                    '×${_selectedInfluence.toStringAsFixed(1)}',
+                                onChanged: (v) => setState(() {
+                                  for (final j in _selected) {
+                                    _influence[j] = v;
+                                  }
+                                }),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                       child: Text(
                         'Antippen = Gelenk auswählen (mehrere möglich), '
                         'Ziehen = verschieben – eine Auswahl bewegt sich '
-                        'gemeinsam. Bewegung folgt der Bildschirmebene; '
-                        'für die Tiefe Ansicht drehen oder die '
-                        'Seiten-Ansichten nutzen. Beim Übernehmen werden '
+                        'gemeinsam. „Einflussbereich“ skaliert die '
+                        'unsichtbaren Wirkungs-Radien der ausgewählten '
+                        'Gelenke: kleiner = schärfere Abgrenzung (z. B. '
+                        'Arm nimmt weniger Anzug mit), größer = weichere, '
+                        'weitere Verformung. Beim Übernehmen werden '
                         'Knochen und Gewichte neu berechnet.',
                         style: theme.textTheme.bodySmall,
                       ),

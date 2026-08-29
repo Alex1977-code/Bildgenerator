@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/animation_bake.dart';
 import '../services/auto_rig.dart';
 import '../services/balance_service.dart';
 import '../services/exporter.dart';
@@ -17,6 +18,7 @@ import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_import.dart';
 import '../services/obj_export.dart';
+import '../services/preview_animations.dart';
 import '../services/provenance.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
@@ -983,6 +985,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         provenance: _provenanceFor(result),
         unriggedGlb: result.unriggedGlb,
         rigType: result.rigTypeUsed,
+        // Exportiert wird über den Export-Knopf am Ergebnis.
+        showExport: false,
         onGlbUpdated: (bytes) {
           // Ergebnis (und damit der GLB-Export) übernimmt das im
           // Rig-Editor angepasste Modell.
@@ -1077,11 +1081,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               },
             ),
             ListTile(
-              enabled: false,
+              enabled: result.rigged,
               leading: const Icon(Icons.movie_outlined),
               title: const Text('GLB mit Testanimationen'),
-              subtitle: const Text(
-                  'Im Viewer (3D-Ansicht) unter Export zu finden'),
+              subtitle: Text(result.rigged
+                  ? 'Bettet die Testanimationen als loopbare Clips ein'
+                  : 'Nur bei geriggten Modellen verfügbar'),
+              onTap: result.rigged
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _exportResultAs(result, 'glb_anim');
+                    }
+                  : null,
             ),
           ],
         ),
@@ -1093,6 +1104,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     try {
       final ts = DateTime.now().millisecondsSinceEpoch;
       switch (format) {
+        case 'glb_anim':
+          final mesh = await parseGlbForPreview(result.glbBytes);
+          final rig = mesh.rig;
+          if (rig == null) {
+            mesh.dispose();
+            _showSnack('Das Modell trägt kein Skelett.');
+            return;
+          }
+          final clips = proceduralClipsFor(rig);
+          mesh.dispose();
+          final baked = bakeAnimationsIntoGlb(result.glbBytes, clips);
+          final message = await exportImageBytes(
+              baked, 'modell_animiert_$ts.glb', 'model/gltf-binary');
+          if (message != null && mounted) {
+            _showSnack('${clips.length} Testanimationen eingebettet – '
+                '$message');
+          }
         case 'obj':
           final obj = await glbToObj(result.glbBytes);
           final message = await exportImageBytes(
@@ -1154,7 +1182,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       enable: widget.isActive &&
           (ModalRoute.of(context)?.isCurrent ?? true),
       onDragDone: (detail) => _openDroppedModel(detail.files),
-      child: ListView(
+      // Auf breiten Bildschirmen begrenzte Inhaltsbreite: Optionen und
+      // ihre Schalter bleiben beieinander, die Seite wirkt aufgeräumt.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Center(
+          child: SizedBox(
+            width: constraints.maxWidth > 860 ? 860 : constraints.maxWidth,
+            child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
@@ -2187,6 +2221,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
             ),
       ],
+            ),
+          ),
+        ),
       ),
     );
   }

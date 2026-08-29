@@ -862,6 +862,12 @@ void main() {
     final (px, py) = absoluteXY('Hips');
     expect(px, closeTo(hips.x, 1e-5));
     expect(py, closeTo(hips.y, 1e-5));
+
+    // Einfluss-Skalierung eines Gelenks verändert die Skin-Gewichte.
+    final normal = injectAutoRig(glb);
+    final narrow = injectAutoRig(glb, jointInfluence: {'Head': 0.4});
+    expect(narrow.length, normal.length);
+    expect(narrow, isNot(equals(normal)));
   });
 
   test('Auto-Rigging kennt alle Figurtypen', () {

@@ -29,6 +29,19 @@ Float32List _axisAngle(double x, double y, double z, double angle) {
   return Float32List.fromList([x * s, y * s, z * s, math.cos(half)]);
 }
 
+/// Quaternion-Produkt a·b (erst b, dann a anwenden) – für kombinierte
+/// Drehungen wie Lenken + Rollen eines Vorderrads.
+Float32List _quatMultiply(Float32List a, Float32List b) {
+  final ax = a[0], ay = a[1], az = a[2], aw = a[3];
+  final bx = b[0], by = b[1], bz = b[2], bw = b[3];
+  return Float32List.fromList([
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ]);
+}
+
 /// Passende Testanimationen für das Skelett von [rig] – erkannt an den
 /// Gelenknamen des eigenen Auto-Riggers; dazu immer ein generischer
 /// „Wackeltest“, der mit jedem Skelett funktioniert.
@@ -60,6 +73,21 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'Spine', _axisAngle(0, 1, 0, a * 0.06));
       return pose;
     }));
+    clips.add(ProceduralClip('Rennen', 1 / 2.2, (t) {
+      final a = 0.62 * math.sin(t * 2 * math.pi * 2.2);
+      final knee = 0.55 * (1 + math.sin(t * 2 * math.pi * 2.2 - 1.2)) / 2;
+      final pose = <int, Float32List>{};
+      put(pose, 'Shoulder_L', _axisAngle(1, 0, 0, a));
+      put(pose, 'Shoulder_R', _axisAngle(1, 0, 0, -a));
+      put(pose, 'Elbow_L', _axisAngle(1, 0, 0, -0.6));
+      put(pose, 'Elbow_R', _axisAngle(1, 0, 0, -0.6));
+      put(pose, 'UpperLeg_L', _axisAngle(1, 0, 0, -a));
+      put(pose, 'UpperLeg_R', _axisAngle(1, 0, 0, a));
+      put(pose, 'Knee_L', _axisAngle(1, 0, 0, knee));
+      put(pose, 'Knee_R', _axisAngle(1, 0, 0, 0.55 - knee));
+      put(pose, 'Spine', _axisAngle(1, 0, 0, 0.12));
+      return pose;
+    }));
     clips.add(ProceduralClip('Winken', 1 / 2.5, (t) {
       final a = 0.5 * math.sin(t * 2 * math.pi * 2.5);
       final pose = <int, Float32List>{};
@@ -68,6 +96,67 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.72));
       put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.55 + a * 0.6));
       put(pose, 'Head', _axisAngle(0, 0, 1, a * 0.1));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Springen', 1 / 1.1, (t) {
+      // Hocke → Absprung → Landung in einem Zyklus.
+      final phase = math.sin(t * 2 * math.pi * 1.1);
+      final crouch = phase < 0 ? -phase : 0.0;
+      final stretch = phase > 0 ? phase : 0.0;
+      final pose = <int, Float32List>{};
+      put(pose, 'UpperLeg_L', _axisAngle(1, 0, 0, -0.6 * crouch));
+      put(pose, 'UpperLeg_R', _axisAngle(1, 0, 0, -0.6 * crouch));
+      put(pose, 'Knee_L', _axisAngle(1, 0, 0, 0.9 * crouch));
+      put(pose, 'Knee_R', _axisAngle(1, 0, 0, 0.9 * crouch));
+      put(pose, 'Spine', _axisAngle(1, 0, 0, 0.3 * crouch));
+      put(pose, 'Shoulder_L', _axisAngle(1, 0, 0, -1.2 * stretch));
+      put(pose, 'Shoulder_R', _axisAngle(1, 0, 0, -1.2 * stretch));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Verbeugen', 1 / 0.8, (t) {
+      final a = 0.45 * (1 - math.cos(t * 2 * math.pi * 0.8)) / 2;
+      final pose = <int, Float32List>{};
+      put(pose, 'Spine', _axisAngle(1, 0, 0, a));
+      put(pose, 'Chest', _axisAngle(1, 0, 0, a * 0.7));
+      put(pose, 'Head', _axisAngle(1, 0, 0, a * 0.4));
+      put(pose, 'Shoulder_L', _axisAngle(1, 0, 0, a * 0.3));
+      put(pose, 'Shoulder_R', _axisAngle(1, 0, 0, a * 0.3));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Nicken', 1 / 1.6, (t) {
+      final a = 0.3 * math.sin(t * 2 * math.pi * 1.6);
+      final pose = <int, Float32List>{};
+      put(pose, 'Head', _axisAngle(1, 0, 0, a));
+      put(pose, 'Neck', _axisAngle(1, 0, 0, a * 0.4));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Kopf schütteln', 1 / 1.8, (t) {
+      final a = 0.4 * math.sin(t * 2 * math.pi * 1.8);
+      final pose = <int, Float32List>{};
+      put(pose, 'Head', _axisAngle(0, 1, 0, a));
+      put(pose, 'Neck', _axisAngle(0, 1, 0, a * 0.3));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Tanzen', 1 / 1.0, (t) {
+      final a = math.sin(t * 2 * math.pi);
+      final b2 = math.sin(t * 2 * math.pi * 2);
+      final pose = <int, Float32List>{};
+      put(pose, 'Hips', _axisAngle(0, 0, 1, 0.12 * a));
+      put(pose, 'Spine', _axisAngle(0, 0, 1, -0.1 * a));
+      put(pose, 'Shoulder_L', _axisAngle(0, 0, 1, 0.9 + 0.35 * b2));
+      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, -0.9 + 0.35 * b2));
+      put(pose, 'Elbow_L', _axisAngle(0, 0, 1, 0.5 * a));
+      put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.5 * a));
+      put(pose, 'Head', _axisAngle(0, 0, 1, 0.08 * b2));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Atmen (Idle)', 1 / 0.4, (t) {
+      final a = math.sin(t * 2 * math.pi * 0.4);
+      final pose = <int, Float32List>{};
+      put(pose, 'Chest', _axisAngle(1, 0, 0, -0.035 * a));
+      put(pose, 'Neck', _axisAngle(1, 0, 0, 0.02 * a));
+      put(pose, 'Shoulder_L', _axisAngle(0, 0, 1, 0.03 * a));
+      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, -0.03 * a));
       return pose;
     }));
   }
@@ -89,6 +178,14 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'Tail_1', _axisAngle(0, 1, 0, tail));
       put(pose, 'Tail_2', _axisAngle(0, 1, 0, tail * 1.4));
       put(pose, 'Neck', _axisAngle(1, 0, 0, a * 0.15));
+      return pose;
+    }));
+    clips.add(ProceduralClip('Schwanzwedeln', 1 / 3.0, (t) {
+      final a = 0.5 * math.sin(t * 2 * math.pi * 3.0);
+      final pose = <int, Float32List>{};
+      put(pose, 'Tail_1', _axisAngle(0, 1, 0, a));
+      put(pose, 'Tail_2', _axisAngle(0, 1, 0, a * 1.5));
+      put(pose, 'Hips', _axisAngle(0, 1, 0, a * 0.06));
       return pose;
     }));
   }
@@ -167,6 +264,39 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'Body', _axisAngle(1, 0, 0, bounce));
       return pose;
     }));
+    clips.add(ProceduralClip('Fahren (Kurven)', 2.4, (t) {
+      // Rollende Räder plus Lenk-Pendeln der Vorderachse (Wheel1…)
+      // und leichte Karosserie-Neigung in die Kurve.
+      final angle = -2 * math.pi * (t / 1.2);
+      final steer = 0.35 * math.sin(t * 2 * math.pi / 2.4);
+      final pose = <int, Float32List>{};
+      for (var j = 0; j < rig.joints.length; j++) {
+        final name = names[j];
+        if (!name.startsWith('Wheel')) continue;
+        if (name.startsWith('Wheel1')) {
+          // Lenkung (y) und Rollen (x) kombiniert.
+          pose[rig.joints[j]] =
+              _quatMultiply(_axisAngle(0, 1, 0, steer),
+                  _axisAngle(1, 0, 0, angle));
+        } else {
+          pose[rig.joints[j]] = _axisAngle(1, 0, 0, angle);
+        }
+      }
+      put(pose, 'Body', _axisAngle(0, 0, 1, -steer * 0.08));
+      return pose;
+    }));
+  }
+
+  // Showcase für jedes Skelett: das Wurzelgelenk dreht sich einmal um
+  // die eigene Achse (Turntable).
+  for (var j = 0; j < rig.joints.length; j++) {
+    if (rig.jointParents[j] < 0) {
+      final root = rig.joints[j];
+      clips.add(ProceduralClip('Drehen (Schau)', 4.0, (t) {
+        return {root: _axisAngle(0, 1, 0, 2 * math.pi * t / 4.0)};
+      }));
+      break;
+    }
   }
 
   // Generischer Test für jedes Skelett (auch fremde Rigs).

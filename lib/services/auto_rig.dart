@@ -811,11 +811,15 @@ List<RigJointInfo> computeAutoRigJoints(Uint8List glb,
 /// liefert die neue Datei. Mit [jointPositions] (Gelenkname →
 /// absolute Position) lassen sich die automatisch bestimmten Gelenke
 /// manuell übersteuern – die Knochen und Skin-Gewichte folgen den
-/// verschobenen Gelenken. Wirft [Exception] mit verständlicher
+/// verschobenen Gelenken. [jointInfluence] (Gelenkname → Faktor)
+/// skaliert den Einflussradius aller Knochen des jeweiligen Gelenks:
+/// größer = das Gelenk „greift“ mehr umliegende Geometrie, kleiner =
+/// schärfere Abgrenzung. Wirft [Exception] mit verständlicher
 /// Meldung, wenn das nicht geht.
 Uint8List injectAutoRig(Uint8List glb,
     {String rigType = 'biped',
-    Map<String, (double, double, double)>? jointPositions}) {
+    Map<String, (double, double, double)>? jointPositions,
+    Map<String, double>? jointInfluence}) {
   final analysis = _analyzeGlb(glb);
   final json = analysis.json;
   final bin = analysis.bin;
@@ -877,6 +881,16 @@ Uint8List injectAutoRig(Uint8List glb,
     return appendOffsets.length - 1;
   }
 
+  // Effektive Einflussradien (inkl. manueller Skalierung je Gelenk aus
+  // dem Rig-Editor).
+  final boneRadius = Float64List(bones.length);
+  for (var b = 0; b < bones.length; b++) {
+    final scale =
+        (jointInfluence?[joints[bones[b].joint].name] ?? 1.0)
+            .clamp(0.2, 4.0);
+    boneRadius[b] = bones[b].radius * scale;
+  }
+
   for (final (primitive, positions) in primitives) {
     final vertexCount = positions.length ~/ 3;
     final jointData = Uint8List(vertexCount * 4);
@@ -891,7 +905,7 @@ Uint8List injectAutoRig(Uint8List glb,
       for (var b = 0; b < bones.length; b++) {
         final bone = bones[b];
         final d = _distToSegmentSq(px, py, pz, bone.from, bone.to) /
-            (bone.radius * bone.radius);
+            (boneRadius[b] * boneRadius[b]);
         if (d < bestD) {
           second = best;
           secondD = bestD;
