@@ -77,6 +77,10 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   int _clipIndex = -1;
   bool _playing = false;
   bool _showSkeleton = false;
+
+  /// „Animationen ans Modell hängen“: Exporte (Viewer und Ergebnis)
+  /// betten die Testanimationen als glTF-Clips in die GLB ein.
+  bool _embedAnimations = false;
   double _time = 0;
   Float32List? _posedPositions;
   Float32List? _posedNormals;
@@ -163,6 +167,64 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     });
   }
 
+  /// Passendes Icon je Testanimation (für die seitliche Icon-Leiste).
+  static IconData _clipIcon(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('vierbein')) return Icons.pets;
+    if (n.contains('gehen')) return Icons.directions_walk;
+    if (n.contains('wink')) return Icons.waving_hand;
+    if (n.contains('flügel')) return Icons.flight;
+    if (n.contains('krabbel')) return Icons.bug_report;
+    if (n.contains('schwimm')) return Icons.pool;
+    if (n.contains('schläng')) return Icons.waves;
+    if (n.contains('fahren')) return Icons.directions_car;
+    if (n.contains('wackel')) return Icons.vibration;
+    return Icons.movie;
+  }
+
+  /// Seitliche Icon-Leiste zur Animationsauswahl (statt Dropdown).
+  Widget _animationStrip(ThemeData theme) {
+    final entries = <(int, IconData, String)>[
+      (-1, Icons.accessibility_new, 'Standbild'),
+      for (var i = 0; i < _fileClips.length; i++)
+        (i, Icons.movie, _fileClips[i].name),
+      for (var i = 0; i < _procClips.length; i++)
+        (
+          _fileClips.length + i,
+          _clipIcon(_procClips[i].name),
+          '${_procClips[i].name} (Test)',
+        ),
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (index, icon, label) in entries)
+              IconButton(
+                tooltip: label,
+                style: IconButton.styleFrom(
+                  backgroundColor: _clipIndex == index
+                      ? theme.colorScheme.primaryContainer
+                      : null,
+                  foregroundColor: _clipIndex == index
+                      ? theme.colorScheme.onPrimaryContainer
+                      : null,
+                ),
+                icon: Icon(icon),
+                onPressed: () => _selectClip(index),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _selectClip(int index) {
     setState(() {
       _clipIndex = index;
@@ -208,12 +270,32 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     });
   }
 
+  /// Schalter „Animationen ans Modell hängen“: bettet die Clips sofort
+  /// ein und reicht das Ergebnis an die Ergebnisliste weiter, damit
+  /// auch der Export dort die Animationen enthält.
+  void _setEmbed(bool value) {
+    setState(() => _embedAnimations = value);
+    final onUpdated = widget.onGlbUpdated;
+    if (onUpdated == null) return;
+    try {
+      onUpdated(value && _procClips.isNotEmpty
+          ? bakeAnimationsIntoGlb(widget.glbBytes, _procClips)
+          : widget.glbBytes);
+      if (value) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${_procClips.length} Testanimationen sind '
+                'jetzt Teil des Modells (auch beim Export am '
+                'Ergebnis).')));
+      }
+    } catch (_) {}
+  }
+
   Future<void> _export({bool withAnimations = false}) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
       var bytes = widget.glbBytes;
       var prefix = 'modell';
-      if (withAnimations && _procClips.isNotEmpty) {
+      if ((withAnimations || _embedAnimations) && _procClips.isNotEmpty) {
         bytes = bakeAnimationsIntoGlb(bytes, _procClips);
         prefix = 'modell_animiert';
         messenger.showSnackBar(SnackBar(
@@ -461,55 +543,77 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               : Column(
                   children: [
                     Expanded(
-                      child: Listener(
-                        onPointerSignal: (event) {
-                          if (event is PointerScrollEvent) {
-                            setState(() {
-                              _zoom = (_zoom *
-                                      (event.scrollDelta.dy > 0
-                                          ? 0.9
-                                          : 1.1))
-                                  .clamp(0.3, 8.0);
-                            });
-                          }
-                        },
-                        child: GestureDetector(
-                          onScaleStart: (_) => _lastScale = 1.0,
-                          onScaleUpdate: (details) {
-                            setState(() {
-                              _rotY +=
-                                  details.focalPointDelta.dx * 0.01;
-                              _rotX +=
-                                  details.focalPointDelta.dy * 0.01;
-                              _rotX = _rotX.clamp(-math.pi, math.pi);
-                              if (details.scale != 1.0) {
-                                _zoom = (_zoom *
-                                        (details.scale / _lastScale))
-                                    .clamp(0.3, 8.0);
-                                _lastScale = details.scale;
-                              }
-                            });
-                          },
-                          child: ClipRect(
-                            child: CustomPaint(
-                              painter: _MeshPainter(
-                                mesh: mesh,
-                                positions:
-                                    _posedPositions ?? mesh.positions,
-                                normals: _posedNormals ?? mesh.normals,
-                                skeleton:
-                                    _showSkeleton ? _jointPositions : null,
-                                skeletonParents: rig?.jointParents,
-                                rotX: _rotX,
-                                rotY: _rotY,
-                                zoom: _zoom,
-                                background:
-                                    theme.colorScheme.surfaceContainerHighest,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Listener(
+                              onPointerSignal: (event) {
+                                if (event is PointerScrollEvent) {
+                                  setState(() {
+                                    _zoom = (_zoom *
+                                            (event.scrollDelta.dy > 0
+                                                ? 0.9
+                                                : 1.1))
+                                        .clamp(0.3, 8.0);
+                                  });
+                                }
+                              },
+                              child: GestureDetector(
+                                onScaleStart: (_) => _lastScale = 1.0,
+                                onScaleUpdate: (details) {
+                                  setState(() {
+                                    _rotY +=
+                                        details.focalPointDelta.dx * 0.01;
+                                    _rotX +=
+                                        details.focalPointDelta.dy * 0.01;
+                                    _rotX =
+                                        _rotX.clamp(-math.pi, math.pi);
+                                    if (details.scale != 1.0) {
+                                      _zoom = (_zoom *
+                                              (details.scale /
+                                                  _lastScale))
+                                          .clamp(0.3, 8.0);
+                                      _lastScale = details.scale;
+                                    }
+                                  });
+                                },
+                                child: ClipRect(
+                                  child: CustomPaint(
+                                    painter: _MeshPainter(
+                                      mesh: mesh,
+                                      positions: _posedPositions ??
+                                          mesh.positions,
+                                      normals:
+                                          _posedNormals ?? mesh.normals,
+                                      skeleton: _showSkeleton
+                                          ? _jointPositions
+                                          : null,
+                                      skeletonParents: rig?.jointParents,
+                                      rotX: _rotX,
+                                      rotY: _rotY,
+                                      zoom: _zoom,
+                                      background: theme.colorScheme
+                                          .surfaceContainerHighest,
+                                    ),
+                                    size: Size.infinite,
+                                  ),
+                                ),
                               ),
-                              size: Size.infinite,
                             ),
                           ),
-                        ),
+                          // Seitliche Icon-Leiste: Animationen direkt
+                          // anwählbar (statt Dropdown).
+                          if (rig != null && _hasClips)
+                            Positioned(
+                              right: 8,
+                              top: 8,
+                              bottom: 8,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: _animationStrip(theme),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     if (rig != null && _hasClips)
@@ -527,35 +631,21 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                               onPressed: _togglePlay,
                             ),
                             const SizedBox(width: 8),
-                            Expanded(
-                              child: DropdownMenu<int>(
-                                key: ValueKey('clip-$_clipIndex'),
-                                initialSelection: _clipIndex,
-                                label: const Text('Animation'),
-                                expandedInsets: EdgeInsets.zero,
-                                dropdownMenuEntries: [
-                                  const DropdownMenuEntry(
-                                      value: -1,
-                                      label: 'Keine (Standbild)'),
-                                  for (var i = 0;
-                                      i < _fileClips.length;
-                                      i++)
-                                    DropdownMenuEntry(
-                                        value: i,
-                                        label: _fileClips[i].name),
-                                  for (var i = 0;
-                                      i < _procClips.length;
-                                      i++)
-                                    DropdownMenuEntry(
-                                        value: _fileClips.length + i,
-                                        label:
-                                            '${_procClips[i].name} (Test)'),
-                                ],
-                                onSelected: (value) {
-                                  if (value != null) _selectClip(value);
-                                },
+                            if (_procClips.isNotEmpty)
+                              Expanded(
+                                child: SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  title: const Text(
+                                      'Animationen ans Modell hängen'),
+                                  subtitle: const Text(
+                                      'Bettet die Testanimationen als '
+                                      'loopbare glTF-Clips in die '
+                                      'GLB-Datei ein (Export)'),
+                                  value: _embedAnimations,
+                                  onChanged: (v) => _setEmbed(v),
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),

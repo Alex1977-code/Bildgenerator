@@ -91,8 +91,13 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     gewandelt)
   - **Rig-Editor**: Bei selbst geriggten Modellen (Lokal/Stability)
     lassen sich die Gelenke im Viewer manuell verschieben („Rig
-    anpassen“) – mit Symmetrie-Modus (links/rechts gespiegelt);
-    Knochen und Skin-Gewichte werden beim Übernehmen neu berechnet.
+    anpassen“) – mit Symmetrie-Modus (links/rechts gespiegelt),
+    unsichtbarem Raster-Fang (Standard an), Mehrfachauswahl per
+    Antippen (gemeinsames Verschieben) und festen Ansichten
+    Vorn/Hinten/Seiten; Knochen und Skin-Gewichte werden beim
+    Übernehmen neu berechnet. Im Viewer werden Animationen über eine
+    seitliche Icon-Leiste gewählt, und „Animationen ans Modell hängen“
+    bettet die Testanimationen dauerhaft in die GLB ein.
     Die automatische Vermessung erkennt Schulterhöhe an seitlich
     abstehenden Armen und auch feine Beinspalte (Belegungsraster)
   - **Galerie mit 3D-Modellen**: Generierte Modelle erscheinen neben

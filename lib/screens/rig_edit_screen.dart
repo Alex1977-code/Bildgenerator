@@ -34,7 +34,17 @@ class _RigEditScreenState extends State<RigEditScreen> {
   List<RigJointInfo> _joints = const [];
   List<List<double>> _positions = const []; // bearbeitbare Kopie x,y,z
   int? _dragJoint;
+  bool _dragMoved = false;
+
+  /// Mehrfachauswahl: angetippte Gelenke; beim Ziehen eines
+  /// ausgewählten Gelenks bewegt sich die ganze Auswahl mit.
+  final Set<int> _selected = {};
   bool _symmetric = true;
+
+  /// Unsichtbares Snap-Raster (Standard an): Gelenke rasten beim
+  /// Verschieben auf feste Rasterpunkte ein – so bleiben Positionen
+  /// sauber ausgerichtet.
+  bool _snap = true;
   bool _applying = false;
 
   double _rotX = -0.1;
@@ -80,6 +90,30 @@ class _RigEditScreenState extends State<RigEditScreen> {
         _positions = [
           for (final j in _joints) [j.x, j.y, j.z],
         ];
+        _selected.clear();
+      });
+
+  /// Rasterweite des unsichtbaren Snap-Rasters (1/64 der Modellgröße).
+  double get _gridStep => (_mesh?.extent ?? 1) / 64;
+
+  /// Wirksame (ggf. eingerastete) Position eines Gelenks – die rohe
+  /// Position bleibt erhalten, damit auch feine Bewegungen unterhalb
+  /// der Rasterweite aufsummiert werden.
+  (double, double, double) _effective(int j) {
+    final p = _positions[j];
+    if (!_snap) return (p[0], p[1], p[2]);
+    final s = _gridStep;
+    return (
+      (p[0] / s).round() * s,
+      (p[1] / s).round() * s,
+      (p[2] / s).round() * s,
+    );
+  }
+
+  /// Feste Ansicht einstellen (Vorn/Hinten/Seiten).
+  void _setView(double rotY) => setState(() {
+        _rotX = 0;
+        _rotY = rotY;
       });
 
   double get _scale {
@@ -112,8 +146,8 @@ class _RigEditScreenState extends State<RigEditScreen> {
     int? best;
     var bestDist = 24.0 * 24.0;
     for (var j = 0; j < _positions.length; j++) {
-      final (px, py) = _project(
-          _positions[j][0], _positions[j][1], _positions[j][2]);
+      final (ex, ey, ez) = _effective(j);
+      final (px, py) = _project(ex, ey, ez);
       final dx = px - position.dx, dy = py - position.dy;
       final d = dx * dx + dy * dy;
       if (d < bestDist) {
@@ -150,17 +184,25 @@ class _RigEditScreenState extends State<RigEditScreen> {
     final wx = dxw * cosY + dyw * sinX * sinY;
     final wy = dyw * cosX;
     final wz = dxw * sinY - dyw * sinX * cosY;
+    // Ausgewähltes Gelenk ziehen bewegt die ganze Auswahl mit.
+    final moved = _selected.contains(joint)
+        ? Set<int>.of(_selected)
+        : {joint};
     setState(() {
-      _positions[joint][0] += wx;
-      _positions[joint][1] += wy;
-      _positions[joint][2] += wz;
+      for (final j in moved) {
+        _positions[j][0] += wx;
+        _positions[j][1] += wy;
+        _positions[j][2] += wz;
+      }
       if (_symmetric) {
-        final mirror = _mirrorOf(joint);
-        if (mirror != null && mirror != joint) {
-          final centerX = _mesh!.center[0];
-          _positions[mirror][0] = 2 * centerX - _positions[joint][0];
-          _positions[mirror][1] = _positions[joint][1];
-          _positions[mirror][2] = _positions[joint][2];
+        final centerX = _mesh!.center[0];
+        for (final j in moved) {
+          final mirror = _mirrorOf(j);
+          if (mirror != null && mirror != j && !moved.contains(mirror)) {
+            _positions[mirror][0] = 2 * centerX - _positions[j][0];
+            _positions[mirror][1] = _positions[j][1];
+            _positions[mirror][2] = _positions[j][2];
+          }
         }
       }
     });
@@ -174,11 +216,7 @@ class _RigEditScreenState extends State<RigEditScreen> {
         rigType: widget.rigType,
         jointPositions: {
           for (var j = 0; j < _joints.length; j++)
-            _joints[j].name: (
-              _positions[j][0],
-              _positions[j][1],
-              _positions[j][2],
-            ),
+            _joints[j].name: _effective(j),
         },
       );
       if (mounted) Navigator.of(context).pop(rigged);
@@ -227,13 +265,31 @@ class _RigEditScreenState extends State<RigEditScreen> {
                           return GestureDetector(
                             onScaleStart: (details) {
                               _lastScale = 1.0;
+                              _dragMoved = false;
                               _dragJoint =
                                   _jointAt(details.localFocalPoint);
                             },
-                            onScaleEnd: (_) => _dragJoint = null,
+                            onScaleEnd: (_) {
+                              // Kurzes Antippen (ohne Ziehen) wählt das
+                              // Gelenk aus bzw. ab (Mehrfachauswahl).
+                              final joint = _dragJoint;
+                              if (joint != null && !_dragMoved) {
+                                setState(() {
+                                  if (!_selected.remove(joint)) {
+                                    _selected.add(joint);
+                                  }
+                                });
+                              }
+                              _dragJoint = null;
+                            },
                             onScaleUpdate: (details) {
                               final joint = _dragJoint;
                               if (joint != null && details.scale == 1.0) {
+                                if (details.focalPointDelta
+                                        .distanceSquared >
+                                    0) {
+                                  _dragMoved = true;
+                                }
                                 _moveJoint(
                                     joint, details.focalPointDelta);
                                 return;
@@ -256,11 +312,21 @@ class _RigEditScreenState extends State<RigEditScreen> {
                               child: CustomPaint(
                                 painter: _RigEditPainter(
                                   mesh: mesh,
-                                  jointPositions: _positions,
+                                  jointPositions: [
+                                    for (var j = 0;
+                                        j < _positions.length;
+                                        j++)
+                                      [
+                                        _effective(j).$1,
+                                        _effective(j).$2,
+                                        _effective(j).$3,
+                                      ],
+                                  ],
                                   jointParents: [
                                     for (final j in _joints) j.parent,
                                   ],
                                   selected: _dragJoint,
+                                  selectedJoints: _selected,
                                   rotX: _rotX,
                                   rotY: _rotY,
                                   zoom: _zoom,
@@ -275,43 +341,93 @@ class _RigEditScreenState extends State<RigEditScreen> {
                       ),
                     ),
                     Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final (label, rotY) in const [
+                            ('Vorn', 0.0),
+                            ('Seite links', -math.pi / 2),
+                            ('Seite rechts', math.pi / 2),
+                            ('Hinten', math.pi),
+                          ])
+                            OutlinedButton(
+                              onPressed: () => _setView(rotY),
+                              child: Text(label),
+                            ),
+                          if (_selected.isNotEmpty)
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  setState(_selected.clear),
+                              icon: const Icon(Icons.deselect, size: 18),
+                              label: Text(
+                                  'Auswahl (${_selected.length}) leeren'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                       child: Text(
-                        'Gelenk antippen und ziehen – die Bewegung folgt '
-                        'der Bildschirmebene; für die Tiefe die Ansicht '
-                        'vorher drehen. Leere Fläche ziehen = drehen. '
-                        'Beim Übernehmen werden Knochen und Gewichte aus '
-                        'den neuen Gelenkpositionen neu berechnet.',
+                        'Antippen = Gelenk auswählen (mehrere möglich), '
+                        'Ziehen = verschieben – eine Auswahl bewegt sich '
+                        'gemeinsam. Bewegung folgt der Bildschirmebene; '
+                        'für die Tiefe Ansicht drehen oder die '
+                        'Seiten-Ansichten nutzen. Beim Übernehmen werden '
+                        'Knochen und Gewichte neu berechnet.',
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Row(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Symmetrisch'),
-                              subtitle: const Text(
-                                  'Links/Rechts spiegeln (…_L ↔ …_R)'),
-                              value: _symmetric,
-                              onChanged: (v) =>
-                                  setState(() => _symmetric = v),
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  title: const Text('Symmetrisch'),
+                                  subtitle: const Text(
+                                      'Links/Rechts spiegeln'),
+                                  value: _symmetric,
+                                  onChanged: (v) =>
+                                      setState(() => _symmetric = v),
+                                ),
+                              ),
+                              Expanded(
+                                child: SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  title: const Text('Raster-Fang'),
+                                  subtitle: const Text(
+                                      'Auf unsichtbare Rasterpunkte '
+                                      'einrasten'),
+                                  value: _snap,
+                                  onChanged: (v) =>
+                                      setState(() => _snap = v),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          FilledButton.icon(
-                            onPressed: _applying ? null : _apply,
-                            icon: _applying
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.check),
-                            label: const Text('Skelett übernehmen'),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _applying ? null : _apply,
+                              icon: _applying
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.check),
+                              label: const Text('Skelett übernehmen'),
+                            ),
                           ),
                         ],
                       ),
@@ -328,6 +444,7 @@ class _RigEditPainter extends CustomPainter {
     required this.jointPositions,
     required this.jointParents,
     required this.selected,
+    required this.selectedJoints,
     required this.rotX,
     required this.rotY,
     required this.zoom,
@@ -338,6 +455,7 @@ class _RigEditPainter extends CustomPainter {
   final List<List<double>> jointPositions;
   final List<int> jointParents;
   final int? selected;
+  final Set<int> selectedJoints;
   final double rotX;
   final double rotY;
   final double zoom;
@@ -449,11 +567,14 @@ class _RigEditPainter extends CustomPainter {
     final jointPaint = Paint()..color = const Color(0xFFE65100);
     final selectedPaint = Paint()..color = const Color(0xFF2962FF);
     for (var j = 0; j < jointPositions.length; j++) {
-      final isSelected = j == selected;
+      final isDragged = j == selected;
+      final isPicked = selectedJoints.contains(j);
+      final radius = isDragged ? 8.0 : (isPicked ? 6.5 : 5.5);
+      canvas.drawCircle(Offset(jx[j], jy[j]), radius, jointBorder);
       canvas.drawCircle(
-          Offset(jx[j], jy[j]), isSelected ? 8.0 : 5.5, jointBorder);
-      canvas.drawCircle(Offset(jx[j], jy[j]), isSelected ? 6.2 : 4.0,
-          isSelected ? selectedPaint : jointPaint);
+          Offset(jx[j], jy[j]),
+          radius - 1.8,
+          (isDragged || isPicked) ? selectedPaint : jointPaint);
     }
   }
 
