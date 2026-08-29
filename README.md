@@ -89,8 +89,20 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     sich per Drag & Drop in den 3D-Tab oder direkt in den Viewer
     ziehen und werden dort angezeigt (STL/OBJ werden intern nach GLB
     gewandelt)
+  - **Rig-Editor**: Bei selbst geriggten Modellen (Lokal/Stability)
+    lassen sich die Gelenke im Viewer manuell verschieben („Rig
+    anpassen“) – mit Symmetrie-Modus (links/rechts gespiegelt);
+    Knochen und Skin-Gewichte werden beim Übernehmen neu berechnet.
+    Die automatische Vermessung erkennt Schulterhöhe an seitlich
+    abstehenden Armen und auch feine Beinspalte (Belegungsraster)
+  - **Galerie mit 3D-Modellen**: Generierte Modelle erscheinen neben
+    den Bildern in der Galerie (3D-Abzeichen, Vorschaubild, ein Tipp
+    öffnet den Viewer); nach der Generierung zeigt der 3D-Tab den
+    Token-Verbrauch der Bild-KI-Schritte und das Restguthaben des
+    Providers an
   - **Erstellungsnachweis (PDF)**: Zu jedem generierten Bild (Knopf
-    unter dem Ergebnis) und 3D-Modell (Export-Menü im Viewer) lässt
+    unter dem Ergebnis) und 3D-Modell (Knopf am Ergebnis und im
+    Export-Menü des Viewers) lässt
     sich ein druckbares PDF erzeugen, das Zeitpunkt, Ersteller,
     KI-Dienst/Modell, Eingabe und die **SHA-256-Prüfsumme** der Datei
     dokumentiert – mit Unterschriftszeile zum Ausdrucken. Die

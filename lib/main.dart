@@ -114,9 +114,11 @@ class _HomeShellState extends State<HomeShell> {
       children: [
         GeneratorScreen(
           onOpenSettings: () => setState(() => _index = 3),
+          isActive: _index == 0,
         ),
         ThreeDScreen(
           onOpenSettings: () => setState(() => _index = 3),
+          isActive: _index == 1,
         ),
         const GalleryScreen(),
         const SettingsScreen(),

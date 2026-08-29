@@ -748,6 +748,122 @@ void main() {
     expect(absoluteY('Shoulder_L'), lessThan(0.6));
   });
 
+  test('Auto-Rigging: Schultern folgen erkannten Armen (nicht der Frisur)',
+      () {
+    // Figur, bei der die Halsschätzung über Breiten-Minima versagt:
+    // riesige Frisur umschließt den Kopf, die Stiefel stehen so eng,
+    // dass das grobe Mittelband keinen Beinspalt sieht. Die
+    // Inseln-Erkennung findet Beinspalt und Arm-Band trotzdem.
+    final mesh = LocalMesh();
+    void denseBox(double x0, double x1, double y0, double y1, double z0,
+        double z1) {
+      const nx = 9, ny = 13;
+      for (var iy = 0; iy <= ny; iy++) {
+        final y = y0 + (y1 - y0) * iy / ny;
+        for (var ix = 0; ix <= nx; ix++) {
+          final x = x0 + (x1 - x0) * ix / nx;
+          mesh.addVertex(x, y, z0, 0, 0);
+          mesh.addVertex(x, y, z1, 0, 0);
+        }
+      }
+      final a = mesh.addVertex(x0, y0, z0, 0, 0);
+      final b = mesh.addVertex(x1, y0, z0, 0, 0);
+      final c = mesh.addVertex(x1, y1, z1, 0, 0);
+      final d = mesh.addVertex(x0, y1, z1, 0, 0);
+      mesh.addQuad(a, b, c, d);
+    }
+
+    denseBox(-0.16, -0.02, 0.0, 0.12, -0.08, 0.08); // Stiefel links
+    denseBox(0.02, 0.16, 0.0, 0.12, -0.08, 0.08); // Stiefel rechts
+    denseBox(-0.22, 0.22, 0.12, 0.52, -0.12, 0.12); // Rumpf
+    denseBox(-0.4, -0.3, 0.28, 0.42, -0.06, 0.06); // Fäustling links
+    denseBox(0.3, 0.4, 0.28, 0.42, -0.06, 0.06); // Fäustling rechts
+    denseBox(-0.4, 0.4, 0.52, 1.0, -0.3, 0.3); // Riesiger Haarkopf
+
+    final rigged = injectAutoRig(buildGlb(mesh));
+    final json = _readGlbJson(rigged);
+    final nodes = json['nodes'] as List;
+    double absoluteY(String name) {
+      var index = -1;
+      for (var i = 0; i < nodes.length; i++) {
+        if ((nodes[i] as Map)['name'] == name) index = i;
+      }
+      expect(index, greaterThanOrEqualTo(0), reason: '$name fehlt');
+      final childOf = <int, int>{};
+      for (var i = 0; i < nodes.length; i++) {
+        for (final child in (nodes[i] as Map)['children'] as List? ?? []) {
+          childOf[child as int] = i;
+        }
+      }
+      var y = 0.0;
+      var current = index;
+      while (current >= 0) {
+        final t = (nodes[current] as Map)['translation'] as List?;
+        if (t != null) y += (t[1] as num).toDouble();
+        current = childOf[current] ?? -1;
+      }
+      return y;
+    }
+
+    // Schultern auf Armhöhe (~0,45) statt auf Nasenhöhe (0,80).
+    expect(absoluteY('Shoulder_L'), inInclusiveRange(0.38, 0.58));
+    expect(absoluteY('Neck'), lessThan(0.65));
+    // Beinspalt trotz eng stehender Stiefel erkannt.
+    expect(absoluteY('Hips'), lessThan(0.35));
+  });
+
+  test('Rig-Editor: Gelenk-Overrides verschieben Skelett-Knoten', () {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    final joints = computeAutoRigJoints(glb);
+    expect(joints, hasLength(rigJointCounts['biped']!));
+    final head = joints.firstWhere((j) => j.name == 'Head');
+
+    final moved = injectAutoRig(glb, jointPositions: {
+      'Head': (head.x + 0.1, head.y + 0.05, head.z),
+    });
+    final json = _readGlbJson(moved);
+    final nodes = json['nodes'] as List;
+    (double, double) absoluteXY(String name) {
+      var index = -1;
+      for (var i = 0; i < nodes.length; i++) {
+        if ((nodes[i] as Map)['name'] == name) index = i;
+      }
+      expect(index, greaterThanOrEqualTo(0), reason: '$name fehlt');
+      final childOf = <int, int>{};
+      for (var i = 0; i < nodes.length; i++) {
+        for (final child in (nodes[i] as Map)['children'] as List? ?? []) {
+          childOf[child as int] = i;
+        }
+      }
+      var x = 0.0, y = 0.0;
+      var current = index;
+      while (current >= 0) {
+        final t = (nodes[current] as Map)['translation'] as List?;
+        if (t != null) {
+          x += (t[0] as num).toDouble();
+          y += (t[1] as num).toDouble();
+        }
+        current = childOf[current] ?? -1;
+      }
+      return (x, y);
+    }
+
+    final (hx, hy) = absoluteXY('Head');
+    expect(hx, closeTo(head.x + 0.1, 1e-5));
+    expect(hy, closeTo(head.y + 0.05, 1e-5));
+    // Nicht überschriebene Gelenke bleiben an ihrer Position.
+    final hips = joints.firstWhere((j) => j.name == 'Hips');
+    final (px, py) = absoluteXY('Hips');
+    expect(px, closeTo(hips.x, 1e-5));
+    expect(py, closeTo(hips.y, 1e-5));
+  });
+
   test('Auto-Rigging kennt alle Figurtypen', () {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),

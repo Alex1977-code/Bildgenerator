@@ -184,6 +184,8 @@ class HistoryEntry {
     required this.params,
     required this.format,
     this.fileName,
+    this.kind = 'image',
+    this.thumbFileName,
   });
 
   final String id;
@@ -196,7 +198,16 @@ class HistoryEntry {
   /// Dateiname im lokalen Speicher (nur native Plattformen).
   final String? fileName;
 
-  String get mimeType => 'image/$format';
+  /// 'image' (Bild) oder 'model' (3D-Modell als GLB).
+  final String kind;
+
+  /// Dateiname des Vorschaubilds (nur bei 3D-Modellen).
+  final String? thumbFileName;
+
+  bool get isModel => kind == 'model';
+
+  String get mimeType =>
+      isModel ? 'model/gltf-binary' : 'image/$format';
 
   String get fileExtension => format == 'jpeg' ? 'jpg' : format;
 
@@ -208,6 +219,8 @@ class HistoryEntry {
         'params': params,
         'format': format,
         'fileName': fileName,
+        'kind': kind,
+        'thumbFileName': thumbFileName,
       };
 
   static HistoryEntry fromJson(Map<String, dynamic> json) => HistoryEntry(
@@ -221,6 +234,8 @@ class HistoryEntry {
             .map((k, v) => MapEntry(k, '$v')),
         format: json['format'] as String? ?? 'png',
         fileName: json['fileName'] as String?,
+        kind: json['kind'] as String? ?? 'image',
+        thumbFileName: json['thumbFileName'] as String?,
       );
 
   static String encodeList(List<HistoryEntry> entries) =>
@@ -243,14 +258,22 @@ class ThreeDResult {
     this.thumbnailBytes,
     this.rigged = false,
     this.textured = false,
+    this.unriggedGlb,
+    this.rigTypeUsed,
   });
 
-  final Uint8List glbBytes;
+  Uint8List glbBytes;
   final String label;
   final String providerLabel;
   final Uint8List? thumbnailBytes;
   final bool rigged;
   final bool textured;
+
+  /// Das Modell VOR dem eigenen Auto-Rigging plus verwendeter
+  /// Figurtyp – Grundlage für den Rig-Editor (Gelenke manuell
+  /// verschieben und Skelett neu einbauen).
+  final Uint8List? unriggedGlb;
+  final String? rigTypeUsed;
 }
 
 /// Auswahloptionen (Wert, Anzeigename).

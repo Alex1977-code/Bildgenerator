@@ -19,6 +19,7 @@ import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
+import 'rig_edit_screen.dart';
 
 /// Frei drehbare 3D-Vorschau eines GLB-Modells (eigener Software-Renderer,
 /// läuft auf allen Plattformen inklusive Windows). Geriggte Modelle
@@ -30,6 +31,9 @@ class ModelPreviewScreen extends StatefulWidget {
     required this.glbBytes,
     required this.title,
     this.provenance,
+    this.unriggedGlb,
+    this.rigType,
+    this.onGlbUpdated,
   });
 
   final Uint8List glbBytes;
@@ -38,6 +42,16 @@ class ModelPreviewScreen extends StatefulWidget {
   /// Metadaten für den Erstellungsnachweis (nur bei in der App
   /// erzeugten Modellen vorhanden – nicht bei importierten Dateien).
   final ProvenanceInfo? provenance;
+
+  /// Modell vor dem eigenen Auto-Rigging + Figurtyp: schaltet den
+  /// Rig-Editor frei (Gelenke manuell verschieben, Skelett neu
+  /// einbauen).
+  final Uint8List? unriggedGlb;
+  final String? rigType;
+
+  /// Wird nach dem Rig-Editor mit dem neuen GLB aufgerufen (damit das
+  /// Ergebnis in der Liste den angepassten Stand exportiert).
+  final void Function(Uint8List bytes)? onGlbUpdated;
 
   @override
   State<ModelPreviewScreen> createState() => _ModelPreviewScreenState();
@@ -289,6 +303,34 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     );
   }
 
+  /// Rig-Editor öffnen; danach das Modell mit dem angepassten Skelett
+  /// neu laden und dem Aufrufer (Ergebnisliste) mitteilen.
+  Future<void> _editRig() async {
+    final unrigged = widget.unriggedGlb;
+    final rigType = widget.rigType;
+    if (unrigged == null || rigType == null) return;
+    final navigator = Navigator.of(context);
+    final edited = await navigator.push<Uint8List>(MaterialPageRoute(
+      builder: (_) => RigEditScreen(
+        unriggedGlb: unrigged,
+        rigType: rigType,
+        title: widget.title,
+      ),
+    ));
+    if (edited == null || !mounted) return;
+    widget.onGlbUpdated?.call(edited);
+    navigator.pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: edited,
+        title: widget.title,
+        provenance: widget.provenance,
+        unriggedGlb: unrigged,
+        rigType: rigType,
+        onGlbUpdated: widget.onGlbUpdated,
+      ),
+    ));
+  }
+
   /// Erstellungsnachweis-PDF fürs Modell (Zeitpunkt, Eingabe, Dienst
   /// und SHA-256-Prüfsumme der GLB-Datei) herunterladen/drucken.
   Future<void> _exportProvenance() async {
@@ -413,6 +455,12 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               ),
               onPressed: () =>
                   setState(() => _showSkeleton = !_showSkeleton),
+            ),
+          if (widget.unriggedGlb != null && widget.rigType != null)
+            IconButton(
+              tooltip: 'Rig anpassen (Gelenke manuell verschieben)',
+              icon: const Icon(Icons.settings_accessibility),
+              onPressed: _editRig,
             ),
           IconButton(
             tooltip: 'Ansicht zurücksetzen',

@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/history_service.dart';
 import '../services/prompt_relay.dart';
+import '../services/provenance.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
+import 'model_preview_screen.dart';
 
 /// Galerie mit allen bisher generierten Bildern.
 class GalleryScreen extends StatelessWidget {
@@ -23,6 +25,21 @@ class GalleryScreen extends StatelessWidget {
       BuildContext context, HistoryEntry entry, Uint8List bytes) {
     final history = context.read<HistoryService>();
     final relay = context.read<PromptRelay>();
+    if (entry.isModel) {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => ModelPreviewScreen(
+          glbBytes: bytes,
+          title: entry.prompt,
+          provenance: ProvenanceInfo(
+            kind: '3D-Modell',
+            description: entry.prompt,
+            providerLabel: entry.providerLabel,
+            details: entry.params,
+          ),
+        ),
+      ));
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ImageDetailScreen(
         bytes: bytes,
@@ -56,8 +73,8 @@ class GalleryScreen extends StatelessWidget {
                   color: Theme.of(context).colorScheme.outlineVariant),
               const SizedBox(height: 12),
               Text(
-                'Die Galerie ist noch leer.\nGenerierte Bilder erscheinen '
-                'hier automatisch.',
+                'Die Galerie ist noch leer.\nGenerierte Bilder und '
+                '3D-Modelle erscheinen hier automatisch.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -121,34 +138,97 @@ class _GalleryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final history = context.read<HistoryService>();
     final theme = Theme.of(context);
+    final isModel = entry.isModel;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: FutureBuilder<Uint8List?>(
-        future: history.readImage(entry),
+        // Bei Modellen zeigt die Kachel das Vorschaubild; die
+        // GLB-Datei wird erst beim Öffnen geladen.
+        future:
+            isModel ? history.readThumbnail(entry) : history.readImage(entry),
         builder: (context, snapshot) {
           final bytes = snapshot.data;
+          Future<void> openModel() async {
+            final glb = await history.readImage(entry);
+            if (glb != null && context.mounted) onOpen(glb);
+          }
+
           return InkWell(
-            onTap: bytes == null ? null : () => onOpen(bytes),
+            onTap: isModel
+                ? openModel
+                : (bytes == null ? null : () => onOpen(bytes)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: SizedBox.expand(
-                    child: bytes == null
-                        ? snapshot.connectionState == ConnectionState.done
-                            ? Center(
-                                child: Icon(Icons.broken_image_outlined,
-                                    color: theme.colorScheme.outlineVariant),
-                              )
-                            : const Center(
-                                child: SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2),
-                                ),
-                              )
-                        : CheckerboardImage(bytes: bytes, fit: BoxFit.cover),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      bytes == null
+                          ? snapshot.connectionState == ConnectionState.done
+                              ? Center(
+                                  child: Icon(
+                                      isModel
+                                          ? Icons.view_in_ar
+                                          : Icons.broken_image_outlined,
+                                      size: isModel ? 48 : 24,
+                                      color:
+                                          theme.colorScheme.outlineVariant),
+                                )
+                              : const Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  ),
+                                )
+                          : CheckerboardImage(
+                              bytes: bytes, fit: BoxFit.cover),
+                      if (isModel) ...[
+                        Positioned(
+                          left: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.view_in_ar,
+                                    size: 14,
+                                    color: theme
+                                        .colorScheme.onPrimaryContainer),
+                                const SizedBox(width: 3),
+                                Text('3D',
+                                    style: theme.textTheme.labelSmall
+                                        ?.copyWith(
+                                            color: theme.colorScheme
+                                                .onPrimaryContainer)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 2,
+                          top: 2,
+                          child: IconButton(
+                            tooltip: 'Aus der Galerie löschen',
+                            iconSize: 18,
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => history.delete(entry),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 Padding(

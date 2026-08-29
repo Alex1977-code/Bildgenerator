@@ -18,9 +18,18 @@ import 'image_detail_screen.dart';
 
 /// Hauptbildschirm: Prompt, Referenzbilder, Optionen und Ergebnisse.
 class GeneratorScreen extends StatefulWidget {
-  const GeneratorScreen({super.key, required this.onOpenSettings});
+  const GeneratorScreen({
+    super.key,
+    required this.onOpenSettings,
+    this.isActive = true,
+  });
 
   final VoidCallback onOpenSettings;
+
+  /// Ob dieser Tab gerade sichtbar ist. Im IndexedStack bleiben alle
+  /// Tabs aufgebaut – ohne diese Sperre fingen ihre Drop-Ziele auch
+  /// Dateien ab, die auf einen anderen Tab gezogen werden.
+  final bool isActive;
 
   @override
   State<GeneratorScreen> createState() => _GeneratorScreenState();
@@ -499,7 +508,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
 
   Widget _buildReferenceCard(bool supportsReferences) {
     return DropTarget(
-      enable: supportsReferences && !_generating,
+      enable: supportsReferences &&
+          !_generating &&
+          widget.isActive &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
       onDragEntered: (_) => setState(() => _dragOverReferences = true),
       onDragExited: (_) => setState(() => _dragOverReferences = false),
       onDragDone: (detail) => _addDroppedReferences(detail.files),

@@ -62,6 +62,61 @@ class HistoryService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Speichert ein generiertes 3D-Modell (GLB) samt Vorschaubild im
+  /// Verlauf – erscheint in der Galerie neben den Bildern.
+  Future<void> addModel({
+    required Uint8List glbBytes,
+    Uint8List? thumbnail,
+    required String label,
+    required String providerLabel,
+    Map<String, String> params = const {},
+  }) async {
+    final id = const Uuid().v4();
+    final entry = HistoryEntry(
+      id: id,
+      prompt: label,
+      providerLabel: providerLabel,
+      createdAt: DateTime.now(),
+      params: params,
+      format: 'glb',
+      fileName: '$id.glb',
+      kind: 'model',
+      thumbFileName: thumbnail != null ? '${id}_vorschau.png' : null,
+    );
+    try {
+      await _store.writeImage(entry, glbBytes);
+      if (thumbnail != null) {
+        await _store.writeImage(_thumbProxy(entry), thumbnail);
+      }
+      _entries.insert(0, entry);
+      await _store.saveIndex(_entries);
+      notifyListeners();
+    } catch (_) {
+      // Verlauf ist optional – Fehler beim Speichern nicht eskalieren.
+    }
+  }
+
+  /// Hilfs-Eintrag, unter dem das Vorschaubild eines Modells liegt.
+  HistoryEntry _thumbProxy(HistoryEntry entry) => HistoryEntry(
+        id: '${entry.id}_vorschau',
+        prompt: '',
+        providerLabel: '',
+        createdAt: entry.createdAt,
+        params: const {},
+        format: 'png',
+        fileName: entry.thumbFileName,
+      );
+
+  /// Vorschaubild eines Modell-Eintrags (oder null).
+  Future<Uint8List?> readThumbnail(HistoryEntry entry) async {
+    if (entry.thumbFileName == null) return null;
+    final cached = _cache['${entry.id}_vorschau'];
+    if (cached != null) return cached;
+    final bytes = await _store.readImage(_thumbProxy(entry));
+    if (bytes != null) _rememberInCache('${entry.id}_vorschau', bytes);
+    return bytes;
+  }
+
   Future<Uint8List?> readImage(HistoryEntry entry) async {
     final cached = _cache[entry.id];
     if (cached != null) return cached;
@@ -75,7 +130,11 @@ class HistoryService extends ChangeNotifier {
   Future<void> delete(HistoryEntry entry) async {
     _entries.removeWhere((e) => e.id == entry.id);
     _cache.remove(entry.id);
+    _cache.remove('${entry.id}_vorschau');
     await _store.deleteImage(entry);
+    if (entry.thumbFileName != null) {
+      await _store.deleteImage(_thumbProxy(entry));
+    }
     try {
       await _store.saveIndex(_entries);
     } catch (_) {}

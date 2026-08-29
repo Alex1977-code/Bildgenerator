@@ -39,7 +39,8 @@ class _Joint {
 }
 
 class _Bone {
-  const _Bone(this.joint, this.from, this.to, [this.radius = 1.0]);
+  const _Bone(this.joint, this.from, this.to,
+      [this.radius = 1.0, this.fromJoint = -1, this.toJoint = -1]);
   final int joint; // Index des steuernden Gelenks
   final _Vec3 from;
   final _Vec3 to;
@@ -48,6 +49,12 @@ class _Bone {
   /// „gewinnen“ gegen dünne (Arme), damit z. B. Haare zum Kopf gehören
   /// und nicht zum nächstgelegenen Armknochen.
   final double radius;
+
+  /// Gelenk-Anker der Endpunkte (für den Rig-Editor): verschobene
+  /// Gelenke ziehen ihre Knochen mit. -1 = fester Punkt (Spitzen
+  /// behalten ihren Versatz relativ zu [fromJoint]).
+  final int fromJoint;
+  final int toJoint;
 }
 
 /// Aus dem Netz vermessene Körper-Proportionen einer stehenden Figur –
@@ -58,11 +65,18 @@ class _BodyProfile {
     required this.crotchY,
     required this.neckY,
     required this.legX,
+    this.shoulderY,
   });
 
   final double crotchY; // Beinansatz (absolute y-Koordinate)
   final double neckY; // Halsansatz (absolute y-Koordinate)
   final double legX; // Abstand der Beinmitte von der Körpermitte
+
+  /// Schulterhöhe aus erkannten, seitlich abstehenden Armen (absolute
+  /// y-Koordinate) – zuverlässiger als die Halsschätzung, besonders
+  /// bei Frisuren, die den Kopf breit umschließen. Null, wenn keine
+  /// getrennten Arme erkennbar sind (z. B. echte T-Pose).
+  final double? shoulderY;
 }
 
 /// Vermisst die Figur über ein Höhenprofil: Beinspalt (zwei getrennte
@@ -72,6 +86,7 @@ _BodyProfile _analyzeBipedProfile(
     List<(Map<String, dynamic>, Float32List)> primitives,
     double minX, double maxX, double minY, double maxY) {
   const bins = 64;
+  const xBins = 48;
   final height = maxY - minY;
   final width = maxX - minX;
   if (height <= 0 || width <= 0) {
@@ -88,6 +103,10 @@ _BodyProfile _analyzeBipedProfile(
   final halfWidth = List<double>.filled(bins, 0);
   final legXSum = List<double>.filled(bins, 0);
   final legXCount = List<int>.filled(bins, 0);
+  // 2D-Belegungsraster (Höhe × Breite): erkennt getrennte „Inseln“ je
+  // Zeile – seitlich abstehende Arme (Arm–Rumpf–Arm = 3 Inseln) und
+  // feine Beinspalte, die das grobe Mittelband übersieht.
+  final occ = Uint8List(bins * xBins);
   for (final (_, positions) in primitives) {
     for (var i = 0; i < positions.length; i += 3) {
       final x = positions[i] - cx;
@@ -101,9 +120,37 @@ _BodyProfile _analyzeBipedProfile(
       if (x.abs() > halfWidth[bin]) halfWidth[bin] = x.abs();
       legXSum[bin] += x.abs();
       legXCount[bin]++;
+      var xbin = ((positions[i] - minX) / width * xBins).floor();
+      if (xbin < 0) xbin = 0;
+      if (xbin >= xBins) xbin = xBins - 1;
+      occ[bin * xBins + xbin] = 1;
     }
   }
   double binY(int bin) => minY + (bin + 0.5) / bins * height;
+
+  // Inseln einer Zeile: zusammenhängende belegte x-Zellen; Lücken von
+  // einer Zelle werden überbrückt (Rauschen), ab zwei leeren Zellen
+  // beginnt eine neue Insel.
+  List<(int, int)> islandsOf(int bin) {
+    final islands = <(int, int)>[];
+    var start = -1;
+    var gap = 0;
+    for (var x = 0; x < xBins; x++) {
+      if (occ[bin * xBins + x] != 0) {
+        if (start < 0) start = x;
+        gap = 0;
+      } else if (start >= 0) {
+        gap++;
+        if (gap > 1) {
+          islands.add((start, x - gap));
+          start = -1;
+          gap = 0;
+        }
+      }
+    }
+    if (start >= 0) islands.add((start, xBins - 1 - gap));
+    return islands;
+  }
 
   // Beinspalt: zusammenhängender Bereich von unten, in dem links und
   // rechts belegt sind, die Mitte aber frei bleibt.
@@ -119,8 +166,55 @@ _BodyProfile _analyzeBipedProfile(
       break;
     }
   }
+  if (crotchBin < 0) {
+    // Feiner Beinspalt über die Inseln (z. B. eng stehende Stiefel,
+    // deren Spalt schmaler als das Mittelband ist). Nur akzeptieren,
+    // wenn der geteilte Bereich ganz unten beginnt – sonst wären es
+    // Arme, keine Beine.
+    bool legRow(int bin) => islandsOf(bin).length >= 2;
+    for (var bin = 0; bin < (bins * 0.2).floor(); bin++) {
+      if (legRow(bin)) {
+        var top = bin;
+        while (top + 1 < bins && legRow(top + 1)) {
+          top++;
+        }
+        if (top - bin >= 2 && top < (bins * 0.7).floor()) crotchBin = top;
+        break;
+      }
+    }
+  }
   final crotchY =
       crotchBin >= 0 ? binY(crotchBin) : minY + 0.48 * height;
+
+  // Arm-Band: Zeilen mit mindestens 3 Inseln (Arm–Rumpf–Arm), deren
+  // breiteste Insel deutlich ausgedehnt ist (der Rumpf). Das unterste
+  // Band liefert die Schulterhöhe – Bänder weiter oben wären Haar-
+  // oder Ohrpartien.
+  bool armRow(int bin) {
+    final islands = islandsOf(bin);
+    if (islands.length < 3) return false;
+    var widest = 0;
+    for (final (s, e) in islands) {
+      if (e - s + 1 > widest) widest = e - s + 1;
+    }
+    return widest >= 4;
+  }
+
+  var armTopBin = -1;
+  final armSearchFrom =
+      crotchBin >= 0 ? crotchBin + 1 : (bins * 0.2).floor();
+  for (var bin = armSearchFrom; bin < bins - 1; bin++) {
+    if (armRow(bin) && armRow(bin + 1)) {
+      var top = bin + 1;
+      while (top + 1 < bins && armRow(top + 1)) {
+        top++;
+      }
+      armTopBin = top;
+      break;
+    }
+  }
+  final shoulderY =
+      armTopBin >= 0 ? binY(armTopBin) + 0.04 * height : null;
 
   // Hals: schmalste Stelle zwischen Rumpf-Oberkante und der breitesten
   // Kopf-/Haarstelle (darüber wird der Kopf wieder schmaler – dort
@@ -164,7 +258,8 @@ _BodyProfile _analyzeBipedProfile(
       ? (legSum / legCount).clamp(0.03 * width, 0.25 * width)
       : 0.06 * width;
 
-  return _BodyProfile(crotchY: crotchY, neckY: neckY, legX: legX);
+  return _BodyProfile(
+      crotchY: crotchY, neckY: neckY, legX: legX, shoulderY: shoulderY);
 }
 
 /// Ein erkanntes Rad bzw. Radpaar (eine Achse) des Fahrzeug-Rigs.
@@ -324,14 +419,15 @@ class _SkeletonBuilder {
       {double boneRadius = 1.0}) {
     joints.add(_Joint(name, parent, position));
     if (parent >= 0) {
-      bones.add(
-          _Bone(parent, joints[parent].position, position, boneRadius));
+      bones.add(_Bone(parent, joints[parent].position, position,
+          boneRadius, parent, joints.length - 1));
     }
     return joints.length - 1;
   }
 
-  void tip(int jointIndex, _Vec3 to, {double radius = 1.0}) => bones
-      .add(_Bone(jointIndex, joints[jointIndex].position, to, radius));
+  void tip(int jointIndex, _Vec3 to, {double radius = 1.0}) =>
+      bones.add(_Bone(jointIndex, joints[jointIndex].position, to, radius,
+          jointIndex, -1));
 }
 
 /// Baut das Skelett des gewünschten Figurtyps aus der Bounding Box
@@ -491,11 +587,23 @@ class _SkeletonBuilder {
       // vermessene Halshöhe nutzen – normale T-Pose-Figuren behalten
       // die bewährten Standardwerte.
       final chibi = crotch < 0.35 && profile != null;
-      final neckF =
-          chibi ? (profile.neckY - minY) / h : 0.84;
       final legX = profile?.legX ?? 0.06 * w;
       final hipsF = crotch + 0.04;
-      final shoulderF = (neckF - 0.04).clamp(hipsF + 0.05, 0.95);
+      final measuredShoulder = profile?.shoulderY;
+      double neckF;
+      double shoulderF;
+      if (measuredShoulder != null) {
+        // Schulterhöhe direkt aus den erkannten Armen – zuverlässiger
+        // als die Halsschätzung, besonders bei Frisuren, die den Kopf
+        // breit umschließen (dort liegt das Breiten-Minimum sonst auf
+        // Gesichtshöhe und die Arme wandern in die Haare).
+        shoulderF =
+            ((measuredShoulder - minY) / h).clamp(hipsF + 0.05, 0.92);
+        neckF = (shoulderF + 0.06).clamp(0.0, 0.95);
+      } else {
+        neckF = chibi ? (profile.neckY - minY) / h : 0.84;
+        shoulderF = (neckF - 0.04).clamp(hipsF + 0.05, 0.95);
+      }
       final headF = neckF + 0.4 * (1 - neckF);
       final kneeF = crotch * 0.5;
 
@@ -568,11 +676,19 @@ Float32List _readPositions(Map<String, dynamic> json, Uint8List bin,
   return out;
 }
 
-/// Baut das Standard-Skelett des gewählten [rigType] in die GLB ein und
-/// liefert die neue Datei. Wirft [Exception] mit verständlicher
-/// Meldung, wenn das nicht geht.
-Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
-  // GLB zerlegen.
+/// Zwischenergebnis der GLB-Analyse (JSON, Binärdaten, Geometrie).
+class _GlbAnalysis {
+  _GlbAnalysis(this.json, this.bin, this.primitives, this.minX, this.maxX,
+      this.minY, this.maxY, this.minZ, this.maxZ);
+
+  final Map<String, dynamic> json;
+  final Uint8List bin;
+  final List<(Map<String, dynamic>, Float32List)> primitives;
+  final double minX, maxX, minY, maxY, minZ, maxZ;
+}
+
+/// GLB zerlegen, Positionen einlesen, Bounding Box bestimmen.
+_GlbAnalysis _analyzeGlb(Uint8List glb) {
   if (glb.length < 20) throw Exception('Ungültige GLB-Datei.');
   final header = ByteData.sublistView(glb);
   if (header.getUint32(0, Endian.little) != 0x46546C67 ||
@@ -599,7 +715,6 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
   final meshes = (json['meshes'] as List?) ?? [];
   if (meshes.isEmpty) throw Exception('Die GLB enthält kein Mesh.');
 
-  // Alle Primitive samt Positionen einlesen und Bounding Box bestimmen.
   final primitives = <(Map<String, dynamic>, Float32List)>[];
   var minX = double.infinity, maxX = double.negativeInfinity;
   var minY = double.infinity, maxY = double.negativeInfinity;
@@ -626,7 +741,13 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
   if (primitives.isEmpty) {
     throw Exception('Keine Geometrie mit Positionsdaten gefunden.');
   }
-  final height = maxY - minY, width = maxX - minX;
+  return _GlbAnalysis(
+      json, bin, primitives, minX, maxX, minY, maxY, minZ, maxZ);
+}
+
+/// Skelett-Vorlage für die analysierte GLB berechnen.
+(List<_Joint>, List<_Bone>) _skeletonForGlb(_GlbAnalysis a, String rigType) {
+  final height = a.maxY - a.minY, width = a.maxX - a.minX;
   if (height <= 0 || width <= 0) {
     throw Exception('Die Geometrie ist leer oder flach.');
   }
@@ -635,16 +756,93 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
         'Das Modell wirkt nicht wie eine aufrecht stehende Figur '
         '(zu breit/flach) – ggf. einen anderen Figurtyp wählen.');
   }
-
   final profile = rigType == 'biped'
-      ? _analyzeBipedProfile(primitives, minX, maxX, minY, maxY)
+      ? _analyzeBipedProfile(a.primitives, a.minX, a.maxX, a.minY, a.maxY)
       : null;
   final vehicleAxles = rigType == 'vehicle'
-      ? _analyzeVehicleAxles(primitives, minX, maxX, minY, maxY, minZ, maxZ)
+      ? _analyzeVehicleAxles(
+          a.primitives, a.minX, a.maxX, a.minY, a.maxY, a.minZ, a.maxZ)
       : null;
-  final (joints, bones) = _skeletonFor(
-      rigType, minX, maxX, minY, maxY, minZ, maxZ,
+  return _skeletonFor(
+      rigType, a.minX, a.maxX, a.minY, a.maxY, a.minZ, a.maxZ,
       profile: profile, vehicleAxles: vehicleAxles);
+}
+
+/// Öffentliche Gelenk-Info (für den Rig-Editor).
+class RigJointInfo {
+  const RigJointInfo(this.name, this.parent, this.x, this.y, this.z);
+
+  final String name;
+  final int parent; // -1 = Wurzel
+  final double x, y, z;
+}
+
+/// Berechnet die Gelenkpositionen, die [injectAutoRig] für diese GLB
+/// verwenden würde – Ausgangspunkt fürs manuelle Nachjustieren im
+/// Rig-Editor.
+List<RigJointInfo> computeAutoRigJoints(Uint8List glb,
+    {String rigType = 'biped'}) {
+  final (joints, _) = _skeletonForGlb(_analyzeGlb(glb), rigType);
+  return [
+    for (final j in joints)
+      RigJointInfo(j.name, j.parent, j.position.x, j.position.y,
+          j.position.z),
+  ];
+}
+
+/// Baut das Standard-Skelett des gewählten [rigType] in die GLB ein und
+/// liefert die neue Datei. Mit [jointPositions] (Gelenkname →
+/// absolute Position) lassen sich die automatisch bestimmten Gelenke
+/// manuell übersteuern – die Knochen und Skin-Gewichte folgen den
+/// verschobenen Gelenken. Wirft [Exception] mit verständlicher
+/// Meldung, wenn das nicht geht.
+Uint8List injectAutoRig(Uint8List glb,
+    {String rigType = 'biped',
+    Map<String, (double, double, double)>? jointPositions}) {
+  final analysis = _analyzeGlb(glb);
+  final json = analysis.json;
+  final bin = analysis.bin;
+  final primitives = analysis.primitives;
+  final height = analysis.maxY - analysis.minY;
+  var (joints, bones) = _skeletonForGlb(analysis, rigType);
+
+  if (jointPositions != null && jointPositions.isNotEmpty) {
+    // Manuell verschobene Gelenke übernehmen; Knochen-Endpunkte folgen
+    // den Gelenken, Spitzen behalten ihren Versatz zum eigenen Gelenk.
+    final newPos =
+        List<_Vec3>.generate(joints.length, (j) => joints[j].position);
+    for (var j = 0; j < joints.length; j++) {
+      final o = jointPositions[joints[j].name];
+      if (o != null) newPos[j] = _Vec3(o.$1, o.$2, o.$3);
+    }
+    bones = [
+      for (final bone in bones)
+        _Bone(
+          bone.joint,
+          bone.fromJoint >= 0 ? newPos[bone.fromJoint] : bone.from,
+          bone.toJoint >= 0
+              ? newPos[bone.toJoint]
+              : _Vec3(
+                  newPos[bone.fromJoint].x +
+                      bone.to.x -
+                      joints[bone.fromJoint].position.x,
+                  newPos[bone.fromJoint].y +
+                      bone.to.y -
+                      joints[bone.fromJoint].position.y,
+                  newPos[bone.fromJoint].z +
+                      bone.to.z -
+                      joints[bone.fromJoint].position.z,
+                ),
+          bone.radius,
+          bone.fromJoint,
+          bone.toJoint,
+        ),
+    ];
+    joints = [
+      for (var j = 0; j < joints.length; j++)
+        _Joint(joints[j].name, joints[j].parent, newPos[j]),
+    ];
+  }
 
   // Neue Binärdaten: pro Primitive JOINTS_0 (ubyte VEC4) und WEIGHTS_0
   // (float VEC4), dazu die inversen Bind-Matrizen (MAT4 float).

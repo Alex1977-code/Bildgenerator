@@ -7,8 +7,10 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/auto_rig.dart';
+import '../services/balance_service.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
+import '../services/history_service.dart';
 import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
 import '../services/model_import.dart';
@@ -24,9 +26,16 @@ import 'model_preview_screen.dart';
 /// 3D-Bereich: Figuren und Objekte aus Text oder Bild generieren
 /// (Meshy AI), optional mit Textur und Auto-Rigging, Export als GLB.
 class ThreeDScreen extends StatefulWidget {
-  const ThreeDScreen({super.key, required this.onOpenSettings});
+  const ThreeDScreen({
+    super.key,
+    required this.onOpenSettings,
+    this.isActive = true,
+  });
 
   final VoidCallback onOpenSettings;
+
+  /// Ob dieser Tab gerade sichtbar ist (siehe GeneratorScreen.isActive).
+  final bool isActive;
 
   @override
   State<ThreeDScreen> createState() => _ThreeDScreenState();
@@ -119,6 +128,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   bool _cancelRequested = false;
   String? _stage;
   String? _error;
+  String? _usageInfo;
   final List<ThreeDResult> _results = [];
 
   static const _tPoseSuffix =
@@ -285,6 +295,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (mounted) setState(() => _stage = stage);
     }
 
+    var usedTokens = 0;
     try {
       if (viewPipeline || augmentViews) {
         // Pose der Ansichten: beim eigenen Auto-Rigging die zum
@@ -316,6 +327,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           }
         });
         if (generated.totalTokens != null) {
+          usedTokens = generated.totalTokens!;
           _showSnack(
               'Ansichten erzeugt (${generated.totalTokens} Tokens).');
         }
@@ -336,6 +348,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         await _runMeshy(
             MeshyService(apiKey!.trim()), prompt, cancelled, progress,
             useImages: useImages, label: label);
+      }
+      // Verbrauch und Restguthaben anzeigen: Tokens der Bild-KI-Schritte
+      // (Ansichten/Tiefenkarten) plus aktuelles Provider-Guthaben.
+      final usageParts = <String>[
+        if (usedTokens > 0) 'Bild-KI-Ansichten: $usedTokens Tokens',
+      ];
+      if (!isLocal && apiKey != null) {
+        final balance = await fetchProviderBalance(
+            settings.threeDProvider, apiKey.trim());
+        if (balance != null) usageParts.add(balance);
+      }
+      if (mounted) {
+        setState(() => _usageInfo =
+            usageParts.isEmpty ? null : usageParts.join(' · '));
       }
     } on GenerationException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -358,6 +384,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     Uint8List? thumbnail,
     required bool rigged,
     required bool textured,
+    Uint8List? unriggedGlb,
+    String? rigTypeUsed,
   }) {
     if (!mounted) return;
     setState(() {
@@ -370,9 +398,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           thumbnailBytes: thumbnail,
           rigged: rigged,
           textured: textured,
+          unriggedGlb: unriggedGlb,
+          rigTypeUsed: rigTypeUsed,
         ),
       );
     });
+    // Auch in der Galerie ablegen (auf nativen Plattformen dauerhaft).
+    context.read<HistoryService>().addModel(
+      glbBytes: glbBytes,
+      thumbnail: thumbnail,
+      label: label,
+      providerLabel: providerLabel,
+      params: {
+        'Texturiert': textured ? 'ja' : 'nein',
+        'Rigging': rigged ? 'ja' : 'nein',
+      },
+    );
   }
 
   Future<void> _runLocal(
@@ -435,6 +476,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       throw GenerationException(
           e.toString().replaceFirst('Exception: ', ''));
     }
+    final unrigged = glb;
     final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
@@ -443,6 +485,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       thumbnail: source.bytes,
       rigged: rigged,
       textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
     );
   }
 
@@ -492,6 +536,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       targetPolycount: _stabilityPolycount,
       foregroundRatio: foregroundRatio,
     );
+    final unrigged = glb;
     final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
@@ -500,6 +545,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       thumbnail: source.bytes,
       rigged: rigged,
       textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
     );
   }
 
@@ -847,7 +894,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           width: 72,
           height: 72,
           child: DropTarget(
-            enable: !_running,
+            enable: !_running &&
+                widget.isActive &&
+                (ModalRoute.of(context)?.isCurrent ?? true),
             onDragEntered: (_) => setState(() => _dragOverSlot = key),
             onDragExited: (_) => setState(() => _dragOverSlot = null),
             onDragDone: (detail) => _dropOnSlot(key, detail.files),
@@ -909,23 +958,56 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
+  ProvenanceInfo _provenanceFor(ThreeDResult result) => ProvenanceInfo(
+        kind: '3D-Modell',
+        description: result.label,
+        providerLabel: result.providerLabel,
+        details: {
+          'Texturiert': result.textured ? 'ja' : 'nein',
+          'Rigging': result.rigged ? 'ja' : 'nein',
+        },
+        previewBytes: result.thumbnailBytes,
+      );
+
   void _openModelPreview(ThreeDResult result) {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ModelPreviewScreen(
         glbBytes: result.glbBytes,
         title: result.label,
-        provenance: ProvenanceInfo(
-          kind: '3D-Modell',
-          description: result.label,
-          providerLabel: result.providerLabel,
-          details: {
-            'Texturiert': result.textured ? 'ja' : 'nein',
-            'Rigging': result.rigged ? 'ja' : 'nein',
-          },
-          previewBytes: result.thumbnailBytes,
-        ),
+        provenance: _provenanceFor(result),
+        unriggedGlb: result.unriggedGlb,
+        rigType: result.rigTypeUsed,
+        onGlbUpdated: (bytes) {
+          // Ergebnis (und damit der GLB-Export) übernimmt das im
+          // Rig-Editor angepasste Modell.
+          if (mounted) setState(() => result.glbBytes = bytes);
+        },
       ),
     ));
+  }
+
+  /// Erstellungsnachweis-PDF direkt vom Ergebnis aus (auch im Viewer
+  /// unter Export zu finden).
+  Future<void> _exportModelProvenance(ThreeDResult result) async {
+    final settings = context.read<SettingsService>();
+    final name = await askCreatorName(context, settings);
+    if (name == null || !mounted) return;
+    try {
+      final pdf = await buildProvenancePdf(
+        info: _provenanceFor(result),
+        fileType: 'GLB',
+        fileBytes: result.glbBytes,
+        creatorName: name,
+      );
+      final message = await exportImageBytes(
+        pdf,
+        'erstellungsnachweis_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        'application/pdf',
+      );
+      if (message != null && mounted) _showSnack(message);
+    } catch (e) {
+      if (mounted) _showSnack('Nachweis fehlgeschlagen: $e');
+    }
   }
 
   Future<void> _exportGlb(ThreeDResult result) async {
@@ -952,6 +1034,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // der T-Pose-Schalter wäre dann irreführend.
     final rigPoseActive = _rigging && (isLocal || isStability);
     return DropTarget(
+      enable: widget.isActive &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
       onDragDone: (detail) => _openDroppedModel(detail.files),
       child: ListView(
       padding: const EdgeInsets.all(16),
@@ -1897,12 +1981,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
         Text(
-          'GLB-Dateien zum Behalten exportieren – sie werden nicht '
-          'dauerhaft in der App gespeichert. Eigene GLB-, STL- oder '
+          'Generierte Modelle landen zusätzlich in der Galerie '
+          '(Web: nur für die aktuelle Sitzung). Eigene GLB-, STL- oder '
           'OBJ-Dateien einfach per Drag & Drop hierher ziehen – sie '
           'öffnen sich im Viewer.',
           style: theme.textTheme.bodySmall,
         ),
+        if (_usageInfo != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _usageInfo!,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.primary),
+          ),
+        ],
         const SizedBox(height: 8),
         if (_results.isEmpty)
           Padding(
@@ -1962,6 +2054,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       tooltip: '3D-Ansicht (frei drehbar)',
                       icon: const Icon(Icons.threed_rotation),
                       onPressed: () => _openModelPreview(result),
+                    ),
+                    IconButton(
+                      tooltip: 'Erstellungsnachweis (PDF)',
+                      icon: const Icon(Icons.workspace_premium_outlined),
+                      onPressed: () => _exportModelProvenance(result),
                     ),
                     FilledButton.tonalIcon(
                       onPressed: () => _exportGlb(result),
