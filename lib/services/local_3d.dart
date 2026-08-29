@@ -560,11 +560,12 @@ LocalMesh buildVisualHullMesh({
   RgbaImage? backDepth,
   required int resolution,
   int smoothingPasses = 2,
+  HullColorSampler? sampler,
 }) {
-  final side = left ?? right;
-  final yExtent = front.height / front.width; // xExtent = 1
-  final zExtent =
-      side == null ? 0.5 : (side.width / side.height) * yExtent;
+  sampler ??=
+      HullColorSampler(front: front, left: left, right: right, back: back);
+  final yExtent = sampler.yExtent; // xExtent = 1
+  final zExtent = sampler.zExtent;
 
   final maxExtent = math.max(1.0, math.max(yExtent, zExtent));
   final cell = maxExtent / resolution;
@@ -659,54 +660,9 @@ LocalMesh buildVisualHullMesh({
     carveWithDepth(backDepth, fromFront: false, mirrored: true);
   }
 
-  // Farbwahl: Die Ansichten werden weich nach Blickrichtung der
-  // Oberfläche gemischt (Gewicht = Zugewandtheit², bilinear und
-  // alpha-gewichtet abgetastet) statt hart eine Ansicht zu wählen –
-  // das beseitigt fleckige Dreiecke und harte Nähte an den Übergängen
-  // (z. B. an Armen und Schultern).
-  (double, double, double) blendedColor(
-      double ox, double oy, double oz, double x, double y, double z) {
-    final uF = x.clamp(0.0, 1.0);
-    final vF = (1 - y / yExtent).clamp(0.0, 1.0);
-    final len = math.sqrt(ox * ox + oy * oy + oz * oz);
-    if (len < 1e-9) {
-      return front.colorBilinear(uF, vF) ?? front.colorAt(uF, vF);
-    }
-    final dx = ox / len, dz = oz / len;
-    var wr = 0.0, wg = 0.0, wb = 0.0, wsum = 0.0;
-    void add(double w, (double, double, double)? c) {
-      if (w <= 0 || c == null) return;
-      final wq = w * w; // zugewandte Ansicht dominiert deutlich
-      wr += wq * c.$1;
-      wg += wq * c.$2;
-      wb += wq * c.$3;
-      wsum += wq;
-    }
-
-    add(dz, front.colorBilinear(uF, vF));
-    add(
-        -dz,
-        back != null
-            ? back.colorBilinear((1 - uF).clamp(0.0, 1.0), vF)
-            : front.colorBilinear(uF, vF));
-    final uSide = (z / zExtent).clamp(0.0, 1.0);
-    final leftView = left ?? right;
-    if (leftView != null) {
-      add(-dx,
-          leftView.colorBilinear(left != null ? uSide : 1 - uSide, vF));
-    }
-    final rightView = right ?? left;
-    if (rightView != null) {
-      add(dx,
-          rightView.colorBilinear(right != null ? 1 - uSide : uSide, vF));
-    }
-    if (wsum < 1e-6) {
-      // Alle zugewandten Ansichten sind an dieser Stelle transparent –
-      // deckende Farbe der Vorderansicht als Rückfall.
-      return front.colorAt(uF, vF);
-    }
-    return (wr / wsum, wg / wsum, wb / wsum);
-  }
+  // Farbwahl: weiche Ansichts-Mischung nach Blickrichtung, siehe
+  // [HullColorSampler] – beseitigt fleckige Dreiecke und harte Nähte
+  // an den Übergängen (z. B. an Armen und Schultern).
 
   final sx = 1.0 / nx, sy = yExtent / ny, sz = zExtent / nz;
 
@@ -901,7 +857,7 @@ LocalMesh buildVisualHullMesh({
     final x = vertexPos[v * 3].clamp(0.0, 1.0);
     final y = vertexPos[v * 3 + 1].clamp(0.0, yExtent);
     final z = vertexPos[v * 3 + 2].clamp(0.0, zExtent);
-    final (r, g, b) = blendedColor(-gx, -gy, -gz, x, y, z);
+    final (r, g, b) = sampler.colorFor(-gx, -gy, -gz, x, y, z);
     mesh.addVertex(vertexPos[v * 3] - 0.5, vertexPos[v * 3 + 1] - yExtent / 2,
         vertexPos[v * 3 + 2] - zExtent / 2, 0, 0,
         r: r, g: g, b: b);
@@ -910,6 +866,82 @@ LocalMesh buildVisualHullMesh({
     mesh.addQuad(quads[q], quads[q + 1], quads[q + 2], quads[q + 3]);
   }
   return mesh;
+}
+
+/// Farb-Sampler des Hull-Verfahrens: mischt die Ansichten weich nach
+/// Blickrichtung der Oberfläche (Gewicht = Zugewandtheit², bilinear
+/// und alpha-gewichtet abgetastet). Wird vom Mesh-Aufbau für die
+/// Vertex-Farben genutzt und vom Textur-Backen ([bakeHullTextureAtlas])
+/// für jeden einzelnen Texel wiederverwendet.
+class HullColorSampler {
+  factory HullColorSampler({
+    required RgbaImage front,
+    RgbaImage? left,
+    RgbaImage? right,
+    RgbaImage? back,
+  }) {
+    final yExtent = front.height / front.width;
+    final side = left ?? right;
+    final zExtent =
+        side == null ? 0.5 : (side.width / side.height) * yExtent;
+    return HullColorSampler._(front, left, right, back, yExtent, zExtent);
+  }
+
+  HullColorSampler._(this.front, this.left, this.right, this.back,
+      this.yExtent, this.zExtent);
+
+  final RgbaImage front;
+  final RgbaImage? left;
+  final RgbaImage? right;
+  final RgbaImage? back;
+  final double yExtent; // Objektraum: x = 0..1, y = 0..yExtent
+  final double zExtent; // z = 0..zExtent
+
+  /// Farbe an Objektraum-Position (x,y,z) mit Auswärtsrichtung
+  /// (ox,oy,oz) – die Richtung muss nicht normiert sein.
+  (double, double, double) colorFor(
+      double ox, double oy, double oz, double x, double y, double z) {
+    final uF = x.clamp(0.0, 1.0);
+    final vF = (1 - y / yExtent).clamp(0.0, 1.0);
+    final len = math.sqrt(ox * ox + oy * oy + oz * oz);
+    if (len < 1e-9) {
+      return front.colorBilinear(uF, vF) ?? front.colorAt(uF, vF);
+    }
+    final dx = ox / len, dz = oz / len;
+    var wr = 0.0, wg = 0.0, wb = 0.0, wsum = 0.0;
+    void add(double w, (double, double, double)? c) {
+      if (w <= 0 || c == null) return;
+      final wq = w * w; // zugewandte Ansicht dominiert deutlich
+      wr += wq * c.$1;
+      wg += wq * c.$2;
+      wb += wq * c.$3;
+      wsum += wq;
+    }
+
+    add(dz, front.colorBilinear(uF, vF));
+    add(
+        -dz,
+        back != null
+            ? back!.colorBilinear((1 - uF).clamp(0.0, 1.0), vF)
+            : front.colorBilinear(uF, vF));
+    final uSide = (z / zExtent).clamp(0.0, 1.0);
+    final leftView = left ?? right;
+    if (leftView != null) {
+      add(-dx,
+          leftView.colorBilinear(left != null ? uSide : 1 - uSide, vF));
+    }
+    final rightView = right ?? left;
+    if (rightView != null) {
+      add(dx,
+          rightView.colorBilinear(right != null ? 1 - uSide : uSide, vF));
+    }
+    if (wsum < 1e-6) {
+      // Alle zugewandten Ansichten sind an dieser Stelle transparent –
+      // deckende Farbe der Vorderansicht als Rückfall.
+      return front.colorAt(uF, vF);
+    }
+    return (wr / wsum, wg / wsum, wb / wsum);
+  }
 }
 
 /// Reduziert die Dreieckszahl per Vertex-Clustering auf ungefähr
@@ -1005,6 +1037,119 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
   return best;
 }
 
+/// Backt die Ansichtsfarben in einen hochauflösenden Textur-Atlas:
+/// Jedes Dreieck erhält einen eigenen quadratischen Block im Atlas und
+/// wird darin Texel für Texel über den [sampler] eingefärbt – viele
+/// Farbpixel je Dreieck statt nur drei Vertex-Farben, die Oberfläche
+/// wird deutlich schärfer. Geklemmte baryzentrische Koordinaten füllen
+/// den ganzen Block (Gutter gegen Ausbluten beim bilinearen Filtern).
+///
+/// Liefert (Mesh mit je Dreieck eigenen Vertices samt UVs,
+/// RGBA-Atlasdaten, Atlas-Kantenlänge). Die Blockgröße richtet sich
+/// nach Dreieckszahl und [atlasSize]; bei sehr vielen Dreiecken wächst
+/// der Atlas so weit wie nötig.
+(LocalMesh, Uint8List, int) bakeHullTextureAtlas(
+    LocalMesh mesh, HullColorSampler sampler,
+    {int atlasSize = 2048}) {
+  final triCount = mesh.indices.length ~/ 3;
+  if (triCount == 0) return (mesh, Uint8List(0), 0);
+  final perRow = math.sqrt(triCount).ceil();
+  final block = (atlasSize / perRow).floor().clamp(4, 24);
+  final size = math.max(atlasSize, perRow * block);
+  final rgba = Uint8List(size * size * 4);
+  final normals = mesh.computeNormals();
+  final positions = mesh.positions;
+  final out = LocalMesh();
+  const inset = 1.5;
+  final span = block - 2 * inset;
+
+  for (var t = 0; t < triCount; t++) {
+    final bx = (t % perRow) * block;
+    final by = (t ~/ perRow) * block;
+    final i0 = mesh.indices[t * 3];
+    final i1 = mesh.indices[t * 3 + 1];
+    final i2 = mesh.indices[t * 3 + 2];
+    // Eckdaten im Objektraum des Samplers (x 0..1, y 0..yExtent, …).
+    final x0 = positions[i0 * 3] + 0.5,
+        y0 = positions[i0 * 3 + 1] + sampler.yExtent / 2,
+        z0 = positions[i0 * 3 + 2] + sampler.zExtent / 2;
+    final x1 = positions[i1 * 3] + 0.5,
+        y1 = positions[i1 * 3 + 1] + sampler.yExtent / 2,
+        z1 = positions[i1 * 3 + 2] + sampler.zExtent / 2;
+    final x2 = positions[i2 * 3] + 0.5,
+        y2 = positions[i2 * 3 + 1] + sampler.yExtent / 2,
+        z2 = positions[i2 * 3 + 2] + sampler.zExtent / 2;
+
+    for (var ty = 0; ty < block; ty++) {
+      for (var tx = 0; tx < block; tx++) {
+        var s = (tx + 0.5 - inset) / span;
+        var u = (ty + 0.5 - inset) / span;
+        s = s.clamp(0.0, 1.0);
+        u = u.clamp(0.0, 1.0);
+        final overflow = s + u - 1;
+        if (overflow > 0) {
+          s -= overflow / 2;
+          u -= overflow / 2;
+        }
+        final w0 = 1 - s - u;
+        final px = w0 * x0 + s * x1 + u * x2;
+        final py = w0 * y0 + s * y1 + u * y2;
+        final pz = w0 * z0 + s * z1 + u * z2;
+        final nx = w0 * normals[i0 * 3] +
+            s * normals[i1 * 3] +
+            u * normals[i2 * 3];
+        final ny = w0 * normals[i0 * 3 + 1] +
+            s * normals[i1 * 3 + 1] +
+            u * normals[i2 * 3 + 1];
+        final nz = w0 * normals[i0 * 3 + 2] +
+            s * normals[i1 * 3 + 2] +
+            u * normals[i2 * 3 + 2];
+        final (r, g, b) = sampler.colorFor(nx, ny, nz, px, py, pz);
+        final o = ((by + ty) * size + bx + tx) * 4;
+        rgba[o] = (r * 255).round().clamp(0, 255);
+        rgba[o + 1] = (g * 255).round().clamp(0, 255);
+        rgba[o + 2] = (b * 255).round().clamp(0, 255);
+        rgba[o + 3] = 255;
+      }
+    }
+
+    // Neue Vertices: jede Dreiecksecke mit eigener UV auf die
+    // Blockecken (mit Inset, passend zur Rasterung oben).
+    final u0 = (bx + inset) / size, v0 = (by + inset) / size;
+    final u1 = (bx + block - inset) / size;
+    final v2 = (by + block - inset) / size;
+    final a = out.addVertex(positions[i0 * 3], positions[i0 * 3 + 1],
+        positions[i0 * 3 + 2], u0, v0);
+    final b2 = out.addVertex(positions[i1 * 3], positions[i1 * 3 + 1],
+        positions[i1 * 3 + 2], u1, v0);
+    final c = out.addVertex(positions[i2 * 3], positions[i2 * 3 + 1],
+        positions[i2 * 3 + 2], u0, v2);
+    out.addTriangle(a, b2, c);
+  }
+  return (out, rgba, size);
+}
+
+/// Kodiert RGBA-Rohdaten als PNG (für die GLB-Einbettung).
+Future<Uint8List> _encodePng(Uint8List rgba, int width, int height) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+  final descriptor = ui.ImageDescriptor.raw(
+    buffer,
+    width: width,
+    height: height,
+    pixelFormat: ui.PixelFormat.rgba8888,
+  );
+  final codec = await descriptor.instantiateCodec();
+  final frame = await codec.getNextFrame();
+  try {
+    final png =
+        await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    if (png == null) throw Exception('PNG-Kodierung fehlgeschlagen.');
+    return png.buffer.asUint8List();
+  } finally {
+    frame.image.dispose();
+  }
+}
+
 /// Komplettpaket: bis zu vier Ansichten → farbiges 360°-GLB.
 Future<Uint8List> generateLocalHullGlb({
   required Uint8List frontBytes,
@@ -1018,6 +1163,8 @@ Future<Uint8List> generateLocalHullGlb({
   int targetTriangles = 0,
   double metallic = 0.0,
   double roughness = 0.9,
+  bool bakeTexture = false,
+  int textureSize = 2048,
 }) async {
   Future<RgbaImage?> decode(Uint8List? bytes) async {
     if (bytes == null) return null;
@@ -1026,15 +1173,21 @@ Future<Uint8List> generateLocalHullGlb({
   }
 
   final front = (await decode(frontBytes))!;
+  final left = await decode(leftBytes);
+  final right = await decode(rightBytes);
+  final back = await decode(backBytes);
+  final sampler =
+      HullColorSampler(front: front, left: left, right: right, back: back);
   var mesh = buildVisualHullMesh(
     front: front,
-    left: await decode(leftBytes),
-    right: await decode(rightBytes),
-    back: await decode(backBytes),
+    left: left,
+    right: right,
+    back: back,
     frontDepth: await decode(frontDepthBytes),
     backDepth: await decode(backDepthBytes),
     resolution: resolution,
     smoothingPasses: smoothingPasses,
+    sampler: sampler,
   );
   if (mesh.indices.isEmpty) {
     throw Exception(
@@ -1044,6 +1197,18 @@ Future<Uint8List> generateLocalHullGlb({
   }
   if (targetTriangles > 0) {
     mesh = decimateLocalMesh(mesh, targetTriangles);
+  }
+  if (bakeTexture) {
+    // Hochauflösende Textur statt Vertex-Farben: Atlas backen und als
+    // PNG einbetten – die Farbschärfe hängt dann nicht mehr an der
+    // Netzdichte.
+    final (baked, rgba, size) =
+        bakeHullTextureAtlas(mesh, sampler, atlasSize: textureSize);
+    if (size > 0) {
+      final png = await _encodePng(rgba, size, size);
+      return buildGlb(baked,
+          pngTexture: png, metallic: metallic, roughness: roughness);
+    }
   }
   return buildGlb(mesh, metallic: metallic, roughness: roughness);
 }

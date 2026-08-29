@@ -124,7 +124,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     // Beleuchtung folgt der Pose: Normalen aus den bewegten Positionen.
     _posedNormals = _posedPositions == null
         ? null
-        : computeSmoothNormals(_posedPositions!, mesh.indices);
+        : computeSmoothNormals(_posedPositions!, mesh.indices,
+            weld: mesh.weldMap);
     _jointPositions = computeJointPositions(mesh,
         animation: animation, time: _time, rotationOverrides: overrides);
   }

@@ -103,6 +103,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   int _localSmoothing = 2; // Glättungsdurchläufe 0–5
   String _localSurface = 'matt';
 
+  /// Textur-Modus des lokalen Generators: hochauflösender Atlas
+  /// (2048/1024 px) oder kompakte Vertex-Farben.
+  String _localTextureMode = 'atlas2048';
+
   /// Oberflächen-Vorwahlen (PBR): (Wert, Name, Metall, Rauheit).
   static const _surfaceOptions = [
     ('matt', 'Matt (Standard)', 0.0, 0.95),
@@ -424,6 +428,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         targetTriangles: _localTargetTriangles,
         metallic: metallic,
         roughness: roughness,
+        bakeTexture: _localTextureMode != 'vertex',
+        textureSize: _localTextureMode == 'atlas1024' ? 1024 : 2048,
       );
     } on Exception catch (e) {
       throw GenerationException(
@@ -1319,6 +1325,39 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'Dreieckszahl (Vertex-Clustering, die Farben '
                       'bleiben erhalten) – kleinere Dateien für Spiele, '
                       'AR und Web. Für 3D-Druck besser „Alle behalten“.'),
+                  DropdownMenu<String>(
+                    key: ValueKey('ltex-$_localTextureMode'),
+                    enabled: !_running,
+                    initialSelection: _localTextureMode,
+                    label: const Text('Textur-Modus'),
+                    expandedInsets: EdgeInsets.zero,
+                    dropdownMenuEntries: const [
+                      DropdownMenuEntry(
+                          value: 'atlas2048',
+                          label:
+                              'Hochauflösende Textur 2048 px (Standard)'),
+                      DropdownMenuEntry(
+                          value: 'atlas1024',
+                          label:
+                              'Hochauflösende Textur 1024 px (kleiner)'),
+                      DropdownMenuEntry(
+                          value: 'vertex',
+                          label: 'Vertex-Farben (kompakt, ohne Textur)'),
+                    ],
+                    onSelected: (value) {
+                      if (value != null) {
+                        setState(() => _localTextureMode = value);
+                      }
+                    },
+                  ),
+                  _optionInfo(
+                      'Hochauflösende Textur: Die Ansichtsfarben werden '
+                      'in einen echten Textur-Atlas gebacken – jedes '
+                      'Dreieck erhält viele Farbpixel statt nur drei '
+                      'Vertex-Farben, die Oberfläche wird deutlich '
+                      'schärfer (etwas größere Datei und Rechenzeit). '
+                      '„Vertex-Farben“ ist die kompakte Variante, deren '
+                      'Farbschärfe an der Netzdichte hängt.'),
                   DropdownMenu<String>(
                     key: ValueKey('lsurf-$_localSurface'),
                     enabled: !_running,

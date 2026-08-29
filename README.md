@@ -44,8 +44,11 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     baut direkt in der App ein farbiges 360°-Modell (Visual Hull aus
     bis zu 4 Ansichten mit geglätteter Surface-Nets-Oberfläche);
     eigener glTF-2.0-Writer in Dart. Die Ansichtsfarben werden weich
-    nach Blickrichtung gemischt und bilinear abgetastet (keine harten
-    Farbnähte); einstellbar sind Detailgrad (bis 160er-Raster),
+    nach Blickrichtung gemischt, bilinear abgetastet (keine harten
+    Farbnähte) und standardmäßig als **hochauflösender Textur-Atlas**
+    (2048 px, je Dreieck ein eigener Pixelblock) statt als
+    Vertex-Farben gespeichert – die Farbschärfe hängt damit nicht mehr
+    an der Netzdichte; einstellbar sind Detailgrad (bis 160er-Raster),
     Glättung, Ziel-Polygonzahl (Dezimierung per Vertex-Clustering)
     und die PBR-Oberfläche (matt bis metallisch) – jede Option mit
     Infotext.

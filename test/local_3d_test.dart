@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -536,6 +537,69 @@ void main() {
     expect(mid.$2, closeTo(0.5, 0.02));
     final clear = RgbaImage(Uint8List(8), 2, 1);
     expect(clear.colorBilinear(0.5, 0), isNull);
+  });
+
+  test('Textur-Atlas: hochauflösende Textur statt Vertex-Farben',
+      () async {
+    final front = _solidImage();
+    final sampler = HullColorSampler(front: front, left: front, back: front);
+    final mesh = buildVisualHullMesh(
+      front: front,
+      left: front,
+      back: front,
+      resolution: 12,
+      sampler: sampler,
+    );
+    final (baked, rgba, size) =
+        bakeHullTextureAtlas(mesh, sampler, atlasSize: 256);
+    // Dreieckszahl unverändert; je Ecke ein eigener Vertex mit UV.
+    expect(baked.indices.length, mesh.indices.length);
+    expect(baked.positions.length ~/ 3, mesh.indices.length);
+    expect(baked.uvs.length, (baked.positions.length ~/ 3) * 2);
+    for (final uv in baked.uvs) {
+      expect(uv, inInclusiveRange(0.0, 1.0));
+    }
+    expect(rgba.length, size * size * 4);
+    // Erster Block ist deckend mit der Ansichtsfarbe gefüllt.
+    expect(rgba[3], 255);
+    expect(rgba[0].toDouble(), closeTo(120, 30));
+
+    // GLB mit eingebetteter Textur, durch den Viewer lesbar.
+    final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+    final descriptor = ui.ImageDescriptor.raw(buffer,
+        width: size, height: size, pixelFormat: ui.PixelFormat.rgba8888);
+    final codec = await descriptor.instantiateCodec();
+    final frame = await codec.getNextFrame();
+    final png =
+        (await frame.image.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+    frame.image.dispose();
+    final glb = buildGlb(baked, pngTexture: png);
+    final json = _readGlbJson(glb);
+    final attrs = ((((json['meshes'] as List).first as Map)['primitives']
+        as List)
+        .first as Map)['attributes'] as Map;
+    expect(attrs, contains('TEXCOORD_0'));
+    expect(json['images'], isNotNull);
+
+    final preview = await parseGlbForPreview(glb);
+    expect(preview.texture, isNotNull);
+    expect(preview.uvs, isNotNull);
+    // Verschweißte Normalen: positionsgleiche (aufgetrennte) Vertices
+    // erhalten identische glatte Normalen.
+    final weld = preview.weldMap!;
+    var duplicates = 0;
+    for (var v = 0; v < weld.length; v++) {
+      if (weld[v] != v) {
+        duplicates++;
+        expect(preview.normals[v * 3], preview.normals[weld[v] * 3]);
+        expect(
+            preview.normals[v * 3 + 1], preview.normals[weld[v] * 3 + 1]);
+      }
+    }
+    expect(duplicates, greaterThan(0));
+    preview.dispose();
   });
 
   test('GLB-Material übernimmt Oberflächen-Werte (PBR)', () async {

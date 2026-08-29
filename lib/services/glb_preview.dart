@@ -20,6 +20,7 @@ class PreviewMesh {
     this.rig,
     this.metallic = 0.0,
     this.roughness = 0.9,
+    this.weldMap,
   });
 
   final Float32List positions; // x,y,z je Vertex
@@ -46,6 +47,11 @@ class PreviewMesh {
   final double metallic;
   final double roughness;
 
+  /// Positions-Verschweißung für glatte Normalen (siehe
+  /// [buildPositionWeldMap]) – auch für animierte Posen gültig, da
+  /// positionsgleiche Vertices identische Skin-Gewichte tragen.
+  final Int32List? weldMap;
+
   int get vertexCount => positions.length ~/ 3;
   int get triangleCount => indices.length ~/ 3;
 
@@ -53,15 +59,45 @@ class PreviewMesh {
   void dispose() => texture?.dispose();
 }
 
+/// Ordnet jedem Vertex einen Repräsentanten zu: Vertices an praktisch
+/// derselben Position teilen sich einen Eintrag ("Verschweißen").
+/// Nötig für glatte Normalen auf Meshes mit aufgetrennten Vertices
+/// (eigene UVs je Dreieck beim Textur-Atlas, STL-Import) – dort teilen
+/// sich Nachbardreiecke sonst keine Vertices mehr und die Beleuchtung
+/// würde facettiert wirken.
+Int32List buildPositionWeldMap(Float32List positions) {
+  final count = positions.length ~/ 3;
+  final map = Int32List(count);
+  if (count == 0) return map;
+  var minV = double.infinity, maxV = double.negativeInfinity;
+  for (final p in positions) {
+    if (p < minV) minV = p;
+    if (p > maxV) maxV = p;
+  }
+  final quantum = math.max(maxV - minV, 1e-6) * 1e-5;
+  final seen = <(int, int, int), int>{};
+  for (var i = 0; i < count; i++) {
+    final key = (
+      (positions[i * 3] / quantum).round(),
+      (positions[i * 3 + 1] / quantum).round(),
+      (positions[i * 3 + 2] / quantum).round(),
+    );
+    map[i] = seen.putIfAbsent(key, () => i);
+  }
+  return map;
+}
+
 /// Glatte Normalen: Flächennormalen flächengewichtet auf die Vertices
-/// akkumulieren und normalisieren.
+/// akkumulieren und normalisieren. Mit [weld] (siehe
+/// [buildPositionWeldMap]) werden positionsgleiche Vertices gemeinsam
+/// gemittelt – glatte Beleuchtung auch bei aufgetrennten Vertices.
 Float32List computeSmoothNormals(
-    Float32List positions, Uint32List indices) {
+    Float32List positions, Uint32List indices,
+    {Int32List? weld}) {
   final normals = Float32List(positions.length);
   for (var i = 0; i < indices.length; i += 3) {
-    final ia = indices[i] * 3,
-        ib = indices[i + 1] * 3,
-        ic = indices[i + 2] * 3;
+    var va = indices[i], vb = indices[i + 1], vc = indices[i + 2];
+    final ia = va * 3, ib = vb * 3, ic = vc * 3;
     final ax = positions[ia], ay = positions[ia + 1], az = positions[ia + 2];
     final ux = positions[ib] - ax,
         uy = positions[ib + 1] - ay,
@@ -72,13 +108,21 @@ Float32List computeSmoothNormals(
     final nx = uy * vz - uz * vy;
     final ny = uz * vx - ux * vz;
     final nz = ux * vy - uy * vx;
-    for (final o in [ia, ib, ic]) {
+    if (weld != null) {
+      va = weld[va];
+      vb = weld[vb];
+      vc = weld[vc];
+    }
+    for (final o in [va * 3, vb * 3, vc * 3]) {
       normals[o] += nx;
       normals[o + 1] += ny;
       normals[o + 2] += nz;
     }
   }
-  for (var i = 0; i < normals.length; i += 3) {
+  final vertexCount = positions.length ~/ 3;
+  for (var v = 0; v < vertexCount; v++) {
+    if (weld != null && weld[v] != v) continue;
+    final i = v * 3;
     final length = math.sqrt(normals[i] * normals[i] +
         normals[i + 1] * normals[i + 1] +
         normals[i + 2] * normals[i + 2]);
@@ -88,6 +132,15 @@ Float32List computeSmoothNormals(
       normals[i + 2] /= length;
     } else {
       normals[i + 2] = 1;
+    }
+  }
+  if (weld != null) {
+    for (var v = 0; v < vertexCount; v++) {
+      final w = weld[v];
+      if (w == v) continue;
+      normals[v * 3] = normals[w * 3];
+      normals[v * 3 + 1] = normals[w * 3 + 1];
+      normals[v * 3 + 2] = normals[w * 3 + 2];
     }
   }
   return normals;
@@ -566,11 +619,12 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
   }
 
   final indices = Uint32List.fromList(allIndices);
+  final weldMap = buildPositionWeldMap(positions);
   return PreviewMesh(
     positions: positions,
     indices: indices,
     colors: Int32List.fromList(allColors),
-    normals: computeSmoothNormals(positions, indices),
+    normals: computeSmoothNormals(positions, indices, weld: weldMap),
     center: center,
     extent: extent <= 0 ? 1 : extent,
     uvs: textureUsable ? Float32List.fromList(allUvs) : null,
@@ -578,6 +632,7 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
     rig: rig,
     metallic: metallic,
     roughness: roughness,
+    weldMap: weldMap,
   );
 }
 
