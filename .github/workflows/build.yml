@@ -82,3 +82,40 @@ jobs:
           name: bildgenerator-web
           path: build/web
           retention-days: 30
+
+  # Aktualisiert das Release "Aktuelle Version" mit festen Download-Links:
+  #   https://github.com/<owner>/<repo>/releases/latest/download/bildgenerator-windows.zip
+  #   https://github.com/<owner>/<repo>/releases/latest/download/bildgenerator-android.apk
+  release:
+    name: Release aktualisieren
+    needs: [test, android, windows, web]
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Dateien für das Release packen
+        run: |
+          (cd artifacts/bildgenerator-windows && zip -qr ../../bildgenerator-windows.zip .)
+          cp artifacts/bildgenerator-android-apk/app-release.apk bildgenerator-android.apk
+          (cd artifacts/bildgenerator-web && zip -qr ../../bildgenerator-web.zip .)
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Aktuelle Version
+          body: |
+            Automatisch aktualisierter Build des neuesten Stands.
+
+            - **bildgenerator-windows.zip** – Windows: entpacken und `bildgenerator.exe` starten
+            - **bildgenerator-android.apk** – Android: herunterladen und installieren
+            - **bildgenerator-web.zip** – Web-Version zum Selbst-Hosten
+
+            Die Web-App läuft außerdem live unter
+            https://alex1977-code.github.io/Bildgenerator/
+          files: |
+            bildgenerator-windows.zip
+            bildgenerator-android.apk
+            bildgenerator-web.zip

@@ -65,6 +65,16 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt
 ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.
 
+## Feste Download-Links (immer neueste Version)
+
+- **Windows**: <https://github.com/Alex1977-code/Bildgenerator/releases/latest/download/bildgenerator-windows.zip>
+  (entpacken → `bildgenerator.exe` starten)
+- **Android-APK**: <https://github.com/Alex1977-code/Bildgenerator/releases/latest/download/bildgenerator-android.apk>
+- **Web-App (live)**: <https://alex1977-code.github.io/Bildgenerator/>
+- Übersicht: [Release „Aktuelle Version“](https://github.com/Alex1977-code/Bildgenerator/releases/latest)
+
+Diese Links zeigen automatisch auf den jeweils neuesten erfolgreichen Build.
+
 ## So testest du die App
 
 Bei jedem Push baut GitHub Actions automatisch alle Varianten
