@@ -143,12 +143,15 @@ class TripoService {
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
+    String? negativePrompt,
   }) =>
       _createTask({
         'type': 'text_to_model',
         'prompt': prompt,
         'texture': texture,
         'pbr': texture,
+        if (negativePrompt != null && negativePrompt.isNotEmpty)
+          'negative_prompt': negativePrompt,
         ..._qualityFields(
           texture: texture,
           modelVersion: modelVersion,

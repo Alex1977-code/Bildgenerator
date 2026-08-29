@@ -51,6 +51,10 @@ class ThreeDScreen extends StatefulWidget {
 
 class _ThreeDScreenState extends State<ThreeDScreen> {
   final _promptCtrl = TextEditingController();
+
+  /// Negativ-Prompt für natives Text→3D (Meshy/Tripo): was das Modell
+  /// vermeiden soll (z. B. „blobby, floating parts, base, pedestal“).
+  final _negative3dCtrl = TextEditingController();
   final _picker = ImagePicker();
 
   bool _imageMode = true;
@@ -147,6 +151,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   void dispose() {
     _cancelRequested = true;
     _promptCtrl.dispose();
+    _negative3dCtrl.dispose();
     _texturePromptCtrl.dispose();
     super.dispose();
   }
@@ -629,6 +634,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           quadTopology: _quadTopology,
           targetPolycount: _meshyPolycount,
           symmetryMode: _symmetryMode,
+          negativePrompt: _negative3dCtrl.text.trim(),
         );
         status = await service.waitForTask(
           taskPath,
@@ -764,6 +770,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         modelVersion: _tripoVersion,
         quad: _quadTopology,
         detailedTexture: _tripoDetailedTexture,
+        negativePrompt: _negative3dCtrl.text.trim(),
       );
     }
     final modelData = await service.waitForTask(
@@ -1304,13 +1311,34 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'z. B. „Ein mittelalterlicher Ritter in voller '
                           'Rüstung mit Schwert“',
                       helperText:
-                          'Tipp: ein einzelnes, freistehendes Objekt '
-                          'beschreiben – Szenen mit mehreren Objekten '
-                          'eignen sich nicht für 3D.',
-                      helperMaxLines: 3,
+                          'Tipp für Text→3D: knapp bleiben – '
+                          'Objektklasse zuerst, dann Silhouette, dann '
+                          'wenige markante Merkmale; ein einzelnes, '
+                          'freistehendes Objekt. Kamera-, Licht- und '
+                          'Qualitätswörter („8k“, „photorealistic“) '
+                          'weglassen – 3D-Modelle ignorieren sie oder '
+                          'werden schlechter. Wird das Ergebnis '
+                          'matschig, hilft Kürzen mehr als Ergänzen.',
+                      helperMaxLines: 6,
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  if (!isLocal && !isStability && !_viewsFromText) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _negative3dCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Negativ-Prompt (optional)',
+                        hintText: 'z. B. „low poly, blobby, floating '
+                            'parts, base, pedestal“',
+                        helperText:
+                            'Was das Modell vermeiden soll – geht '
+                            'direkt an Meshy/Tripo.',
+                        helperMaxLines: 2,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
                   if (!isTripo && !isLocal) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
@@ -1997,7 +2025,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'genauer. Mulden und Vertiefungen entstehen mit der '
                       'KI-Tiefenschätzung; echte Hohlräume und komplexe '
                       'Figuren beherrschen die trainierten generativen '
-                      'Provider (Stability, Meshy, Tripo) am besten.',
+                      'Provider (Stability, Meshy, Tripo) am besten.\n'
+                      '• Text→3D-Prompts knapp halten: Objektklasse → '
+                      'Silhouette → wenige markante Merkmale. Der '
+                      'Negativ-Prompt (Meshy/Tripo) hilft gegen '
+                      '„blobby“, schwebende Teile oder ungewollte '
+                      'Sockel.\n'
+                      '• Fahrzeuge & Hard-Surface: Text→3D ist vor '
+                      'allem auf Charaktere und Props trainiert – Räder '
+                      'und Radkästen gelingen über den Bild-Weg (erst '
+                      'Bild generieren, dann „Aus Bild“) fast immer '
+                      'besser.\n'
+                      '• Saubere Topologie: Die Ausgabe ist ein dichtes, '
+                      'unregelmäßiges Dreiecksnetz. Für scharfe Kanten '
+                      '„Vierecke (Quads)“ bzw. Quad-Topologie wählen und '
+                      'für professionelle Weiterbearbeitung eine '
+                      'Retopologie in Blender einplanen.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],

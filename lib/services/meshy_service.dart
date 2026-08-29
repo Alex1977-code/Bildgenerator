@@ -119,12 +119,15 @@ class MeshyService {
     bool quadTopology = false,
     int? targetPolycount,
     String? symmetryMode,
+    String? negativePrompt,
   }) =>
       _createTask('v2/text-to-3d', {
         'mode': 'preview',
         'prompt': prompt,
         'art_style': artStyle,
         'should_remesh': true,
+        if (negativePrompt != null && negativePrompt.isNotEmpty)
+          'negative_prompt': negativePrompt,
         ..._qualityFields(
           aiModel: aiModel,
           quadTopology: quadTopology,
