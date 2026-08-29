@@ -1522,7 +1522,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                     ),
                   ],
-                  if (!isTripo && !isLocal) ...[
+                  // Kunststil ist ein reiner Meshy-Parameter – bei
+                  // Stability/Tripo/Lokal ohne Wirkung, daher versteckt.
+                  if (!isTripo && !isLocal && !isStability) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
