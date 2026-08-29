@@ -27,16 +27,24 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
   - Generierte Bilder als neue Referenz übernehmen (iteratives Verfeinern)
-  - **3D-Bereich (Meshy AI oder Tripo3D)**: 3D-Figuren und -Objekte aus
-    Text oder Bild, optional mit Textur und Auto-Rigging (T-Pose wird
-    automatisch berücksichtigt, Tripo prüft die Riggbarkeit vorab),
-    Export als GLB für Blender/Unity/Unreal/Godot
+  - **3D-Bereich (Meshy AI, Tripo3D oder Stability 3D)**: 3D-Figuren
+    und -Objekte aus Text oder Bild, optional mit Textur und
+    Auto-Rigging (T-Pose wird automatisch berücksichtigt, Tripo prüft
+    die Riggbarkeit vorab), Export als GLB für
+    Blender/Unity/Unreal/Godot. Stability 3D (Stable Fast 3D /
+    Stable Point Aware 3D) nutzt trainierte generative Modelle, die aus
+    einem einzigen Bild auch Rückseite, Vertiefungen und Hohlräume
+    rekonstruieren – mit demselben Stability-Schlüssel wie die
+    Bilderzeugung
   - **Eigener lokaler 3D-Generator** (ohne API, kostenlos): baut aus
     Bildern texturierte GLB-Modelle direkt in der App – Relief
     (Helligkeit → Höhe), Standee (extrudierte Silhouette) und
     360°-Modell (Visual Hull aus bis zu 4 Ansichten mit Farbprojektion
     und geglätteter Surface-Nets-Oberfläche statt Voxel-Würfeln);
-    eigener glTF-2.0-Writer in Dart
+    eigener glTF-2.0-Writer in Dart. Optional **KI-Tiefenschätzung**:
+    Per Bild-KI geschätzte Tiefenkarten liefern echte Höhen fürs Relief
+    und formen beim 360°-Modell Mulden und Vertiefungen in Vorder- und
+    Rückseite – über die Silhouetten-Grenze des Visual Hull hinaus
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)

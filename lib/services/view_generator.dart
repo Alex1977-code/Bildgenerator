@@ -41,6 +41,27 @@ String _turnPrompt(String viewInstruction) =>
     'same scale, framing and camera distance as the reference image, '
     '$_stagingPart';
 
+/// Prüft, dass der konfigurierte Bild-Provider Referenzbilder kann und
+/// ein Schlüssel hinterlegt ist; liefert Provider, Schlüssel, Generator.
+(GenProvider, String, ImageGenerator) _requireReferenceProvider(
+    SettingsService settings) {
+  final provider = settings.provider;
+  if (!provider.supportsReferences) {
+    throw GenerationException(
+        'Hierfür wird ein referenzbildfähiger Bild-Provider benötigt '
+        '(OpenAI oder Google Gemini). Bitte in den Einstellungen '
+        'umstellen.');
+  }
+  final apiKey = settings.apiKeyFor(provider)?.trim();
+  if (apiKey == null || apiKey.isEmpty) {
+    throw GenerationException(
+        'Für den Bild-Provider ${provider.label} ist kein API-Schlüssel '
+        'hinterlegt (wird für die Bild-KI-Schritte des 3D-Generators '
+        'genutzt).');
+  }
+  return (provider, apiKey, ImageGenerator.forProvider(provider));
+}
+
 const _viewInstructions = {
   'left': 'Rotate the subject 90 degrees so we see its pure LEFT side view '
       '(the subject\'s left side faces the camera, its front points to the '
@@ -72,21 +93,7 @@ Future<GeneratedViews> generateViewsFromText({
         views: {for (final key in neededKeys) key: existing[key]!});
   }
 
-  final provider = settings.provider;
-  if (!provider.supportsReferences) {
-    throw GenerationException(
-        'Für die automatische Ansichten-Erzeugung wird ein '
-        'referenzbildfähiger Bild-Provider benötigt (OpenAI oder Google '
-        'Gemini). Bitte in den Einstellungen umstellen.');
-  }
-  final apiKey = settings.apiKeyFor(provider)?.trim();
-  if (apiKey == null || apiKey.isEmpty) {
-    throw GenerationException(
-        'Für den Bild-Provider ${provider.label} ist kein API-Schlüssel '
-        'hinterlegt (wird für die Ansichten-Erzeugung genutzt).');
-  }
-
-  final generator = ImageGenerator.forProvider(provider);
+  final (provider, apiKey, generator) = _requireReferenceProvider(settings);
   var totalTokens = 0;
   var hasTokens = false;
 
@@ -146,6 +153,49 @@ Future<GeneratedViews> generateViewsFromText({
     views: views,
     totalTokens: hasTokens ? totalTokens : null,
   );
+}
+
+const _depthPrompt =
+    'Precise monocular depth map of the exact subject in the reference '
+    'image: identical framing, position and proportions. Grayscale only – '
+    'pure white for the surface points closest to the camera, pure black '
+    'for the farthest points and the entire background, smooth continuous '
+    'gray gradients in between representing true metric depth. No '
+    'outlines, no texture or color details, no lighting or shadow '
+    'effects, no text or labels.';
+
+/// Erzeugt per Bild-KI eine Tiefenkarte (Graustufen, hell = nah) zum
+/// Referenzbild. Wirft [GenerationException] bei Fehlern.
+Future<Uint8List> generateDepthMap({
+  required SettingsService settings,
+  required ReferenceImage source,
+  required String label,
+  required void Function(String stage) onProgress,
+  required bool Function() isCancelled,
+}) async {
+  final (provider, apiKey, generator) = _requireReferenceProvider(settings);
+  if (isCancelled()) throw GenerationException('Abgebrochen.');
+  onProgress('Tiefenkarte „$label“ wird geschätzt …');
+  final result = await generator.generate(
+    GenerationRequest(
+      provider: provider,
+      prompt: _depthPrompt,
+      references: [source],
+      openAiSize: '1024x1024',
+      geminiAspect: '1:1',
+      quality: settings.quality,
+      transparent: false,
+      outputFormat: 'png',
+      count: 1,
+      model: settings.modelFor(provider),
+      geminiImageSize: '1K',
+    ),
+    apiKey,
+  );
+  if (result.images.isEmpty) {
+    throw GenerationException('Tiefenkarte „$label“ wurde nicht erzeugt.');
+  }
+  return result.images.first.bytes;
 }
 
 /// Stellt sicher, dass das Bild einen transparenten Hintergrund hat.

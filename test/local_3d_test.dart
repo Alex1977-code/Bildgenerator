@@ -36,6 +36,41 @@ RgbaImage _solidImage() {
   return RgbaImage(bytes, w, h);
 }
 
+/// Vertikaler Verlauf: hell oben, dunkel unten (als Tiefenkarte: oben
+/// nah, unten fern).
+RgbaImage _verticalGradientImage() {
+  const w = 8, h = 8;
+  final bytes = Uint8List(w * h * 4);
+  for (var y = 0; y < h; y++) {
+    final value = (255 * (1 - y / (h - 1))).round();
+    for (var x = 0; x < w; x++) {
+      final o = (y * w + x) * 4;
+      bytes[o] = value;
+      bytes[o + 1] = value;
+      bytes[o + 2] = value;
+      bytes[o + 3] = 255;
+    }
+  }
+  return RgbaImage(bytes, w, h);
+}
+
+/// Horizontaler Verlauf: dunkel links, hell rechts.
+RgbaImage _horizontalGradientImage() {
+  const w = 8, h = 8;
+  final bytes = Uint8List(w * h * 4);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final value = (255 * x / (w - 1)).round();
+      final o = (y * w + x) * 4;
+      bytes[o] = value;
+      bytes[o + 1] = value;
+      bytes[o + 2] = value;
+      bytes[o + 3] = 255;
+    }
+  }
+  return RgbaImage(bytes, w, h);
+}
+
 Map<String, dynamic> _readGlbJson(Uint8List glb) {
   final data = ByteData.sublistView(glb);
   expect(data.getUint32(0, Endian.little), 0x46546C67,
@@ -110,6 +145,65 @@ void main() {
         (material['pbrMetallicRoughness'] as Map)
             .containsKey('baseColorTexture'),
         isFalse);
+  });
+
+  test('KI-Tiefenkarte formt die Vorderseite des Visual Hull', () {
+    double maxZWhere(LocalMesh mesh, bool Function(double y) rowFilter) {
+      var maxZ = double.negativeInfinity;
+      for (var i = 0; i < mesh.positions.length; i += 3) {
+        if (rowFilter(mesh.positions[i + 1]) &&
+            mesh.positions[i + 2] > maxZ) {
+          maxZ = mesh.positions[i + 2];
+        }
+      }
+      return maxZ;
+    }
+
+    final noDepth = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final withDepth = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      frontDepth: _verticalGradientImage(),
+      resolution: 12,
+    );
+    // Ohne Tiefenkarte liegt die Front oben wie unten gleich weit vorn …
+    expect(maxZWhere(noDepth, (y) => y < -0.15),
+        closeTo(maxZWhere(noDepth, (y) => y > 0.15), 0.06));
+    // … mit Tiefenkarte wird sie unten (dunkel = fern) nach innen gezogen.
+    expect(maxZWhere(withDepth, (y) => y < -0.15),
+        lessThan(maxZWhere(withDepth, (y) => y > 0.15) - 0.1));
+  });
+
+  test('Relief nutzt die Tiefenkarte als Höhenquelle', () {
+    final flat = buildReliefMesh(_solidImage(),
+        resolution: 16, depth: 0.3, invert: false);
+    final shaped = buildReliefMesh(_solidImage(),
+        resolution: 16,
+        depth: 0.3,
+        invert: false,
+        heightSource: _horizontalGradientImage());
+    double maxZWhere(LocalMesh mesh, bool Function(double x) filter) {
+      var maxZ = double.negativeInfinity;
+      for (var i = 0; i < mesh.positions.length; i += 3) {
+        if (filter(mesh.positions[i]) && mesh.positions[i + 2] > maxZ) {
+          maxZ = mesh.positions[i + 2];
+        }
+      }
+      return maxZ;
+    }
+
+    // Einfarbiges Bild → flache Deckfläche; mit Tiefenkarte steigt die
+    // Höhe von links (dunkel) nach rechts (hell) an.
+    expect(maxZWhere(flat, (x) => x < -0.2),
+        closeTo(maxZWhere(flat, (x) => x > 0.2), 1e-6));
+    expect(maxZWhere(shaped, (x) => x > 0.2),
+        greaterThan(maxZWhere(shaped, (x) => x < -0.2) + 0.1));
   });
 
   test('GLB-Vorschau-Parser liest eigenes GLB zurück (Round-Trip)',

@@ -106,11 +106,17 @@ class RgbaImage {
 }
 
 /// Relief: Höhenfeld aus der Bildhelligkeit, mit Seitenwänden und Boden.
+///
+/// Mit [heightSource] (z. B. einer KI-Tiefenkarte, hell = nah) kommen
+/// die Höhen aus diesem Bild statt aus der Helligkeit – die Textur
+/// bleibt das Originalbild. Die Tiefenkarte wird auf den vollen
+/// Wertebereich normalisiert.
 LocalMesh buildReliefMesh(
   RgbaImage image, {
   required int resolution,
   required double depth,
   required bool invert,
+  RgbaImage? heightSource,
 }) {
   final aspect = image.height / image.width;
   final vw = (aspect <= 1 ? resolution : (resolution / aspect).round())
@@ -125,12 +131,30 @@ LocalMesh buildReliefMesh(
   double px(int x) => x / (vw - 1) - 0.5;
   double py(int y) => (0.5 - y / (vh - 1)) * ratio;
 
+  // Höhenquelle abtasten; eine Tiefenkarte wird auf 0..1 normalisiert.
+  final source = heightSource ?? image;
+  final heights = List<double>.filled(vw * vh, 0);
+  var minH = double.infinity, maxH = double.negativeInfinity;
+  for (var y = 0; y < vh; y++) {
+    for (var x = 0; x < vw; x++) {
+      final h = source.luminanceAt(x / (vw - 1), y / (vh - 1));
+      heights[y * vw + x] = h;
+      if (h < minH) minH = h;
+      if (h > maxH) maxH = h;
+    }
+  }
+  if (heightSource != null && maxH - minH > 1e-6) {
+    for (var i = 0; i < heights.length; i++) {
+      heights[i] = (heights[i] - minH) / (maxH - minH);
+    }
+  }
+
   // Deckfläche (Höhenfeld).
   for (var y = 0; y < vh; y++) {
     for (var x = 0; x < vw; x++) {
       final u = x / (vw - 1);
       final v = y / (vh - 1);
-      var h = image.luminanceAt(u, v);
+      var h = heights[y * vw + x];
       if (invert) h = 1 - h;
       mesh.addVertex(px(x), py(y), 0.02 + h * depth, u, v);
     }
@@ -457,19 +481,29 @@ Future<(RgbaImage, Uint8List)> decodeForLocal3d(Uint8List imageBytes) async {
   }
 }
 
-/// Komplettpaket: Bild → GLB (Relief oder Standee).
+/// Komplettpaket: Bild → GLB (Relief oder Standee). Beim Relief kann
+/// [depthBytes] (KI-Tiefenkarte) die Höhen liefern statt der Helligkeit.
 Future<Uint8List> generateLocalGlb(
   Uint8List imageBytes, {
   required bool standee,
   required int resolution,
   required double depth,
   required bool invert,
+  Uint8List? depthBytes,
 }) async {
   final (rgba, png) = await decodeForLocal3d(imageBytes);
+  RgbaImage? heightSource;
+  if (!standee && depthBytes != null) {
+    final (decoded, _) = await decodeForLocal3d(depthBytes);
+    heightSource = decoded;
+  }
   final mesh = standee
       ? buildStandeeMesh(rgba, resolution: resolution, depth: depth)
       : buildReliefMesh(rgba,
-          resolution: resolution, depth: depth, invert: invert);
+          resolution: resolution,
+          depth: depth,
+          invert: invert,
+          heightSource: heightSource);
   if (mesh.indices.isEmpty) {
     throw Exception(standee
         ? 'Keine Silhouette gefunden – das Bild braucht einen '
@@ -492,6 +526,8 @@ LocalMesh buildVisualHullMesh({
   RgbaImage? left,
   RgbaImage? right,
   RgbaImage? back,
+  RgbaImage? frontDepth,
+  RgbaImage? backDepth,
   required int resolution,
 }) {
   final side = left ?? right;
@@ -540,6 +576,57 @@ LocalMesh buildVisualHullMesh({
       iy < ny &&
       iz < nz &&
       solid[ix][iy][iz];
+
+  // KI-Tiefenkarten formen Vorder-/Rückseite plastisch: Die Silhouetten
+  // begrenzen das Volumen, die Tiefenkarte schiebt die Oberfläche je
+  // Bildpunkt nach innen – so entstehen Mulden und Vertiefungen, die
+  // ein reiner Visual Hull prinzipbedingt nicht abbilden kann.
+  void carveWithDepth(RgbaImage depthMap,
+      {required bool fromFront, required bool mirrored}) {
+    // Tiefenwerte innerhalb der Silhouette auf 0..1 normalisieren.
+    final depthValue = List<double>.filled(nx * ny, 0);
+    var minD = double.infinity, maxD = double.negativeInfinity;
+    for (var ix = 0; ix < nx; ix++) {
+      for (var iy = 0; iy < ny; iy++) {
+        final uF = (ix + 0.5) / nx;
+        final vF = 1 - (iy + 0.5) / ny;
+        if (!front.opaqueAt(uF, vF)) continue;
+        final d = depthMap.luminanceAt(mirrored ? 1 - uF : uF, vF);
+        depthValue[ix * ny + iy] = d;
+        if (d < minD) minD = d;
+        if (d > maxD) maxD = d;
+      }
+    }
+    final range = maxD - minD;
+    if (range < 1e-6) return;
+    // Maximal so viel der Voxel-Säule abtragen (nah = nichts, fern = viel).
+    const strength = 0.7;
+    for (var ix = 0; ix < nx; ix++) {
+      for (var iy = 0; iy < ny; iy++) {
+        final column = <int>[
+          for (var iz = 0; iz < nz; iz++)
+            if (solid[ix][iy][iz]) iz,
+        ];
+        if (column.length < 2) continue;
+        final d = (depthValue[ix * ny + iy] - minD) / range;
+        final carve = ((1 - d) * strength * column.length)
+            .floor()
+            .clamp(0, column.length - 1);
+        for (var c = 0; c < carve; c++) {
+          final iz = fromFront ? column[column.length - 1 - c] : column[c];
+          solid[ix][iy][iz] = false;
+        }
+      }
+    }
+  }
+
+  // Größere z-Werte liegen zur Vorderansicht hin (siehe solidAt).
+  if (frontDepth != null) {
+    carveWithDepth(frontDepth, fromFront: true, mirrored: false);
+  }
+  if (backDepth != null) {
+    carveWithDepth(backDepth, fromFront: false, mirrored: true);
+  }
 
   // Farbwahl je Blickrichtung der Fläche.
   (double, double, double) faceColor(
@@ -785,6 +872,8 @@ Future<Uint8List> generateLocalHullGlb({
   Uint8List? leftBytes,
   Uint8List? rightBytes,
   Uint8List? backBytes,
+  Uint8List? frontDepthBytes,
+  Uint8List? backDepthBytes,
   required int resolution,
 }) async {
   Future<RgbaImage?> decode(Uint8List? bytes) async {
@@ -799,6 +888,8 @@ Future<Uint8List> generateLocalHullGlb({
     left: await decode(leftBytes),
     right: await decode(rightBytes),
     back: await decode(backBytes),
+    frontDepth: await decode(frontDepthBytes),
+    backDepth: await decode(backDepthBytes),
     resolution: resolution,
   );
   if (mesh.indices.isEmpty) {

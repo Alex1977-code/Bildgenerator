@@ -11,6 +11,7 @@ import '../services/generators.dart' show GenerationException;
 import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
 import '../services/settings_service.dart';
+import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
 import '../services/view_generator.dart';
 import '../widgets/common.dart';
@@ -76,6 +77,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String _tripoVersion = '';
   bool _tripoDetailedTexture = false;
   final _texturePromptCtrl = TextEditingController();
+  String _stabilityEngine = 'stable-point-aware-3d';
+  int _stabilityTextureRes = 1024;
+
+  /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
+  bool _localDepthAi = false;
 
   // Optionen des lokalen Generators.
   String _localMode = 'relief'; // 'relief' | 'standee' | 'hull'
@@ -136,23 +142,33 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
   }
 
-  Future<void> _showMissingKeyDialog(bool isTripo) async {
+  Future<void> _showMissingKeyDialog(String provider) async {
+    final (title, message) = switch (provider) {
+      'tripo' => (
+          'Tripo3D-API-Schlüssel fehlt',
+          'Für Tripo3D wird ein API-Schlüssel benötigt '
+              '(platform.tripo3d.ai – Bezahlung nach Verbrauch, '
+              'Startguthaben für neue Konten). Bitte in den Einstellungen '
+              'hinterlegen.'
+        ),
+      'stability' => (
+          'Stability-API-Schlüssel fehlt',
+          'Stability-3D nutzt denselben Stability-AI-Schlüssel wie die '
+              'Bilderzeugung (platform.stability.ai). Bitte in den '
+              'Einstellungen hinterlegen.'
+        ),
+      _ => (
+          'Meshy-API-Schlüssel fehlt',
+          'Für Meshy AI wird ein API-Schlüssel benötigt (meshy.ai – '
+              'API-Zugang ab dem Pro-Plan). Bitte in den Einstellungen '
+              'hinterlegen.'
+        ),
+    };
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isTripo
-            ? 'Tripo3D-API-Schlüssel fehlt'
-            : 'Meshy-API-Schlüssel fehlt'),
-        content: Text(
-          isTripo
-              ? 'Für Tripo3D wird ein API-Schlüssel benötigt '
-                  '(platform.tripo3d.ai – Bezahlung nach Verbrauch, '
-                  'Startguthaben für neue Konten). Bitte in den '
-                  'Einstellungen hinterlegen.'
-              : 'Für Meshy AI wird ein API-Schlüssel benötigt (meshy.ai – '
-                  'API-Zugang ab dem Pro-Plan). Bitte in den Einstellungen '
-                  'hinterlegen.',
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -174,20 +190,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final settings = context.read<SettingsService>();
     final isLocal = settings.threeDProvider == 'local';
     final isTripo = settings.threeDProvider == 'tripo';
-    final apiKey =
-        isLocal ? '' : (isTripo ? settings.tripoApiKey : settings.meshyApiKey);
+    final isStability = settings.threeDProvider == 'stability';
+    final apiKey = isLocal
+        ? ''
+        : isStability
+            ? settings.apiKeyFor(GenProvider.stability)
+            : (isTripo ? settings.tripoApiKey : settings.meshyApiKey);
     if (!isLocal && (apiKey == null || apiKey.trim().isEmpty)) {
-      await _showMissingKeyDialog(isTripo);
+      await _showMissingKeyDialog(settings.threeDProvider);
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    // Text-Modus: „Lokal“ geht immer über KI-Ansichten, bei Meshy/Tripo
-    // ist die Ansichten-Pipeline zuschaltbar.
-    final viewPipeline = !_imageMode && (isLocal || _viewsFromText);
+    // Text-Modus: „Lokal“ und Stability gehen immer über KI-Ansichten,
+    // bei Meshy/Tripo ist die Ansichten-Pipeline zuschaltbar.
+    final viewPipeline =
+        !_imageMode && (isLocal || isStability || _viewsFromText);
     // Bild-Modus: fehlende Ansichten optional per Bild-KI ergänzen –
     // gleiche Konsistenz-Prompts, Vorderansicht als Referenz.
     final augmentViews = _imageMode &&
         _completeViews &&
+        !isStability &&
         (!isLocal || _localMode == 'hull') &&
         _views.values.any((view) => view == null);
     if (!_imageMode && prompt.isEmpty) {
@@ -217,11 +239,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         final generated = await generateViewsFromText(
           settings: settings,
           description: prompt,
-          tPose: _tPose || (!isLocal && _rigging),
+          tPose: _tPose || (!isLocal && !isStability && _rigging),
           onProgress: progress,
           isCancelled: cancelled,
-          // Relief/Standee nutzen nur die Vorderansicht – Kosten sparen.
-          frontOnly: isLocal && _localMode != 'hull',
+          // Relief/Standee und Stability (1 Bild) brauchen nur die
+          // Vorderansicht – das spart Kosten.
+          frontOnly: (isLocal && _localMode != 'hull') || isStability,
           // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
           existing: {
             for (final entry in _views.entries)
@@ -242,7 +265,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       final useImages = _imageMode || viewPipeline;
       final label = _imageMode ? 'Aus Bild' : prompt;
       if (isLocal) {
-        await _runLocal(progress, label: viewPipeline ? prompt : null);
+        await _runLocal(settings, cancelled, progress,
+            label: viewPipeline ? prompt : null);
+      } else if (isStability) {
+        await _runStability(Stability3dService(apiKey!.trim()), progress,
+            label: label);
       } else if (isTripo) {
         await _runTripo(
             TripoService(apiKey!.trim()), prompt, cancelled, progress,
@@ -290,12 +317,41 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     });
   }
 
-  Future<void> _runLocal(void Function(String) progress,
-      {String? label}) async {
+  Future<void> _runLocal(
+    SettingsService settings,
+    bool Function() cancelled,
+    void Function(String) progress, {
+    String? label,
+  }) async {
     final source = _front;
     if (source == null) {
       throw GenerationException('Keine Vorderansicht vorhanden.');
     }
+
+    // Optional: Tiefenkarten per Bild-KI für plastische Vertiefungen.
+    Uint8List? frontDepthMap;
+    Uint8List? backDepthMap;
+    if (_localDepthAi && _localMode != 'standee') {
+      frontDepthMap = await generateDepthMap(
+        settings: settings,
+        source: source,
+        label: 'Vorn',
+        onProgress: progress,
+        isCancelled: cancelled,
+      );
+      final backView = _views['back'];
+      if (_localMode == 'hull' && backView != null) {
+        backDepthMap = await generateDepthMap(
+          settings: settings,
+          source: backView,
+          label: 'Hinten',
+          onProgress: progress,
+          isCancelled: cancelled,
+        );
+      }
+      if (cancelled()) throw GenerationException('Abgebrochen.');
+    }
+
     progress(_localMode == 'hull'
         ? 'Ansichten werden ausgewertet, Volumen wird geschnitzt …'
         : 'Bild wird analysiert …');
@@ -307,6 +363,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           leftBytes: _views['left']?.bytes,
           rightBytes: _views['right']?.bytes,
           backBytes: _views['back']?.bytes,
+          frontDepthBytes: frontDepthMap,
+          backDepthBytes: backDepthMap,
           resolution: _localResolution.clamp(48, 120),
         );
       } else {
@@ -316,6 +374,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           resolution: _localResolution,
           depth: _localDepth,
           invert: _localInvert,
+          depthBytes: frontDepthMap,
         );
       }
     } on Exception catch (e) {
@@ -331,6 +390,35 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             _ => 'Relief (lokal)',
           },
       providerLabel: 'Lokal',
+      thumbnail: source.bytes,
+      rigged: false,
+      textured: true,
+    );
+  }
+
+  Future<void> _runStability(
+    Stability3dService service,
+    void Function(String) progress, {
+    required String label,
+  }) async {
+    final source = _front;
+    if (source == null) {
+      throw GenerationException('Keine Vorderansicht vorhanden.');
+    }
+    progress(_stabilityEngine == 'stable-fast-3d'
+        ? 'Modell wird generiert (Stable Fast 3D) …'
+        : 'Modell wird generiert (Stable Point Aware 3D) …');
+    final glb = await service.generateModel(
+      imageBytes: source.bytes,
+      mimeType: source.mimeType,
+      engine: _stabilityEngine,
+      textureResolution: _stabilityTextureRes,
+      quadRemesh: _quadTopology,
+    );
+    _addResult(
+      glbBytes: glb,
+      label: label,
+      providerLabel: 'Stability',
       thumbnail: source.bytes,
       rigged: false,
       textured: true,
@@ -711,6 +799,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final settings = context.watch<SettingsService>();
     final isTripo = settings.threeDProvider == 'tripo';
     final isLocal = settings.threeDProvider == 'local';
+    final isStability = settings.threeDProvider == 'stability';
+    final riggingForcesTPose = !isLocal && !isStability && _rigging;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -738,6 +828,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     segments: const [
                       ButtonSegment(value: 'meshy', label: Text('Meshy')),
                       ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
+                      ButtonSegment(
+                          value: 'stability', label: Text('Stability')),
                       ButtonSegment(value: 'local', label: Text('Lokal')),
                     ],
                     selected: {settings.threeDProvider},
@@ -753,11 +845,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ? 'Eigener Generator: rechnet komplett lokal in der '
                           'App – kostenlos, kein API-Schlüssel nötig. '
                           'Baut Relief- und Aufsteller-Modelle aus Bildern.'
-                      : isTripo
-                          ? 'Tripo3D: Bezahlung nach Verbrauch, Startguthaben '
-                              'für neue Konten (platform.tripo3d.ai).'
-                          : 'Meshy: ca. 20 Credits pro Modell, API-Zugang ab '
-                              'Pro-Plan (meshy.ai).',
+                      : isStability
+                          ? 'Stability 3D: trainierte generative Modelle '
+                              '(Stable Fast 3D / Point Aware 3D) – '
+                              'rekonstruieren aus einem einzigen Bild auch '
+                              'Rückseite, Vertiefungen und Hohlräume. Nutzt '
+                              'den Stability-Bildschlüssel, wenige Credits '
+                              'pro Modell.'
+                          : isTripo
+                              ? 'Tripo3D: Bezahlung nach Verbrauch, '
+                                  'Startguthaben für neue Konten '
+                                  '(platform.tripo3d.ai).'
+                              : 'Meshy: ca. 20 Credits pro Modell, '
+                                  'API-Zugang ab Pro-Plan (meshy.ai).',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -808,27 +908,35 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('T-Pose (für Figuren empfohlen)'),
-                    subtitle: Text(!isLocal && _rigging
+                    subtitle: Text(riggingForcesTPose
                         ? 'Durch Rigging automatisch aktiv – gespreizte '
                             'Arme lassen sich am besten rekonstruieren.'
                         : 'Figur mit gespreizten Armen erzeugen – lässt '
                             'sich deutlich besser räumlich rekonstruieren, '
                             'auch ohne Rigging. Für Objekte (Gebäude, '
                             'Fahrzeuge …) ausschalten.'),
-                    value: _tPose || (!isLocal && _rigging),
-                    onChanged: _running || (!isLocal && _rigging)
+                    value: _tPose || riggingForcesTPose,
+                    onChanged: _running || riggingForcesTPose
                         ? null
                         : (v) => setState(() => _tPose = v),
                   ),
                   const SizedBox(height: 4),
-                  if (isLocal)
+                  if (isLocal || isStability)
                     Text(
-                      'Die nötigen Ansichten werden automatisch mit der '
-                      'Bild-KI aus dem Generator-Tab '
-                      '(${settings.provider.label}) erzeugt – mit '
-                      'abgestimmten Prompts, damit die Ansichten perfekt '
-                      'zusammenpassen. Beim 360°-Modell sind das 4 Bilder, '
-                      'sonst nur die Vorderansicht.',
+                      isStability
+                          ? 'Die Vorderansicht wird automatisch mit der '
+                              'Bild-KI aus dem Generator-Tab '
+                              '(${settings.provider.label}) erzeugt; das '
+                              'trainierte Stability-Modell rekonstruiert '
+                              'daraus das komplette 3D-Modell inklusive '
+                              'Rückseite.'
+                          : 'Die nötigen Ansichten werden automatisch mit '
+                              'der Bild-KI aus dem Generator-Tab '
+                              '(${settings.provider.label}) erzeugt – mit '
+                              'abgestimmten Prompts, damit die Ansichten '
+                              'perfekt zusammenpassen. Beim 360°-Modell '
+                              'sind das 4 Bilder, sonst nur die '
+                              'Vorderansicht.',
                       style: theme.textTheme.bodySmall,
                     )
                   else
@@ -848,11 +956,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? null
                           : (v) => setState(() => _viewsFromText = v),
                     ),
-                  if (isLocal || _viewsFromText) ...[
+                  if (isLocal || isStability || _viewsFromText) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
-                      final showAllViews =
-                          !isLocal || _localMode == 'hull';
+                      final showAllViews = !isStability &&
+                          (!isLocal || _localMode == 'hull');
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -877,8 +985,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ],
                 ] else ...[
                   Builder(builder: (context) {
-                    final showAllViews =
-                        !isLocal || _localMode == 'hull';
+                    final showAllViews = !isStability &&
+                        (!isLocal || _localMode == 'hull');
                     return Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -894,19 +1002,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   }),
                   const SizedBox(height: 4),
                   Text(
-                    isLocal && _localMode == 'hull'
-                        ? 'Vorderansicht ist Pflicht; je mehr echte '
-                            'Ansichten (links/rechts/hinten), desto '
-                            'genauer wird das räumliche Modell. Alle '
-                            'Bilder: dasselbe Motiv in gleicher Pose, '
-                            'möglichst transparenter Hintergrund.'
-                        : 'Nur die Vorderansicht ist Pflicht. Mit '
-                            'Ansichten von links, rechts und hinten '
-                            'entsteht ein deutlich genaueres '
-                            'Rundum-Modell.',
+                    isStability
+                        ? 'Stability nutzt genau ein Bild: Rückseite, '
+                            'Vertiefungen und Verdecktes rekonstruiert '
+                            'das trainierte Modell selbst.'
+                        : isLocal && _localMode == 'hull'
+                            ? 'Vorderansicht ist Pflicht; je mehr echte '
+                                'Ansichten (links/rechts/hinten), desto '
+                                'genauer wird das räumliche Modell. Alle '
+                                'Bilder: dasselbe Motiv in gleicher Pose, '
+                                'möglichst transparenter Hintergrund.'
+                            : 'Nur die Vorderansicht ist Pflicht. Mit '
+                                'Ansichten von links, rechts und hinten '
+                                'entsteht ein deutlich genaueres '
+                                'Rundum-Modell.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (!isLocal || _localMode == 'hull')
+                  if (!isStability && (!isLocal || _localMode == 'hull'))
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
@@ -966,6 +1078,27 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     },
                     style: theme.textTheme.bodySmall,
                   ),
+                  if (_localMode != 'standee')
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title:
+                          const Text('KI-Tiefenschätzung (Vertiefungen)'),
+                      subtitle: Text(_localMode == 'hull'
+                          ? 'Formt Mulden und Vertiefungen: Per '
+                              '${settings.provider.label} geschätzte '
+                              'Tiefenkarten der Vorder-/Rückansicht '
+                              'schieben die Oberfläche nach innen – '
+                              'überwindet die Silhouetten-Grenze des '
+                              'Visual Hull. Ca. 1 Bild je Tiefenkarte.'
+                          : 'Höhen aus einer KI-Tiefenkarte '
+                              '(${settings.provider.label}) statt aus der '
+                              'Helligkeit – echte räumliche Tiefe fürs '
+                              'Relief. Ca. 1 Bildgenerierung.'),
+                      value: _localDepthAi,
+                      onChanged: _running
+                          ? null
+                          : (v) => setState(() => _localDepthAi = v),
+                    ),
                   if (_localMode != 'hull') Row(
                     children: [
                       const SizedBox(width: 90, child: Text('Tiefe')),
@@ -1015,6 +1148,74 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? null
                           : (v) => setState(() => _localInvert = v),
                     ),
+                ] else if (isStability) ...[
+                  Text(
+                    'Textur ist immer enthalten. Rigging wird von '
+                    'Stability-3D nicht unterstützt – falls ein Skelett '
+                    'gebraucht wird, dasselbe Bild bei Meshy oder Tripo3D '
+                    'verwenden.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    title: const Text('Qualitäts-Optionen (Profi)'),
+                    subtitle: Text(
+                      'Engine, Textur-Auflösung, Topologie',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    children: [
+                      DropdownMenu<String>(
+                        key: ValueKey('sengine-$_stabilityEngine'),
+                        enabled: !_running,
+                        initialSelection: _stabilityEngine,
+                        label: const Text('Engine'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: [
+                          for (final (value, name)
+                              in Stability3dService.engines)
+                            DropdownMenuEntry(value: value, label: name),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _stabilityEngine = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownMenu<int>(
+                        key: ValueKey('stex-$_stabilityTextureRes'),
+                        enabled: !_running,
+                        initialSelection: _stabilityTextureRes,
+                        label: const Text('Textur-Auflösung'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: const [
+                          DropdownMenuEntry(
+                              value: 512, label: '512 px (klein)'),
+                          DropdownMenuEntry(
+                              value: 1024, label: '1024 px (Standard)'),
+                          DropdownMenuEntry(
+                              value: 2048, label: '2048 px (hoch)'),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _stabilityTextureRes = value);
+                          }
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Quad-Topologie'),
+                        subtitle: const Text(
+                            'Viereck-Netz statt Dreiecke – sauberer für '
+                            'Blender, Animation und Weiterbearbeitung'),
+                        value: _quadTopology,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _quadTopology = v),
+                      ),
+                    ],
+                  ),
                 ] else ...[
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -1228,9 +1429,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'Qualitätssprung. Mehr Polygone und PBR bzw. '
                       '„detailliert“ für feinere Details.\n'
                       '• Lokal (360°-Modell): je mehr Ansichten, desto '
-                      'genauer. Vertiefungen und Hohlräume kann das '
-                      'Verfahren nicht abbilden – für komplexe Figuren '
-                      'Meshy oder Tripo verwenden.',
+                      'genauer. Mulden und Vertiefungen entstehen mit der '
+                      'KI-Tiefenschätzung; echte Hohlräume und komplexe '
+                      'Figuren beherrschen die trainierten generativen '
+                      'Provider (Stability, Meshy, Tripo) am besten.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
