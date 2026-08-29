@@ -1465,7 +1465,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'Skelett ist Stability plus App-Rigging (wenige '
                       'Cent). Die beste Rigging-Qualität liefert Tripo3D '
                       '(~0,75 € je Komplettmodell). Preise laut Anbieter '
-                      '(Stand 2026) – können sich ändern.',
+                      '(Stand 2026) – können sich ändern.\n\n'
+                      'Kommerzielle Nutzung: Alle vier Wege liefern '
+                      'kommerziell nutzbare Modelle. Lokal erzeugte '
+                      'Modelle gehören vollständig dir. Stability: frei '
+                      'kommerziell nutzbar bis 1 Mio. \$ Jahresumsatz '
+                      '(darüber Enterprise-Lizenz nötig). Tripo3D über '
+                      'API/bezahlte Credits und Meshy ab Pro-Abo: volle '
+                      'kommerzielle Rechte, Modelle bleiben privat und '
+                      'werden nicht fürs Training verwendet. Nur die '
+                      'Gratis-Webportale von Meshy/Tripo vergeben '
+                      'CC-BY-Lizenzen mit Namensnennung – die nutzt '
+                      'diese App nicht. Wichtig bleibt: keine fremden '
+                      'Marken oder geschützten Charaktere als Motiv.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
