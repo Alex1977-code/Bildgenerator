@@ -87,7 +87,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Ziel-Polygonzahl (0 = keine Reduktion) und Detailgrad-Vorwahl.
   String _stabilityRemesh = 'none';
   int _stabilityPolycount = 0;
-  String _stabilityDetail = 'fine'; // 'fine' | 'auto' | 'safe'
+  String _stabilityDetail = 'auto'; // 'auto' | 'fine' | 'safe'
 
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
@@ -1382,7 +1382,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'Unity & Co. nutzen dieselben Werte.'),
                 ] else if (isStability) ...[
                   Text(
-                    'Textur (PBR) ist immer im Modell enthalten.',
+                    'Textur (PBR) ist immer im Modell enthalten. '
+                    'Realistische Erwartung: Stability ist die schnelle, '
+                    'sehr günstige Variante (wenige Cent pro Modell) – '
+                    'feine Details wie Gesichter werden weich, eng '
+                    'anliegende Arme/Beine können mit dem Körper '
+                    'verschmelzen. Tipp: Ausgangsbild mit frei '
+                    'stehenden Gliedmaßen (z. B. T-Pose) verwenden. Für '
+                    'Figuren in Top-Qualität Meshy oder Tripo wählen '
+                    '(siehe „Kosten & Qualität im Vergleich“).',
                     style: theme.textTheme.bodySmall,
                   ),
                   _autoRigSwitch(),
@@ -1511,10 +1519,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         expandedInsets: EdgeInsets.zero,
                         dropdownMenuEntries: const [
                           DropdownMenuEntry(
-                              value: 'fine',
-                              label: 'Fein (Standard – Objekt füllt das Bild)'),
+                              value: 'auto',
+                              label: 'Ausgewogen (Standard – API-Vorgabe)'),
                           DropdownMenuEntry(
-                              value: 'auto', label: 'API-Vorgabe'),
+                              value: 'fine',
+                              label: 'Fein (Objekt füllt das Bild)'),
                           DropdownMenuEntry(
                               value: 'safe',
                               label: 'Sicher (mehr Rand ums Objekt)'),
@@ -1527,10 +1536,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                       _optionInfo(
                           '„Fein“ lässt das Objekt das Bild ausfüllen – '
-                          'mehr Pixel pro Fläche, also mehr Details in '
-                          'Form und Textur. „Sicher“ lässt mehr Rand, '
-                          'falls bei „Fein“ Ränder abgeschnitten '
-                          'wirken.'),
+                          'mehr Pixel pro Fläche, kann aber ohne Rand zu '
+                          'Artefakten an den Objekträndern führen. '
+                          '„Ausgewogen“ ist die empfohlene Vorgabe, '
+                          '„Sicher“ lässt extra viel Rand.'),
                     ],
                   ),
                 ] else ...[
