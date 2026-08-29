@@ -11,6 +11,7 @@ import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
 import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
+import '../services/model_import.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
@@ -116,6 +117,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   String? _dragOverSlot;
+
+  /// Öffnet abgelegte 3D-Dateien (GLB/STL/OBJ) direkt im Viewer;
+  /// Bilddateien bleiben den Ansichten-Kacheln überlassen.
+  Future<void> _openDroppedModel(List<XFile> files) async {
+    for (final file in files) {
+      final name = file.name.toLowerCase();
+      if (!name.endsWith('.glb') &&
+          !name.endsWith('.stl') &&
+          !name.endsWith('.obj')) {
+        continue;
+      }
+      try {
+        final bytes = await file.readAsBytes();
+        final glb = importModelToGlb(bytes, file.name);
+        if (!mounted) return;
+        Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) =>
+              ModelPreviewScreen(glbBytes: glb, title: file.name),
+        ));
+      } catch (e) {
+        _showSnack('Modell konnte nicht geladen werden: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+      }
+      return;
+    }
+  }
 
   Future<void> _dropOnSlot(String key, List<XFile> files) async {
     setState(() => _dragOverSlot = null);
@@ -861,7 +888,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
     // der T-Pose-Schalter wäre dann irreführend.
     final rigPoseActive = _rigging && (isLocal || isStability);
-    return ListView(
+    return DropTarget(
+      onDragDone: (detail) => _openDroppedModel(detail.files),
+      child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
@@ -1565,7 +1594,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         const SizedBox(height: 4),
         Text(
           'GLB-Dateien zum Behalten exportieren – sie werden nicht '
-          'dauerhaft in der App gespeichert.',
+          'dauerhaft in der App gespeichert. Eigene GLB-, STL- oder '
+          'OBJ-Dateien einfach per Drag & Drop hierher ziehen – sie '
+          'öffnen sich im Viewer.',
           style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
@@ -1638,6 +1669,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
             ),
       ],
+      ),
     );
   }
 }

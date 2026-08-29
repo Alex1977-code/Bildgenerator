@@ -4,12 +4,14 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/animation_bake.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
+import '../services/model_import.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/stl_export.dart';
@@ -150,6 +152,28 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
       }
       _computePose();
     });
+  }
+
+  /// Ersetzt das angezeigte Modell durch eine abgelegte Datei.
+  Future<void> _openDropped(DropDoneDetails detail) async {
+    final messenger = ScaffoldMessenger.of(context);
+    for (final file in detail.files) {
+      try {
+        final bytes = await file.readAsBytes();
+        final glb = importModelToGlb(bytes, file.name);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+          builder: (_) =>
+              ModelPreviewScreen(glbBytes: glb, title: file.name),
+        ));
+        return;
+      } catch (e) {
+        messenger.showSnackBar(SnackBar(
+            content: Text('Modell konnte nicht geladen werden: '
+                '${e.toString().replaceFirst('Exception: ', '')}')));
+        return;
+      }
+    }
   }
 
   void _resetView() {
@@ -393,7 +417,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
           ),
         ],
       ),
-      body: _error != null
+      body: DropTarget(
+        onDragDone: _openDropped,
+        child: _error != null
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -514,6 +540,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                     ),
                   ],
                 ),
+      ),
     );
   }
 }

@@ -69,6 +69,10 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Vertexfarben für Blender/MeshLab. Druck: Datei in einen Slicer
     laden (PrusaSlicer, Cura, Bambu Studio …) oder beim
     Farbdruck-Dienst hochladen
+  - **Viewer als Drop-Ziel**: eigene GLB-, STL- und OBJ-Dateien lassen
+    sich per Drag & Drop in den 3D-Tab oder direkt in den Viewer
+    ziehen und werden dort angezeigt (STL/OBJ werden intern nach GLB
+    gewandelt)
   - **Immer aktuelle Bild-Modelle**: gpt-image-2/1.5, SD 3.5 & Co.
     sind vorkonfiguriert, und der Aktualisieren-Knopf neben der
     Modell-Auswahl lädt die aktuell verfügbaren Modelle direkt vom

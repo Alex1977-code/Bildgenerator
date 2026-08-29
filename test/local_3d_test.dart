@@ -9,6 +9,7 @@ import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
 import 'package:bildgenerator/services/mesh_check.dart';
+import 'package:bildgenerator/services/model_import.dart';
 import 'package:bildgenerator/services/obj_export.dart';
 import 'package:bildgenerator/services/stl_export.dart';
 import 'package:bildgenerator/services/threemf_export.dart';
@@ -444,6 +445,39 @@ void main() {
     for (final part in faceLines.first.split(' ').skip(1)) {
       expect(int.parse(part), greaterThan(0));
     }
+  });
+
+  test('Modell-Import: STL und OBJ kommen als GLB zurück', () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+
+    // GLB wird unverändert durchgereicht.
+    expect(importModelToGlb(glb, 'modell.glb'), same(glb));
+
+    // STL → GLB: gleiche Dreieckszahl, Vorschau funktioniert.
+    final stl = await glbToStl(glb, targetSizeMm: 50);
+    final fromStl = await parseGlbForPreview(
+        importModelToGlb(stl, 'modell.stl'));
+    expect(fromStl.triangleCount, mesh.indices.length ~/ 3);
+
+    // OBJ → GLB: Vertices, Flächen und Farben bleiben erhalten.
+    final obj = await glbToObj(glb);
+    final fromObj = await parseGlbForPreview(
+        importModelToGlb(obj, 'modell.obj'));
+    expect(fromObj.vertexCount, mesh.positions.length ~/ 3);
+    expect(fromObj.triangleCount, mesh.indices.length ~/ 3);
+    expect(fromObj.colors.toSet().length, greaterThan(1));
+
+    // Unbekanntes Format wird abgelehnt.
+    expect(
+        () => importModelToGlb(
+            Uint8List.fromList([1, 2, 3, 4, 5]), 'datei.xyz'),
+        throwsException);
   });
 
   test('3MF-Export: gültiger Container mit Farbpalette', () async {
