@@ -9,11 +9,13 @@ import '../services/exporter.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/model_catalog.dart';
+import '../services/cost_estimator.dart';
 import '../services/prompt_relay.dart';
 import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
+import '../widgets/cost_quality_panel.dart';
 import 'image_detail_screen.dart';
 
 /// Hauptbildschirm: Prompt, Referenzbilder, Optionen und Ergebnisse.
@@ -644,109 +646,150 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SectionLabel('KI-Modell'),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: DropdownMenu<String>(
-                    key: ValueKey('model-${provider.name}-$currentModel'
-                        '-${knownModels.length}'),
-                    initialSelection: currentModel,
-                    label: const Text('Modell'),
+            // Modellwahl mit seitlicher Qualitäts-/Kostenanzeige: auf
+            // breiten Layouts rechts daneben, auf schmalen darunter.
+            LayoutBuilder(builder: (context, constraints) {
+              final panel =
+                  CostQualityPanel(estimate: estimateImageRun(settings));
+              final modelControls = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: DropdownMenu<String>(
+                          key: ValueKey(
+                              'model-${provider.name}-$currentModel'
+                              '-${knownModels.length}'),
+                          initialSelection: currentModel,
+                          label: const Text('Modell'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: [
+                            for (final option in knownModels)
+                              DropdownMenuEntry(
+                                  value: option.$1, label: option.$2),
+                            if (!knownModels
+                                .any((o) => o.$1 == currentModel))
+                              DropdownMenuEntry(
+                                value: currentModel,
+                                label: '$currentModel (eigene ID)',
+                              ),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              settings.setModelFor(provider, value);
+                            }
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Aktuelle Modelle vom Anbieter laden',
+                        icon: _refreshingModels
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        onPressed:
+                            _refreshingModels ? null : _refreshModels,
+                      ),
+                    ],
+                  ),
+                  const SectionLabel('Format & Größe'),
+                  DropdownMenu<String>(
+                    key: ValueKey(
+                        'size-${provider.name}-${settings.stabilityModel}'
+                        '-${settings.geminiModel}-${settings.geminiImageSize}'),
+                    initialSelection: sizeValue,
+                    label:
+                        Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
                     expandedInsets: EdgeInsets.zero,
                     dropdownMenuEntries: [
-                      for (final option in knownModels)
+                      for (final option in sizeOptions)
                         DropdownMenuEntry(
-                            value: option.$1, label: option.$2),
-                      if (!knownModels.any((o) => o.$1 == currentModel))
-                        DropdownMenuEntry(
-                          value: currentModel,
-                          label: '$currentModel (eigene ID)',
+                          value: option.$1,
+                          label: _sizeOptionLabel(settings, option),
                         ),
                     ],
                     onSelected: (value) {
-                      if (value != null) {
-                        settings.setModelFor(provider, value);
+                      if (value == null) return;
+                      switch (provider) {
+                        case GenProvider.openai:
+                          settings.setOpenAiSize(value);
+                        case GenProvider.stability:
+                          settings.setStabilityAspect(value);
+                        case GenProvider.gemini:
+                          settings.setGeminiAspect(value);
                       }
                     },
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Aktuelle Modelle vom Anbieter laden',
-                  icon: _refreshingModels
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child:
-                              CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  onPressed: _refreshingModels ? null : _refreshModels,
-                ),
-              ],
-            ),
-            const SectionLabel('Format & Größe'),
-            DropdownMenu<String>(
-              key: ValueKey('size-${provider.name}-${settings.stabilityModel}'
-                  '-${settings.geminiModel}-${settings.geminiImageSize}'),
-              initialSelection: sizeValue,
-              label: Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
-              expandedInsets: EdgeInsets.zero,
-              dropdownMenuEntries: [
-                for (final option in sizeOptions)
-                  DropdownMenuEntry(
-                    value: option.$1,
-                    label: _sizeOptionLabel(settings, option),
-                  ),
-              ],
-              onSelected: (value) {
-                if (value == null) return;
-                switch (provider) {
-                  case GenProvider.openai:
-                    settings.setOpenAiSize(value);
-                  case GenProvider.stability:
-                    settings.setStabilityAspect(value);
-                  case GenProvider.gemini:
-                    settings.setGeminiAspect(value);
-                }
-              },
-            ),
-            if (isGemini && settings.geminiModel.contains('pro')) ...[
-              const SizedBox(height: 12),
-              DropdownMenu<String>(
-                key: ValueKey('imgsize-${settings.geminiAspect}'),
-                initialSelection: settings.geminiImageSize,
-                label: const Text('Auflösung'),
-                expandedInsets: EdgeInsets.zero,
-                dropdownMenuEntries: [
-                  for (final option in geminiImageSizeOptions)
-                    DropdownMenuEntry(
-                      value: option.$1,
-                      label: '${option.$2} · '
-                          '${geminiAspectPixelLabel(settings.geminiAspect, option.$1)}',
+                  if (isGemini &&
+                      settings.geminiModel.contains('pro')) ...[
+                    const SizedBox(height: 12),
+                    DropdownMenu<String>(
+                      key: ValueKey('imgsize-${settings.geminiAspect}'),
+                      initialSelection: settings.geminiImageSize,
+                      label: const Text('Auflösung'),
+                      expandedInsets: EdgeInsets.zero,
+                      dropdownMenuEntries: [
+                        for (final option in geminiImageSizeOptions)
+                          DropdownMenuEntry(
+                            value: option.$1,
+                            label: '${option.$2} · '
+                                '${geminiAspectPixelLabel(settings.geminiAspect, option.$1)}',
+                          ),
+                      ],
+                      onSelected: (value) {
+                        if (value != null) {
+                          settings.setGeminiImageSize(value);
+                        }
+                      },
                     ),
-                ],
-                onSelected: (value) {
-                  if (value != null) settings.setGeminiImageSize(value);
-                },
-              ),
-            ],
-            if (!isGemini) ...[
-              const SizedBox(height: 12),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: SegmentedButton<String>(
-                  segments: [
-                    for (final option in formatOptions)
-                      ButtonSegment(value: option.$1, label: Text(option.$2)),
                   ],
-                  selected: {settings.outputFormat},
-                  onSelectionChanged: (selection) =>
-                      settings.setOutputFormat(selection.first),
-                ),
-              ),
-            ],
+                  if (!isGemini) ...[
+                    const SizedBox(height: 12),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: SegmentedButton<String>(
+                        segments: [
+                          for (final option in formatOptions)
+                            ButtonSegment(
+                                value: option.$1, label: Text(option.$2)),
+                        ],
+                        selected: {settings.outputFormat},
+                        onSelectionChanged: (selection) =>
+                            settings.setOutputFormat(selection.first),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+              if (constraints.maxWidth >= 420) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: modelControls),
+                    const SizedBox(width: 12),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: panel,
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  modelControls,
+                  const SizedBox(height: 12),
+                  panel,
+                ],
+              );
+            }),
             if (isOpenAi) ...[
               const SectionLabel('Qualität'),
               FittedBox(

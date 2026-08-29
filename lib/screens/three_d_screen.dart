@@ -10,6 +10,7 @@ import '../models/models.dart';
 import '../services/animation_bake.dart';
 import '../services/auto_rig.dart';
 import '../services/balance_service.dart';
+import '../services/cost_estimator.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
 import '../services/glb_preview.dart';
@@ -29,6 +30,7 @@ import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
 import '../services/view_generator.dart';
 import '../widgets/common.dart';
+import '../widgets/cost_quality_panel.dart';
 import 'image_detail_screen.dart';
 import 'model_preview_screen.dart';
 
@@ -1713,6 +1715,133 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           : (v) => setState(() => _completeViews = v),
                     ),
                 ],
+                const SectionLabel('Modell & Kosten'),
+                // Bild-KI-Modell direkt im 3D-Tab wählbar plus
+                // seitliche Qualitäts-/Kostenanzeige für den gesamten
+                // Lauf (Bild-KI-Schritte + 3D-Dienst).
+                Builder(builder: (context) {
+                  final viewKeys = isStability
+                      ? const ['front']
+                      : const ['front', 'left', 'right', 'back'];
+                  final generatesViews = (!_imageMode &&
+                          (isLocal || isStability || _viewsFromText)) ||
+                      (_imageMode && _completeViews && !isStability);
+                  final viewsToGenerate = generatesViews
+                      ? viewKeys
+                          .where((key) => _views[key] == null)
+                          .length
+                      : 0;
+                  final estimate = estimate3dRun(
+                    settings,
+                    viewsToGenerate: viewsToGenerate,
+                    depthMaps: isLocal && _localDepthAi ? 2 : 0,
+                    stabilityEngine: _stabilityEngine,
+                    rigging: _rigging && !isLocal && !isStability,
+                  );
+                  final usesImageAi =
+                      generatesViews || (isLocal && _localDepthAi);
+                  final provider = settings.provider;
+                  final staticModels = switch (provider) {
+                    GenProvider.openai => openAiModelOptions,
+                    GenProvider.stability => stabilityModelOptions,
+                    GenProvider.gemini => geminiModelOptions,
+                  };
+                  final knownModels = [
+                    ...staticModels,
+                    for (final id
+                        in settings.fetchedModelsFor(provider))
+                      if (!staticModels.any((o) => o.$1 == id)) (id, id),
+                  ];
+                  final currentModel = settings.modelFor(provider);
+                  final controls = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (usesImageAi) ...[
+                        DropdownMenu<String>(
+                          key: ValueKey(
+                              '3d-model-${provider.name}-$currentModel'),
+                          initialSelection: currentModel,
+                          label: Text(
+                              'Bild-KI-Modell (${provider.label})'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: [
+                            for (final option in knownModels)
+                              DropdownMenuEntry(
+                                  value: option.$1, label: option.$2),
+                            if (!knownModels
+                                .any((o) => o.$1 == currentModel))
+                              DropdownMenuEntry(
+                                value: currentModel,
+                                label: '$currentModel (eigene ID)',
+                              ),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              settings.setModelFor(provider, value);
+                            }
+                          },
+                        ),
+                        if (provider == GenProvider.gemini &&
+                            settings.geminiModel.contains('pro')) ...[
+                          const SizedBox(height: 12),
+                          DropdownMenu<String>(
+                            key: ValueKey(
+                                '3d-imgsize-${settings.geminiImageSize}'),
+                            initialSelection: settings.geminiImageSize,
+                            label: const Text('Auflösung der Ansichten'),
+                            expandedInsets: EdgeInsets.zero,
+                            dropdownMenuEntries: [
+                              for (final option in geminiImageSizeOptions)
+                                DropdownMenuEntry(
+                                    value: option.$1, label: option.$2),
+                            ],
+                            onSelected: (value) {
+                              if (value != null) {
+                                settings.setGeminiImageSize(value);
+                              }
+                            },
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Der Bild-Provider selbst wird im '
+                          'Generator-Tab gewählt; die Ansichten-Schärfe '
+                          'bestimmt die Textur-Schärfe des Modells.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ] else
+                        Text(
+                          'Dieser Lauf nutzt keine Bild-KI-Schritte – '
+                          'die Kosten entstehen nur beim 3D-Dienst.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                    ],
+                  );
+                  final panel = CostQualityPanel(estimate: estimate);
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.maxWidth >= 460) {
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: controls),
+                            const SizedBox(width: 12),
+                            panel,
+                          ],
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          controls,
+                          const SizedBox(height: 12),
+                          panel,
+                        ],
+                      );
+                    },
+                  );
+                }),
+                const SizedBox(height: 8),
                 const SectionLabel('Optionen'),
                 if (isLocal) ...[
                   Text(
