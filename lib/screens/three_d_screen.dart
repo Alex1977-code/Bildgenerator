@@ -68,7 +68,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           if (_views[key] != null) _views[key]!,
       ];
   bool _texture = true;
-  bool _rigging = false;
+  bool _rigging = true;
   String _artStyle = 'realistic';
 
   /// Text-Modus bei Meshy/Tripo: statt des nativen Text→3D erst

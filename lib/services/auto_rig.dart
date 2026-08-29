@@ -186,25 +186,30 @@ _BodyProfile _analyzeBipedProfile(
   final crotchY =
       crotchBin >= 0 ? binY(crotchBin) : minY + 0.48 * height;
 
-  // Arm-Band: Zeilen mit mindestens 3 Inseln (Arm–Rumpf–Arm), deren
-  // breiteste Insel deutlich ausgedehnt ist (der Rumpf). Das unterste
-  // Band liefert die Schulterhöhe – Bänder weiter oben wären Haar-
-  // oder Ohrpartien.
+  // Arm-Band: Zeilen mit mindestens 3 Inseln (Arm–Rumpf–Arm), bei
+  // denen die MITTLERE Insel die breiteste ist (der Rumpf) – das
+  // schließt Bein-plus-Stoff-Zeilen aus, wo die äußeren Inseln (Beine)
+  // breiter wären. Das unterste Band liefert die Schulterhöhe.
   bool armRow(int bin) {
     final islands = islandsOf(bin);
     if (islands.length < 3) return false;
-    var widest = 0;
+    final centerCell = xBins ~/ 2;
+    var centerWidth = 0, widest = 0;
     for (final (s, e) in islands) {
-      if (e - s + 1 > widest) widest = e - s + 1;
+      final islandWidth = e - s + 1;
+      if (islandWidth > widest) widest = islandWidth;
+      if (s <= centerCell && centerCell <= e) centerWidth = islandWidth;
     }
-    return widest >= 4;
+    return centerWidth >= 4 && centerWidth == widest;
   }
 
   var armTopBin = -1;
+  var armBottomBin = -1;
   final armSearchFrom =
       crotchBin >= 0 ? crotchBin + 1 : (bins * 0.2).floor();
   for (var bin = armSearchFrom; bin < bins - 1; bin++) {
     if (armRow(bin) && armRow(bin + 1)) {
+      armBottomBin = bin;
       var top = bin + 1;
       while (top + 1 < bins && armRow(top + 1)) {
         top++;
@@ -213,8 +218,14 @@ _BodyProfile _analyzeBipedProfile(
       break;
     }
   }
+  // Nur verwenden, wenn die Arme über eine deutliche Höhe frei stehen
+  // (mindestens 10 % der Figur). Ein kurzes Band sind nur die Hände
+  // herabhängender, mit dem Rumpf verschmolzener Arme – die Schulter
+  // läge dann weit darüber (dort greift die Halsmessung).
+  final armSpanOk = armTopBin >= 0 &&
+      (armTopBin - armBottomBin + 1) >= (bins * 0.10).ceil();
   final shoulderY =
-      armTopBin >= 0 ? binY(armTopBin) + 0.04 * height : null;
+      armSpanOk ? binY(armTopBin) + 0.04 * height : null;
 
   // Hals: schmalste Stelle zwischen Rumpf-Oberkante und der breitesten
   // Kopf-/Haarstelle (darüber wird der Kopf wieder schmaler – dort
@@ -624,19 +635,25 @@ class _SkeletonBuilder {
             p(sign * 0.10 * w, shoulderF),
             boneRadius: 1.1);
         // Leicht abfallend – passt für T-Pose wie für die typische
-        // A-Pose von Spielfiguren.
+        // A-Pose von Spielfiguren. Schmale Einflussradien (0,85),
+        // damit der Rumpf (Anzug/Jacke) beim Chest-Knochen bleibt
+        // und beim Arm-Anheben nicht mitgezogen wird.
         final elbow = b.joint('Elbow_$suffix', shoulder,
-            p(sign * 0.28 * w, shoulderF - 0.03));
-        final hand = b.joint(
-            'Hand_$suffix', elbow, p(sign * 0.43 * w, shoulderF - 0.06));
-        b.tip(hand, p(sign * 0.5 * w, shoulderF - 0.08));
+            p(sign * 0.28 * w, shoulderF - 0.03),
+            boneRadius: 0.85);
+        final hand = b.joint('Hand_$suffix', elbow,
+            p(sign * 0.43 * w, shoulderF - 0.06),
+            boneRadius: 0.85);
+        b.tip(hand, p(sign * 0.5 * w, shoulderF - 0.08), radius: 0.85);
       }
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
         final upper = b.joint(
             'UpperLeg_$suffix', hips, p(sign * legX, crotch),
             boneRadius: 1.2);
-        final knee =
-            b.joint('Knee_$suffix', upper, p(sign * legX, kneeF));
+        // Oberschenkel schmaler (0,9): Gürtel/Hüftbereich bleibt beim
+        // Hips-Knochen und schert beim Gehen nicht mit den Beinen.
+        final knee = b.joint('Knee_$suffix', upper, p(sign * legX, kneeF),
+            boneRadius: 0.9);
         final foot =
             b.joint('Foot_$suffix', knee, p(sign * legX, 0.04));
         b.tip(foot, p(sign * legX, 0.02, 0.2 * d));

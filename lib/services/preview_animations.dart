@@ -46,7 +46,9 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
 
   if (byName.containsKey('Shoulder_L') && byName.containsKey('UpperLeg_L')) {
     clips.add(ProceduralClip('Gehen', 1 / 1.3, (t) {
-      final a = 0.5 * math.sin(t * 2 * math.pi * 1.3);
+      // Dezente Ausschläge: großer Armschwung und Rumpf-Drehung ziehen
+      // sonst sichtbar an Anzug und Gürtel-Textur.
+      final a = 0.42 * math.sin(t * 2 * math.pi * 1.3);
       final knee = 0.3 * (1 + math.sin(t * 2 * math.pi * 1.3 - 1.2)) / 2;
       final pose = <int, Float32List>{};
       put(pose, 'Shoulder_L', _axisAngle(1, 0, 0, a));
@@ -55,14 +57,16 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'UpperLeg_R', _axisAngle(1, 0, 0, a * 0.8));
       put(pose, 'Knee_L', _axisAngle(1, 0, 0, knee));
       put(pose, 'Knee_R', _axisAngle(1, 0, 0, 0.3 - knee));
-      put(pose, 'Spine', _axisAngle(0, 1, 0, a * 0.1));
+      put(pose, 'Spine', _axisAngle(0, 1, 0, a * 0.06));
       return pose;
     }));
     clips.add(ProceduralClip('Winken', 1 / 2.5, (t) {
       final a = 0.5 * math.sin(t * 2 * math.pi * 2.5);
       final pose = <int, Float32List>{};
-      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.9));
-      put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.5 + a * 0.6));
+      // Arm moderat heben – das Winken kommt aus dem Ellbogen, so
+      // bleibt die Schulterpartie des Anzugs ruhig.
+      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.72));
+      put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.55 + a * 0.6));
       put(pose, 'Head', _axisAngle(0, 0, 1, a * 0.1));
       return pose;
     }));
