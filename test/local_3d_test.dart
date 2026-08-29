@@ -1002,6 +1002,100 @@ void main() {
     preview.dispose();
   });
 
+  test(
+      'Veredelung: Textur-Reprojektion schärft die sichtbare Seite und '
+      'lässt Verdecktes unberührt', () async {
+    // Drei Quads: der Kamera (-z) zugewandt vorn, dahinter ein
+    // verdecktes Quad, dazu ein abgewandtes Quad – jedes mit eigener
+    // Textur-Region.
+    final mesh = LocalMesh();
+    void quad(double z, double u0, double v0, {bool facingCamera = true}) {
+      final a = mesh.addVertex(-0.5, -0.5, z, u0, v0 + 0.35);
+      final b = mesh.addVertex(0.5, -0.5, z, u0 + 0.35, v0 + 0.35);
+      final c = mesh.addVertex(0.5, 0.5, z, u0 + 0.35, v0);
+      final d = mesh.addVertex(-0.5, 0.5, z, u0, v0);
+      if (facingCamera) {
+        mesh.addTriangle(a, c, b);
+        mesh.addTriangle(a, d, c);
+      } else {
+        mesh.addTriangle(a, b, c);
+        mesh.addTriangle(a, c, d);
+      }
+    }
+
+    quad(-0.4, 0.05, 0.05); // vorn, sichtbar
+    quad(0.1, 0.55, 0.05); // gleiche Fläche, verdeckt
+    quad(0.5, 0.05, 0.55, facingCamera: false); // abgewandt
+
+    // Einheitlich graue 64er-Textur.
+    final gray = Uint8List.fromList(List.generate(
+        64 * 64 * 4, (i) => i % 4 == 3 ? 255 : 128));
+    Future<Uint8List> encode(Uint8List rgba, int size) async {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+      final descriptor = ui.ImageDescriptor.raw(buffer,
+          width: size, height: size, pixelFormat: ui.PixelFormat.rgba8888);
+      final codec = await descriptor.instantiateCodec();
+      final frame = await codec.getNextFrame();
+      final png =
+          (await frame.image.toByteData(format: ui.ImageByteFormat.png))!
+              .buffer
+              .asUint8List();
+      frame.image.dispose();
+      return png;
+    }
+
+    final glb = buildGlb(mesh, pngTexture: await encode(gray, 64));
+
+    // Quellbild 200×200: deckender Kernbereich mit grau-nahem
+    // Verlauf und markantem Blauanteil (b=140).
+    const s = 200;
+    final source = Uint8List(s * s * 4);
+    for (var y = 0; y < s; y++) {
+      for (var x = 0; x < s; x++) {
+        final o = (y * s + x) * 4;
+        source[o] = 100 + (x * 40 ~/ s);
+        source[o + 1] = 128;
+        source[o + 2] = 140;
+        source[o + 3] =
+            (x >= 20 && x < 180 && y >= 20 && y < 180) ? 255 : 0;
+      }
+    }
+
+    final refined = await reprojectSourceImageTexture(
+        glb, await encode(source, s));
+    expect(refined, isNotNull, reason: 'Kalibrierung muss gelingen');
+    final preview = await parseGlbForPreview(refined!);
+    final tex =
+        (await preview.texture!.toByteData(format: ui.ImageByteFormat.rawRgba))!
+            .buffer
+            .asUint8List();
+    final tw = preview.texture!.width;
+    int channel(double u, double v, int c) =>
+        tex[(((v * (tw - 1)).round()) * tw + (u * (tw - 1)).round()) * 4 +
+            c];
+    // Sichtbares Quad: Bildfarbe übernommen (markantes b=140).
+    expect(channel(0.225, 0.225, 2), inInclusiveRange(132, 148),
+        reason: 'sichtbare Seite geschärft');
+    expect(channel(0.225, 0.225, 0), inInclusiveRange(95, 145));
+    // Verdecktes Quad: unverändert grau.
+    expect(channel(0.725, 0.225, 2), inInclusiveRange(120, 136),
+        reason: 'verdeckte Fläche bleibt unberührt');
+    // Abgewandtes Quad: unverändert grau.
+    expect(channel(0.225, 0.725, 2), inInclusiveRange(120, 136),
+        reason: 'abgewandte Fläche bleibt unberührt');
+    preview.dispose();
+
+    // Unpassendes Bild (kräftiges Blau, weit weg von der Textur):
+    // Kalibrierung schlägt fehl, nichts wird verändert.
+    final wrong = Uint8List(s * s * 4);
+    for (var i = 0; i < wrong.length; i += 4) {
+      wrong[i + 2] = 255;
+      wrong[i + 3] = 255;
+    }
+    expect(await reprojectSourceImageTexture(glb, await encode(wrong, s)),
+        isNull);
+  });
+
   test('Fahrzeug-Rig lehnt flache „Platten“-Modelle verständlich ab', () {
     // Wie eine Bild→3D-Rekonstruktion aus reiner Frontalansicht: hoch
     // und breit, aber fast ohne Tiefe – kein fahrbereites Fahrzeug.

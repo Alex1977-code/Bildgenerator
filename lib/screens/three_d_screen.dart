@@ -119,6 +119,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Motive).
   bool _refineSymmetrize = false;
 
+  /// Veredelung: das scharfe Ausgangsbild zurück auf die sichtbare
+  /// Seite projizieren (ersetzt dort die weiche Stability-Textur).
+  bool _refineProjectTexture = true;
+
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
 
@@ -327,8 +331,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 showSelectedIcon: false,
                 style:
                     const ButtonStyle(visualDensity: VisualDensity.compact),
-                onSelectionChanged: (selection) =>
-                    setState(() => _promptSubject = selection.first),
+                onSelectionChanged: (selection) => setState(() {
+                  _promptSubject = selection.first;
+                  // Automatisch erzeugte Vorderansicht verwerfen:
+                  // Figur (frontal) und Objekt (Dreiviertelansicht)
+                  // brauchen unterschiedliche Ansichten – eine alte
+                  // Kachel würde sonst still wiederverwendet und den
+                  // Lauf sabotieren. Eigene Bilder bleiben stehen.
+                  if (_views['front']?.name == 'ansicht_Vorn.png') {
+                    _views['front'] = null;
+                  }
+                }),
               ),
             FilledButton.tonalIcon(
               icon: const Icon(Icons.copy, size: 18),
@@ -766,10 +779,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       targetPolycount: _stabilityPolycount,
       foregroundRatio: foregroundRatio,
     );
-    // Lokale Veredelung: erst gerade ausrichten (Fahrzeuge aus
-    // Dreiviertelansichten stehen sonst schräg im Raum und die
-    // Rad-Erkennung greift nicht), dann optional symmetrisieren.
+    // Lokale Veredelung: erst die Textur aus dem Originalbild schärfen
+    // (braucht den Kamera-Raum der Rekonstruktion), dann gerade
+    // ausrichten (Fahrzeuge aus Dreiviertelansichten stehen sonst
+    // schräg und die Rad-Erkennung greift nicht), dann optional
+    // symmetrisieren.
     final refineNotes = <String>[];
+    if (_refineProjectTexture) {
+      progress('Veredelung: Textur wird aus dem Originalbild geschärft …');
+      try {
+        final sharpened =
+            await reprojectSourceImageTexture(glb, source.bytes);
+        if (sharpened != null) {
+          glb = sharpened;
+          refineNotes.add('Textur aus dem Originalbild geschärft');
+        }
+      } catch (_) {}
+    }
     if (_rigging && _rigType == 'vehicle') {
       progress('Veredelung: Ausrichtung wird geprüft …');
       try {
@@ -2278,6 +2304,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             ? null
                             : (v) =>
                                 setState(() => _refineSymmetrize = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'Textur aus Originalbild schärfen '
+                            '(lokale Veredelung)'),
+                        subtitle: const Text(
+                            'Projiziert das scharfe Ausgangsbild zurück '
+                            'auf die sichtbare Seite des Modells und '
+                            'ersetzt dort die weiche Stability-Textur – '
+                            'mit automatischer Kalibrierung; verdeckte '
+                            'und abgewandte Flächen bleiben unberührt. '
+                            'Greift nur, wenn Bild und Modell '
+                            'zusammenpassen; komplett lokal, keine '
+                            'Zusatzkosten.'),
+                        value: _refineProjectTexture,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(
+                                () => _refineProjectTexture = v),
                       ),
                     ],
                   ),
