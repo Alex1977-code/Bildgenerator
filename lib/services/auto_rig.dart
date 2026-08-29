@@ -23,6 +23,7 @@ const rigTypeOptions = [
   ('bird', 'Vogel (gespreizte Flügel)'),
   ('snake', 'Schlange / ohne Beine'),
   ('fish', 'Fisch'),
+  ('vehicle', 'Fahrzeug (4 Räder)'),
 ];
 
 class _Vec3 {
@@ -302,6 +303,27 @@ class _SkeletonBuilder {
       }
       b.tip(parent, alongZ ? p(0, 0.5, -0.55 * d) : p(-0.55 * w, 0.5));
       b.tip(0, alongZ ? p(0, 0.5, 0.55 * d) : p(0.55 * w, 0.5));
+    case 'vehicle':
+      // Karosserie als dominanter Knochen, vier Radgelenke an den
+      // Ecken – die Räder lassen sich damit um ihre Achse drehen
+      // (Fahren-Animation, Blender/Unity).
+      final body = b.joint('Body', -1, p(0, 0.5, 0));
+      b.tip(body, p(0, 0.5, 0.46 * d), radius: 2.4);
+      b.tip(body, p(0, 0.5, -0.46 * d), radius: 2.4);
+      const wheelY = 0.16;
+      for (final (name, sx, sz) in [
+        ('Wheel_FL', -1.0, 1.0),
+        ('Wheel_FR', 1.0, 1.0),
+        ('Wheel_RL', -1.0, -1.0),
+        ('Wheel_RR', 1.0, -1.0),
+      ]) {
+        final wheel = b.joint(
+            name, body, p(sx * 0.38 * w, wheelY, sz * 0.32 * d),
+            boneRadius: 0.55);
+        // Achsstummel nach außen: konzentriert die Gewichte aufs Rad.
+        b.tip(wheel, p(sx * 0.5 * w, wheelY, sz * 0.32 * d),
+            radius: 1.1);
+      }
     default: // 'biped'
       // Vermessene Proportionen (Beinansatz, Hals, Beinabstand) statt
       // fester Standard-Prozente – wichtig für Chibi-/Comic-Figuren
@@ -659,6 +681,7 @@ const rigJointCounts = {
   'bird': 13,
   'snake': 8,
   'fish': 6,
+  'vehicle': 5,
 };
 
 /// Kleiner Selbsttest-Helfer: prüft, ob eine GLB ein Skin trägt.

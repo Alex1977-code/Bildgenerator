@@ -913,20 +913,51 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'local', label: Text('Lokal')),
-                      ButtonSegment(
-                          value: 'stability', label: Text('Stability')),
-                      ButtonSegment(value: 'meshy', label: Text('Meshy')),
-                      ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
-                    ],
-                    selected: {settings.threeDProvider},
-                    onSelectionChanged: _running
-                        ? null
-                        : (selection) =>
-                            settings.setThreeDProvider(selection.first),
-                  ),
+                  child: Builder(builder: (context) {
+                    // Grüner Haken = einsatzbereit (Schlüssel hinterlegt
+                    // bzw. Lokal ohne Schlüssel).
+                    Widget? ready(bool available) => available
+                        ? const Icon(Icons.check_circle,
+                            color: Colors.green, size: 16)
+                        : const Icon(Icons.key_off, size: 16);
+                    final hasMeshy =
+                        settings.meshyApiKey?.trim().isNotEmpty ?? false;
+                    final hasTripo =
+                        settings.tripoApiKey?.trim().isNotEmpty ?? false;
+                    return SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(
+                            value: 'local',
+                            label: const Text('Lokal'),
+                            icon: ready(true)),
+                        ButtonSegment(
+                            value: 'stability',
+                            label: const Text('Stability'),
+                            icon: ready(settings
+                                .hasApiKeyFor(GenProvider.stability))),
+                        ButtonSegment(
+                            value: 'meshy',
+                            label: const Text('Meshy'),
+                            icon: ready(hasMeshy)),
+                        ButtonSegment(
+                            value: 'tripo',
+                            label: const Text('Tripo3D'),
+                            icon: ready(hasTripo)),
+                      ],
+                      selected: {settings.threeDProvider},
+                      onSelectionChanged: _running
+                          ? null
+                          : (selection) =>
+                              settings.setThreeDProvider(selection.first),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Grüner Haken = einsatzbereit (API-Schlüssel hinterlegt '
+                  'bzw. Lokal ohne Schlüssel).',
+                  style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 4),
                 Text(

@@ -144,6 +144,21 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
     }));
   }
 
+  if (byName.containsKey('Wheel_FL')) {
+    clips.add(ProceduralClip('Fahren', 1.2, (t) {
+      // Räder drehen kontinuierlich durch (eine volle Umdrehung je
+      // Periode – loopt sauber), die Karosserie wippt leicht.
+      final angle = -2 * math.pi * (t / 1.2);
+      final bounce = 0.015 * math.sin(t * 2 * math.pi * (2 / 1.2));
+      final pose = <int, Float32List>{};
+      for (final wheel in ['Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR']) {
+        put(pose, wheel, _axisAngle(1, 0, 0, angle));
+      }
+      put(pose, 'Body', _axisAngle(1, 0, 0, bounce));
+      return pose;
+    }));
+  }
+
   // Generischer Test für jedes Skelett (auch fremde Rigs).
   clips.add(ProceduralClip('Wackeltest', 1 / 1.2, (t) {
     final pose = <int, Float32List>{};
