@@ -1433,6 +1433,38 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ),
                   ],
                 ),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  leading: const Icon(Icons.savings_outlined),
+                  title: const Text('Kosten & Qualität im Vergleich'),
+                  children: [
+                    Text(
+                      '• Lokal: kostenlos und offline – Qualität gut bei '
+                      'einfachen, kompakten Motiven; Vertex-Farben statt '
+                      'echter Texturen, keine Hohlräume. Mit KI-Ansichten '
+                      'und Tiefenschätzung fallen nur Bildkosten an '
+                      '(ca. 4–6 Bilder, wenige Cent).\n'
+                      '• Stability: ca. 4–10 Credits (≈ 0,04–0,10 \$) pro '
+                      'Modell, Antwort in Sekunden – bestes '
+                      'Preis-Leistungs-Verhältnis; echte Texturen, '
+                      'plausible Rückseiten und Hohlräume, Details '
+                      'mittel bis hoch.\n'
+                      '• Tripo3D: ca. 10–30 Credits (≈ 0,10–0,30 \$) je '
+                      'nach Optionen, Startguthaben für neue Konten – '
+                      'sehr hohe Qualität, v3.0 und „detailliert“ nahe '
+                      'Produktionsniveau, natives Rigging.\n'
+                      '• Meshy: ca. 20 Credits, API erst ab Pro-Abo '
+                      '(≈ 16 \$/Monat) – Top-Qualität und viele Optionen, '
+                      'lohnt bei regelmäßiger Nutzung.\n'
+                      'Empfehlung: Zum Ausprobieren Lokal (gratis), für '
+                      'gute Modelle zum kleinen Preis Stability, für '
+                      'maximale Qualität Tripo3D/Meshy. Preise laut '
+                      'Anbieter (Stand 2026) – können sich ändern.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [

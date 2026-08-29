@@ -8,9 +8,15 @@ import 'glb_preview.dart';
 /// prozedural (Gehen, Flügelschlag, Schlängeln …), damit sich das
 /// Rigging direkt in der App prüfen lässt.
 class ProceduralClip {
-  ProceduralClip(this.name, this._pose);
+  ProceduralClip(this.name, this.period, this._pose);
 
   final String name;
+
+  /// Dauer eines vollständigen Bewegungszyklus in Sekunden – nach
+  /// [period] wiederholt sich die Pose exakt (wichtig fürs Einbacken
+  /// als loopbarer glTF-Clip).
+  final double period;
+
   final Map<int, Float32List> Function(double t) _pose;
 
   /// Rotations-Overrides (Knotenindex → Quaternion) zum Zeitpunkt [t].
@@ -39,7 +45,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
   }
 
   if (byName.containsKey('Shoulder_L') && byName.containsKey('UpperLeg_L')) {
-    clips.add(ProceduralClip('Gehen', (t) {
+    clips.add(ProceduralClip('Gehen', 1 / 1.3, (t) {
       final a = 0.5 * math.sin(t * 2 * math.pi * 1.3);
       final knee = 0.3 * (1 + math.sin(t * 2 * math.pi * 1.3 - 1.2)) / 2;
       final pose = <int, Float32List>{};
@@ -52,7 +58,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       put(pose, 'Spine', _axisAngle(0, 1, 0, a * 0.1));
       return pose;
     }));
-    clips.add(ProceduralClip('Winken', (t) {
+    clips.add(ProceduralClip('Winken', 1 / 2.5, (t) {
       final a = 0.5 * math.sin(t * 2 * math.pi * 2.5);
       final pose = <int, Float32List>{};
       put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.9));
@@ -63,9 +69,9 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
   }
 
   if (byName.containsKey('FrontUpperLeg_L')) {
-    clips.add(ProceduralClip('Gehen (Vierbeiner)', (t) {
+    clips.add(ProceduralClip('Gehen (Vierbeiner)', 2 / 1.5, (t) {
       final a = 0.4 * math.sin(t * 2 * math.pi * 1.5);
-      final tail = 0.25 * math.sin(t * 2 * math.pi * 0.9);
+      final tail = 0.25 * math.sin(t * 2 * math.pi * 0.75);
       final pose = <int, Float32List>{};
       // Diagonale Beinpaare schwingen gegengleich.
       put(pose, 'FrontUpperLeg_L', _axisAngle(1, 0, 0, a));
@@ -84,7 +90,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
   }
 
   if (byName.containsKey('Wing_L')) {
-    clips.add(ProceduralClip('Flügelschlag', (t) {
+    clips.add(ProceduralClip('Flügelschlag', 1 / 2.4, (t) {
       final a = 0.55 * math.sin(t * 2 * math.pi * 2.4);
       final b = 0.35 * math.sin(t * 2 * math.pi * 2.4 - 0.7);
       final pose = <int, Float32List>{};
@@ -98,7 +104,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
   }
 
   if (byName.containsKey('Leg1Hip_L')) {
-    clips.add(ProceduralClip('Krabbeln', (t) {
+    clips.add(ProceduralClip('Krabbeln', 1 / 2.0, (t) {
       final a = 0.35 * math.sin(t * 2 * math.pi * 2.0);
       final pose = <int, Float32List>{};
       // Wechseltritt in zwei Dreiergruppen (Tripod-Gang).
@@ -125,7 +131,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       !byName.containsKey('FrontUpperLeg_L');
   if (isChain) {
     final isFish = rig.joints.length <= 6;
-    clips.add(ProceduralClip(isFish ? 'Schwimmen' : 'Schlängeln', (t) {
+    clips.add(ProceduralClip(isFish ? 'Schwimmen' : 'Schlängeln', 1 / 1.6, (t) {
       final pose = <int, Float32List>{};
       for (var j = 0; j < rig.joints.length; j++) {
         // Welle läuft vom Kopf zum Schwanz; beim Fisch hinten stärker.
@@ -139,7 +145,7 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
   }
 
   // Generischer Test für jedes Skelett (auch fremde Rigs).
-  clips.add(ProceduralClip('Wackeltest', (t) {
+  clips.add(ProceduralClip('Wackeltest', 1 / 1.2, (t) {
     final pose = <int, Float32List>{};
     for (var j = 0; j < rig.joints.length; j++) {
       final angle = 0.08 * math.sin(t * 2 * math.pi * 1.2 + j * 0.7);

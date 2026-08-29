@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:bildgenerator/services/animation_bake.dart';
 import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
@@ -305,6 +306,46 @@ void main() {
     expect(names, contains('Gehen'));
     expect(names, contains('Wackeltest'));
     expect(clips.first.poseAt(0.5), isNotEmpty);
+  });
+
+  test('Testanimationen lassen sich als glTF-Clips ins GLB backen',
+      () async {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final rigged = injectAutoRig(buildGlb(mesh));
+    final preview = await parseGlbForPreview(rigged);
+    final clips = proceduralClipsFor(preview.rig!);
+
+    final baked = bakeAnimationsIntoGlb(rigged, clips);
+    final json = _readGlbJson(baked);
+    final animations = json['animations'] as List;
+    expect(animations, hasLength(clips.length));
+    for (var i = 0; i < clips.length; i++) {
+      final animation = animations[i] as Map;
+      expect(animation['name'], '${clips[i].name} (Test)');
+      expect(animation['channels'] as List, isNotEmpty);
+      expect((animation['samplers'] as List).length,
+          (animation['channels'] as List).length);
+    }
+
+    // Die eingebackenen Clips sind wieder abspielbar und bewegen das
+    // Modell tatsächlich.
+    final bakedPreview = await parseGlbForPreview(baked);
+    final bakedClips = bakedPreview.rig!.animations;
+    expect(bakedClips, hasLength(clips.length));
+    final walk = bakedClips.first;
+    expect(walk.duration, greaterThan(0));
+    final posed = computeSkinnedPositions(bakedPreview,
+        animation: walk, time: walk.duration / 4);
+    var moved = 0.0;
+    for (var i = 0; i < posed.length; i++) {
+      moved += (posed[i] - bakedPreview.positions[i]).abs();
+    }
+    expect(moved, greaterThan(0.01));
   });
 
   test('Auto-Rigging kennt alle Figurtypen', () {

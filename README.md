@@ -56,7 +56,9 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
     (Gehen, Winken, Vierbeiner-Gang, Flügelschlag, Krabbeln,
     Schlängeln, Schwimmen, Wackeltest); das Skelett lässt sich per
-    Knopf grafisch über dem Modell einblenden
+    Knopf grafisch über dem Modell einblenden. Die Testanimationen
+    können optional als echte, loopbare glTF-Clips mit ins exportierte
+    GLB gebacken werden („GLB + Testanimationen exportieren“)
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)

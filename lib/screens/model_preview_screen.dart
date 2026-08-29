@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../services/animation_bake.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/preview_animations.dart';
@@ -147,12 +148,21 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     });
   }
 
-  Future<void> _export() async {
+  Future<void> _export({bool withAnimations = false}) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
+      var bytes = widget.glbBytes;
+      var prefix = 'modell';
+      if (withAnimations && _procClips.isNotEmpty) {
+        bytes = bakeAnimationsIntoGlb(bytes, _procClips);
+        prefix = 'modell_animiert';
+        messenger.showSnackBar(SnackBar(
+            content: Text('${_procClips.length} Testanimationen als '
+                'Loop-Clips eingebettet.')));
+      }
       final message = await exportImageBytes(
-        widget.glbBytes,
-        'modell_${DateTime.now().millisecondsSinceEpoch}.glb',
+        bytes,
+        '${prefix}_${DateTime.now().millisecondsSinceEpoch}.glb',
         'model/gltf-binary',
       );
       if (message != null && mounted) {
@@ -190,11 +200,26 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
             icon: const Icon(Icons.restart_alt),
             onPressed: _resetView,
           ),
-          IconButton(
-            tooltip: 'GLB exportieren',
-            icon: const Icon(Icons.download),
-            onPressed: _export,
-          ),
+          if (_procClips.isEmpty)
+            IconButton(
+              tooltip: 'GLB exportieren',
+              icon: const Icon(Icons.download),
+              onPressed: _export,
+            )
+          else
+            PopupMenuButton<bool>(
+              tooltip: 'GLB exportieren',
+              icon: const Icon(Icons.download),
+              onSelected: (withAnimations) =>
+                  _export(withAnimations: withAnimations),
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                    value: false, child: Text('GLB exportieren')),
+                PopupMenuItem(
+                    value: true,
+                    child: Text('GLB + Testanimationen exportieren')),
+              ],
+            ),
         ],
       ),
       body: _error != null
