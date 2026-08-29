@@ -82,6 +82,21 @@ class SettingsService extends ChangeNotifier {
   String? _openAiKey;
   String? _stabilityKey;
   String? _geminiKey;
+  String? _meshyKey;
+
+  /// API-Schlüssel für den 3D-Provider Meshy.
+  String? get meshyApiKey => _meshyKey;
+
+  Future<void> setMeshyApiKey(String value) async {
+    final trimmed = value.trim();
+    _meshyKey = trimmed.isEmpty ? null : trimmed;
+    if (trimmed.isEmpty) {
+      await _secure.delete('meshy_api_key');
+    } else {
+      await _secure.write('meshy_api_key', trimmed);
+    }
+    notifyListeners();
+  }
 
   Future<void> init() async {
     try {
@@ -129,6 +144,9 @@ class SettingsService extends ChangeNotifier {
           .timeout(const Duration(seconds: 5));
       _geminiKey = await _secure
           .read('gemini_api_key')
+          .timeout(const Duration(seconds: 5));
+      _meshyKey = await _secure
+          .read('meshy_api_key')
           .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Secure Storage nicht verfügbar – Schlüssel müssen erneut

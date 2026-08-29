@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'screens/gallery_screen.dart';
 import 'screens/generator_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/three_d_screen.dart';
 import 'services/history_service.dart';
 import 'services/prompt_relay.dart';
 import 'services/settings_service.dart';
@@ -100,6 +101,7 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _destinations = [
     (icon: Icons.auto_awesome_outlined, selected: Icons.auto_awesome, label: 'Generator'),
+    (icon: Icons.view_in_ar_outlined, selected: Icons.view_in_ar, label: '3D'),
     (icon: Icons.collections_outlined, selected: Icons.collections, label: 'Galerie'),
     (icon: Icons.settings_outlined, selected: Icons.settings, label: 'Einstellungen'),
   ];
@@ -111,7 +113,10 @@ class _HomeShellState extends State<HomeShell> {
       index: _index,
       children: [
         GeneratorScreen(
-          onOpenSettings: () => setState(() => _index = 2),
+          onOpenSettings: () => setState(() => _index = 3),
+        ),
+        ThreeDScreen(
+          onOpenSettings: () => setState(() => _index = 3),
         ),
         const GalleryScreen(),
         const SettingsScreen(),

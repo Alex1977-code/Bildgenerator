@@ -38,8 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Kurzvorschau des gespeicherten Schlüssels, z. B. "AIza…f2k · 39 Zeichen".
-  String? _keySummary(SettingsService settings, GenProvider p) {
-    final key = settings.apiKeyFor(p)?.trim();
+  String? _keySummary(String? rawKey) {
+    final key = rawKey?.trim();
     if (key == null || key.isEmpty) return null;
     if (key.length <= 8) return '••• · ${key.length} Zeichen';
     return '${key.substring(0, 4)}…${key.substring(key.length - 3)}'
@@ -127,26 +127,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'OpenAI-API-Schlüssel',
-          provider: GenProvider.openai,
-          keySummary: _keySummary(settings, GenProvider.openai),
+          onSave: (value) => settings.setApiKey(GenProvider.openai, value),
+          keySummary: _keySummary(settings.apiKeyFor(GenProvider.openai)),
           helpLabel: 'Schlüssel erstellen auf platform.openai.com',
           onHelp: () => _openUrl('https://platform.openai.com/api-keys'),
         ),
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Stability-AI-API-Schlüssel',
-          provider: GenProvider.stability,
-          keySummary: _keySummary(settings, GenProvider.stability),
+          onSave: (value) =>
+              settings.setApiKey(GenProvider.stability, value),
+          keySummary: _keySummary(settings.apiKeyFor(GenProvider.stability)),
           helpLabel: 'Schlüssel erstellen auf platform.stability.ai',
           onHelp: () => _openUrl('https://platform.stability.ai/account/keys'),
         ),
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Gemini-API-Schlüssel (Google)',
-          provider: GenProvider.gemini,
-          keySummary: _keySummary(settings, GenProvider.gemini),
+          onSave: (value) => settings.setApiKey(GenProvider.gemini, value),
+          keySummary: _keySummary(settings.apiKeyFor(GenProvider.gemini)),
           helpLabel: 'Schlüssel erstellen auf aistudio.google.com (gratis)',
           onHelp: () => _openUrl('https://aistudio.google.com/apikey'),
+        ),
+        const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'Meshy-API-Schlüssel (3D-Bereich)',
+          onSave: settings.setMeshyApiKey,
+          keySummary: _keySummary(settings.meshyApiKey),
+          helpLabel: 'Schlüssel erstellen auf meshy.ai (Gratis-Credits)',
+          onHelp: () => _openUrl('https://www.meshy.ai/api'),
         ),
         const SizedBox(height: 12),
         _UsageCard(
@@ -209,14 +218,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 class _ApiKeyCard extends StatefulWidget {
   const _ApiKeyCard({
     required this.title,
-    required this.provider,
+    required this.onSave,
     required this.keySummary,
     required this.helpLabel,
     required this.onHelp,
   });
 
   final String title;
-  final GenProvider provider;
+
+  /// Speichert den Schlüssel; ein leerer Wert löscht ihn.
+  final Future<void> Function(String value) onSave;
 
   /// Vorschau des gespeicherten Schlüssels (null = keiner hinterlegt).
   final String? keySummary;
@@ -265,10 +276,9 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
   }
 
   Future<void> _save() async {
-    final settings = context.read<SettingsService>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await settings.setApiKey(widget.provider, _controller.text);
+      await widget.onSave(_controller.text);
       _controller.clear();
       messenger.showSnackBar(
         const SnackBar(content: Text('API-Schlüssel gespeichert.')),
@@ -281,10 +291,9 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
   }
 
   Future<void> _delete() async {
-    final settings = context.read<SettingsService>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await settings.setApiKey(widget.provider, '');
+      await widget.onSave('');
       messenger.showSnackBar(
         const SnackBar(content: Text('API-Schlüssel entfernt.')),
       );
