@@ -11,6 +11,7 @@ import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/preview_animations.dart';
 import '../services/stl_export.dart';
+import '../services/threemf_export.dart';
 
 /// Frei drehbare 3D-Vorschau eines GLB-Modells (eigener Software-Renderer,
 /// läuft auf allen Plattformen inklusive Windows). Geriggte Modelle
@@ -175,13 +176,13 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     }
   }
 
-  /// STL-Export mit wählbarer Druckgröße (längste Seite in mm).
-  Future<void> _exportStl() async {
+  /// Fragt die Druckgröße (längste Seite in mm) ab.
+  Future<double?> _askPrintSize(String title, String note) {
     final controller = TextEditingController(text: '100');
-    final size = await showDialog<double>(
+    return showDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('STL für 3D-Druck'),
+        title: Text(title),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -196,14 +197,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'STL enthält nur die Form (ohne Farben und Textur). Das '
-              'Modell wird aufs Druckbett gedreht und zentriert. Die '
-              'Datei danach in einen Slicer laden (z. B. PrusaSlicer, '
-              'Cura, Bambu Studio) und von dort drucken – kleine Löcher '
-              'repariert der Slicer automatisch.',
-              style: TextStyle(fontSize: 12),
-            ),
+            Text(note, style: const TextStyle(fontSize: 12)),
           ],
         ),
         actions: [
@@ -218,6 +212,18 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
           ),
         ],
       ),
+    );
+  }
+
+  /// STL-Export (nur Form) mit wählbarer Druckgröße.
+  Future<void> _exportStl() async {
+    final size = await _askPrintSize(
+      'STL für 3D-Druck',
+      'STL enthält nur die Form (ohne Farben und Textur). Das Modell '
+      'wird aufs Druckbett gedreht und zentriert. Die Datei danach in '
+      'einen Slicer laden (z. B. PrusaSlicer, Cura, Bambu Studio) und '
+      'von dort drucken – kleine Löcher repariert der Slicer '
+      'automatisch.',
     );
     if (size == null || size <= 0 || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -234,6 +240,33 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     } catch (e) {
       messenger.showSnackBar(
           SnackBar(content: Text('STL-Export fehlgeschlagen: $e')));
+    }
+  }
+
+  /// 3MF-Export mit Farben (Material-Palette je Dreieck).
+  Future<void> _export3mf() async {
+    final size = await _askPrintSize(
+      '3MF mit Farben für 3D-Druck',
+      '3MF enthält die Form samt Farben (als Material-Palette je '
+      'Dreieck) – ideal für Farb-3D-Druck und Druckdienste. Das Modell '
+      'wird aufs Druckbett gedreht, zentriert und in mm skaliert. Die '
+      'Datei in PrusaSlicer, Bambu Studio oder beim Druckdienst öffnen.',
+    );
+    if (size == null || size <= 0 || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final data = await glbTo3mf(widget.glbBytes, targetSizeMm: size);
+      final message = await exportImageBytes(
+        data,
+        'modell_${DateTime.now().millisecondsSinceEpoch}.3mf',
+        'model/3mf',
+      );
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('3MF-Export fehlgeschlagen: $e')));
     }
   }
 
@@ -274,6 +307,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                   _export(withAnimations: true);
                 case 'stl':
                   _exportStl();
+                case '3mf':
+                  _export3mf();
               }
             },
             itemBuilder: (context) => [
@@ -286,6 +321,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               const PopupMenuItem(
                   value: 'stl',
                   child: Text('STL für 3D-Druck exportieren …')),
+              const PopupMenuItem(
+                  value: '3mf',
+                  child: Text('3MF mit Farben exportieren …')),
             ],
           ),
         ],

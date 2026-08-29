@@ -9,6 +9,8 @@ import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
 import 'package:bildgenerator/services/stl_export.dart';
+import 'package:bildgenerator/services/threemf_export.dart';
+import 'package:archive/archive.dart';
 
 RgbaImage _testImage() {
   // 8×8: linke Hälfte deckend hell, rechte Hälfte transparent.
@@ -386,6 +388,35 @@ void main() {
         .reduce((a, b) => a > b ? a : b);
     expect(largest, closeTo(80, 0.5));
     expect(minZ, closeTo(0, 1e-3));
+  });
+
+  test('3MF-Export: gültiger Container mit Farbpalette', () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    final data = await glbTo3mf(glb, targetSizeMm: 50);
+
+    final archive = ZipDecoder().decodeBytes(data);
+    final names = [for (final file in archive.files) file.name];
+    expect(names, contains('[Content_Types].xml'));
+    expect(names, contains('_rels/.rels'));
+    expect(names, contains('3D/3dmodel.model'));
+
+    final model = String.fromCharCodes(
+        archive.findFile('3D/3dmodel.model')!.content as List<int>);
+    expect(model, contains('<model unit="millimeter"'));
+    expect(model, contains('<basematerials id="1">'));
+    // Farbiges Hull-Modell → mehrere Palettenfarben.
+    expect('displaycolor'.allMatches(model).length, greaterThan(1));
+    expect('<vertex '.allMatches(model).length,
+        mesh.positions.length ~/ 3);
+    expect('<triangle '.allMatches(model).length,
+        mesh.indices.length ~/ 3);
+    expect(model, contains('<item objectid="2"/>'));
   });
 
   test('Auto-Rigging kennt alle Figurtypen', () {
