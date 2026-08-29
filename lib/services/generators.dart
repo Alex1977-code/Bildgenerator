@@ -14,9 +14,26 @@ class GenerationException implements Exception {
   String toString() => message;
 }
 
+/// Ergebnis einer Generierung: Bilder plus Verbrauchsinformationen.
+class GenerationResult {
+  GenerationResult({
+    required this.images,
+    this.totalTokens,
+    this.creditsRemaining,
+  });
+
+  final List<GeneratedImage> images;
+
+  /// Verbrauchte Tokens laut Provider (OpenAI/Gemini), falls gemeldet.
+  final int? totalTokens;
+
+  /// Verbleibendes Guthaben in Credits (nur Stability).
+  final double? creditsRemaining;
+}
+
 /// Gemeinsame Schnittstelle aller Bild-Provider.
 abstract class ImageGenerator {
-  Future<List<GeneratedImage>> generate(GenerationRequest request, String apiKey);
+  Future<GenerationResult> generate(GenerationRequest request, String apiKey);
 
   static ImageGenerator forProvider(GenProvider provider) =>
       switch (provider) {
@@ -49,7 +66,7 @@ class OpenAiGenerator implements ImageGenerator {
       request.model.isEmpty ? 'gpt-image-1' : request.model;
 
   @override
-  Future<List<GeneratedImage>> generate(
+  Future<GenerationResult> generate(
       GenerationRequest request, String apiKey) async {
     http.Response response;
     try {
@@ -72,13 +89,18 @@ class OpenAiGenerator implements ImageGenerator {
     if (data.isEmpty) {
       throw GenerationException('OpenAI hat keine Bilder zurückgegeben.');
     }
-    return data
+    final images = data
         .map((item) => GeneratedImage(
               bytes: base64Decode(
                   (item as Map<String, dynamic>)['b64_json'] as String),
               format: request.outputFormat,
             ))
         .toList();
+    final usage = json['usage'] as Map<String, dynamic>?;
+    return GenerationResult(
+      images: images,
+      totalTokens: (usage?['total_tokens'] as num?)?.toInt(),
+    );
   }
 
   Future<http.Response> _generateFromText(
@@ -166,14 +188,40 @@ class StabilityGenerator implements ImageGenerator {
       request.model == 'ultra' ? 'ultra' : 'core';
 
   @override
-  Future<List<GeneratedImage>> generate(
+  Future<GenerationResult> generate(
       GenerationRequest request, String apiKey) async {
     // Die API liefert ein Bild pro Anfrage – für Batches parallel anfragen.
     final futures = List.generate(
       request.count,
       (i) => _generateSingle(request, apiKey, i),
     );
-    return Future.wait(futures);
+    final images = await Future.wait(futures);
+    double? credits;
+    try {
+      credits = await fetchCredits(apiKey);
+    } catch (_) {
+      // Guthaben-Abfrage ist optional – Fehler nicht durchreichen.
+    }
+    return GenerationResult(images: images, creditsRemaining: credits);
+  }
+
+  /// Fragt das verbleibende Guthaben (Credits) des Kontos ab.
+  static Future<double?> fetchCredits(String apiKey) async {
+    http.Response response;
+    try {
+      response = await http.get(
+        Uri.parse('https://api.stability.ai/v1/user/balance'),
+        headers: {'Authorization': 'Bearer $apiKey'},
+      );
+    } catch (e) {
+      _throwNetworkError(e);
+    }
+    if (response.statusCode != 200) {
+      throw GenerationException(
+          'Guthaben-Abfrage fehlgeschlagen (${response.statusCode}).');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return (json['credits'] as num?)?.toDouble();
   }
 
   Future<GeneratedImage> _generateSingle(
@@ -253,17 +301,25 @@ class GeminiGenerator implements ImageGenerator {
       request.model.isEmpty ? 'gemini-2.5-flash-image' : request.model;
 
   @override
-  Future<List<GeneratedImage>> generate(
+  Future<GenerationResult> generate(
       GenerationRequest request, String apiKey) async {
     // Ein Bild pro Anfrage – für Batches parallel anfragen.
     final futures = List.generate(
       request.count,
       (_) => _generateSingle(request, apiKey),
     );
-    return Future.wait(futures);
+    final singles = await Future.wait(futures);
+    int? totalTokens;
+    for (final (_, tokens) in singles) {
+      if (tokens != null) totalTokens = (totalTokens ?? 0) + tokens;
+    }
+    return GenerationResult(
+      images: [for (final (image, _) in singles) image],
+      totalTokens: totalTokens,
+    );
   }
 
-  Future<GeneratedImage> _generateSingle(
+  Future<(GeneratedImage, int?)> _generateSingle(
       GenerationRequest request, String apiKey) async {
     final model = _model(request);
     final imageConfig = <String, dynamic>{
@@ -321,6 +377,9 @@ class GeminiGenerator implements ImageGenerator {
           'Bitte den Prompt anpassen.');
     }
 
+    final totalTokens = (((json['usageMetadata']
+            as Map<String, dynamic>?)?['totalTokenCount']) as num?)
+        ?.toInt();
     final candidates = json['candidates'] as List<dynamic>? ?? [];
     for (final candidate in candidates) {
       final parts = (((candidate as Map<String, dynamic>)['content']
@@ -332,9 +391,12 @@ class GeminiGenerator implements ImageGenerator {
         final data = inline?['data'] as String?;
         if (data != null) {
           final mime = inline?['mimeType'] as String? ?? 'image/png';
-          return GeneratedImage(
-            bytes: base64Decode(data),
-            format: mime.contains('/') ? mime.split('/').last : 'png',
+          return (
+            GeneratedImage(
+              bytes: base64Decode(data),
+              format: mime.contains('/') ? mime.split('/').last : 'png',
+            ),
+            totalTokens,
           );
         }
       }

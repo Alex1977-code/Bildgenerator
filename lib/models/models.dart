@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// Verfügbare Bild-Provider.
@@ -265,6 +266,45 @@ const List<Option> geminiImageSizeOptions = [
   ('2K', '2K'),
   ('4K', '4K'),
 ];
+
+/// Pixelmaße je Seitenverhältnis bei Gemini (1K-Basis, laut API-Doku).
+/// 2K verdoppelt, 4K vervierfacht beide Kanten.
+const Map<String, (int, int)> geminiAspectBaseSizes = {
+  '1:1': (1024, 1024),
+  '16:9': (1344, 768),
+  '9:16': (768, 1344),
+  '3:2': (1248, 832),
+  '2:3': (832, 1248),
+  '4:3': (1184, 864),
+  '3:4': (864, 1184),
+  '4:5': (896, 1152),
+  '5:4': (1152, 896),
+  '21:9': (1536, 672),
+};
+
+/// Pixelangabe für ein Gemini-Seitenverhältnis, z. B. "1344×768 px".
+String geminiAspectPixelLabel(String aspect, String imageSize) {
+  final base = geminiAspectBaseSizes[aspect];
+  if (base == null) return '';
+  final factor = imageSize == '4K'
+      ? 4
+      : imageSize == '2K'
+          ? 2
+          : 1;
+  return '${base.$1 * factor}×${base.$2 * factor} px';
+}
+
+/// Ungefähre Pixelmaße bei Stability: Core liefert ca. 1,5 Megapixel,
+/// Ultra ca. 1 Megapixel; die Kanten sind Vielfache von 64.
+(int, int) stabilityApproxPixels(String aspect, String engine) {
+  final parts = aspect.split(':');
+  final ratio = int.parse(parts[0]) / int.parse(parts[1]);
+  final megapixels = engine == 'ultra' ? 1000000.0 : 1500000.0;
+  int roundTo64(double v) => ((v / 64).round()) * 64;
+  final width = roundTo64(math.sqrt(megapixels * ratio));
+  final height = roundTo64(width / ratio);
+  return (width, height);
+}
 
 /// Bekannte Modelle je Provider. Über die Einstellungen kann auch eine
 /// beliebige andere Modell-ID eingetragen werden (z. B. wenn ein Anbieter

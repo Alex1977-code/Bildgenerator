@@ -33,6 +33,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
 
   List<GeneratedImage> _results = [];
   GenerationRequest? _lastRequest;
+  String? _usageInfo;
   bool _generating = false;
   String? _error;
   PromptRelay? _relay;
@@ -162,12 +163,22 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     });
     try {
       final generator = ImageGenerator.forProvider(settings.provider);
-      final images = await generator.generate(request, apiKey.trim());
-      await history.addResults(request, images);
+      final result = await generator.generate(request, apiKey.trim());
+      final usageParts = <String>[
+        if (result.totalTokens != null)
+          'Verbrauch: ${result.totalTokens} Tokens',
+        if (result.creditsRemaining != null)
+          'Restguthaben: ${result.creditsRemaining!.toStringAsFixed(1)} '
+              'Credits',
+      ];
+      await history.addResults(request, result.images, extraParams: {
+        if (result.totalTokens != null) 'Tokens': '${result.totalTokens}',
+      });
       if (!mounted) return;
       setState(() {
-        _results = images;
+        _results = result.images;
         _lastRequest = request;
+        _usageInfo = usageParts.isEmpty ? null : usageParts.join(' · ');
       });
     } on GenerationException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -486,13 +497,17 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           children: [
             const SectionLabel('Format & Größe'),
             DropdownMenu<String>(
-              key: ValueKey('size-${provider.name}'),
+              key: ValueKey('size-${provider.name}-${settings.stabilityModel}'
+                  '-${settings.geminiModel}-${settings.geminiImageSize}'),
               initialSelection: sizeValue,
               label: Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
               expandedInsets: EdgeInsets.zero,
               dropdownMenuEntries: [
                 for (final option in sizeOptions)
-                  DropdownMenuEntry(value: option.$1, label: option.$2),
+                  DropdownMenuEntry(
+                    value: option.$1,
+                    label: _sizeOptionLabel(settings, option),
+                  ),
               ],
               onSelected: (value) {
                 if (value == null) return;
@@ -509,12 +524,17 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             if (isGemini && settings.geminiModel.contains('pro')) ...[
               const SizedBox(height: 12),
               DropdownMenu<String>(
+                key: ValueKey('imgsize-${settings.geminiAspect}'),
                 initialSelection: settings.geminiImageSize,
                 label: const Text('Auflösung'),
                 expandedInsets: EdgeInsets.zero,
                 dropdownMenuEntries: [
                   for (final option in geminiImageSizeOptions)
-                    DropdownMenuEntry(value: option.$1, label: option.$2),
+                    DropdownMenuEntry(
+                      value: option.$1,
+                      label: '${option.$2} · '
+                          '${geminiAspectPixelLabel(settings.geminiAspect, option.$1)}',
+                    ),
                 ],
                 onSelected: (value) {
                   if (value != null) settings.setGeminiImageSize(value);
@@ -635,12 +655,47 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
+  /// Beschriftung einer Größen-Option inklusive Pixelmaßen.
+  String _sizeOptionLabel(SettingsService settings, Option option) {
+    switch (settings.provider) {
+      case GenProvider.openai:
+        return option.$2;
+      case GenProvider.stability:
+        final (w, h) =
+            stabilityApproxPixels(option.$1, settings.stabilityModel);
+        return '${option.$2} · ca. $w×$h px';
+      case GenProvider.gemini:
+        final size = settings.geminiModel.contains('pro')
+            ? settings.geminiImageSize
+            : '1K';
+        final pixels = geminiAspectPixelLabel(option.$1, size);
+        return pixels.isEmpty ? option.$2 : '${option.$2} · $pixels';
+    }
+  }
+
   List<Widget> _buildResultsHeader() {
     return [
-      Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text('Ergebnisse',
-            style: Theme.of(context).textTheme.titleMedium),
+      Row(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text('Ergebnisse',
+                  style: Theme.of(context).textTheme.titleMedium),
+            ),
+          ),
+          if (_usageInfo != null && !_generating)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _usageInfo!,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.outline),
+              ),
+            ),
+        ],
       ),
       if (_generating) ...[
         const LinearProgressIndicator(),

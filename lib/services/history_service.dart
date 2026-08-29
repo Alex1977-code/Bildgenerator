@@ -35,7 +35,8 @@ class HistoryService extends ChangeNotifier {
 
   /// Speichert die Ergebnisse einer Generierung im Verlauf.
   Future<void> addResults(
-      GenerationRequest request, List<GeneratedImage> images) async {
+      GenerationRequest request, List<GeneratedImage> images,
+      {Map<String, String> extraParams = const {}}) async {
     for (final image in images) {
       final id = const Uuid().v4();
       final entry = HistoryEntry(
@@ -43,7 +44,7 @@ class HistoryService extends ChangeNotifier {
         prompt: request.prompt,
         providerLabel: request.provider.label,
         createdAt: DateTime.now(),
-        params: request.describeParams(),
+        params: {...request.describeParams(), ...extraParams},
         format: image.format,
         fileName: '$id.${image.fileExtension}',
       );

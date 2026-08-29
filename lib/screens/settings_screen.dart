@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
+import '../services/generators.dart';
 import '../services/settings_service.dart';
 
 /// Einstellungen: Provider, API-Schlüssel, Design.
@@ -143,6 +144,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           keySummary: _keySummary(settings, GenProvider.gemini),
           helpLabel: 'Schlüssel erstellen auf aistudio.google.com (gratis)',
           onHelp: () => _openUrl('https://aistudio.google.com/apikey'),
+        ),
+        const SizedBox(height: 12),
+        _UsageCard(
+          hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
+          onOpenUrl: _openUrl,
         ),
         const SizedBox(height: 12),
         Card(
@@ -453,6 +459,114 @@ class _ModelCardState extends State<_ModelCard> {
               ),
               onSubmitted: _apply,
               onTapOutside: (_) => _apply(_controller.text),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Karte "Guthaben & Verbrauch": Stability-Guthaben live abfragen,
+/// für OpenAI/Google die Verbrauchs-Dashboards verlinken (diese Anbieter
+/// bieten keine Guthaben-Abfrage per API an).
+class _UsageCard extends StatefulWidget {
+  const _UsageCard({
+    required this.hasStabilityKey,
+    required this.onOpenUrl,
+  });
+
+  final bool hasStabilityKey;
+  final Future<void> Function(String url) onOpenUrl;
+
+  @override
+  State<_UsageCard> createState() => _UsageCardState();
+}
+
+class _UsageCardState extends State<_UsageCard> {
+  String? _stabilityBalance;
+  bool _loading = false;
+
+  Future<void> _fetchStabilityBalance() async {
+    final settings = context.read<SettingsService>();
+    final apiKey = settings.apiKeyFor(GenProvider.stability)?.trim();
+    if (apiKey == null || apiKey.isEmpty) return;
+    setState(() {
+      _loading = true;
+      _stabilityBalance = null;
+    });
+    try {
+      final credits = await StabilityGenerator.fetchCredits(apiKey);
+      if (!mounted) return;
+      setState(() {
+        _stabilityBalance = credits == null
+            ? 'Keine Angabe erhalten'
+            : '${credits.toStringAsFixed(1)} Credits';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _stabilityBalance = 'Fehler: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Guthaben & Verbrauch', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Nach jeder Generierung zeigt der Generator die verbrauchten '
+              'Tokens (OpenAI/Gemini) bzw. das Restguthaben (Stability) an.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            if (widget.hasStabilityKey)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _stabilityBalance == null
+                          ? 'Stability-Guthaben'
+                          : 'Stability-Guthaben: $_stabilityBalance',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : TextButton.icon(
+                          onPressed: _fetchStabilityBalance,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Abrufen'),
+                        ),
+                ],
+              ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: () =>
+                      widget.onOpenUrl('https://platform.openai.com/usage'),
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('OpenAI-Verbrauch'),
+                ),
+                TextButton.icon(
+                  onPressed: () =>
+                      widget.onOpenUrl('https://aistudio.google.com/usage'),
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('Google-Gemini-Verbrauch'),
+                ),
+              ],
             ),
           ],
         ),
