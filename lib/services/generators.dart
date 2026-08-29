@@ -173,8 +173,12 @@ class OpenAiGenerator implements ImageGenerator {
       hint = ' Existiert die gewählte Modell-ID? Sie kann in den '
           'Einstellungen angepasst werden.';
     } else if (response.statusCode == 429) {
-      hint = ' Rate-Limit erreicht oder kein Guthaben auf dem '
-          'OpenAI-Konto (platform.openai.com → Billing prüfen).';
+      hint = detail.contains('insufficient_quota') ||
+              detail.contains('exceeded your current quota')
+          ? '\n\nHinweis: Das OpenAI-Guthaben ist aufgebraucht. Bitte auf '
+              'platform.openai.com → Settings → Billing Guthaben aufladen – '
+              'erneutes Versuchen hilft sonst nicht.'
+          : ' Rate-Limit erreicht – kurz warten und erneut versuchen.';
     }
     return 'OpenAI-Fehler (${response.statusCode}): $detail$hint';
   }
@@ -287,6 +291,13 @@ class StabilityGenerator implements ImageGenerator {
     var hint = '';
     if (response.statusCode == 401) {
       hint = ' Bitte den Stability-API-Schlüssel in den Einstellungen prüfen.';
+    } else if (response.statusCode == 402 ||
+        detail.contains('insufficient balance') ||
+        detail.contains('credits')) {
+      hint = '\n\nHinweis: Die Stability-Credits sind aufgebraucht. Bitte '
+          'auf platform.stability.ai → Billing Guthaben aufladen.';
+    } else if (response.statusCode == 429) {
+      hint = ' Rate-Limit erreicht – kurz warten und erneut versuchen.';
     }
     return 'Stability-AI-Fehler (${response.statusCode}): $detail$hint';
   }
@@ -436,8 +447,10 @@ class GeminiGenerator implements ImageGenerator {
               'hilft nicht. Lösung: In Google AI Studio die Abrechnung '
               'aktivieren (ca. 4 Cent pro Bild) oder in den Einstellungen '
               'einen anderen Provider wählen.'
-          : '\n\nHinweis: Kontingent vorübergehend erschöpft – kurz warten '
-              'und erneut versuchen.';
+          : '\n\nHinweis: Kontingent erschöpft – kurz warten und erneut '
+              'versuchen. Bleibt der Fehler bestehen, ist vermutlich das '
+              'Guthaben aufgebraucht (Prepaid-Plan): in Google AI Studio '
+              'unter Billing aufladen.';
     }
     return 'Gemini-Fehler (${response.statusCode}): $detail$hint';
   }

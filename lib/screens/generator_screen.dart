@@ -489,12 +489,37 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       GenProvider.stability => settings.stabilityAspect,
       GenProvider.gemini => settings.geminiAspect,
     };
+    final knownModels = switch (provider) {
+      GenProvider.openai => openAiModelOptions,
+      GenProvider.stability => stabilityModelOptions,
+      GenProvider.gemini => geminiModelOptions,
+    };
+    final currentModel = settings.modelFor(provider);
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SectionLabel('KI-Modell'),
+            DropdownMenu<String>(
+              key: ValueKey('model-${provider.name}-$currentModel'),
+              initialSelection: currentModel,
+              label: const Text('Modell'),
+              expandedInsets: EdgeInsets.zero,
+              dropdownMenuEntries: [
+                for (final option in knownModels)
+                  DropdownMenuEntry(value: option.$1, label: option.$2),
+                if (!knownModels.any((o) => o.$1 == currentModel))
+                  DropdownMenuEntry(
+                    value: currentModel,
+                    label: '$currentModel (eigene ID)',
+                  ),
+              ],
+              onSelected: (value) {
+                if (value != null) settings.setModelFor(provider, value);
+              },
+            ),
             const SectionLabel('Format & Größe'),
             DropdownMenu<String>(
               key: ValueKey('size-${provider.name}-${settings.stabilityModel}'
