@@ -31,6 +31,10 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Text oder Bild, optional mit Textur und Auto-Rigging (T-Pose wird
     automatisch berücksichtigt, Tripo prüft die Riggbarkeit vorab),
     Export als GLB für Blender/Unity/Unreal/Godot
+  - **Eigener lokaler 3D-Generator** (ohne API, kostenlos): baut aus
+    Bildern texturierte GLB-Modelle direkt in der App – Relief
+    (Helligkeit → Höhe) und Standee (extrudierte Silhouette aus Bildern
+    mit transparentem Hintergrund); eigener glTF-2.0-Writer in Dart
   - Wasserzeichen mit eigenem Logo (Position, Größe, Deckkraft)
   - Galerie/Verlauf mit Prompt, Parametern und „Erneut verwenden“
   - Bilder speichern, teilen bzw. herunterladen

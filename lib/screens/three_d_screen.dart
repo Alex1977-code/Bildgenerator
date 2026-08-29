@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
+import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
@@ -33,6 +34,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   bool _texture = true;
   bool _rigging = false;
   String _artStyle = 'realistic';
+
+  // Optionen des lokalen Generators.
+  bool _localStandee = false;
+  int _localResolution = 96;
+  double _localDepth = 0.15;
+  bool _localInvert = false;
 
   bool _running = false;
   bool _cancelRequested = false;
@@ -105,18 +112,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   Future<void> _generate() async {
     final settings = context.read<SettingsService>();
+    final isLocal = settings.threeDProvider == 'local';
     final isTripo = settings.threeDProvider == 'tripo';
-    final apiKey = isTripo ? settings.tripoApiKey : settings.meshyApiKey;
-    if (apiKey == null || apiKey.trim().isEmpty) {
+    final apiKey =
+        isLocal ? '' : (isTripo ? settings.tripoApiKey : settings.meshyApiKey);
+    if (!isLocal && (apiKey == null || apiKey.trim().isEmpty)) {
       await _showMissingKeyDialog(isTripo);
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    if (!_imageMode && prompt.isEmpty) {
+    if (!isLocal && !_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
       return;
     }
-    if (_imageMode && _sourceImage == null) {
+    if ((isLocal || _imageMode) && _sourceImage == null) {
       setState(() => _error = 'Bitte zuerst ein Ausgangsbild wählen.');
       return;
     }
@@ -133,12 +142,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
 
     try {
-      if (isTripo) {
+      if (isLocal) {
+        await _runLocal(progress);
+      } else if (isTripo) {
         await _runTripo(
-            TripoService(apiKey.trim()), prompt, cancelled, progress);
+            TripoService(apiKey!.trim()), prompt, cancelled, progress);
       } else {
         await _runMeshy(
-            MeshyService(apiKey.trim()), prompt, cancelled, progress);
+            MeshyService(apiKey!.trim()), prompt, cancelled, progress);
       }
     } on GenerationException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -156,10 +167,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   void _addResult({
     required Uint8List glbBytes,
-    required String prompt,
+    required String label,
     required String providerLabel,
     Uint8List? thumbnail,
     required bool rigged,
+    required bool textured,
   }) {
     if (!mounted) return;
     setState(() {
@@ -167,14 +179,40 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         0,
         ThreeDResult(
           glbBytes: glbBytes,
-          label: _imageMode ? 'Aus Bild' : prompt,
+          label: label,
           providerLabel: providerLabel,
           thumbnailBytes: thumbnail,
           rigged: rigged,
-          textured: _texture,
+          textured: textured,
         ),
       );
     });
+  }
+
+  Future<void> _runLocal(void Function(String) progress) async {
+    final source = _sourceImage!;
+    progress('Bild wird analysiert …');
+    Uint8List glb;
+    try {
+      glb = await generateLocalGlb(
+        source.bytes,
+        standee: _localStandee,
+        resolution: _localResolution,
+        depth: _localDepth,
+        invert: _localInvert,
+      );
+    } on Exception catch (e) {
+      throw GenerationException(
+          e.toString().replaceFirst('Exception: ', ''));
+    }
+    _addResult(
+      glbBytes: glb,
+      label: _localStandee ? 'Standee (lokal)' : 'Relief (lokal)',
+      providerLabel: 'Lokal',
+      thumbnail: source.bytes,
+      rigged: false,
+      textured: true,
+    );
   }
 
   Future<void> _runMeshy(
@@ -270,10 +308,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
       _addResult(
         glbBytes: glbBytes,
-        prompt: prompt,
+        label: _imageMode ? 'Aus Bild' : prompt,
         providerLabel: 'Meshy',
         thumbnail: thumbnail,
         rigged: rigged,
+        textured: _texture,
       );
     }
   }
@@ -359,10 +398,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
     _addResult(
       glbBytes: glbBytes,
-      prompt: prompt,
+      label: _imageMode ? 'Aus Bild' : prompt,
       providerLabel: 'Tripo3D',
       thumbnail: thumbnail,
       rigged: rigged,
+      textured: _texture,
     );
   }
 
@@ -383,6 +423,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final theme = Theme.of(context);
     final settings = context.watch<SettingsService>();
     final isTripo = settings.threeDProvider == 'tripo';
+    final isLocal = settings.threeDProvider == 'local';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -403,38 +444,49 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SectionLabel('3D-Provider'),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'meshy', label: Text('Meshy')),
-                    ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
-                  ],
-                  selected: {settings.threeDProvider},
-                  onSelectionChanged: _running
-                      ? null
-                      : (selection) =>
-                          settings.setThreeDProvider(selection.first),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'meshy', label: Text('Meshy')),
+                      ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
+                      ButtonSegment(value: 'local', label: Text('Lokal')),
+                    ],
+                    selected: {settings.threeDProvider},
+                    onSelectionChanged: _running
+                        ? null
+                        : (selection) =>
+                            settings.setThreeDProvider(selection.first),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  isTripo
-                      ? 'Tripo3D: Bezahlung nach Verbrauch, Startguthaben '
-                          'für neue Konten (platform.tripo3d.ai).'
-                      : 'Meshy: ca. 20 Credits pro Modell, API-Zugang ab '
-                          'Pro-Plan (meshy.ai).',
+                  isLocal
+                      ? 'Eigener Generator: rechnet komplett lokal in der '
+                          'App – kostenlos, kein API-Schlüssel nötig. '
+                          'Baut Relief- und Aufsteller-Modelle aus Bildern.'
+                      : isTripo
+                          ? 'Tripo3D: Bezahlung nach Verbrauch, Startguthaben '
+                              'für neue Konten (platform.tripo3d.ai).'
+                          : 'Meshy: ca. 20 Credits pro Modell, API-Zugang ab '
+                              'Pro-Plan (meshy.ai).',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('Aus Text')),
-                    ButtonSegment(value: true, label: Text('Aus Bild')),
-                  ],
-                  selected: {_imageMode},
-                  onSelectionChanged: (selection) =>
-                      setState(() => _imageMode = selection.first),
-                ),
-                const SizedBox(height: 12),
-                if (!_imageMode) ...[
+                if (!isLocal) ...[
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('Aus Text')),
+                      ButtonSegment(value: true, label: Text('Aus Bild')),
+                    ],
+                    selected: {_imageMode},
+                    onSelectionChanged: (selection) =>
+                        setState(() => _imageMode = selection.first),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (!isLocal && !_imageMode) ...[
                   TextField(
                     controller: _promptCtrl,
                     minLines: 2,
@@ -512,28 +564,104 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ),
                 ],
                 const SectionLabel('Optionen'),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Textur (bemalte Oberfläche)'),
-                  subtitle: const Text(
-                      'Aus: nur Geometrie – schneller und günstiger'),
-                  value: _texture,
-                  onChanged: _running
-                      ? null
-                      : (v) => setState(() => _texture = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Rigging (Skelett für Animation)'),
-                  subtitle: Text(_imageMode
-                      ? 'Nur für Figuren/Charaktere geeignet'
-                      : 'Nur für Figuren – „T-Pose“ wird automatisch an '
-                          'den Prompt angehängt'),
-                  value: _rigging,
-                  onChanged: _running
-                      ? null
-                      : (v) => setState(() => _rigging = v),
-                ),
+                if (isLocal) ...[
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                          value: false, label: Text('Relief (Helligkeit)')),
+                      ButtonSegment(
+                          value: true, label: Text('Standee (Silhouette)')),
+                    ],
+                    selected: {_localStandee},
+                    onSelectionChanged: _running
+                        ? null
+                        : (selection) =>
+                            setState(() => _localStandee = selection.first),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _localStandee
+                        ? 'Extrudiert die Silhouette als Aufsteller – das '
+                            'Bild braucht einen transparenten Hintergrund '
+                            '(im Generator-Tab erzeugen).'
+                        : 'Helligkeit wird zu Höhe – ideal für '
+                            'Landschaften, Prägungen und Logos. Kein '
+                            'Rigging möglich.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  Row(
+                    children: [
+                      const SizedBox(width: 90, child: Text('Tiefe')),
+                      Expanded(
+                        child: Slider(
+                          value: _localDepth,
+                          min: 0.05,
+                          max: 0.5,
+                          divisions: 18,
+                          label:
+                              '${(_localDepth * 100).round()} % der Breite',
+                          onChanged: _running
+                              ? null
+                              : (v) => setState(() => _localDepth = v),
+                        ),
+                      ),
+                      Text('${(_localDepth * 100).round()} %'),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const SizedBox(width: 90, child: Text('Detailgrad')),
+                      Expanded(
+                        child: Slider(
+                          value: _localResolution.toDouble(),
+                          min: 48,
+                          max: 160,
+                          divisions: 14,
+                          label: '$_localResolution',
+                          onChanged: _running
+                              ? null
+                              : (v) => setState(
+                                  () => _localResolution = v.round()),
+                        ),
+                      ),
+                      Text('$_localResolution'),
+                    ],
+                  ),
+                  if (!_localStandee)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Höhen umkehren'),
+                      subtitle:
+                          const Text('Dunkle Stellen werden erhaben'),
+                      value: _localInvert,
+                      onChanged: _running
+                          ? null
+                          : (v) => setState(() => _localInvert = v),
+                    ),
+                ] else ...[
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Textur (bemalte Oberfläche)'),
+                    subtitle: const Text(
+                        'Aus: nur Geometrie – schneller und günstiger'),
+                    value: _texture,
+                    onChanged: _running
+                        ? null
+                        : (v) => setState(() => _texture = v),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Rigging (Skelett für Animation)'),
+                    subtitle: Text(_imageMode
+                        ? 'Nur für Figuren/Charaktere geeignet'
+                        : 'Nur für Figuren – „T-Pose“ wird automatisch an '
+                            'den Prompt angehängt'),
+                    value: _rigging,
+                    onChanged: _running
+                        ? null
+                        : (v) => setState(() => _rigging = v),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -575,8 +703,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   const LinearProgressIndicator(),
                   const SizedBox(height: 6),
                   Text(
-                    '$_stage\nEine 3D-Generierung dauert je nach Optionen '
-                    '2–10 Minuten.',
+                    isLocal
+                        ? '$_stage'
+                        : '$_stage\nEine 3D-Generierung dauert je nach '
+                            'Optionen 2–10 Minuten.',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],
