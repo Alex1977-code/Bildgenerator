@@ -9,6 +9,7 @@ import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/prompt_relay.dart';
 import '../services/settings_service.dart';
+import '../services/watermark.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
 
@@ -164,6 +165,24 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     try {
       final generator = ImageGenerator.forProvider(settings.provider);
       final result = await generator.generate(request, apiKey.trim());
+      var images = result.images;
+      final logo = settings.watermarkLogo;
+      final watermarked = settings.watermarkEnabled && logo != null;
+      if (watermarked) {
+        images = [
+          for (final image in images)
+            GeneratedImage(
+              bytes: await applyWatermark(
+                image.bytes,
+                logo,
+                position: settings.watermarkPosition,
+                sizePercent: settings.watermarkSizePercent,
+                opacityPercent: settings.watermarkOpacity,
+              ),
+              format: 'png',
+            ),
+        ];
+      }
       final usageParts = <String>[
         if (result.totalTokens != null)
           'Verbrauch: ${result.totalTokens} Tokens',
@@ -171,12 +190,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           'Restguthaben: ${result.creditsRemaining!.toStringAsFixed(1)} '
               'Credits',
       ];
-      await history.addResults(request, result.images, extraParams: {
+      await history.addResults(request, images, extraParams: {
         if (result.totalTokens != null) 'Tokens': '${result.totalTokens}',
+        if (watermarked) 'Wasserzeichen': 'ja',
       });
       if (!mounted) return;
       setState(() {
-        _results = result.images;
+        _results = images;
         _lastRequest = request;
         _usageInfo = usageParts.isEmpty ? null : usageParts.join(' · ');
       });

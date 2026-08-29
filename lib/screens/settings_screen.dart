@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/settings_service.dart';
+import '../services/watermark.dart';
+import '../widgets/common.dart';
 
 /// Einstellungen: Provider, API-Schlüssel, Design.
 class SettingsScreen extends StatefulWidget {
@@ -150,6 +153,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
           onOpenUrl: _openUrl,
         ),
+        const SizedBox(height: 12),
+        const _WatermarkCard(),
         const SizedBox(height: 12),
         Card(
           child: Padding(
@@ -568,6 +573,152 @@ class _UsageCardState extends State<_UsageCard> {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Karte "Wasserzeichen": eigenes Logo, das nach der Generierung
+/// automatisch auf jedes Bild gelegt wird.
+class _WatermarkCard extends StatelessWidget {
+  const _WatermarkCard();
+
+  Future<void> _pickLogo(BuildContext context) async {
+    final settings = context.read<SettingsService>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 2 * 1024 * 1024) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('Das Logo ist größer als 2 MB – bitte eine '
+                'kleinere Datei wählen.')));
+        return;
+      }
+      settings.setWatermarkLogo(bytes);
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Logo übernommen.')));
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Logo konnte nicht geladen werden: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsService>();
+    final theme = Theme.of(context);
+    final logo = settings.watermarkLogo;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Wasserzeichen (eigenes Logo)',
+                style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Wird nach der Generierung automatisch auf jedes Bild gelegt. '
+              'Empfohlen: PNG mit transparentem Hintergrund. Das Ergebnis '
+              'wird als PNG gespeichert.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (logo != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: CustomPaint(
+                      painter: CheckerboardPainter(
+                          dark: theme.brightness == Brightness.dark),
+                      child: Image.memory(logo,
+                          width: 56, height: 56, fit: BoxFit.contain),
+                    ),
+                  )
+                else
+                  Icon(Icons.branding_watermark_outlined,
+                      size: 40, color: theme.colorScheme.outlineVariant),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      FilledButton.tonal(
+                        onPressed: () => _pickLogo(context),
+                        child: Text(
+                            logo == null ? 'Logo wählen' : 'Logo ändern'),
+                      ),
+                      if (logo != null)
+                        TextButton(
+                          onPressed: () =>
+                              settings.setWatermarkLogo(null),
+                          child: const Text('Entfernen'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (logo != null) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Wasserzeichen automatisch einfügen'),
+                value: settings.watermarkEnabled,
+                onChanged: settings.setWatermarkEnabled,
+              ),
+              DropdownMenu<String>(
+                initialSelection: settings.watermarkPosition,
+                label: const Text('Position'),
+                expandedInsets: EdgeInsets.zero,
+                dropdownMenuEntries: [
+                  for (final option in watermarkPositionOptions)
+                    DropdownMenuEntry(value: option.$1, label: option.$2),
+                ],
+                onSelected: (value) {
+                  if (value != null) settings.setWatermarkPosition(value);
+                },
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const SizedBox(width: 90, child: Text('Größe')),
+                  Expanded(
+                    child: Slider(
+                      value: settings.watermarkSizePercent.toDouble(),
+                      min: 5,
+                      max: 40,
+                      divisions: 35,
+                      label: '${settings.watermarkSizePercent} %',
+                      onChanged: (value) =>
+                          settings.setWatermarkSizePercent(value.round()),
+                    ),
+                  ),
+                  Text('${settings.watermarkSizePercent} %'),
+                ],
+              ),
+              Row(
+                children: [
+                  const SizedBox(width: 90, child: Text('Deckkraft')),
+                  Expanded(
+                    child: Slider(
+                      value: settings.watermarkOpacity.toDouble(),
+                      min: 10,
+                      max: 100,
+                      divisions: 18,
+                      label: '${settings.watermarkOpacity} %',
+                      onChanged: (value) =>
+                          settings.setWatermarkOpacity(value.round()),
+                    ),
+                  ),
+                  Text('${settings.watermarkOpacity} %'),
+                ],
+              ),
+            ],
           ],
         ),
       ),

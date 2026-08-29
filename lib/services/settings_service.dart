@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -69,6 +72,13 @@ class SettingsService extends ChangeNotifier {
   String stabilityModel = 'core';
   String geminiModel = 'gemini-2.5-flash-image';
 
+  // Wasserzeichen mit eigenem Logo.
+  bool watermarkEnabled = false;
+  String watermarkPosition = 'br';
+  int watermarkSizePercent = 18;
+  int watermarkOpacity = 70;
+  Uint8List? watermarkLogo;
+
   String? _openAiKey;
   String? _stabilityKey;
   String? _geminiKey;
@@ -94,6 +104,18 @@ class SettingsService extends ChangeNotifier {
       openAiModel = prefs.getString('openAiModel') ?? openAiModel;
       stabilityModel = prefs.getString('stabilityModel') ?? stabilityModel;
       geminiModel = prefs.getString('geminiModel') ?? geminiModel;
+      watermarkEnabled = prefs.getBool('watermarkEnabled') ?? watermarkEnabled;
+      watermarkPosition =
+          prefs.getString('watermarkPosition') ?? watermarkPosition;
+      watermarkSizePercent =
+          prefs.getInt('watermarkSizePercent') ?? watermarkSizePercent;
+      watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
+      final logoBase64 = prefs.getString('watermarkLogo');
+      if (logoBase64 != null && logoBase64.isNotEmpty) {
+        try {
+          watermarkLogo = base64Decode(logoBase64);
+        } catch (_) {}
+      }
     } catch (_) {
       // Ohne Persistenz weiterlaufen (z. B. in Tests).
     }
@@ -251,6 +273,42 @@ class SettingsService extends ChangeNotifier {
   void setGeminiImageSize(String v) {
     geminiImageSize = v;
     _persistString('geminiImageSize', v);
+    notifyListeners();
+  }
+
+  void setWatermarkEnabled(bool v) {
+    watermarkEnabled = v;
+    _prefs?.setBool('watermarkEnabled', v);
+    notifyListeners();
+  }
+
+  void setWatermarkPosition(String v) {
+    watermarkPosition = v;
+    _persistString('watermarkPosition', v);
+    notifyListeners();
+  }
+
+  void setWatermarkSizePercent(int v) {
+    watermarkSizePercent = v;
+    _prefs?.setInt('watermarkSizePercent', v);
+    notifyListeners();
+  }
+
+  void setWatermarkOpacity(int v) {
+    watermarkOpacity = v;
+    _prefs?.setInt('watermarkOpacity', v);
+    notifyListeners();
+  }
+
+  void setWatermarkLogo(Uint8List? bytes) {
+    watermarkLogo = bytes;
+    if (bytes == null) {
+      watermarkEnabled = false;
+      _prefs?.setBool('watermarkEnabled', false);
+      _prefs?.remove('watermarkLogo');
+    } else {
+      _persistString('watermarkLogo', base64Encode(bytes));
+    }
     notifyListeners();
   }
 
