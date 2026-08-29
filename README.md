@@ -39,6 +39,15 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)
+  - **Text → Ansichten → 3D**: Die Ansichten-Bilder können automatisch
+    per Bild-KI (OpenAI oder Gemini) aus der Beschreibung erzeugt werden –
+    zuerst die Vorderansicht, dann Links/Rechts/Hinten mit der
+    Vorderansicht als Referenz und strengen Konsistenz-Prompts
+    (orthographisch, gleiche Skalierung, transparenter Hintergrund,
+    optional T-Pose). So funktioniert auch der lokale Generator rein per
+    Text; bei Meshy/Tripo ist die Pipeline im Text-Modus zuschaltbar.
+    Bereits erzeugte Ansichten werden wiederverwendet und lassen sich
+    einzeln austauschen.
   - Wasserzeichen mit eigenem Logo (Position, Größe, Deckkraft)
   - Galerie/Verlauf mit Prompt, Parametern und „Erneut verwenden“
   - Bilder speichern, teilen bzw. herunterladen

@@ -12,6 +12,7 @@ import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
+import '../services/view_generator.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
 import 'model_preview_screen.dart';
@@ -50,6 +51,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   bool _texture = true;
   bool _rigging = false;
   String _artStyle = 'realistic';
+
+  /// Text-Modus bei Meshy/Tripo: statt des nativen Text→3D erst
+  /// konsistente Ansichten-Bilder per Bild-KI erzeugen und daraus das
+  /// Modell bauen. Beim lokalen Generator ist das im Text-Modus immer so.
+  bool _viewsFromText = false;
 
   // Optionen des lokalen Generators.
   String _localMode = 'relief'; // 'relief' | 'standee' | 'hull'
@@ -154,11 +160,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    if (!isLocal && !_imageMode && prompt.isEmpty) {
+    // Text-Modus: „Lokal“ geht immer über KI-Ansichten, bei Meshy/Tripo
+    // ist die Ansichten-Pipeline zuschaltbar.
+    final viewPipeline = !_imageMode && (isLocal || _viewsFromText);
+    if (!_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
       return;
     }
-    if ((isLocal || _imageMode) && _front == null) {
+    if (_imageMode && _front == null) {
       setState(() => _error = 'Bitte zuerst die Vorderansicht wählen.');
       return;
     }
@@ -167,7 +176,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _running = true;
       _cancelRequested = false;
       _error = null;
-      _stage = 'Task wird angelegt …';
+      _stage = viewPipeline
+          ? 'Ansichten werden vorbereitet …'
+          : 'Task wird angelegt …';
     });
     bool cancelled() => _cancelRequested || !mounted;
     void progress(String stage) {
@@ -175,14 +186,44 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
 
     try {
+      if (viewPipeline) {
+        final generated = await generateViewsFromText(
+          settings: settings,
+          description: prompt,
+          tPose: !isLocal && _rigging,
+          onProgress: progress,
+          isCancelled: cancelled,
+          // Relief/Standee nutzen nur die Vorderansicht – Kosten sparen.
+          frontOnly: isLocal && _localMode != 'hull',
+          // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
+          existing: {
+            for (final entry in _views.entries)
+              if (entry.value != null) entry.key: entry.value!,
+          },
+        );
+        if (cancelled()) throw GenerationException('Abgebrochen.');
+        setState(() {
+          for (final entry in generated.views.entries) {
+            _views[entry.key] = entry.value;
+          }
+        });
+        if (generated.totalTokens != null) {
+          _showSnack(
+              'Ansichten erzeugt (${generated.totalTokens} Tokens).');
+        }
+      }
+      final useImages = _imageMode || viewPipeline;
+      final label = _imageMode ? 'Aus Bild' : prompt;
       if (isLocal) {
-        await _runLocal(progress);
+        await _runLocal(progress, label: viewPipeline ? prompt : null);
       } else if (isTripo) {
         await _runTripo(
-            TripoService(apiKey!.trim()), prompt, cancelled, progress);
+            TripoService(apiKey!.trim()), prompt, cancelled, progress,
+            useImages: useImages, label: label);
       } else {
         await _runMeshy(
-            MeshyService(apiKey!.trim()), prompt, cancelled, progress);
+            MeshyService(apiKey!.trim()), prompt, cancelled, progress,
+            useImages: useImages, label: label);
       }
     } on GenerationException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -222,8 +263,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     });
   }
 
-  Future<void> _runLocal(void Function(String) progress) async {
-    final source = _front!;
+  Future<void> _runLocal(void Function(String) progress,
+      {String? label}) async {
+    final source = _front;
+    if (source == null) {
+      throw GenerationException('Keine Vorderansicht vorhanden.');
+    }
     progress(_localMode == 'hull'
         ? 'Ansichten werden ausgewertet, Volumen wird geschnitzt …'
         : 'Bild wird analysiert …');
@@ -252,11 +297,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
     _addResult(
       glbBytes: glb,
-      label: switch (_localMode) {
-        'hull' => '360°-Modell (lokal)',
-        'standee' => 'Standee (lokal)',
-        _ => 'Relief (lokal)',
-      },
+      label: label ??
+          switch (_localMode) {
+            'hull' => '360°-Modell (lokal)',
+            'standee' => 'Standee (lokal)',
+            _ => 'Relief (lokal)',
+          },
       providerLabel: 'Lokal',
       thumbnail: source.bytes,
       rigged: false,
@@ -268,15 +314,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     MeshyService service,
     String prompt,
     bool Function() cancelled,
-    void Function(String) progress,
-  ) async {
+    void Function(String) progress, {
+    required bool useImages,
+    required String label,
+  }) async {
     {
       String taskPath;
       String taskId;
       MeshyTaskStatus status;
 
-      if (_imageMode) {
-        final source = _front!;
+      if (useImages) {
+        final source = _front;
+        if (source == null) {
+          throw GenerationException('Keine Vorderansicht vorhanden.');
+        }
         final extras = _extraViews;
         if (extras.isNotEmpty) {
           // Mehrere Ansichten → Multi-Image-Endpunkt (Vorn zuerst).
@@ -372,7 +423,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
       _addResult(
         glbBytes: glbBytes,
-        label: _imageMode ? 'Aus Bild' : prompt,
+        label: label,
         providerLabel: 'Meshy',
         thumbnail: thumbnail,
         rigged: rigged,
@@ -385,11 +436,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     TripoService service,
     String prompt,
     bool Function() cancelled,
-    void Function(String) progress,
-  ) async {
+    void Function(String) progress, {
+    required bool useImages,
+    required String label,
+  }) async {
     String modelTaskId;
-    if (_imageMode) {
-      final source = _front!;
+    if (useImages) {
+      final source = _front;
+      if (source == null) {
+        throw GenerationException('Keine Vorderansicht vorhanden.');
+      }
       if (_extraViews.isNotEmpty) {
         // Multiview: Reihenfolge Vorn, Links, Hinten, Rechts.
         progress('Ansichten werden hochgeladen …');
@@ -429,7 +485,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
     final modelData = await service.waitForTask(
       modelTaskId,
-      stageLabel: _imageMode ? '3D-Modell aus Bild' : '3D-Modell',
+      stageLabel: useImages ? '3D-Modell aus Bild' : '3D-Modell',
       onProgress: progress,
       isCancelled: cancelled,
     );
@@ -485,7 +541,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
     _addResult(
       glbBytes: glbBytes,
-      label: _imageMode ? 'Aus Bild' : prompt,
+      label: label,
       providerLabel: 'Tripo3D',
       thumbnail: thumbnail,
       rigged: rigged,
@@ -643,19 +699,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
-                if (!isLocal) ...[
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('Aus Text')),
-                      ButtonSegment(value: true, label: Text('Aus Bild')),
-                    ],
-                    selected: {_imageMode},
-                    onSelectionChanged: (selection) =>
-                        setState(() => _imageMode = selection.first),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (!isLocal && !_imageMode) ...[
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Aus Text')),
+                    ButtonSegment(value: true, label: Text('Aus Bild')),
+                  ],
+                  selected: {_imageMode},
+                  onSelectionChanged: _running
+                      ? null
+                      : (selection) =>
+                          setState(() => _imageMode = selection.first),
+                ),
+                const SizedBox(height: 12),
+                if (!_imageMode) ...[
                   TextField(
                     controller: _promptCtrl,
                     minLines: 2,
@@ -668,7 +724,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  if (!isTripo) ...[
+                  if (!isTripo && !isLocal) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
@@ -680,6 +736,61 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       selected: {_artStyle},
                       onSelectionChanged: (selection) =>
                           setState(() => _artStyle = selection.first),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  if (isLocal)
+                    Text(
+                      'Die nötigen Ansichten werden automatisch mit der '
+                      'Bild-KI aus dem Generator-Tab '
+                      '(${settings.provider.label}) erzeugt – mit '
+                      'abgestimmten Prompts, damit die Ansichten perfekt '
+                      'zusammenpassen. Beim 360°-Modell sind das 4 Bilder, '
+                      'sonst nur die Vorderansicht.',
+                      style: theme.textTheme.bodySmall,
+                    )
+                  else
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title:
+                          const Text('Ansichten-Bilder per Bild-KI erzeugen'),
+                      subtitle: Text(
+                          'Erzeugt zuerst 4 konsistente Ansichten '
+                          '(vorn/links/rechts/hinten) mit '
+                          '${settings.provider.label} aus dem Generator-Tab '
+                          'und baut daraus ein Rundum-Modell – meist '
+                          'detailtreuer als das direkte Text→3D. Kostet '
+                          'zusätzlich ca. 4 Bildgenerierungen.'),
+                      value: _viewsFromText,
+                      onChanged: _running
+                          ? null
+                          : (v) => setState(() => _viewsFromText = v),
+                    ),
+                  if (isLocal || _viewsFromText) ...[
+                    const SizedBox(height: 8),
+                    Builder(builder: (context) {
+                      final showAllViews =
+                          !isLocal || _localMode == 'hull';
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          _viewSlot('front', 'Vorn'),
+                          if (showAllViews) ...[
+                            _viewSlot('left', 'Links'),
+                            _viewSlot('right', 'Rechts'),
+                            _viewSlot('back', 'Hinten'),
+                          ],
+                        ],
+                      );
+                    }),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Die erzeugten Ansichten erscheinen hier und werden '
+                      'beim nächsten Lauf wiederverwendet. Einzelne '
+                      'Ansichten löschen (X) oder ersetzen, damit sie neu '
+                      'erzeugt werden.',
+                      style: theme.textTheme.bodySmall,
                     ),
                   ],
                 ] else ...[
