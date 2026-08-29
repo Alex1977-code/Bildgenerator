@@ -41,6 +41,10 @@ Future<String?> fetchProviderBalance(
             (data is Map ? data['balance'] as num? : null)?.toDouble();
         if (balance == null) return null;
         return 'Tripo-Guthaben: ${balance.toStringAsFixed(0)} Credits';
+      case 'fal':
+        // fal.ai bietet keine öffentliche Guthaben-API – der Verbrauch
+        // ist im Dashboard (fal.ai/dashboard) einsehbar.
+        return null;
     }
   } catch (_) {
     // Guthaben-Anzeige ist optional.

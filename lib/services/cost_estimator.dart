@@ -123,6 +123,7 @@ CostQualityEstimate estimate3dRun(
   required bool rigging,
   String meshyAiModel = '',
   String tripoVersion = '',
+  String falModel = '',
 }) {
   final items = <CostItem>[];
   final (imgMin, imgMax, _) = imageModelCost(settings);
@@ -151,6 +152,24 @@ CostQualityEstimate estimate3dRun(
           spar ? 0.04 : 0.02,
           spar ? 0.04 : 0.02));
       tier = spar ? 2 : 1;
+    case 'fal':
+      // Pay per Use, Preis hängt am gewählten Marktplatz-Modell;
+      // eigene Modell-IDs bekommen eine breite Spanne.
+      final (falLabel, falMin, falMax, falTier) = switch (falModel) {
+        'fal-ai/triposr' => ('TripoSR', 0.01, 0.02, 2),
+        'fal-ai/trellis' => ('TRELLIS', 0.02, 0.05, 3),
+        'fal-ai/trellis-2' => ('TRELLIS.2', 0.05, 0.15, 4),
+        'fal-ai/hunyuan3d/v2' => ('Hunyuan3D 2.0', 0.16, 0.48, 4),
+        'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d' => (
+            'Hunyuan3D 3.1 Pro',
+            0.30,
+            0.60,
+            5
+          ),
+        _ => ('eigenes Modell', 0.02, 0.60, 3),
+      };
+      items.add(CostItem('3D-Modell ($falLabel, fal.ai)', falMin, falMax));
+      tier = falTier;
     case 'tripo':
       // Abo-Credits: Euro-Wert je nach Paket – daher eine Spanne.
       items.add(CostItem(

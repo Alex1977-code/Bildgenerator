@@ -191,6 +191,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onHelp: () => _openUrl('https://platform.tripo3d.ai/api-keys'),
         ),
         const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'fal.ai-API-Schlüssel (3D-Bereich)',
+          providerId: 'fal',
+          currentKey: settings.falApiKey,
+          onSave: settings.setFalApiKey,
+          keySummary: _keySummary(settings.falApiKey),
+          helpLabel:
+              'Schlüssel erstellen auf fal.ai (Pay per Use, Startguthaben)',
+          onHelp: () => _openUrl('https://fal.ai/dashboard/keys'),
+        ),
+        const SizedBox(height: 12),
         _UsageCard(
           hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
           hasTripoKey:

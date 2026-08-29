@@ -29,7 +29,7 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
   - Generierte Bilder als neue Referenz übernehmen (iteratives Verfeinern)
-  - **3D-Bereich (Meshy AI, Tripo3D oder Stability 3D)**: 3D-Figuren
+  - **3D-Bereich (Meshy AI, Tripo3D, Stability 3D oder fal.ai)**: 3D-Figuren
     und -Objekte aus Text oder Bild, optional mit Textur und
     Auto-Rigging (T-Pose wird automatisch berücksichtigt, Tripo prüft
     die Riggbarkeit vorab), Export als GLB für
@@ -40,6 +40,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Bilderzeugung; einstellbar sind Textur-Auflösung, Polygonform
     (Original/Quads/Dreiecke), Ziel-Polygonzahl und Detailgrad – jede
     Option mit Infotext
+  - **fal.ai-Marktplatz (Beta)** als vierter 3D-Provider: Bild→3D mit
+    wählbarem Marktplatz-Modell – TRELLIS (Microsoft, ab wenigen
+    Cent), TRELLIS.2, TripoSR (am schnellsten), Hunyuan3D 2.0 und
+    Hunyuan3D 3.1 Pro (Tencent, Spitzenklasse) – plus freiem Feld für
+    eigene fal.ai-Modell-IDs; Bezahlung pro Lauf (Pay per Use), ideal
+    für Game-Assets wie Fahrzeuge und Gebäude. Rigging, Symmetrisieren
+    und Textur-Schärfen übernimmt die eigene lokale
+    Veredelungs-Pipeline
   - **Eigener lokaler 3D-Generator** (Standard, ohne API, kostenlos):
     baut direkt in der App ein farbiges 360°-Modell (Visual Hull aus
     bis zu 4 Ansichten mit geglätteter Surface-Nets-Oberfläche);
@@ -179,6 +187,8 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
   <https://www.meshy.ai/api>
 - **Tripo3D** (3D-Bereich, Bezahlung nach Verbrauch, Startguthaben):
   <https://platform.tripo3d.ai>
+- **fal.ai** (3D-Bereich, Pay per Use, Startguthaben):
+  <https://fal.ai/dashboard/keys>
 
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt
 ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.

@@ -32,6 +32,14 @@ Future<void> validateApiKey(String provider, String apiKey) async {
         Uri.parse('https://api.tripo3d.ai/v2/openapi/user/balance'),
         {'Authorization': 'Bearer $apiKey'},
       ),
+    // fal.ai hat keinen kostenlosen Info-Endpunkt – eine Status-Abfrage
+    // zu einer nicht existierenden Anfrage prüft trotzdem die
+    // Authentifizierung (404 = Schlüssel gültig, 401/403 = ungültig).
+    'fal' => (
+        Uri.parse('https://queue.fal.run/fal-ai/trellis/requests/'
+            '00000000-0000-0000-0000-000000000000/status'),
+        {'Authorization': 'Key $apiKey'},
+      ),
     _ => throw GenerationException('Unbekannter Anbieter.'),
   };
 
@@ -50,6 +58,9 @@ Future<void> validateApiKey(String provider, String apiKey) async {
         'Der Schlüssel wurde abgelehnt (${response.statusCode}) – '
         'bitte auf Tippfehler prüfen und neu einfügen.');
   }
+  // fal: jede andere Antwort < 500 heißt, die Authentifizierung hat
+  // gepasst (die Test-Anfrage selbst ist absichtlich unbekannt).
+  if (provider == 'fal' && response.statusCode < 500) return;
   throw GenerationException(
       'Unerwartete Antwort (${response.statusCode}) – der Schlüssel '
       'konnte nicht bestätigt werden.');
