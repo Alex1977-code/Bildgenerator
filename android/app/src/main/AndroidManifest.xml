@@ -2,7 +2,7 @@
     <!-- Für die Bildgenerierung über die Provider-APIs erforderlich. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="Bildgenerator"
+        android:label="3DGenerator"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

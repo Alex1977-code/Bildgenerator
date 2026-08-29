@@ -211,7 +211,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text('Über die App', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(
-                  'Bildgenerator erstellt Bilder aus Textbeschreibungen – '
+                  '3DGenerator erstellt Bilder und 3D-Modelle aus Textbeschreibungen – '
                   'wahlweise mit Referenzbildern, einstellbarer Größe, '
                   'Qualität und transparentem Hintergrund.\n\n'
                   'API-Schlüssel werden ausschließlich lokal und '

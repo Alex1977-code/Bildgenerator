@@ -1,6 +1,6 @@
 {
-    "name": "Bildgenerator",
-    "short_name": "Bildgenerator",
+    "name": "3DGenerator",
+    "short_name": "3DGenerator",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

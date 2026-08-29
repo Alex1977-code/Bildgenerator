@@ -1,8 +1,10 @@
-# Bildgenerator
+# 3DGenerator
 
-Eine App zum Erstellen von Bildern aus Textbeschreibungen – mit optionalen
-Referenzbildern, wählbarer Bildgröße, Qualität und transparentem Hintergrund.
-Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
+Eine App zum Erstellen von Bildern und 3D-Modellen aus
+Textbeschreibungen – mit optionalen Referenzbildern, wählbarer
+Bildgröße, Qualität und transparentem Hintergrund. Eine Codebasis
+(Flutter) für **Windows, Android, iOS und Web**. (Repository-Name:
+Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
 
 ## Funktionen
 

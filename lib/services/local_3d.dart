@@ -381,7 +381,7 @@ Uint8List buildGlb(LocalMesh mesh,
   final indicesAccessor = accessors.length - 1;
 
   final gltf = {
-    'asset': {'version': '2.0', 'generator': 'Bildgenerator (lokal)'},
+    'asset': {'version': '2.0', 'generator': '3DGenerator (lokal)'},
     'scene': 0,
     'scenes': [
       {

@@ -39,7 +39,7 @@ class BildgeneratorApp extends StatelessWidget {
       ],
       child: Consumer<SettingsService>(
         builder: (context, settings, _) => MaterialApp(
-          title: 'Bildgenerator',
+          title: '3DGenerator',
           debugShowCheckedModeBanner: false,
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
@@ -125,7 +125,7 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bildgenerator'),
+        title: const Text('3DGenerator'),
         centerTitle: false,
       ),
       body: wide

@@ -20,7 +20,7 @@ void main() {
         BildgeneratorApp(settings: settings, history: history));
     await tester.pumpAndSettle();
 
-    expect(find.text('Bildgenerator'), findsOneWidget);
+    expect(find.text('3DGenerator'), findsOneWidget);
     expect(find.text('Generator'), findsWidgets);
     expect(find.text('Galerie'), findsWidgets);
     expect(find.text('Einstellungen'), findsWidgets);
