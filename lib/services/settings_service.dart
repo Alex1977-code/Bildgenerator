@@ -88,6 +88,15 @@ class SettingsService extends ChangeNotifier {
   /// Gewählter 3D-Provider: 'local', 'stability', 'meshy' oder 'tripo'.
   String threeDProvider = 'local';
 
+  /// Ersteller-Name für Erstellungsnachweise (PDF).
+  String creatorName = '';
+
+  void setCreatorName(String v) {
+    creatorName = v.trim();
+    _persistString('creatorName', creatorName);
+    notifyListeners();
+  }
+
   /// API-Schlüssel für den 3D-Provider Meshy.
   String? get meshyApiKey => _meshyKey;
 
@@ -150,6 +159,7 @@ class SettingsService extends ChangeNotifier {
           prefs.getInt('watermarkSizePercent') ?? watermarkSizePercent;
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
+      creatorName = prefs.getString('creatorName') ?? creatorName;
       for (final provider in GenProvider.values) {
         _fetchedModels[provider] =
             prefs.getStringList('fetchedModels_${provider.name}') ??

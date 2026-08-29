@@ -51,13 +51,17 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     für Animationstests in Blender/Unity/Godot. Wählbare Figurtypen:
     Mensch/Roboter/Fantasy (T-Pose, 17 Gelenke), Vierbeiner (19),
     Insekt/Mehrbeiner (22), Vogel mit gespreizten Flügeln (13),
-    Schlange (8) und Fisch (6); die passende Rig-Pose fließt
-    automatisch in die KI-erzeugten Ansichten ein
+    Schlange (8), Fisch (6) und **Fahrzeug mit automatischer
+    Rad-Erkennung** (Achsen werden aus der bodennahen Geometrie
+    erkannt – vom Einrad über Fahrrad/Motorrad mit Einzelrädern bis
+    Auto, Bus und LKW mit bis zu 5 Achsen/10 Rädern); die passende
+    Rig-Pose fließt automatisch in die KI-erzeugten Ansichten ein
   - **Animationen direkt in der App**: Die 3D-Vorschau spielt
     Animations-Clips aus der GLB-Datei ab (CPU-Skinning im eigenen
     Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
     (Gehen, Winken, Vierbeiner-Gang, Flügelschlag, Krabbeln,
-    Schlängeln, Schwimmen, Wackeltest); das Skelett lässt sich per
+    Schlängeln, Schwimmen, Fahren mit drehenden Rädern, Wackeltest);
+    das Skelett lässt sich per
     Knopf grafisch über dem Modell einblenden. Die Testanimationen
     können optional als echte, loopbare glTF-Clips mit ins exportierte
     GLB gebacken werden („GLB + Testanimationen exportieren“)
@@ -73,6 +77,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     sich per Drag & Drop in den 3D-Tab oder direkt in den Viewer
     ziehen und werden dort angezeigt (STL/OBJ werden intern nach GLB
     gewandelt)
+  - **Erstellungsnachweis (PDF)**: Zu jedem generierten Bild (Knopf
+    unter dem Ergebnis) und 3D-Modell (Export-Menü im Viewer) lässt
+    sich ein druckbares PDF erzeugen, das Zeitpunkt, Ersteller,
+    KI-Dienst/Modell, Eingabe und die **SHA-256-Prüfsumme** der Datei
+    dokumentiert – mit Unterschriftszeile zum Ausdrucken. Die
+    Prüfsumme verknüpft Nachweis und Datei eindeutig; zusammen
+    aufbewahrt dient das als Beleg der Eigenerstellung (keine
+    notarielle Beglaubigung)
   - **Immer aktuelle Bild-Modelle**: gpt-image-2/1.5, SD 3.5 & Co.
     sind vorkonfiguriert, und der Aktualisieren-Knopf neben der
     Modell-Auswahl lädt die aktuell verfügbaren Modelle direkt vom

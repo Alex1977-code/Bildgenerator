@@ -601,8 +601,14 @@ void main() {
       final rigged = injectAutoRig(glb, rigType: rigType);
       final json = _readGlbJson(rigged);
       final skin = (json['skins'] as List).first as Map;
-      expect(skin['joints'] as List, hasLength(rigJointCounts[rigType]!),
-          reason: 'Gelenkzahl für $rigType');
+      if (rigType == 'vehicle') {
+        // Radzahl ist adaptiv – mindestens Karosserie + 1 Rad.
+        expect((skin['joints'] as List).length, greaterThanOrEqualTo(2),
+            reason: 'Gelenkzahl für $rigType');
+      } else {
+        expect(skin['joints'] as List, hasLength(rigJointCounts[rigType]!),
+            reason: 'Gelenkzahl für $rigType');
+      }
       // Alle Gelenk-Knoten existieren und der Wurzelknoten hängt in
       // der Szene.
       final nodes = json['nodes'] as List;
@@ -613,6 +619,125 @@ void main() {
       expect(((json['scenes'] as List).first as Map)['nodes'] as List,
           contains(skin['skeleton']));
     }
+  });
+
+  test('Fahrzeug-Rig erkennt Achsen und Radzahl automatisch', () async {
+    // Fahrzeug-Testnetz: Quader ([x0,x1,y0,y1,z0,z1]) für Karosserie
+    // und Räder; die Radunterseiten werden dicht abgetastet, damit die
+    // Achsen-Erkennung ein gefülltes Histogramm sieht (wie bei echten,
+    // fein aufgelösten Netzen).
+    LocalMesh vehicleMesh(
+        List<List<double>> boxes, List<List<double>> wheelFloors) {
+      final mesh = LocalMesh();
+      for (final b in boxes) {
+        final v0 = mesh.addVertex(b[0], b[2], b[4], 0, 0);
+        final v1 = mesh.addVertex(b[1], b[2], b[4], 0, 0);
+        final v2 = mesh.addVertex(b[1], b[3], b[4], 0, 0);
+        final v3 = mesh.addVertex(b[0], b[3], b[4], 0, 0);
+        final v4 = mesh.addVertex(b[0], b[2], b[5], 0, 0);
+        final v5 = mesh.addVertex(b[1], b[2], b[5], 0, 0);
+        final v6 = mesh.addVertex(b[1], b[3], b[5], 0, 0);
+        final v7 = mesh.addVertex(b[0], b[3], b[5], 0, 0);
+        mesh.addQuad(v0, v1, v2, v3);
+        mesh.addQuad(v4, v5, v6, v7);
+        mesh.addQuad(v0, v1, v5, v4);
+        mesh.addQuad(v3, v2, v6, v7);
+        mesh.addQuad(v0, v3, v7, v4);
+        mesh.addQuad(v1, v2, v6, v5);
+      }
+      for (final f in wheelFloors) {
+        for (var step = 0; step <= 60; step++) {
+          final z = f[2] + (f[3] - f[2]) * step / 60;
+          mesh.addVertex(f[0], 0.02, z, 0, 0);
+          mesh.addVertex(f[1], 0.02, z, 0, 0);
+          mesh.addVertex((f[0] + f[1]) / 2, 0.02, z, 0, 0);
+        }
+      }
+      return mesh;
+    }
+
+    Uint8List rig(LocalMesh mesh) =>
+        injectAutoRig(buildGlb(mesh), rigType: 'vehicle');
+    List<String> jointNames(Uint8List rigged) {
+      final json = _readGlbJson(rigged);
+      final nodes = json['nodes'] as List;
+      final skin = (json['skins'] as List).first as Map;
+      return [
+        for (final j in skin['joints'] as List)
+          (nodes[j as int] as Map)['name'] as String,
+      ];
+    }
+
+    // Auto: 2 Achsen mit Radpaaren → Karosserie + 4 Räder.
+    final car = vehicleMesh([
+      [-0.5, 0.5, 0.3, 1.0, -1.0, 1.0],
+      [-0.45, -0.25, 0.0, 0.35, 0.5, 0.9],
+      [0.25, 0.45, 0.0, 0.35, 0.5, 0.9],
+      [-0.45, -0.25, 0.0, 0.35, -0.9, -0.5],
+      [0.25, 0.45, 0.0, 0.35, -0.9, -0.5],
+    ], [
+      [-0.45, -0.25, 0.5, 0.9],
+      [0.25, 0.45, 0.5, 0.9],
+      [-0.45, -0.25, -0.9, -0.5],
+      [0.25, 0.45, -0.9, -0.5],
+    ]);
+    expect(
+        jointNames(rig(car)),
+        unorderedEquals(
+            ['Body', 'Wheel1_L', 'Wheel1_R', 'Wheel2_L', 'Wheel2_R']));
+
+    // LKW/Bus: 3 Achsen → Karosserie + 6 Räder.
+    final truck = vehicleMesh([
+      [-0.5, 0.5, 0.3, 1.0, -1.0, 1.0],
+      for (final (z0, z1) in [(0.5, 0.85), (-0.15, 0.2), (-0.85, -0.5)])
+        ...[
+          [-0.45, -0.25, 0.0, 0.35, z0, z1],
+          [0.25, 0.45, 0.0, 0.35, z0, z1],
+        ],
+    ], [
+      for (final (z0, z1) in [(0.5, 0.85), (-0.15, 0.2), (-0.85, -0.5)])
+        ...[
+          [-0.45, -0.25, z0, z1],
+          [0.25, 0.45, z0, z1],
+        ],
+    ]);
+    final truckJoints = jointNames(rig(truck));
+    expect(truckJoints, hasLength(7));
+    expect(truckJoints,
+        containsAll(['Wheel1_L', 'Wheel2_R', 'Wheel3_L', 'Wheel3_R']));
+
+    // Fahrrad/Motorrad: 2 Einzelräder in der Spur → 3 Gelenke.
+    final bike = vehicleMesh([
+      [-0.02, 0.02, 0.35, 1.0, -0.6, 0.6], // Rahmen
+      [-0.08, 0.08, 0.8, 0.9, -0.05, 0.05], // Lenker (volle Breite)
+      [-0.03, 0.03, 0.0, 0.6, 0.3, 0.95],
+      [-0.03, 0.03, 0.0, 0.6, -0.95, -0.3],
+    ], [
+      [-0.03, 0.03, 0.3, 0.95],
+      [-0.03, 0.03, -0.95, -0.3],
+    ]);
+    final bikeRigged = rig(bike);
+    expect(jointNames(bikeRigged),
+        unorderedEquals(['Body', 'Wheel1', 'Wheel2']));
+
+    // Einrad: 1 zentrales Rad → 2 Gelenke.
+    final unicycle = vehicleMesh([
+      [-0.06, 0.06, 0.6, 1.0, -0.1, 0.1], // Sattel/Stange
+      [-0.03, 0.03, 0.0, 0.7, -0.35, 0.35],
+    ], [
+      [-0.03, 0.03, -0.35, 0.35],
+    ]);
+    expect(jointNames(rig(unicycle)),
+        unorderedEquals(['Body', 'Wheel1']));
+
+    // Die Fahren-Testanimation dreht alle erkannten Räder.
+    final preview = await parseGlbForPreview(bikeRigged);
+    final clips = proceduralClipsFor(preview.rig!);
+    expect(clips.map((c) => c.name), contains('Fahren'));
+    final fahren = clips.firstWhere((c) => c.name == 'Fahren');
+    // 2 Räder + Karosserie-Wippen.
+    expect(fahren.poseAt(0.3), hasLength(3));
+    preview.dispose();
   });
 
   test('GLB-Vorschau-Parser liest eigenes GLB zurück (Round-Trip)',

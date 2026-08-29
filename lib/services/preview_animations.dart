@@ -144,15 +144,21 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
     }));
   }
 
-  if (byName.containsKey('Wheel_FL')) {
+  // Fahrzeug-Rig: alle Rad-Gelenke (Wheel…), egal ob 1 Rad (Einrad),
+  // 2 (Fahrrad/Motorrad), 4 (Auto) oder 6+ (Bus/LKW).
+  final wheelJoints = [
+    for (var j = 0; j < rig.joints.length; j++)
+      if (names[j].startsWith('Wheel')) rig.joints[j],
+  ];
+  if (wheelJoints.isNotEmpty) {
     clips.add(ProceduralClip('Fahren', 1.2, (t) {
       // Räder drehen kontinuierlich durch (eine volle Umdrehung je
       // Periode – loopt sauber), die Karosserie wippt leicht.
       final angle = -2 * math.pi * (t / 1.2);
       final bounce = 0.015 * math.sin(t * 2 * math.pi * (2 / 1.2));
       final pose = <int, Float32List>{};
-      for (final wheel in ['Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR']) {
-        put(pose, wheel, _axisAngle(1, 0, 0, angle));
+      for (final node in wheelJoints) {
+        pose[node] = _axisAngle(1, 0, 0, angle);
       }
       put(pose, 'Body', _axisAngle(1, 0, 0, bounce));
       return pose;

@@ -12,6 +12,7 @@ import '../services/generators.dart' show GenerationException;
 import '../services/local_3d.dart';
 import '../services/meshy_service.dart';
 import '../services/model_import.dart';
+import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
@@ -771,10 +772,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Heuristisches Standard-Skelett mit '
-            '${rigJointCounts[_rigType]} Gelenken. Das Motiv sollte in '
-            'der passenden Rig-Pose stehen – bei automatisch erzeugten '
-            'Ansichten passiert das von selbst.',
+            _rigType == 'vehicle'
+                ? 'Karosserie-Knochen plus automatisch erkannte Räder: '
+                    'Achsen werden aus der bodennahen Geometrie erkannt '
+                    '– vom Einrad über Fahrrad/Motorrad (Einzelräder) '
+                    'bis Bus/LKW (bis zu 5 Achsen mit 10 Rädern).'
+                : 'Heuristisches Standard-Skelett mit '
+                    '${rigJointCounts[_rigType]} Gelenken. Das Motiv '
+                    'sollte in der passenden Rig-Pose stehen – bei '
+                    'automatisch erzeugten Ansichten passiert das von '
+                    'selbst.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
@@ -861,6 +868,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       builder: (_) => ModelPreviewScreen(
         glbBytes: result.glbBytes,
         title: result.label,
+        provenance: ProvenanceInfo(
+          kind: '3D-Modell',
+          description: result.label,
+          providerLabel: result.providerLabel,
+          details: {
+            'Texturiert': result.textured ? 'ja' : 'nein',
+            'Rigging': result.rigged ? 'ja' : 'nein',
+          },
+          previewBytes: result.thumbnailBytes,
+        ),
       ),
     ));
   }

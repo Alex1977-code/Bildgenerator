@@ -23,7 +23,7 @@ const rigTypeOptions = [
   ('bird', 'Vogel (gespreizte Flügel)'),
   ('snake', 'Schlange / ohne Beine'),
   ('fish', 'Fisch'),
-  ('vehicle', 'Fahrzeug (4 Räder)'),
+  ('vehicle', 'Fahrzeug (Räder automatisch)'),
 ];
 
 class _Vec3 {
@@ -167,6 +167,135 @@ _BodyProfile _analyzeBipedProfile(
   return _BodyProfile(crotchY: crotchY, neckY: neckY, legX: legX);
 }
 
+/// Ein erkanntes Rad bzw. Radpaar (eine Achse) des Fahrzeug-Rigs.
+class _WheelAxle {
+  const _WheelAxle({
+    required this.z,
+    required this.y,
+    required this.radius,
+    required this.paired,
+    required this.xOff,
+  });
+
+  final double z; // Achsposition (absolut; Fahrtrichtung +z)
+  final double y; // Radmitte (absolut)
+  final double radius; // geschätzter Radradius
+  final bool paired; // Radpaar links/rechts oder Einzelrad in der Mitte
+  final double xOff; // Radabstand von der Fahrzeugmitte (nur bei paired)
+}
+
+/// Standard-Achsen (Auto mit 4 Rädern), wenn nichts erkennbar ist.
+List<_WheelAxle> _defaultAxles(double minY, double maxY, double w,
+    double d, double cz) {
+  final h = maxY - minY;
+  return [
+    for (final sz in [1.0, -1.0])
+      _WheelAxle(
+        z: cz + sz * 0.32 * d,
+        y: minY + 0.16 * h,
+        radius: 0.16 * h,
+        paired: true,
+        xOff: 0.38 * w,
+      ),
+  ];
+}
+
+/// Erkennt Achsen und Räder aus der bodennahen Geometrie: Histogramm
+/// der tiefsten Vertices entlang der Fahrzeuglänge (z) – dort steht
+/// praktisch nur, was den Boden berührt. Zusammenhängende Bereiche sind
+/// Achsen; liegt die Geometrie dort links UND rechts, aber nicht in der
+/// Mitte, ist es ein Radpaar (Auto, Bus, LKW), sonst ein Einzelrad in
+/// der Spur (Fahrrad, Motorrad, Einrad). So funktionieren 1–10 Räder
+/// (bis zu 5 Achsen) ohne weitere Einstellung.
+List<_WheelAxle> _analyzeVehicleAxles(
+    List<(Map<String, dynamic>, Float32List)> primitives,
+    double minX,
+    double maxX,
+    double minY,
+    double maxY,
+    double minZ,
+    double maxZ) {
+  const bins = 48;
+  final h = maxY - minY, w = maxX - minX, d = maxZ - minZ;
+  final cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  if (h <= 0 || w <= 0 || d <= 0) {
+    return _defaultAxles(minY, maxY, w, d, cz);
+  }
+
+  final yCut = minY + 0.15 * h;
+  final centerBand = 0.08 * w;
+  final count = List<int>.filled(bins, 0);
+  final xAbsSum = List<double>.filled(bins, 0);
+  final hasLeft = List<bool>.filled(bins, false);
+  final hasRight = List<bool>.filled(bins, false);
+  final hasCenter = List<bool>.filled(bins, false);
+  for (final (_, positions) in primitives) {
+    for (var i = 0; i < positions.length; i += 3) {
+      if (positions[i + 1] > yCut) continue;
+      final x = positions[i] - cx;
+      var bin = ((positions[i + 2] - minZ) / d * bins).floor();
+      if (bin < 0) bin = 0;
+      if (bin >= bins) bin = bins - 1;
+      count[bin]++;
+      xAbsSum[bin] += x.abs();
+      if (x < -centerBand) hasLeft[bin] = true;
+      if (x > centerBand) hasRight[bin] = true;
+      if (x.abs() <= centerBand) hasCenter[bin] = true;
+    }
+  }
+  var maxCount = 0;
+  for (final c in count) {
+    if (c > maxCount) maxCount = c;
+  }
+  if (maxCount == 0) return _defaultAxles(minY, maxY, w, d, cz);
+  final threshold = (maxCount * 0.2).ceil();
+  bool isWheelBin(int b) => count[b] >= threshold;
+
+  final axles = <_WheelAxle>[];
+  var bin = 0;
+  while (bin < bins) {
+    if (!isWheelBin(bin)) {
+      bin++;
+      continue;
+    }
+    // Lauf zusammenhängender Rad-Bins (eine Lücke von 1 Bin erlaubt).
+    var end = bin;
+    while (end + 1 < bins &&
+        (isWheelBin(end + 1) ||
+            (end + 2 < bins && isWheelBin(end + 2)))) {
+      end++;
+    }
+    var runCount = 0;
+    var zSum = 0.0, xSum = 0.0;
+    var left = false, right = false, center = false;
+    for (var b = bin; b <= end; b++) {
+      runCount += count[b];
+      zSum += count[b] * (minZ + (b + 0.5) / bins * d);
+      xSum += xAbsSum[b];
+      left = left || hasLeft[b];
+      right = right || hasRight[b];
+      center = center || hasCenter[b];
+    }
+    // Räder sind rund: Die z-Ausdehnung des Laufs nähert den
+    // Durchmesser an, daraus folgt die Höhe der Radmitte.
+    final zExtent = (end - bin + 1) / bins * d;
+    final radius = (zExtent / 2).clamp(0.06 * h, 0.45 * h);
+    final paired = left && right && !center;
+    axles.add(_WheelAxle(
+      z: zSum / runCount,
+      y: minY + radius,
+      radius: radius,
+      paired: paired,
+      xOff: paired ? (xSum / runCount).clamp(0.15 * w, 0.48 * w) : 0.0,
+    ));
+    bin = end + 1;
+  }
+  if (axles.isEmpty) return _defaultAxles(minY, maxY, w, d, cz);
+  axles.sort((a, b) => b.z.compareTo(a.z)); // vorn (+z) zuerst
+  if (axles.length > 5) axles.removeRange(5, axles.length);
+  return axles;
+}
+
 int _pad4(int n) => (n + 3) & ~3;
 
 double _distToSegmentSq(double px, double py, double pz, _Vec3 a, _Vec3 b) {
@@ -210,7 +339,7 @@ class _SkeletonBuilder {
 /// Konvention: y = oben, Kopf/Blick nach +z.
 (List<_Joint>, List<_Bone>) _skeletonFor(String rigType, double minX,
     double maxX, double minY, double maxY, double minZ, double maxZ,
-    {_BodyProfile? profile}) {
+    {_BodyProfile? profile, List<_WheelAxle>? vehicleAxles}) {
   final h = maxY - minY;
   final w = maxX - minX;
   final d = maxZ - minZ;
@@ -304,25 +433,53 @@ class _SkeletonBuilder {
       b.tip(parent, alongZ ? p(0, 0.5, -0.55 * d) : p(-0.55 * w, 0.5));
       b.tip(0, alongZ ? p(0, 0.5, 0.55 * d) : p(0.55 * w, 0.5));
     case 'vehicle':
-      // Karosserie als dominanter Knochen, vier Radgelenke an den
-      // Ecken – die Räder lassen sich damit um ihre Achse drehen
+      // Karosserie als dominanter Knochen; je erkannter Achse ein
+      // Radpaar (links/rechts) oder ein Einzelrad in der Spur
+      // (Fahrrad/Motorrad/Einrad). Die Räder drehen um die x-Achse
       // (Fahren-Animation, Blender/Unity).
-      final body = b.joint('Body', -1, p(0, 0.5, 0));
-      b.tip(body, p(0, 0.5, 0.46 * d), radius: 2.4);
-      b.tip(body, p(0, 0.5, -0.46 * d), radius: 2.4);
-      const wheelY = 0.16;
-      for (final (name, sx, sz) in [
-        ('Wheel_FL', -1.0, 1.0),
-        ('Wheel_FR', 1.0, 1.0),
-        ('Wheel_RL', -1.0, -1.0),
-        ('Wheel_RR', 1.0, -1.0),
-      ]) {
-        final wheel = b.joint(
-            name, body, p(sx * 0.38 * w, wheelY, sz * 0.32 * d),
-            boneRadius: 0.55);
-        // Achsstummel nach außen: konzentriert die Gewichte aufs Rad.
-        b.tip(wheel, p(sx * 0.5 * w, wheelY, sz * 0.32 * d),
-            radius: 1.1);
+      final axles =
+          vehicleAxles ?? _defaultAxles(minY, maxY, w, d, cz);
+      // Bei Einzelrädern (Zweirad/Einrad) sitzt Rahmen/Lenker hoch –
+      // Karosserie-Knochen entsprechend nach oben legen.
+      final bodyY = axles.any((a) => !a.paired) ? 0.72 : 0.5;
+      final body = b.joint('Body', -1, p(0, bodyY, 0));
+      b.tip(body, p(0, bodyY, 0.46 * d), radius: 2.4);
+      b.tip(body, p(0, bodyY, -0.46 * d), radius: 2.4);
+      var axleIndex = 0;
+      for (final axle in axles) {
+        axleIndex++;
+        // Rad-„Scheibe“: Segmente über den Raddurchmesser, damit auch
+        // der obere Radkranz mit dem Rad rotiert.
+        void disc(int wheel, _Vec3 c, double tipRadius) {
+          b.tip(wheel, _Vec3(c.x, c.y + axle.radius, c.z),
+              radius: tipRadius);
+          b.tip(wheel, _Vec3(c.x, c.y - axle.radius, c.z),
+              radius: tipRadius);
+          b.tip(wheel, _Vec3(c.x, c.y, c.z + axle.radius),
+              radius: tipRadius);
+          b.tip(wheel, _Vec3(c.x, c.y, c.z - axle.radius),
+              radius: tipRadius);
+        }
+
+        if (axle.paired) {
+          for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+            final pos = _Vec3(cx + sign * axle.xOff, axle.y, axle.z);
+            final wheel = b.joint('Wheel${axleIndex}_$suffix', body, pos,
+                boneRadius: 0.55);
+            // Achsstummel nach außen: konzentriert Gewichte aufs Rad.
+            b.tip(
+                wheel,
+                _Vec3(cx + sign * (axle.xOff + 0.12 * w), axle.y,
+                    axle.z),
+                radius: 1.1);
+            disc(wheel, pos, 1.2);
+          }
+        } else {
+          final pos = _Vec3(cx, axle.y, axle.z);
+          final wheel =
+              b.joint('Wheel$axleIndex', body, pos, boneRadius: 0.55);
+          disc(wheel, pos, 1.6);
+        }
       }
     default: // 'biped'
       // Vermessene Proportionen (Beinansatz, Hals, Beinabstand) statt
@@ -482,9 +639,12 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
   final profile = rigType == 'biped'
       ? _analyzeBipedProfile(primitives, minX, maxX, minY, maxY)
       : null;
+  final vehicleAxles = rigType == 'vehicle'
+      ? _analyzeVehicleAxles(primitives, minX, maxX, minY, maxY, minZ, maxZ)
+      : null;
   final (joints, bones) = _skeletonFor(
       rigType, minX, maxX, minY, maxY, minZ, maxZ,
-      profile: profile);
+      profile: profile, vehicleAxles: vehicleAxles);
 
   // Neue Binärdaten: pro Primitive JOINTS_0 (ubyte VEC4) und WEIGHTS_0
   // (float VEC4), dazu die inversen Bind-Matrizen (MAT4 float).
@@ -673,7 +833,9 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
   return out.buffer.asUint8List();
 }
 
-/// Für Tests und Anzeige: Gelenkzahl je Figurtyp.
+/// Für Tests und Anzeige: Gelenkzahl je Figurtyp. Beim Fahrzeug-Rig
+/// ist die Zahl variabel (Karosserie + automatisch erkannte Räder,
+/// 1–10 Räder), daher taucht 'vehicle' hier nicht auf.
 const rigJointCounts = {
   'biped': 17,
   'quadruped': 19,
@@ -681,7 +843,6 @@ const rigJointCounts = {
   'bird': 13,
   'snake': 8,
   'fish': 6,
-  'vehicle': 5,
 };
 
 /// Kleiner Selbsttest-Helfer: prüft, ob eine GLB ein Skin trägt.

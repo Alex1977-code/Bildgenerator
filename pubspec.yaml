@@ -49,7 +49,10 @@ dependencies:
   url_launcher: ^6.3.2
   http_parser: ^4.1.2
   desktop_drop: ^0.8.2
-  archive: ^4.2.0
+  # pdf erlaubt archive erst bis <4.1.0 – daher nicht ^4.2.0.
+  archive: ^4.0.9
+  pdf: ^3.11.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

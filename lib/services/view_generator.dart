@@ -42,8 +42,8 @@ const rigPoseParts = {
       'gentle curves, head clearly visible at one end',
   'fish': 'full body fish with the body straight and horizontal, all '
       'fins spread and clearly visible',
-  'vehicle': 'complete vehicle standing level on the ground, all four '
-      'wheels fully visible and clearly separated from the body, seen '
+  'vehicle': 'complete vehicle standing level on the ground, every '
+      'wheel fully visible and clearly separated from the body, seen '
       'without any occlusion',
 };
 

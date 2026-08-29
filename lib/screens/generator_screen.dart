@@ -10,6 +10,7 @@ import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/model_catalog.dart';
 import '../services/prompt_relay.dart';
+import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
@@ -272,6 +273,41 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       if (message != null && mounted) _showSnack(message);
     } catch (e) {
       if (mounted) _showSnack('Export fehlgeschlagen: $e');
+    }
+  }
+
+  /// Erstellungsnachweis-PDF fürs Ergebnisbild (Zeitpunkt, Eingabe,
+  /// Dienst/Modell und SHA-256-Prüfsumme) herunterladen/drucken.
+  Future<void> _exportProvenance(GeneratedImage image) async {
+    final settings = context.read<SettingsService>();
+    final name = await askCreatorName(context, settings);
+    if (name == null || !mounted) return;
+    final request = _lastRequest;
+    final details = request?.describeParams() ?? <String, String>{};
+    details.remove('Provider');
+    details.remove('Modell');
+    try {
+      final pdf = await buildProvenancePdf(
+        info: ProvenanceInfo(
+          kind: 'Bild',
+          description: request?.prompt ?? _promptCtrl.text.trim(),
+          providerLabel: request?.provider.label ?? settings.provider.label,
+          model: request?.model,
+          details: details,
+          previewBytes: image.bytes,
+        ),
+        fileType: image.fileExtension.toUpperCase(),
+        fileBytes: image.bytes,
+        creatorName: name,
+      );
+      final message = await exportImageBytes(
+        pdf,
+        'erstellungsnachweis_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        'application/pdf',
+      );
+      if (message != null && mounted) _showSnack(message);
+    } catch (e) {
+      if (mounted) _showSnack('Nachweis fehlgeschlagen: $e');
     }
   }
 
@@ -953,6 +989,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                     tooltip: 'Als Referenzbild verwenden',
                     icon: const Icon(Icons.add_photo_alternate_outlined),
                     onPressed: () => _useAsReference(image),
+                  ),
+                  IconButton(
+                    tooltip: 'Erstellungsnachweis (PDF)',
+                    icon: const Icon(Icons.workspace_premium_outlined),
+                    onPressed: () => _exportProvenance(image),
                   ),
                 ],
               ),

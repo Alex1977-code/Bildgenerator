@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:provider/provider.dart';
 
 import '../services/animation_bake.dart';
 import '../services/exporter.dart';
@@ -14,6 +15,8 @@ import '../services/mesh_check.dart';
 import '../services/model_import.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
+import '../services/provenance.dart';
+import '../services/settings_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 
@@ -26,10 +29,15 @@ class ModelPreviewScreen extends StatefulWidget {
     super.key,
     required this.glbBytes,
     required this.title,
+    this.provenance,
   });
 
   final Uint8List glbBytes;
   final String title;
+
+  /// Metadaten für den Erstellungsnachweis (nur bei in der App
+  /// erzeugten Modellen vorhanden – nicht bei importierten Dateien).
+  final ProvenanceInfo? provenance;
 
   @override
   State<ModelPreviewScreen> createState() => _ModelPreviewScreenState();
@@ -280,6 +288,36 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     );
   }
 
+  /// Erstellungsnachweis-PDF fürs Modell (Zeitpunkt, Eingabe, Dienst
+  /// und SHA-256-Prüfsumme der GLB-Datei) herunterladen/drucken.
+  Future<void> _exportProvenance() async {
+    final info = widget.provenance;
+    if (info == null) return;
+    final settings = context.read<SettingsService>();
+    final name = await askCreatorName(context, settings);
+    if (name == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pdf = await buildProvenancePdf(
+        info: info,
+        fileType: 'GLB',
+        fileBytes: widget.glbBytes,
+        creatorName: name,
+      );
+      final message = await exportImageBytes(
+        pdf,
+        'erstellungsnachweis_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        'application/pdf',
+      );
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Nachweis fehlgeschlagen: $e')));
+    }
+  }
+
   /// OBJ-Export (mit Vertexfarben, Originalmaße).
   Future<void> _exportObj() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -395,6 +433,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                   _exportStl();
                 case '3mf':
                   _export3mf();
+                case 'nachweis':
+                  _exportProvenance();
               }
             },
             itemBuilder: (context) => [
@@ -413,6 +453,10 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               const PopupMenuItem(
                   value: '3mf',
                   child: Text('3MF mit Farben exportieren …')),
+              if (widget.provenance != null)
+                const PopupMenuItem(
+                    value: 'nachweis',
+                    child: Text('Erstellungsnachweis (PDF) …')),
             ],
           ),
         ],
