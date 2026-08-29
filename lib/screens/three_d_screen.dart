@@ -79,7 +79,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   bool _tripoDetailedTexture = false;
   final _texturePromptCtrl = TextEditingController();
   String _stabilityEngine = 'stable-point-aware-3d';
-  int _stabilityTextureRes = 1024;
+  int _stabilityTextureRes = 2048;
 
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
@@ -1186,9 +1186,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           DropdownMenuEntry(
                               value: 512, label: '512 px (klein)'),
                           DropdownMenuEntry(
-                              value: 1024, label: '1024 px (Standard)'),
+                              value: 1024, label: '1024 px'),
                           DropdownMenuEntry(
-                              value: 2048, label: '2048 px (hoch)'),
+                              value: 2048, label: '2048 px (Standard)'),
                         ],
                         onSelected: (value) {
                           if (value != null) {

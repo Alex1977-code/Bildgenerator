@@ -38,10 +38,132 @@ class _Joint {
 }
 
 class _Bone {
-  const _Bone(this.joint, this.from, this.to);
+  const _Bone(this.joint, this.from, this.to, [this.radius = 1.0]);
   final int joint; // Index des steuernden Gelenks
   final _Vec3 from;
   final _Vec3 to;
+
+  /// Relativer Einflussradius: dickere Körperteile (Kopf, Rumpf)
+  /// „gewinnen“ gegen dünne (Arme), damit z. B. Haare zum Kopf gehören
+  /// und nicht zum nächstgelegenen Armknochen.
+  final double radius;
+}
+
+/// Aus dem Netz vermessene Körper-Proportionen einer stehenden Figur –
+/// macht das Skelett unabhängig von festen Standard-Prozenten (wichtig
+/// für Chibi-/Comic-Figuren mit großem Kopf und kurzen Beinen).
+class _BodyProfile {
+  const _BodyProfile({
+    required this.crotchY,
+    required this.neckY,
+    required this.legX,
+  });
+
+  final double crotchY; // Beinansatz (absolute y-Koordinate)
+  final double neckY; // Halsansatz (absolute y-Koordinate)
+  final double legX; // Abstand der Beinmitte von der Körpermitte
+}
+
+/// Vermisst die Figur über ein Höhenprofil: Beinspalt (zwei getrennte
+/// Cluster unten), engste Stelle zwischen Rumpf und Kopf (Hals) und
+/// mittlerer Beinabstand. Liefert null, wenn nichts erkennbar ist.
+_BodyProfile _analyzeBipedProfile(
+    List<(Map<String, dynamic>, Float32List)> primitives,
+    double minX, double maxX, double minY, double maxY) {
+  const bins = 64;
+  final height = maxY - minY;
+  final width = maxX - minX;
+  if (height <= 0 || width <= 0) {
+    return _BodyProfile(
+        crotchY: minY + 0.48 * height,
+        neckY: minY + 0.84 * height,
+        legX: 0.06 * width);
+  }
+  final cx = (minX + maxX) / 2;
+  final centerBand = 0.06 * width;
+  final hasLeft = List<bool>.filled(bins, false);
+  final hasRight = List<bool>.filled(bins, false);
+  final hasCenter = List<bool>.filled(bins, false);
+  final halfWidth = List<double>.filled(bins, 0);
+  final legXSum = List<double>.filled(bins, 0);
+  final legXCount = List<int>.filled(bins, 0);
+  for (final (_, positions) in primitives) {
+    for (var i = 0; i < positions.length; i += 3) {
+      final x = positions[i] - cx;
+      final y = positions[i + 1];
+      var bin = ((y - minY) / height * bins).floor();
+      if (bin < 0) bin = 0;
+      if (bin >= bins) bin = bins - 1;
+      if (x < -centerBand) hasLeft[bin] = true;
+      if (x > centerBand) hasRight[bin] = true;
+      if (x.abs() <= centerBand) hasCenter[bin] = true;
+      if (x.abs() > halfWidth[bin]) halfWidth[bin] = x.abs();
+      legXSum[bin] += x.abs();
+      legXCount[bin]++;
+    }
+  }
+  double binY(int bin) => minY + (bin + 0.5) / bins * height;
+
+  // Beinspalt: zusammenhängender Bereich von unten, in dem links und
+  // rechts belegt sind, die Mitte aber frei bleibt.
+  bool split(int bin) => hasLeft[bin] && hasRight[bin] && !hasCenter[bin];
+  var crotchBin = -1;
+  for (var bin = 0; bin < (bins * 0.7).floor(); bin++) {
+    if (split(bin)) {
+      var top = bin;
+      while (top + 1 < bins && split(top + 1)) {
+        top++;
+      }
+      if (top - bin >= 2) crotchBin = top;
+      break;
+    }
+  }
+  final crotchY =
+      crotchBin >= 0 ? binY(crotchBin) : minY + 0.48 * height;
+
+  // Hals: schmalste Stelle zwischen Rumpf-Oberkante und der breitesten
+  // Kopf-/Haarstelle (darüber wird der Kopf wieder schmaler – dort
+  // liegt kein Hals). Bei gleicher Breite gewinnt die höchste Stelle.
+  final searchFrom =
+      (((crotchY - minY) / height + 0.18) * bins).floor().clamp(0, bins - 1);
+  final searchTo = (bins * 0.95).floor();
+  var peakBin = -1;
+  var peakWidth = 0.0;
+  for (var bin = searchFrom; bin < searchTo; bin++) {
+    if (legXCount[bin] == 0) continue;
+    if (halfWidth[bin] >= peakWidth) {
+      peakWidth = halfWidth[bin];
+      peakBin = bin;
+    }
+  }
+  var neckBin = -1;
+  var minWidth = double.infinity;
+  for (var bin = searchFrom; bin <= peakBin; bin++) {
+    if (legXCount[bin] == 0) continue;
+    if (halfWidth[bin] <= minWidth) {
+      minWidth = halfWidth[bin];
+      neckBin = bin;
+    }
+  }
+  final distinct =
+      peakWidth > 0 && (peakWidth - minWidth) / peakWidth > 0.15;
+  final neckY = (neckBin >= 0 && distinct)
+      ? binY(neckBin)
+      : crotchY + 0.62 * (maxY - crotchY);
+
+  // Mittlerer Beinabstand aus der unteren Beinhälfte.
+  var legSum = 0.0;
+  var legCount = 0;
+  final legTop = crotchBin >= 0 ? crotchBin : (bins * 0.3).floor();
+  for (var bin = 1; bin < legTop; bin++) {
+    legSum += legXSum[bin];
+    legCount += legXCount[bin];
+  }
+  final legX = legCount > 0
+      ? (legSum / legCount).clamp(0.03 * width, 0.25 * width)
+      : 0.06 * width;
+
+  return _BodyProfile(crotchY: crotchY, neckY: neckY, legX: legX);
 }
 
 int _pad4(int n) => (n + 3) & ~3;
@@ -68,22 +190,26 @@ class _SkeletonBuilder {
   final joints = <_Joint>[];
   final bones = <_Bone>[];
 
-  int joint(String name, int parent, _Vec3 position) {
+  int joint(String name, int parent, _Vec3 position,
+      {double boneRadius = 1.0}) {
     joints.add(_Joint(name, parent, position));
     if (parent >= 0) {
-      bones.add(_Bone(parent, joints[parent].position, position));
+      bones.add(
+          _Bone(parent, joints[parent].position, position, boneRadius));
     }
     return joints.length - 1;
   }
 
-  void tip(int jointIndex, _Vec3 to) =>
-      bones.add(_Bone(jointIndex, joints[jointIndex].position, to));
+  void tip(int jointIndex, _Vec3 to, {double radius = 1.0}) => bones
+      .add(_Bone(jointIndex, joints[jointIndex].position, to, radius));
 }
 
-/// Baut das Skelett des gewünschten Figurtyps aus der Bounding Box.
+/// Baut das Skelett des gewünschten Figurtyps aus der Bounding Box
+/// (bei Zweibeinern zusätzlich aus dem vermessenen [profile]).
 /// Konvention: y = oben, Kopf/Blick nach +z.
 (List<_Joint>, List<_Bone>) _skeletonFor(String rigType, double minX,
-    double maxX, double minY, double maxY, double minZ, double maxZ) {
+    double maxX, double minY, double maxY, double minZ, double maxZ,
+    {_BodyProfile? profile}) {
   final h = maxY - minY;
   final w = maxX - minX;
   final d = maxZ - minZ;
@@ -95,12 +221,12 @@ class _SkeletonBuilder {
   switch (rigType) {
     case 'quadruped':
       final hips = b.joint('Hips', -1, p(0, 0.6, -0.25 * d));
-      final spine = b.joint('Spine', hips, p(0, 0.65, 0));
-      final chest = b.joint('Chest', spine, p(0, 0.65, 0.2 * d));
-      final neck = b.joint('Neck', chest, p(0, 0.75, 0.35 * d));
-      final head = b.joint('Head', neck, p(0, 0.85, 0.45 * d));
-      b.tip(head, p(0, 0.88, 0.52 * d));
-      final tail1 = b.joint('Tail_1', hips, p(0, 0.6, -0.4 * d));
+      final spine = b.joint('Spine', hips, p(0, 0.65, 0), boneRadius: 1.4);
+      final chest = b.joint('Chest', spine, p(0, 0.65, 0.2 * d), boneRadius: 1.4);
+      final neck = b.joint('Neck', chest, p(0, 0.75, 0.35 * d), boneRadius: 1.3);
+      final head = b.joint('Head', neck, p(0, 0.85, 0.45 * d), boneRadius: 1.7);
+      b.tip(head, p(0, 0.88, 0.52 * d), radius: 1.9);
+      final tail1 = b.joint('Tail_1', hips, p(0, 0.6, -0.4 * d), boneRadius: 1.2);
       final tail2 = b.joint('Tail_2', tail1, p(0, 0.55, -0.48 * d));
       b.tip(tail2, p(0, 0.5, -0.55 * d));
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
@@ -119,9 +245,10 @@ class _SkeletonBuilder {
       }
     case 'insect':
       final root = b.joint('Thorax', -1, p(0, 0.55, 0));
-      final head = b.joint('Head', root, p(0, 0.6, 0.32 * d));
-      b.tip(head, p(0, 0.6, 0.5 * d));
-      final abdomen1 = b.joint('Abdomen_1', root, p(0, 0.52, -0.25 * d));
+      final head = b.joint('Head', root, p(0, 0.6, 0.32 * d), boneRadius: 1.5);
+      b.tip(head, p(0, 0.6, 0.5 * d), radius: 1.6);
+      final abdomen1 =
+          b.joint('Abdomen_1', root, p(0, 0.52, -0.25 * d), boneRadius: 1.5);
       final abdomen2 =
           b.joint('Abdomen_2', abdomen1, p(0, 0.48, -0.42 * d));
       b.tip(abdomen2, p(0, 0.45, -0.52 * d));
@@ -140,18 +267,20 @@ class _SkeletonBuilder {
       }
     case 'bird':
       final root = b.joint('Body', -1, p(0, 0.5, 0));
-      final chest = b.joint('Chest', root, p(0, 0.6, 0.12 * d));
-      final neck = b.joint('Neck', chest, p(0, 0.72, 0.28 * d));
-      final head = b.joint('Head', neck, p(0, 0.82, 0.4 * d));
-      b.tip(head, p(0, 0.85, 0.5 * d));
+      final chest = b.joint('Chest', root, p(0, 0.6, 0.12 * d), boneRadius: 1.5);
+      final neck = b.joint('Neck', chest, p(0, 0.72, 0.28 * d), boneRadius: 1.3);
+      final head = b.joint('Head', neck, p(0, 0.82, 0.4 * d), boneRadius: 1.6);
+      b.tip(head, p(0, 0.85, 0.5 * d), radius: 1.8);
       final tail = b.joint('Tail', root, p(0, 0.45, -0.4 * d));
       b.tip(tail, p(0, 0.42, -0.52 * d));
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
         final wing = b.joint(
-            'Wing_$suffix', chest, p(sign * 0.12 * w, 0.62, 0));
-        final wingMid =
-            b.joint('WingMid_$suffix', wing, p(sign * 0.3 * w, 0.62, 0));
-        b.tip(wingMid, p(sign * 0.5 * w, 0.62, 0));
+            'Wing_$suffix', chest, p(sign * 0.12 * w, 0.62, 0),
+            boneRadius: 1.4);
+        final wingMid = b.joint(
+            'WingMid_$suffix', wing, p(sign * 0.3 * w, 0.62, 0),
+            boneRadius: 1.4);
+        b.tip(wingMid, p(sign * 0.5 * w, 0.62, 0), radius: 1.4);
         final leg = b.joint('Leg_$suffix', root, p(sign * 0.07 * w, 0.32, 0));
         final foot =
             b.joint('Foot_$suffix', leg, p(sign * 0.07 * w, 0.04, 0));
@@ -174,30 +303,56 @@ class _SkeletonBuilder {
       b.tip(parent, alongZ ? p(0, 0.5, -0.55 * d) : p(-0.55 * w, 0.5));
       b.tip(0, alongZ ? p(0, 0.5, 0.55 * d) : p(0.55 * w, 0.5));
     default: // 'biped'
-      final hips = b.joint('Hips', -1, p(0, 0.52));
-      final spine = b.joint('Spine', hips, p(0, 0.62));
-      final chest = b.joint('Chest', spine, p(0, 0.74));
-      final neck = b.joint('Neck', chest, p(0, 0.84));
-      final head = b.joint('Head', neck, p(0, 0.90));
-      b.tip(head, p(0, 1.0));
-      const armY = 0.80;
+      // Vermessene Proportionen (Beinansatz, Hals, Beinabstand) statt
+      // fester Standard-Prozente – wichtig für Chibi-/Comic-Figuren
+      // mit großem Kopf: sonst laufen Armknochen durchs Haar und die
+      // Wirbelsäule durch den Kopf.
+      final crotch = ((profile?.crotchY ?? (minY + 0.48 * h)) - minY) / h;
+      // Nur bei Chibi-Proportionen (Beine enden weit unten) die
+      // vermessene Halshöhe nutzen – normale T-Pose-Figuren behalten
+      // die bewährten Standardwerte.
+      final chibi = crotch < 0.35 && profile != null;
+      final neckF =
+          chibi ? (profile.neckY - minY) / h : 0.84;
+      final legX = profile?.legX ?? 0.06 * w;
+      final hipsF = crotch + 0.04;
+      final shoulderF = (neckF - 0.04).clamp(hipsF + 0.05, 0.95);
+      final headF = neckF + 0.4 * (1 - neckF);
+      final kneeF = crotch * 0.5;
+
+      final hips = b.joint('Hips', -1, p(0, hipsF));
+      final spine = b.joint('Spine', hips,
+          p(0, hipsF + 0.33 * (neckF - hipsF)),
+          boneRadius: 1.4);
+      final chest = b.joint('Chest', spine,
+          p(0, hipsF + 0.66 * (neckF - hipsF)),
+          boneRadius: 1.4);
+      final neck =
+          b.joint('Neck', chest, p(0, neckF), boneRadius: 1.4);
+      final head =
+          b.joint('Head', neck, p(0, headF), boneRadius: 1.8);
+      b.tip(head, p(0, 1.0), radius: 2.4);
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
-        final shoulder =
-            b.joint('Shoulder_$suffix', chest, p(sign * 0.10 * w, armY));
-        final elbow =
-            b.joint('Elbow_$suffix', shoulder, p(sign * 0.28 * w, armY));
-        final hand =
-            b.joint('Hand_$suffix', elbow, p(sign * 0.43 * w, armY));
-        b.tip(hand, p(sign * 0.5 * w, armY));
+        final shoulder = b.joint('Shoulder_$suffix', chest,
+            p(sign * 0.10 * w, shoulderF),
+            boneRadius: 1.1);
+        // Leicht abfallend – passt für T-Pose wie für die typische
+        // A-Pose von Spielfiguren.
+        final elbow = b.joint('Elbow_$suffix', shoulder,
+            p(sign * 0.28 * w, shoulderF - 0.03));
+        final hand = b.joint(
+            'Hand_$suffix', elbow, p(sign * 0.43 * w, shoulderF - 0.06));
+        b.tip(hand, p(sign * 0.5 * w, shoulderF - 0.08));
       }
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
-        final upper =
-            b.joint('UpperLeg_$suffix', hips, p(sign * 0.06 * w, 0.48));
+        final upper = b.joint(
+            'UpperLeg_$suffix', hips, p(sign * legX, crotch),
+            boneRadius: 1.2);
         final knee =
-            b.joint('Knee_$suffix', upper, p(sign * 0.06 * w, 0.26));
+            b.joint('Knee_$suffix', upper, p(sign * legX, kneeF));
         final foot =
-            b.joint('Foot_$suffix', knee, p(sign * 0.06 * w, 0.05));
-        b.tip(foot, p(sign * 0.06 * w, 0.02, 0.2 * d));
+            b.joint('Foot_$suffix', knee, p(sign * legX, 0.04));
+        b.tip(foot, p(sign * legX, 0.02, 0.2 * d));
       }
   }
   return (b.joints, b.bones);
@@ -302,8 +457,12 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
         '(zu breit/flach) – ggf. einen anderen Figurtyp wählen.');
   }
 
-  final (joints, bones) =
-      _skeletonFor(rigType, minX, maxX, minY, maxY, minZ, maxZ);
+  final profile = rigType == 'biped'
+      ? _analyzeBipedProfile(primitives, minX, maxX, minY, maxY)
+      : null;
+  final (joints, bones) = _skeletonFor(
+      rigType, minX, maxX, minY, maxY, minZ, maxZ,
+      profile: profile);
 
   // Neue Binärdaten: pro Primitive JOINTS_0 (ubyte VEC4) und WEIGHTS_0
   // (float VEC4), dazu die inversen Bind-Matrizen (MAT4 float).
@@ -333,7 +492,9 @@ Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
       var best = -1, second = -1;
       var bestD = double.infinity, secondD = double.infinity;
       for (var b = 0; b < bones.length; b++) {
-        final d = _distToSegmentSq(px, py, pz, bones[b].from, bones[b].to);
+        final bone = bones[b];
+        final d = _distToSegmentSq(px, py, pz, bone.from, bone.to) /
+            (bone.radius * bone.radius);
         if (d < bestD) {
           second = best;
           secondD = bestD;

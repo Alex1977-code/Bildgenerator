@@ -475,6 +475,86 @@ void main() {
     expect(model, contains('<item objectid="2"/>'));
   });
 
+  test('Auto-Rigging vermisst Chibi-Proportionen (Hals unter dem Kopf)',
+      () {
+    // Synthetische Chibi-Figur: kurze getrennte Beine unten, schmaler
+    // Rumpf, riesiger Kopf ab halber Höhe.
+    final mesh = LocalMesh();
+    void addBox(double x0, double x1, double y0, double y1, double z0,
+        double z1) {
+      final a = mesh.addVertex(x0, y0, z0, 0, 0);
+      final b = mesh.addVertex(x1, y0, z0, 0, 0);
+      final c = mesh.addVertex(x1, y1, z0, 0, 0);
+      final d = mesh.addVertex(x0, y1, z0, 0, 0);
+      final e = mesh.addVertex(x0, y0, z1, 0, 0);
+      final f = mesh.addVertex(x1, y0, z1, 0, 0);
+      final g = mesh.addVertex(x1, y1, z1, 0, 0);
+      final h = mesh.addVertex(x0, y1, z1, 0, 0);
+      mesh.addQuad(a, b, c, d);
+      mesh.addQuad(e, f, g, h);
+      mesh.addQuad(a, b, f, e);
+      mesh.addQuad(d, c, g, h);
+      mesh.addQuad(a, d, h, e);
+      mesh.addQuad(b, c, g, f);
+    }
+
+    // Umriss-Vertices auf vielen Höhenstufen, damit das Höhenprofil
+    // dicht besetzt ist (wie bei echten, fein aufgelösten Netzen).
+    void densify(double x0, double x1, double y0, double y1, double z0,
+        double z1, {required bool centerFilled}) {
+      for (var step = 0; step <= 12; step++) {
+        final y = y0 + (y1 - y0) * step / 12;
+        mesh.addVertex(x0, y, z0, 0, 0);
+        mesh.addVertex(x1, y, z0, 0, 0);
+        mesh.addVertex(x1, y, z1, 0, 0);
+        mesh.addVertex(x0, y, z1, 0, 0);
+        if (centerFilled) mesh.addVertex(0, y, z1, 0, 0);
+      }
+    }
+
+    addBox(-0.22, -0.08, 0.0, 0.2, -0.1, 0.1); // Bein links
+    addBox(0.08, 0.22, 0.0, 0.2, -0.1, 0.1); // Bein rechts
+    addBox(-0.2, 0.2, 0.2, 0.5, -0.12, 0.12); // Rumpf
+    addBox(-0.5, 0.5, 0.5, 1.0, -0.35, 0.35); // Riesenkopf
+    densify(-0.22, -0.08, 0.0, 0.2, -0.1, 0.1, centerFilled: false);
+    densify(0.08, 0.22, 0.0, 0.2, -0.1, 0.1, centerFilled: false);
+    densify(-0.2, 0.2, 0.2, 0.5, -0.12, 0.12, centerFilled: true);
+    densify(-0.5, 0.5, 0.5, 1.0, -0.35, 0.35, centerFilled: true);
+
+    final rigged = injectAutoRig(buildGlb(mesh));
+    final json = _readGlbJson(rigged);
+    final nodes = json['nodes'] as List;
+    double absoluteY(String name) {
+      var index = -1;
+      for (var i = 0; i < nodes.length; i++) {
+        if ((nodes[i] as Map)['name'] == name) index = i;
+      }
+      expect(index, greaterThanOrEqualTo(0), reason: '$name fehlt');
+      // Übersetzungen entlang der Elternkette aufsummieren.
+      var y = 0.0;
+      final childOf = <int, int>{};
+      for (var i = 0; i < nodes.length; i++) {
+        for (final child in (nodes[i] as Map)['children'] as List? ?? []) {
+          childOf[child as int] = i;
+        }
+      }
+      var current = index;
+      while (current >= 0) {
+        final t = (nodes[current] as Map)['translation'] as List?;
+        if (t != null) y += (t[1] as num).toDouble();
+        current = childOf[current] ?? -1;
+      }
+      return y;
+    }
+
+    // Hals sitzt unter dem Riesenkopf (~0.5), nicht bei Standard 0.84;
+    // die Hüfte nahe dem Beinansatz (~0.2), nicht bei 0.52.
+    expect(absoluteY('Neck'), lessThan(0.62));
+    expect(absoluteY('Neck'), greaterThan(0.35));
+    expect(absoluteY('Hips'), lessThan(0.35));
+    expect(absoluteY('Shoulder_L'), lessThan(0.6));
+  });
+
   test('Auto-Rigging kennt alle Figurtypen', () {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),
