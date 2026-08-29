@@ -602,6 +602,50 @@ void main() {
     preview.dispose();
   });
 
+  test('Viewer ignoriert Textur-Alpha bei OPAQUE-Material (kein Ghosting)',
+      () async {
+    // 2×2-Textur mit transparenten/halbtransparenten Pixeln.
+    final rgba = Uint8List.fromList([
+      255, 0, 0, 255, 0, 255, 0, 0, //
+      0, 0, 255, 128, 255, 255, 0, 255,
+    ]);
+    final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+    final descriptor = ui.ImageDescriptor.raw(buffer,
+        width: 2, height: 2, pixelFormat: ui.PixelFormat.rgba8888);
+    final codec = await descriptor.instantiateCodec();
+    final frame = await codec.getNextFrame();
+    final png =
+        (await frame.image.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+    frame.image.dispose();
+
+    final mesh = LocalMesh();
+    mesh.addVertex(0, 0, 0, 0, 0);
+    mesh.addVertex(1, 0, 0, 1, 0);
+    mesh.addVertex(0, 1, 0, 0, 1);
+    mesh.addTriangle(0, 1, 2);
+    // Kein alphaMask → Material ist OPAQUE, Alpha wird entfernt.
+    final glb = buildGlb(mesh, pngTexture: png);
+    final preview = await parseGlbForPreview(glb);
+    final texture = preview.texture!;
+    final pixels =
+        (await texture.toByteData(format: ui.ImageByteFormat.rawRgba))!
+            .buffer
+            .asUint8List();
+    for (var i = 3; i < pixels.length; i += 4) {
+      expect(pixels[i], 255);
+    }
+    preview.dispose();
+
+    // UV-Wrap: Werte in [0,1] bleiben unverändert (v. a. u = 1,0),
+    // außerhalb wird wiederholt.
+    expect(wrapUv(1.0), 1.0);
+    expect(wrapUv(0.0), 0.0);
+    expect(wrapUv(1.25), closeTo(0.25, 1e-9));
+    expect(wrapUv(-0.25), closeTo(0.75, 1e-9));
+  });
+
   test('GLB-Material übernimmt Oberflächen-Werte (PBR)', () async {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),

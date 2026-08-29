@@ -579,6 +579,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                       child: Text(
                         'Ziehen = drehen · Zwei Finger/Mausrad = zoomen · '
                         '${mesh.triangleCount} Dreiecke'
+                        '${mesh.texture != null ? ' · Textur ${mesh.texture!.width} px' : ' · Vertex-Farben'}'
                         '${rig != null ? ' · ${rig.joints.length} Gelenke' : ''}',
                         style: theme.textTheme.bodySmall,
                       ),
@@ -733,12 +734,11 @@ class _MeshPainter extends CustomPainter {
               (sv * bb).round().clamp(0, 255);
         }
         if (textured) {
-          var u = uvs[vi * 2] % 1.0;
-          if (u < 0) u += 1;
-          var v = uvs[vi * 2 + 1] % 1.0;
-          if (v < 0) v += 1;
-          outTex![texOut++] = u * texture.width;
-          outTex[texOut++] = v * texture.height;
+          // wrapUv erhält Werte in [0,1] – insbesondere darf u = 1,0
+          // nicht auf 0,0 springen (Schmier-Streifen quer über die
+          // Textur bei Dreiecken am Texturrand).
+          outTex![texOut++] = wrapUv(uvs[vi * 2]) * texture.width;
+          outTex[texOut++] = wrapUv(uvs[vi * 2 + 1]) * texture.height;
           final grey = (s * 255).round().clamp(0, 255);
           outColors[c++] =
               0xFF000000 | (grey << 16) | (grey << 8) | grey;

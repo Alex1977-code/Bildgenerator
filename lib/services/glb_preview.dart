@@ -401,9 +401,39 @@ Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
   }
 }
 
+/// UV-Koordinate in den Bereich [0,1] bringen (REPEAT-Wrap); Werte, die
+/// schon im Bereich liegen, bleiben unverändert – wichtig: u = 1,0 darf
+/// NICHT auf 0,0 springen (sonst schmiert die Interpolation quer über
+/// die ganze Textur).
+double wrapUv(double t) {
+  if (t >= 0.0 && t <= 1.0) return t;
+  final f = t % 1.0;
+  return f < 0 ? f + 1 : f;
+}
+
+/// Alpha-Modus des Materials eines Primitivs ('OPAQUE' ist der
+/// glTF-Standard, wenn nichts angegeben ist).
+String _primitiveAlphaMode(_Gltf gltf, Map<String, dynamic> primitive) {
+  try {
+    final materialIndex = primitive['material'] as int?;
+    if (materialIndex == null) return 'OPAQUE';
+    final material = (gltf.json['materials'] as List?)?[materialIndex]
+        as Map<String, dynamic>?;
+    return (material?['alphaMode'] as String?) ?? 'OPAQUE';
+  } catch (_) {
+    return 'OPAQUE';
+  }
+}
+
 /// Dekodiert ein Textur-Bild in voller Auflösung (bis 2048 px) für das
-/// echte Textur-Mapping im Viewer.
-Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex) async {
+/// echte Textur-Mapping im Viewer. Bei [stripAlpha] wird der
+/// Alphakanal auf deckend gesetzt: Laut glTF ist Alpha bei
+/// alphaMode OPAQUE zu ignorieren – Texturen (z. B. von Stability)
+/// tragen in ungenutzten Atlas-Bereichen und an Insel-Rändern oft
+/// Transparenz, die sonst dahinterliegende Flächen durchscheinen
+/// lässt (Geister-Doppelbilder im Maler-Algorithmus).
+Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex,
+    {bool stripAlpha = false}) async {
   try {
     final image = (gltf.json['images'] as List)[imageIndex]
         as Map<String, dynamic>;
@@ -415,7 +445,35 @@ Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex) async {
       allowUpscaling: false,
     );
     final frame = await codec.getNextFrame();
-    return frame.image;
+    if (!stripAlpha) return frame.image;
+    final decoded = frame.image;
+    try {
+      final raw =
+          await decoded.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (raw == null) return decoded;
+      final pixels = raw.buffer.asUint8List();
+      var opaque = true;
+      for (var i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] != 255) {
+          opaque = false;
+          pixels[i] = 255;
+        }
+      }
+      if (opaque) return decoded;
+      final buffer = await ui.ImmutableBuffer.fromUint8List(pixels);
+      final descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: decoded.width,
+        height: decoded.height,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      final opaqueCodec = await descriptor.instantiateCodec();
+      final opaqueFrame = await opaqueCodec.getNextFrame();
+      decoded.dispose();
+      return opaqueFrame.image;
+    } catch (_) {
+      return decoded;
+    }
   } catch (_) {
     return null;
   }
@@ -485,7 +543,8 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
         textureUsable = false;
       } else if (textureImage == null) {
         textureImage = imageIndex;
-        fullTexture = await _decodeTextureImage(gltf, imageIndex);
+        fullTexture = await _decodeTextureImage(gltf, imageIndex,
+            stripAlpha: _primitiveAlphaMode(gltf, primitive) == 'OPAQUE');
         if (fullTexture == null) textureUsable = false;
       } else if (textureImage != imageIndex) {
         textureUsable = false;
@@ -507,10 +566,8 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
         if (texture != null) {
           final uvs = _readFloats(gltf, uvAccessor as int);
           for (var i = 0; i < vertexCount; i++) {
-            var u = uvs[i * 2] % 1.0;
-            var v = uvs[i * 2 + 1] % 1.0;
-            if (u < 0) u += 1;
-            if (v < 0) v += 1;
+            final u = wrapUv(uvs[i * 2]);
+            final v = wrapUv(uvs[i * 2 + 1]);
             final x =
                 (u * (texture.width - 1)).round().clamp(0, texture.width - 1);
             final y = (v * (texture.height - 1))
