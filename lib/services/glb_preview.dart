@@ -204,6 +204,7 @@ class PreviewRig {
     required this.vertexJoints,
     required this.vertexWeights,
     required this.animations,
+    this.frontSign = 1,
   });
 
   final List<RigNode> nodes;
@@ -214,6 +215,10 @@ class PreviewRig {
   final Uint16List vertexJoints; // vertexCount*4 (Skin-Joint-Slots)
   final Float32List vertexWeights; // vertexCount*4
   final List<PreviewAnimation> animations;
+
+  /// Blickrichtung des Modells (+1 = +z, -1 = -z) – vom eigenen
+  /// Auto-Rigger in den Skin-Extras hinterlegt; fremde Rigs: +1.
+  final int frontSign;
 
   List<String> get jointNames => [for (final j in joints) nodes[j].name];
 }
@@ -836,6 +841,9 @@ PreviewRig? _parseRig(
     }
   }
 
+  final extras = skin['extras'];
+  final frontZ = extras is Map ? extras['front_z'] : null;
+
   return PreviewRig(
     nodes: nodes,
     nodeOrder: nodeOrder,
@@ -845,6 +853,7 @@ PreviewRig? _parseRig(
     vertexJoints: Uint16List.fromList(allJoints),
     vertexWeights: Float32List.fromList(allWeights),
     animations: animations,
+    frontSign: frontZ is num && frontZ < 0 ? -1 : 1,
   );
 }
 

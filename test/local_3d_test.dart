@@ -812,6 +812,98 @@ void main() {
     expect(absoluteY('Hips'), lessThan(0.35));
   });
 
+  test(
+      'Blickrichtung: -z-Figur wird erkannt, Rig gespiegelt und '
+      'Verbeugung geht zum Gesicht', () async {
+    // Figur wie aus Stability-Bild→3D: Gesicht Richtung sign*z –
+    // Schuhe ragen nach vorn über den Rumpf hinaus, der Kopf sitzt
+    // vor der Brustmitte.
+    LocalMesh figure(double sign) {
+      final mesh = LocalMesh();
+      void denseBox(double x0, double x1, double y0, double y1, double z0,
+          double z1) {
+        const nx = 9, ny = 13;
+        for (var iy = 0; iy <= ny; iy++) {
+          final y = y0 + (y1 - y0) * iy / ny;
+          for (var ix = 0; ix <= nx; ix++) {
+            final x = x0 + (x1 - x0) * ix / nx;
+            mesh.addVertex(x, y, sign * z0, 0, 0);
+            mesh.addVertex(x, y, sign * z1, 0, 0);
+          }
+        }
+        final a = mesh.addVertex(x0, y0, sign * z0, 0, 0);
+        final b = mesh.addVertex(x1, y0, sign * z0, 0, 0);
+        final c = mesh.addVertex(x1, y1, sign * z1, 0, 0);
+        final d = mesh.addVertex(x0, y1, sign * z1, 0, 0);
+        mesh.addQuad(a, b, c, d);
+      }
+
+      denseBox(-0.18, -0.04, 0.0, 0.12, 0.22, -0.06); // Schuh links
+      denseBox(0.04, 0.18, 0.0, 0.12, 0.22, -0.06); // Schuh rechts
+      denseBox(-0.22, 0.22, 0.12, 0.55, 0.10, -0.10); // Rumpf
+      denseBox(-0.42, -0.3, 0.3, 0.44, 0.06, -0.06); // Hand links
+      denseBox(0.3, 0.42, 0.3, 0.44, 0.06, -0.06); // Hand rechts
+      denseBox(-0.24, 0.24, 0.55, 1.0, 0.2, -0.04); // Kopf (Gesicht vorn)
+      return mesh;
+    }
+
+    // Geometrische Schätzung: -1 bei Gesicht nach -z, +1 gespiegelt.
+    Float32List positionsOf(LocalMesh mesh) =>
+        Float32List.fromList(mesh.positions);
+
+    expect(estimateFrontSign([positionsOf(figure(-1))]), -1);
+    expect(estimateFrontSign([positionsOf(figure(1))]), 1);
+
+    for (final (sign, expected) in [(-1.0, -1), (1.0, 1)]) {
+      final rigged = injectAutoRig(buildGlb(figure(sign)));
+      final json = _readGlbJson(rigged);
+      final skin = (json['skins'] as List).first as Map;
+      // Blickrichtung in den Skin-Extras hinterlegt.
+      expect((skin['extras'] as Map)['front_z'], expected,
+          reason: 'front_z für sign=$sign');
+
+      // Beim Abspielen: Verbeugung biegt die Wirbelsäule zum Gesicht
+      // (Rotation um +x biegt nach +z, um -x nach -z).
+      final preview = await parseGlbForPreview(rigged);
+      expect(preview.rig, isNotNull);
+      expect(preview.rig!.frontSign, expected);
+      final clips = proceduralClipsFor(preview.rig!);
+      final verbeugen = clips.firstWhere((c) => c.name == 'Verbeugen');
+      final names = preview.rig!.jointNames;
+      final spineNode =
+          preview.rig!.joints[names.indexOf('Spine')];
+      final pose = verbeugen.poseAt(verbeugen.period / 2);
+      final qx = pose[spineNode]![0];
+      expect(qx * expected, greaterThan(0),
+          reason: 'Verbeugung muss zum Gesicht ($expected z) gehen');
+      preview.dispose();
+    }
+  });
+
+  test('Fahrzeug-Rig lehnt flache „Platten“-Modelle verständlich ab', () {
+    // Wie eine Bild→3D-Rekonstruktion aus reiner Frontalansicht: hoch
+    // und breit, aber fast ohne Tiefe – kein fahrbereites Fahrzeug.
+    final mesh = LocalMesh();
+    for (var iy = 0; iy <= 20; iy++) {
+      for (var ix = 0; ix <= 12; ix++) {
+        final x = -0.3 + 0.6 * ix / 12;
+        final y = iy / 20;
+        mesh.addVertex(x, y, -0.13, 0, 0);
+        mesh.addVertex(x, y, 0.13, 0, 0);
+      }
+    }
+    final a = mesh.addVertex(-0.3, 0, -0.13, 0, 0);
+    final b = mesh.addVertex(0.3, 0, -0.13, 0, 0);
+    final c = mesh.addVertex(0.3, 1, 0.13, 0, 0);
+    final d = mesh.addVertex(-0.3, 1, 0.13, 0, 0);
+    mesh.addQuad(a, b, c, d);
+    expect(
+        () => injectAutoRig(buildGlb(mesh), rigType: 'vehicle'),
+        throwsA(predicate((e) =>
+            e.toString().contains('Frontalansicht') &&
+            e.toString().contains('Dreiviertelansicht'))));
+  });
+
   test('Rig-Editor: Gelenk-Overrides verschieben Skelett-Knoten', () {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),

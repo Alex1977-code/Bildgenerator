@@ -5,8 +5,11 @@
 ///
 /// Es gibt Skelett-Vorlagen für Zweibeiner (Mensch/Roboter/Fantasy in
 /// T-Pose), Vierbeiner, Insekten/Mehrbeiner, Vögel (gespreizte Flügel),
-/// Schlangen und Fische. Konvention: y = oben, Blick/Kopf nach +z –
-/// genau das, was die App bei aktivem Rigging erzeugt.
+/// Schlangen und Fische. Konvention: y = oben, Blick/Kopf nach +z.
+/// Bei Zweibeinern wird die tatsächliche Blickrichtung zusätzlich aus
+/// der Geometrie geschätzt ([estimateFrontSign]) – Bild→3D-Dienste wie
+/// Stability liefern Figuren mit dem Gesicht nach -z, dann werden
+/// Fußspitzen und Animations-Biegerichtungen gespiegelt.
 /// Texturen, Materialien und alle übrigen Daten der GLB bleiben
 /// unverändert; es kommen nur Skelett-Knoten, ein Skin und
 /// JOINTS_0/WEIGHTS_0-Attribute hinzu.
@@ -271,6 +274,65 @@ _BodyProfile _analyzeBipedProfile(
 
   return _BodyProfile(
       crotchY: crotchY, neckY: neckY, legX: legX, shoulderY: shoulderY);
+}
+
+/// Schätzt die Blickrichtung einer stehenden Figur aus der Geometrie:
+/// +1 = Gesicht Richtung +z (Rig-Konvention), -1 = Gesicht Richtung -z
+/// (so liefern es z. B. Stability-Bild→3D-Modelle). Zwei an echten
+/// Modellen vermessene Signale werden kombiniert: Füße/Schuhe ragen
+/// nach vorn (unterstes Viertel gegenüber dem Rumpf) und der Kopf sitzt
+/// vor der Brustmitte. Klare Fälle liegen bei |Signal| ≥ 0,2 der
+/// Modelltiefe; bei schwachem Signal (symmetrische Geometrie,
+/// Fahrzeuge, Reliefs) bleibt es bei +1.
+int estimateFrontSign(List<Float32List> positionLists) {
+  var minY = double.infinity, maxY = double.negativeInfinity;
+  var minZ = double.infinity, maxZ = double.negativeInfinity;
+  for (final positions in positionLists) {
+    for (var i = 0; i < positions.length; i += 3) {
+      final y = positions[i + 1], z = positions[i + 2];
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+  final height = maxY - minY, depth = maxZ - minZ;
+  if (height <= 0 || depth <= 0) return 1;
+  // z-Mittelwerte in Höhenbändern: Füße/Beine, Rumpf, Brust, Kopf.
+  final sums = Float64List(4);
+  final counts = Int32List(4);
+  for (final positions in positionLists) {
+    for (var i = 0; i < positions.length; i += 3) {
+      final f = (positions[i + 1] - minY) / height;
+      final z = positions[i + 2];
+      if (f < 0.25) {
+        sums[0] += z;
+        counts[0]++;
+      }
+      if (f >= 0.30 && f < 0.70) {
+        sums[1] += z;
+        counts[1]++;
+      }
+      if (f >= 0.45 && f < 0.70) {
+        sums[2] += z;
+        counts[2]++;
+      }
+      if (f >= 0.75) {
+        sums[3] += z;
+        counts[3]++;
+      }
+    }
+  }
+  if (counts[0] == 0 ||
+      counts[1] == 0 ||
+      counts[2] == 0 ||
+      counts[3] == 0) {
+    return 1;
+  }
+  final feetShift = sums[0] / counts[0] - sums[1] / counts[1];
+  final headShift = sums[3] / counts[3] - sums[2] / counts[2];
+  final signal = (feetShift + headShift) / depth;
+  return signal < -0.08 ? -1 : 1;
 }
 
 /// Ein erkanntes Rad bzw. Radpaar (eine Achse) des Fahrzeug-Rigs.
@@ -762,9 +824,18 @@ _GlbAnalysis _analyzeGlb(Uint8List glb) {
       json, bin, primitives, minX, maxX, minY, maxY, minZ, maxZ);
 }
 
-/// Skelett-Vorlage für die analysierte GLB berechnen.
-(List<_Joint>, List<_Bone>) _skeletonForGlb(_GlbAnalysis a, String rigType) {
+/// Skelett-Vorlage für die analysierte GLB berechnen. Liefert
+/// zusätzlich die Blickrichtung (+1 = +z, -1 = -z): aus
+/// [knownFrontSign] (die Pipeline weiß, wohin das Ausgangsbild zeigt –
+/// Stability rekonstruiert die Bildseite nach -z, der lokale Generator
+/// baut nach +z), sonst bei Zweibeinern aus der Geometrie geschätzt.
+/// Bei -z wird das komplette Skelett an der Modellmitte gespiegelt
+/// (Fußspitzen, Kopf/Schwanz von Vierbeinern und Vögeln usw.).
+(List<_Joint>, List<_Bone>, int) _skeletonForGlb(
+    _GlbAnalysis a, String rigType,
+    {int? knownFrontSign}) {
   final height = a.maxY - a.minY, width = a.maxX - a.minX;
+  final depth = a.maxZ - a.minZ;
   if (height <= 0 || width <= 0) {
     throw Exception('Die Geometrie ist leer oder flach.');
   }
@@ -773,16 +844,60 @@ _GlbAnalysis _analyzeGlb(Uint8List glb) {
         'Das Modell wirkt nicht wie eine aufrecht stehende Figur '
         '(zu breit/flach) – ggf. einen anderen Figurtyp wählen.');
   }
+  if (rigType == 'vehicle' && depth < 0.35 * height) {
+    throw Exception(
+        'Das Modell ist entlang der Fahrtrichtung fast flach – es wirkt '
+        'wie eine aufrecht stehende Platte statt eines fahrbereiten '
+        'Fahrzeugs. Das passiert bei Bild→3D aus einer reinen '
+        'Frontalansicht ohne Perspektive; am besten eine '
+        'Dreiviertelansicht (schräg von vorn, Fahrzeugseite sichtbar) '
+        'als Bildvorlage verwenden.');
+  }
   final profile = rigType == 'biped'
       ? _analyzeBipedProfile(a.primitives, a.minX, a.maxX, a.minY, a.maxY)
       : null;
-  final vehicleAxles = rigType == 'vehicle'
+  var vehicleAxles = rigType == 'vehicle'
       ? _analyzeVehicleAxles(
           a.primitives, a.minX, a.maxX, a.minY, a.maxY, a.minZ, a.maxZ)
       : null;
-  return _skeletonFor(
+  // Mehr als zwei Einzelräder hintereinander gibt es real nicht
+  // (Fahrrad = 2, Einrad = 1) – so viele „Achsen“ heißen: Die
+  // bodennahe Geometrie taugt nicht zur Rad-Erkennung (z. B. flacher
+  // Unterboden). Dann lieber das Standard-Fahrwerk (4 Räder) statt
+  // vieler Phantom-Räder.
+  if (vehicleAxles != null &&
+      vehicleAxles.where((axle) => !axle.paired).length >= 3) {
+    vehicleAxles = _defaultAxles(a.minY, a.maxY, width, depth,
+        (a.minZ + a.maxZ) / 2);
+  }
+  // Fahrzeuge behalten die +z-Konvention (die Achsen sind vorn-zuerst
+  // sortiert und die Räder rollen richtungsunabhängig um x).
+  final frontSign = rigType == 'vehicle'
+      ? 1
+      : knownFrontSign != null
+          ? (knownFrontSign < 0 ? -1 : 1)
+          : rigType == 'biped'
+              ? estimateFrontSign(
+                  [for (final (_, positions) in a.primitives) positions])
+              : 1;
+  var (joints, bones) = _skeletonFor(
       rigType, a.minX, a.maxX, a.minY, a.maxY, a.minZ, a.maxZ,
       profile: profile, vehicleAxles: vehicleAxles);
+  if (frontSign < 0) {
+    // Ganzes Skelett an der Modellmitte spiegeln: Kopf-/Schwanz-Enden,
+    // Fußspitzen und alle Knochen zeigen dann Richtung -z.
+    final cz = a.minZ + depth / 2;
+    _Vec3 flip(_Vec3 v) => _Vec3(v.x, v.y, 2 * cz - v.z);
+    joints = [
+      for (final j in joints) _Joint(j.name, j.parent, flip(j.position)),
+    ];
+    bones = [
+      for (final b in bones)
+        _Bone(b.joint, flip(b.from), flip(b.to), b.radius, b.fromJoint,
+            b.toJoint),
+    ];
+  }
+  return (joints, bones, frontSign);
 }
 
 /// Öffentliche Gelenk-Info (für den Rig-Editor).
@@ -798,8 +913,9 @@ class RigJointInfo {
 /// verwenden würde – Ausgangspunkt fürs manuelle Nachjustieren im
 /// Rig-Editor.
 List<RigJointInfo> computeAutoRigJoints(Uint8List glb,
-    {String rigType = 'biped'}) {
-  final (joints, _) = _skeletonForGlb(_analyzeGlb(glb), rigType);
+    {String rigType = 'biped', int? knownFrontSign}) {
+  final (joints, _, _) = _skeletonForGlb(_analyzeGlb(glb), rigType,
+      knownFrontSign: knownFrontSign);
   return [
     for (final j in joints)
       RigJointInfo(j.name, j.parent, j.position.x, j.position.y,
@@ -814,18 +930,23 @@ List<RigJointInfo> computeAutoRigJoints(Uint8List glb,
 /// verschobenen Gelenken. [jointInfluence] (Gelenkname → Faktor)
 /// skaliert den Einflussradius aller Knochen des jeweiligen Gelenks:
 /// größer = das Gelenk „greift“ mehr umliegende Geometrie, kleiner =
-/// schärfere Abgrenzung. Wirft [Exception] mit verständlicher
+/// schärfere Abgrenzung. [knownFrontSign] übergibt Pipeline-Wissen
+/// über die Blickrichtung (-1 = Gesicht nach -z, z. B. Stability;
+/// +1 = nach +z, z. B. lokaler Generator) und ersetzt dann die
+/// geometrische Schätzung. Wirft [Exception] mit verständlicher
 /// Meldung, wenn das nicht geht.
 Uint8List injectAutoRig(Uint8List glb,
     {String rigType = 'biped',
     Map<String, (double, double, double)>? jointPositions,
-    Map<String, double>? jointInfluence}) {
+    Map<String, double>? jointInfluence,
+    int? knownFrontSign}) {
   final analysis = _analyzeGlb(glb);
   final json = analysis.json;
   final bin = analysis.bin;
   final primitives = analysis.primitives;
   final height = analysis.maxY - analysis.minY;
-  var (joints, bones) = _skeletonForGlb(analysis, rigType);
+  var (joints, bones, frontSign) = _skeletonForGlb(analysis, rigType,
+      knownFrontSign: knownFrontSign);
 
   if (jointPositions != null && jointPositions.isNotEmpty) {
     // Manuell verschobene Gelenke übernehmen; Knochen-Endpunkte folgen
@@ -1006,12 +1127,15 @@ Uint8List injectAutoRig(Uint8List glb,
       if (children.isNotEmpty) 'children': children,
     });
   }
-  // Skin registrieren und den Mesh-Knoten zuweisen.
+  // Skin registrieren und den Mesh-Knoten zuweisen. Die erkannte
+  // Blickrichtung wandert in die Skin-Extras, damit Testanimationen
+  // und Viewer-Startansicht sie auch nach dem Neuladen kennen.
   json['skins'] = [
     {
       'joints': [for (var j = 0; j < joints.length; j++) jointBase + j],
       'inverseBindMatrices': ibmAccessor,
       'skeleton': jointBase,
+      'extras': {'front_z': frontSign},
     }
   ];
   for (final node in nodes) {

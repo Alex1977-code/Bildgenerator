@@ -52,9 +52,13 @@ const _stagingPart = 'single subject only, perfectly centered, completely '
     'distortion, plain fully transparent background, no ground plane, no '
     'shadow, no reflections, even diffuse studio lighting, crisp details';
 
-String _frontPrompt(String description, String? pose) =>
+String _frontPrompt(String description, String? pose,
+        {bool threeQuarter = false}) =>
     '$description. ${pose == null ? '' : '$pose, '}'
-    'exact FRONT view (subject facing the camera directly), $_stagingPart';
+    '${threeQuarter ? 'three-quarter view from the front left with the '
+        'camera slightly elevated, front AND left side of the subject '
+        'clearly visible' : 'exact FRONT view (subject facing the camera '
+        'directly)'}, $_stagingPart';
 
 String _turnPrompt(String viewInstruction) =>
     'Exactly the same subject as in the reference image: identical shape, '
@@ -100,7 +104,14 @@ const _viewInstructions = {
 /// wiederverwendet statt neu generiert – so lassen sich einzelne
 /// Ansichten gezielt austauschen. [pose] ist eine optionale
 /// Pose-Anweisung (siehe [rigPoseParts]) für rigging-taugliche
-/// Ansichten. Wirft [GenerationException] bei Fehlern.
+/// Ansichten. [threeQuarterFront] erzeugt statt der exakten
+/// Vorderansicht eine Dreiviertelansicht – wichtig für Fahrzeuge und
+/// Hard-Surface-Objekte bei Einzelbild-Rekonstruktion (Stability):
+/// Aus einer reinen Frontalansicht ohne Perspektive entsteht sonst nur
+/// eine flache Platte. Nur zusammen mit [frontOnly] verwenden – die
+/// Dreh-Anweisungen der übrigen Ansichten setzen eine echte
+/// Vorderansicht als Referenz voraus. Wirft [GenerationException] bei
+/// Fehlern.
 Future<GeneratedViews> generateViewsFromText({
   required SettingsService settings,
   required String description,
@@ -108,6 +119,7 @@ Future<GeneratedViews> generateViewsFromText({
   required void Function(String stage) onProgress,
   required bool Function() isCancelled,
   bool frontOnly = false,
+  bool threeQuarterFront = false,
   Map<String, ReferenceImage> existing = const {},
 }) async {
   final neededKeys =
@@ -159,7 +171,10 @@ Future<GeneratedViews> generateViewsFromText({
   }
 
   final front = existing['front'] ??
-      await generateOne('Vorn', _frontPrompt(description, pose));
+      await generateOne(
+          'Vorn',
+          _frontPrompt(description, pose,
+              threeQuarter: threeQuarterFront && frontOnly));
   final views = <String, ReferenceImage>{'front': front};
   if (!frontOnly) {
     const labels = {'left': 'Links', 'right': 'Rechts', 'back': 'Hinten'};

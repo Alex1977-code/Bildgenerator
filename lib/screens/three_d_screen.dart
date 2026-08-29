@@ -186,10 +186,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'Regeln:\n\n'
           '- GENAU EIN freistehendes Objekt, vollständig sichtbar mit '
           'etwas Rand.\n'
-          '- Exakte Vorderansicht ohne starke Perspektive '
-          '(orthographisch wirkend). Bei Fahrzeugen: eben stehend, '
-          'alle Räder vollständig sichtbar und deutlich vom Aufbau '
-          'getrennt.\n'
+          '- Dreiviertelansicht: schräg von vorn und leicht erhöht, '
+          'sodass Front UND eine Seite gleichzeitig sichtbar sind. '
+          'WICHTIG: KEINE reine Frontal- oder Seitenansicht ohne '
+          'Perspektive – daraus rekonstruiert die 3D-KI nur eine '
+          'flache Platte ohne Tiefe.\n'
+          '- Bei Fahrzeugen: eben auf allen Rädern stehend, Räder '
+          'sichtbar und deutlich vom Aufbau getrennt, Fahrzeugflanke '
+          'im Bild.\n'
           '- Transparenter oder neutraler Hintergrund, kein Boden, '
           'kein Schatten, keine Umgebungs-Spiegelungen im Lack.\n'
           '- Gleichmäßiges, weiches Studiolicht.\n'
@@ -229,6 +233,72 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _showSnack('Vorlage „$title“ kopiert – bei deiner Prompt-KI '
           'einfügen und das Motiv ergänzen.');
     }
+  }
+
+  /// Motivart für die Prompt-Hilfe neben der Eingabe ('figure'/'object').
+  String _promptSubject = 'figure';
+
+  /// Prompt-Hilfe direkt an der Eingabe: Schalter Figur/Objekt und ein
+  /// Knopf, der die jeweils passende Vorlage für die Prompt-KI kopiert.
+  /// [forImages] = die Beschreibung wird zu Bildern (Lokal, Stability,
+  /// Ansichten-Pipeline) bzw. es werden eigene Bilder verwendet – dann
+  /// gelten die Bild→3D-Briefings; sonst das knappe native Text→3D.
+  Widget _promptHelp(ThemeData theme, {required bool forImages}) {
+    final (title, _, text) = forImages
+        ? (_promptSubject == 'figure'
+            ? _promptTemplates[0]
+            : _promptTemplates[1])
+        : _promptTemplates[2];
+    final String hint;
+    if (!forImages) {
+      hint = 'Kopiert die Anleitung für knappe native Text→3D-Prompts '
+          '(inkl. Negativ-Prompt) – gilt für Figuren und Objekte.';
+    } else if (_promptSubject == 'figure') {
+      hint = 'Kopiert das Briefing „Figur“ (Vorderansicht, T-Pose): bei '
+          'deiner Prompt-KI einfügen und das Motiv ergänzen.';
+    } else {
+      hint = 'Kopiert das Briefing „Objekt/Fahrzeug“ '
+          '(Dreiviertelansicht – aus reiner Frontalansicht entsteht nur '
+          'eine flache Platte): bei deiner Prompt-KI einfügen.';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (forImages)
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                      value: 'figure',
+                      label: Text('Figur'),
+                      icon: Icon(Icons.person_outline)),
+                  ButtonSegment(
+                      value: 'object',
+                      label: Text('Objekt/Fahrzeug'),
+                      icon: Icon(Icons.directions_car_outlined)),
+                ],
+                selected: {_promptSubject},
+                showSelectedIcon: false,
+                style:
+                    const ButtonStyle(visualDensity: VisualDensity.compact),
+                onSelectionChanged: (selection) =>
+                    setState(() => _promptSubject = selection.first),
+              ),
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Prompt-Vorlage kopieren'),
+              onPressed: () => _copyTemplate(title, text),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(hint, style: theme.textTheme.bodySmall),
+      ],
+    );
   }
 
   static const _tPoseSuffix =
@@ -415,6 +485,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           isCancelled: cancelled,
           // Stability braucht nur ein Bild – das spart Kosten.
           frontOnly: isStability,
+          // Objekte/Fahrzeuge aus EINEM Bild: Dreiviertelansicht statt
+          // Frontalansicht, sonst rekonstruiert Stability nur eine
+          // flache Platte ohne Tiefe. Figuren behalten die bewährte
+          // Vorderansicht.
+          threeQuarterFront: isStability &&
+              (_promptSubject == 'object' ||
+                  (_rigging && _rigType == 'vehicle')),
           // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
           existing: {
             for (final entry in _views.entries)
@@ -578,7 +655,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           e.toString().replaceFirst('Exception: ', ''));
     }
     final unrigged = glb;
-    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
+    // Der lokale Generator baut die Vorderansicht nach +z.
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress,
+        knownFrontSign: 1);
     _addResult(
       glbBytes: glb,
       label: label ?? '360°-Modell (lokal)',
@@ -592,13 +671,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   /// Baut bei aktivem Rigging das lokale Standard-Skelett ins GLB ein.
-  /// Liefert true, wenn das Modell geriggt wurde.
+  /// Liefert true, wenn das Modell geriggt wurde. [knownFrontSign]
+  /// gibt Pipeline-Wissen über die Blickrichtung weiter (Stability
+  /// rekonstruiert die Bildseite nach -z, der lokale Generator baut
+  /// nach +z) – zuverlässiger als die geometrische Schätzung.
   bool _maybeInjectRig(Uint8List Function() getGlb,
-      void Function(Uint8List) setGlb, void Function(String) progress) {
+      void Function(Uint8List) setGlb, void Function(String) progress,
+      {int? knownFrontSign}) {
     if (!_rigging) return false;
     progress('Skelett wird eingebaut …');
     try {
-      setGlb(injectAutoRig(getGlb(), rigType: _rigType));
+      setGlb(injectAutoRig(getGlb(),
+          rigType: _rigType, knownFrontSign: knownFrontSign));
       return true;
     } on Exception catch (e) {
       _showSnack('Rigging nicht möglich: '
@@ -638,7 +722,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       foregroundRatio: foregroundRatio,
     );
     final unrigged = glb;
-    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
+    // Stability rekonstruiert im Kamera-Raum: Die im Bild sichtbare
+    // Seite (Vorderansicht) zeigt im Modell nach -z.
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress,
+        knownFrontSign: -1);
     _addResult(
       glbBytes: glb,
       label: label,
@@ -1411,6 +1498,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  _promptHelp(theme,
+                      forImages: isLocal || isStability || _viewsFromText),
                   if (!isLocal && !isStability && !_viewsFromText) ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -1519,6 +1609,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ),
                   ],
                 ] else ...[
+                  // Prompt-Hilfe auch im Bild-Modus: Die Bildvorlagen
+                  // entstehen meist im Generator-Tab – hier steht die
+                  // passende Vorlage zum Kopieren bereit.
+                  _promptHelp(theme, forImages: true),
+                  const SizedBox(height: 12),
                   Builder(builder: (context) {
                     final showAllViews = !isStability;
                     return Wrap(
@@ -2123,65 +2218,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'allem auf Charaktere und Props trainiert – Räder '
                       'und Radkästen gelingen über den Bild-Weg (erst '
                       'Bild generieren, dann „Aus Bild“) fast immer '
-                      'besser.\n'
+                      'besser. Als Bildvorlage eine Dreiviertelansicht '
+                      '(schräg von vorn, Seite sichtbar) verwenden – '
+                      'aus einer reinen Frontalansicht ohne Perspektive '
+                      'entsteht nur eine flache Platte.\n'
                       '• Saubere Topologie: Die Ausgabe ist ein dichtes, '
                       'unregelmäßiges Dreiecksnetz. Für scharfe Kanten '
                       '„Vierecke (Quads)“ bzw. Quad-Topologie wählen und '
                       'für professionelle Weiterbearbeitung eine '
                       'Retopologie in Blender einplanen.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(bottom: 8),
-                  leading: const Icon(Icons.copy_all_outlined),
-                  title:
-                      const Text('Prompt-Vorlagen für deine Prompt-KI'),
-                  subtitle: Text(
-                    'Anleitungen zum Kopieren – damit ChatGPT, Claude & '
-                    'Co. Prompts schreiben, die perfekt zur 3D-Pipeline '
-                    'passen',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  children: [
-                    for (final (title, subtitle, text)
-                        in _promptTemplates)
-                      ExpansionTile(
-                        tilePadding: EdgeInsets.zero,
-                        childrenPadding:
-                            const EdgeInsets.only(bottom: 8),
-                        title: Text(title),
-                        subtitle: Text(subtitle,
-                            style: theme.textTheme.bodySmall),
-                        trailing: IconButton(
-                          tooltip: 'Vorlage kopieren',
-                          icon: const Icon(Icons.copy),
-                          onPressed: () => _copyTemplate(title, text),
-                        ),
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: theme
-                                  .colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: SelectableText(
-                              text,
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Ablauf: Vorlage kopieren → bei deiner Prompt-KI '
-                      'einfügen und dein Motiv ergänzen → den erzeugten '
-                      'Prompt im Generator-Tab (Bild-Vorlagen) bzw. hier '
-                      'im Text-Modus (natives Text→3D) verwenden.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],

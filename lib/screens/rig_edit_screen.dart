@@ -18,11 +18,16 @@ class RigEditScreen extends StatefulWidget {
     required this.unriggedGlb,
     required this.rigType,
     required this.title,
+    this.knownFrontSign,
   });
 
   final Uint8List unriggedGlb;
   final String rigType;
   final String title;
+
+  /// Bekannte Blickrichtung des Modells (+1/-1) aus dem bestehenden
+  /// Rig – hält den Editor konsistent zur ursprünglichen Erkennung.
+  final int? knownFrontSign;
 
   @override
   State<RigEditScreen> createState() => _RigEditScreenState();
@@ -58,6 +63,10 @@ class _RigEditScreenState extends State<RigEditScreen> {
   double _lastScale = 1.0;
   Size _canvasSize = Size.zero;
 
+  /// Erkannte Blickrichtung (+1 = +z, -1 = -z): richtet die
+  /// Ansichts-Presets Vorn/Hinten am Gesicht des Modells aus.
+  int _frontSign = 1;
+
   @override
   void initState() {
     super.initState();
@@ -73,8 +82,9 @@ class _RigEditScreenState extends State<RigEditScreen> {
   Future<void> _load() async {
     try {
       final mesh = await parseGlbForPreview(widget.unriggedGlb);
-      final joints =
-          computeAutoRigJoints(widget.unriggedGlb, rigType: widget.rigType);
+      final joints = computeAutoRigJoints(widget.unriggedGlb,
+          rigType: widget.rigType,
+          knownFrontSign: widget.knownFrontSign);
       if (!mounted) return;
       setState(() {
         _mesh = mesh;
@@ -82,6 +92,9 @@ class _RigEditScreenState extends State<RigEditScreen> {
         _positions = [
           for (final j in joints) [j.x, j.y, j.z],
         ];
+        _frontSign =
+            widget.knownFrontSign ?? estimateFrontSign([mesh.positions]);
+        _rotY = _frontSign < 0 ? math.pi : 0.0;
       });
     } catch (e) {
       if (mounted) {
@@ -230,6 +243,7 @@ class _RigEditScreenState extends State<RigEditScreen> {
       final rigged = injectAutoRig(
         widget.unriggedGlb,
         rigType: widget.rigType,
+        knownFrontSign: widget.knownFrontSign,
         jointPositions: {
           for (var j = 0; j < _joints.length; j++)
             _joints[j].name: _effective(j),
@@ -366,11 +380,11 @@ class _RigEditScreenState extends State<RigEditScreen> {
                         spacing: 8,
                         runSpacing: 4,
                         children: [
-                          for (final (label, rotY) in const [
-                            ('Vorn', 0.0),
+                          for (final (label, rotY) in [
+                            ('Vorn', _frontSign < 0 ? math.pi : 0.0),
                             ('Seite links', -math.pi / 2),
                             ('Seite rechts', math.pi / 2),
-                            ('Hinten', math.pi),
+                            ('Hinten', _frontSign < 0 ? 0.0 : math.pi),
                           ])
                             OutlinedButton(
                               onPressed: () => _setView(rotY),

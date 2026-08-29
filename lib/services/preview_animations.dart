@@ -309,5 +309,24 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
     return pose;
   }));
 
+  // Blickt das Modell Richtung -z (vom Auto-Rigger erkannt und in den
+  // Skin-Extras hinterlegt), werden alle Posen an der xy-Ebene
+  // gespiegelt: Rotationen um x und y kehren ihr Vorzeichen um,
+  // Rotationen um z bleiben – als Quaternion (-x, -y, z, w). So geht
+  // die Verbeugung zum Gesicht hin und der Läufer lehnt sich nach vorn
+  // statt nach hinten.
+  if (rig.frontSign < 0) {
+    Map<int, Float32List> mirror(Map<int, Float32List> pose) => {
+          for (final e in pose.entries)
+            e.key: Float32List.fromList(
+                [-e.value[0], -e.value[1], e.value[2], e.value[3]]),
+        };
+    return [
+      for (final clip in clips)
+        ProceduralClip(
+            clip.name, clip.period, (t) => mirror(clip.poseAt(t))),
+    ];
+  }
+
   return clips;
 }

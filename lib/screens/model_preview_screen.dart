@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 
 import '../services/animation_bake.dart';
+import '../services/auto_rig.dart' show estimateFrontSign;
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
@@ -74,6 +75,10 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   double _zoom = 1.0;
   double _lastScale = 1.0;
 
+  /// Startdrehung: zeigt die erkannte Vorderseite des Modells (bei
+  /// Blickrichtung -z um 180° gedreht), leicht schräg für Plastizität.
+  double _homeRotY = 0.6;
+
   late final Ticker _ticker = createTicker(_onTick);
   List<PreviewAnimation> _fileClips = const [];
   List<ProceduralClip> _procClips = const [];
@@ -119,6 +124,13 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
           _procClips = proceduralClipsFor(rig);
           _jointPositions = computeJointPositions(mesh);
         }
+        // Blickrichtung: aus dem eigenen Rig (Skin-Extras), sonst aus
+        // der Geometrie geschätzt – so startet die Ansicht mit dem
+        // Gesicht zur Kamera statt mit der Rückseite.
+        final front =
+            rig?.frontSign ?? estimateFrontSign([mesh.positions]);
+        _homeRotY = front < 0 ? 0.6 + math.pi : 0.6;
+        _rotY = _homeRotY;
       });
     } catch (e) {
       if (mounted) {
@@ -326,7 +338,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   void _resetView() {
     setState(() {
       _rotX = -0.35;
-      _rotY = 0.6;
+      _rotY = _homeRotY;
       _zoom = 1.0;
     });
   }
@@ -395,6 +407,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         unriggedGlb: unrigged,
         rigType: rigType,
         title: widget.title,
+        // Blickrichtung aus dem bestehenden Rig weitergeben, damit der
+        // Editor dasselbe Skelett (inkl. Spiegelung) rekonstruiert.
+        knownFrontSign: _mesh?.rig?.frontSign,
       ),
     ));
     if (edited == null || !mounted) return;

@@ -65,7 +65,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Rad-Erkennung** (Achsen werden aus der bodennahen Geometrie
     erkannt – vom Einrad über Fahrrad/Motorrad mit Einzelrädern bis
     Auto, Bus und LKW mit bis zu 5 Achsen/10 Rädern); die passende
-    Rig-Pose fließt automatisch in die KI-erzeugten Ansichten ein
+    Rig-Pose fließt automatisch in die KI-erzeugten Ansichten ein.
+    Die **Blickrichtung wird automatisch erkannt** (Stability-Modelle
+    schauen Richtung −z, lokale Richtung +z; zusätzlich geometrische
+    Schätzung über Fußspitzen und Kopfposition): Skelett,
+    Testanimationen (z. B. Verbeugen nach vorn) und die Startansicht
+    im Viewer richten sich nach dem Gesicht der Figur
   - **Animationen direkt in der App**: Die 3D-Vorschau spielt
     Animations-Clips aus der GLB-Datei ab (CPU-Skinning im eigenen
     Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
