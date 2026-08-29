@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
 import '../services/generators.dart';
+import '../services/key_check.dart';
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
 import '../services/watermark.dart';
@@ -139,6 +140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'OpenAI-API-Schlüssel',
+          providerId: 'openai',
+          currentKey: settings.apiKeyFor(GenProvider.openai),
           onSave: (value) => settings.setApiKey(GenProvider.openai, value),
           keySummary: _keySummary(settings.apiKeyFor(GenProvider.openai)),
           helpLabel: 'Schlüssel erstellen auf platform.openai.com',
@@ -147,6 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Stability-AI-API-Schlüssel',
+          providerId: 'stability',
+          currentKey: settings.apiKeyFor(GenProvider.stability),
           onSave: (value) =>
               settings.setApiKey(GenProvider.stability, value),
           keySummary: _keySummary(settings.apiKeyFor(GenProvider.stability)),
@@ -156,6 +161,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Gemini-API-Schlüssel (Google)',
+          providerId: 'gemini',
+          currentKey: settings.apiKeyFor(GenProvider.gemini),
           onSave: (value) => settings.setApiKey(GenProvider.gemini, value),
           keySummary: _keySummary(settings.apiKeyFor(GenProvider.gemini)),
           helpLabel: 'Schlüssel erstellen auf aistudio.google.com (gratis)',
@@ -164,6 +171,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Meshy-API-Schlüssel (3D-Bereich)',
+          providerId: 'meshy',
+          currentKey: settings.meshyApiKey,
           onSave: settings.setMeshyApiKey,
           keySummary: _keySummary(settings.meshyApiKey),
           helpLabel: 'Schlüssel erstellen auf meshy.ai (API ab Pro-Plan)',
@@ -172,6 +181,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'Tripo3D-API-Schlüssel (3D-Bereich)',
+          providerId: 'tripo',
+          currentKey: settings.tripoApiKey,
           onSave: settings.setTripoApiKey,
           keySummary: _keySummary(settings.tripoApiKey),
           helpLabel:
@@ -246,9 +257,17 @@ class _ApiKeyCard extends StatefulWidget {
     required this.keySummary,
     required this.helpLabel,
     required this.onHelp,
+    required this.providerId,
+    required this.currentKey,
   });
 
   final String title;
+
+  /// Anbieter-Kennung für die Schlüssel-Prüfung (validateApiKey).
+  final String providerId;
+
+  /// Aktuell gespeicherter Schlüssel (für die Prüfung ohne Neueingabe).
+  final String? currentKey;
 
   /// Speichert den Schlüssel; ein leerer Wert löscht ihn.
   final Future<void> Function(String value) onSave;
@@ -267,6 +286,36 @@ class _ApiKeyCard extends StatefulWidget {
 class _ApiKeyCardState extends State<_ApiKeyCard> {
   final _controller = TextEditingController();
   bool _obscure = true;
+  bool _validating = false;
+  bool _validated = false;
+  String? _validationError;
+
+  /// Prüft den eingegebenen bzw. gespeicherten Schlüssel per
+  /// Test-Anfrage und zeigt das Ergebnis als grünen Haken oder Fehler.
+  Future<void> _validate() async {
+    final key = _controller.text.trim().isNotEmpty
+        ? _controller.text.trim()
+        : (widget.currentKey ?? '').trim();
+    if (key.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Bitte zuerst einen Schlüssel eingeben oder speichern.')));
+      return;
+    }
+    setState(() {
+      _validating = true;
+      _validated = false;
+      _validationError = null;
+    });
+    try {
+      await validateApiKey(widget.providerId, key);
+      if (mounted) setState(() => _validated = true);
+    } on GenerationException catch (e) {
+      if (mounted) setState(() => _validationError = e.message);
+    } finally {
+      if (mounted) setState(() => _validating = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -362,7 +411,10 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
               minLines: 1,
               autocorrect: false,
               enableSuggestions: false,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() {
+                _validated = false;
+                _validationError = null;
+              }),
               decoration: InputDecoration(
                 labelText: widget.hasKey
                     ? 'Neuen Schlüssel eingeben (ersetzt den vorhandenen)'
@@ -405,12 +457,49 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
                     child: const Text('Entfernen'),
                   ),
                 TextButton.icon(
+                  onPressed: _validating ? null : _validate,
+                  icon: _validating
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_user, size: 16),
+                  label: const Text('Prüfen'),
+                ),
+                TextButton.icon(
                   onPressed: widget.onHelp,
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: Text(widget.helpLabel),
                 ),
               ],
             ),
+            if (_validated || _validationError != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    _validated ? Icons.check_circle : Icons.error_outline,
+                    size: 18,
+                    color: _validated ? Colors.green : theme.colorScheme.error,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _validated
+                          ? 'Schlüssel geprüft – gültig und einsatzbereit.'
+                          : _validationError!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _validated
+                            ? Colors.green
+                            : theme.colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
