@@ -65,11 +65,16 @@ String _stagingPart(bool trueAlpha) =>
 
 String _frontPrompt(String description, String? pose,
         {bool threeQuarter = false, required bool trueAlpha}) =>
+    // Kamera-Anweisung ZUERST und nachdrücklich – Bild-KIs neigen bei
+    // dichten Objektbeschreibungen sonst zur dramatischen Frontale.
+    '${threeQuarter ? 'THREE-QUARTER VIEW, mandatory: the camera is '
+        'positioned about 40 degrees to the front-left of the subject '
+        'and slightly elevated, so the front AND the entire left side '
+        'are BOTH clearly visible with real depth. NOT a frontal view, '
+        'NOT head-on, NOT a side profile. ' : 'Exact FRONT view, the '
+        'subject faces the camera directly. '}'
     '$description. ${pose == null ? '' : '$pose, '}'
-    '${threeQuarter ? 'three-quarter view from the front left with the '
-        'camera slightly elevated, front AND left side of the subject '
-        'clearly visible' : 'exact FRONT view (subject facing the camera '
-        'directly)'}, ${_stagingPart(trueAlpha)}';
+    '${_stagingPart(trueAlpha)}';
 
 String _turnPrompt(String viewInstruction, {required bool trueAlpha}) =>
     'Exactly the same subject as in the reference image: identical shape, '

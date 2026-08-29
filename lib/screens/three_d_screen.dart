@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../build_info.dart';
 import '../models/models.dart';
 import '../services/animation_bake.dart';
 import '../services/auto_rig.dart';
@@ -2751,6 +2752,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ),
               ),
             ),
+        const SizedBox(height: 8),
+        // Versions-Kennung: zeigt, welcher Stand wirklich läuft (der
+        // Web-Cache liefert nach Updates gern noch die alte Version –
+        // dann erneut neu laden).
+        Center(
+          child: Text(
+            '3DGenerator · Stand: $buildInfo',
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ),
       ],
         ),
       ),

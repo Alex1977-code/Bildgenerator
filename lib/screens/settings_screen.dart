@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../build_info.dart';
 import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/key_check.dart';
@@ -243,6 +244,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Versions-Kennung aus der CI: Commit und Build-Datum – zum
+        // schnellen Prüfen, ob nach einem Update wirklich die neue
+        // Version läuft (der Web-Cache liefert sonst gern noch einmal
+        // die alte aus; dann erneut neu laden).
+        Center(
+          child: Text(
+            '3DGenerator · Stand: $buildInfo',
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.outline),
           ),
         ),
       ],
