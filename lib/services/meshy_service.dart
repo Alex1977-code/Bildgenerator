@@ -123,6 +123,22 @@ class MeshyService {
         'enable_pbr': texture,
       });
 
+  /// Mehrbild→3D: 1–4 Ansichten desselben Objekts; das erste Bild ist
+  /// die Vorderansicht, die Reihenfolge der übrigen ist egal.
+  Future<String> createMultiImageTo3d(
+    List<(Uint8List, String)> images, {
+    required bool texture,
+  }) =>
+      _createTask('v1/multi-image-to-3d', {
+        'image_urls': [
+          for (final (bytes, mimeType) in images)
+            'data:$mimeType;base64,${base64Encode(bytes)}',
+        ],
+        'should_remesh': true,
+        'should_texture': texture,
+        'enable_pbr': texture,
+      });
+
   /// Auto-Rigging für Figuren (Skelett + Basis-Animationen).
   Future<String> createRigging(String inputTaskId) =>
       _createTask('v1/rigging', {

@@ -30,13 +30,27 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   final _picker = ImagePicker();
 
   bool _imageMode = false;
-  ReferenceImage? _sourceImage;
+  /// Ansichten: 'front' ist Pflicht, 'left'/'right'/'back' optional
+  /// für Rundum-Modelle.
+  final Map<String, ReferenceImage?> _views = {
+    'front': null,
+    'left': null,
+    'right': null,
+    'back': null,
+  };
+
+  ReferenceImage? get _front => _views['front'];
+
+  List<ReferenceImage> get _extraViews => [
+        for (final key in ['left', 'right', 'back'])
+          if (_views[key] != null) _views[key]!,
+      ];
   bool _texture = true;
   bool _rigging = false;
   String _artStyle = 'realistic';
 
   // Optionen des lokalen Generators.
-  bool _localStandee = false;
+  String _localMode = 'relief'; // 'relief' | 'standee' | 'hull'
   int _localResolution = 96;
   double _localDepth = 0.15;
   bool _localInvert = false;
@@ -63,13 +77,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _pickSourceImage() async {
+  Future<void> _pickView(String key) async {
     try {
       final file = await _picker.pickImage(source: ImageSource.gallery);
       if (file == null) return;
       final bytes = await file.readAsBytes();
       setState(() {
-        _sourceImage = ReferenceImage(bytes: bytes, name: file.name);
+        _views[key] = ReferenceImage(bytes: bytes, name: file.name);
       });
     } catch (e) {
       _showSnack('Bild konnte nicht geladen werden: $e');
@@ -125,8 +139,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
       return;
     }
-    if ((isLocal || _imageMode) && _sourceImage == null) {
-      setState(() => _error = 'Bitte zuerst ein Ausgangsbild wählen.');
+    if ((isLocal || _imageMode) && _front == null) {
+      setState(() => _error = 'Bitte zuerst die Vorderansicht wählen.');
       return;
     }
 
@@ -190,24 +204,40 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   Future<void> _runLocal(void Function(String) progress) async {
-    final source = _sourceImage!;
-    progress('Bild wird analysiert …');
+    final source = _front!;
+    progress(_localMode == 'hull'
+        ? 'Ansichten werden ausgewertet, Volumen wird geschnitzt …'
+        : 'Bild wird analysiert …');
     Uint8List glb;
     try {
-      glb = await generateLocalGlb(
-        source.bytes,
-        standee: _localStandee,
-        resolution: _localResolution,
-        depth: _localDepth,
-        invert: _localInvert,
-      );
+      if (_localMode == 'hull') {
+        glb = await generateLocalHullGlb(
+          frontBytes: source.bytes,
+          leftBytes: _views['left']?.bytes,
+          rightBytes: _views['right']?.bytes,
+          backBytes: _views['back']?.bytes,
+          resolution: _localResolution.clamp(48, 120),
+        );
+      } else {
+        glb = await generateLocalGlb(
+          source.bytes,
+          standee: _localMode == 'standee',
+          resolution: _localResolution,
+          depth: _localDepth,
+          invert: _localInvert,
+        );
+      }
     } on Exception catch (e) {
       throw GenerationException(
           e.toString().replaceFirst('Exception: ', ''));
     }
     _addResult(
       glbBytes: glb,
-      label: _localStandee ? 'Standee (lokal)' : 'Relief (lokal)',
+      label: switch (_localMode) {
+        'hull' => '360°-Modell (lokal)',
+        'standee' => 'Standee (lokal)',
+        _ => 'Relief (lokal)',
+      },
       providerLabel: 'Lokal',
       thumbnail: source.bytes,
       rigged: false,
@@ -227,17 +257,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       MeshyTaskStatus status;
 
       if (_imageMode) {
-        final source = _sourceImage!;
-        taskPath = 'v1/image-to-3d';
-        taskId = await service.createImageTo3d(
-          source.bytes,
-          source.mimeType,
-          texture: _texture,
-        );
+        final source = _front!;
+        final extras = _extraViews;
+        if (extras.isNotEmpty) {
+          // Mehrere Ansichten → Multi-Image-Endpunkt (Vorn zuerst).
+          taskPath = 'v1/multi-image-to-3d';
+          taskId = await service.createMultiImageTo3d(
+            [
+              (source.bytes, source.mimeType),
+              for (final view in extras) (view.bytes, view.mimeType),
+            ],
+            texture: _texture,
+          );
+        } else {
+          taskPath = 'v1/image-to-3d';
+          taskId = await service.createImageTo3d(
+            source.bytes,
+            source.mimeType,
+            texture: _texture,
+          );
+        }
         status = await service.waitForTask(
           taskPath,
           taskId,
-          stageLabel: '3D-Modell aus Bild',
+          stageLabel: extras.isEmpty
+              ? '3D-Modell aus Bild'
+              : '3D-Modell aus ${extras.length + 1} Ansichten',
           onProgress: progress,
           isCancelled: cancelled,
         );
@@ -325,14 +370,37 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   ) async {
     String modelTaskId;
     if (_imageMode) {
-      final source = _sourceImage!;
-      progress('Bild wird hochgeladen …');
-      final token = await service.uploadImage(source.bytes, source.mimeType);
-      modelTaskId = await service.createImageTask(
-        token,
-        source.mimeType,
-        texture: _texture,
-      );
+      final source = _front!;
+      if (_extraViews.isNotEmpty) {
+        // Multiview: Reihenfolge Vorn, Links, Hinten, Rechts.
+        progress('Ansichten werden hochgeladen …');
+        Future<(String, String)?> upload(String key) async {
+          final view = _views[key];
+          if (view == null) return null;
+          final token =
+              await service.uploadImage(view.bytes, view.mimeType);
+          return (token, view.mimeType);
+        }
+
+        modelTaskId = await service.createMultiviewTask(
+          [
+            await upload('front'),
+            await upload('left'),
+            await upload('back'),
+            await upload('right'),
+          ],
+          texture: _texture,
+        );
+      } else {
+        progress('Bild wird hochgeladen …');
+        final token =
+            await service.uploadImage(source.bytes, source.mimeType);
+        modelTaskId = await service.createImageTask(
+          token,
+          source.mimeType,
+          texture: _texture,
+        );
+      }
     } else {
       // Für Rigging braucht das Modell eine T-Pose – wird automatisch
       // an den Prompt angehängt.
@@ -403,6 +471,69 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       thumbnail: thumbnail,
       rigged: rigged,
       textured: _texture,
+    );
+  }
+
+  /// Auswahl-Kachel für eine Ansicht (Vorn/Links/Rechts/Hinten).
+  Widget _viewSlot(String key, String label) {
+    final theme = Theme.of(context);
+    final image = _views[key];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 72,
+          height: 72,
+          child: Stack(
+            children: [
+              InkWell(
+                onTap: _running ? null : () => _pickView(key),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    border:
+                        Border.all(color: theme.colorScheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: image == null
+                      ? Icon(Icons.add_photo_alternate_outlined,
+                          color: theme.colorScheme.outline)
+                      : ClipRRect(
+                          borderRadius: BorderRadius.circular(7),
+                          child: Image.memory(image.bytes,
+                              fit: BoxFit.cover,
+                              width: 72,
+                              height: 72),
+                        ),
+                ),
+              ),
+              if (image != null)
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: InkWell(
+                    onTap: _running
+                        ? null
+                        : () => setState(() => _views[key] = null),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: const Icon(Icons.close,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(label, style: theme.textTheme.labelSmall),
+      ],
     );
   }
 
@@ -514,82 +645,81 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ),
                   ],
                 ] else ...[
-                  Row(
-                    children: [
-                      if (_sourceImage != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.memory(
-                            _sourceImage!.bytes,
-                            width: 84,
-                            height: 84,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      else
-                        Icon(Icons.image_outlined,
-                            size: 48,
-                            color: theme.colorScheme.outlineVariant),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          children: [
-                            FilledButton.tonal(
-                              onPressed: _running ? null : _pickSourceImage,
-                              child: Text(_sourceImage == null
-                                  ? 'Bild wählen'
-                                  : 'Bild ändern'),
-                            ),
-                            if (_sourceImage != null)
-                              TextButton(
-                                onPressed: _running
-                                    ? null
-                                    : () => setState(
-                                        () => _sourceImage = null),
-                                child: const Text('Entfernen'),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  Builder(builder: (context) {
+                    final showAllViews =
+                        !isLocal || _localMode == 'hull';
+                    return Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        _viewSlot('front', 'Vorn *'),
+                        if (showAllViews) ...[
+                          _viewSlot('left', 'Links'),
+                          _viewSlot('right', 'Rechts'),
+                          _viewSlot('back', 'Hinten'),
+                        ],
+                      ],
+                    );
+                  }),
                   const SizedBox(height: 4),
                   Text(
-                    'Tipp: Ein freigestelltes Objekt bzw. eine Figur in '
-                    'T-Pose vor neutralem Hintergrund liefert die besten '
-                    'Ergebnisse. Solche Vorlagen lassen sich im '
-                    'Generator-Tab erzeugen (transparenter Hintergrund).',
+                    isLocal && _localMode == 'hull'
+                        ? 'Vorderansicht ist Pflicht; je mehr Ansichten '
+                            '(links/rechts/hinten), desto genauer wird das '
+                            'räumliche Modell. Alle Bilder brauchen einen '
+                            'transparenten Hintergrund und dasselbe Motiv '
+                            'in gleicher Pose.'
+                        : 'Nur die Vorderansicht ist Pflicht. Mit '
+                            'zusätzlichen Ansichten von links, rechts und '
+                            'hinten entsteht ein deutlich genaueres '
+                            'Rundum-Modell. Tipp: Ansichten im '
+                            'Generator-Tab erzeugen (gleiche Figur als '
+                            'Referenzbild anhängen und z. B. „gleiche '
+                            'Figur, Ansicht von links, transparenter '
+                            'Hintergrund“ anfordern).',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],
                 const SectionLabel('Optionen'),
                 if (isLocal) ...[
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(
-                          value: false, label: Text('Relief (Helligkeit)')),
-                      ButtonSegment(
-                          value: true, label: Text('Standee (Silhouette)')),
-                    ],
-                    selected: {_localStandee},
-                    onSelectionChanged: _running
-                        ? null
-                        : (selection) =>
-                            setState(() => _localStandee = selection.first),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                            value: 'relief', label: Text('Relief')),
+                        ButtonSegment(
+                            value: 'standee', label: Text('Standee')),
+                        ButtonSegment(
+                            value: 'hull', label: Text('360°-Modell')),
+                      ],
+                      selected: {_localMode},
+                      onSelectionChanged: _running
+                          ? null
+                          : (selection) =>
+                              setState(() => _localMode = selection.first),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _localStandee
-                        ? 'Extrudiert die Silhouette als Aufsteller – das '
+                    switch (_localMode) {
+                      'standee' =>
+                        'Extrudiert die Silhouette als Aufsteller – das '
                             'Bild braucht einen transparenten Hintergrund '
-                            '(im Generator-Tab erzeugen).'
-                        : 'Helligkeit wird zu Höhe – ideal für '
-                            'Landschaften, Prägungen und Logos. Kein '
-                            'Rigging möglich.',
+                            '(im Generator-Tab erzeugen).',
+                      'hull' =>
+                        'Echtes räumliches Modell: Aus den Silhouetten von '
+                            'Vorn/Links/Rechts/Hinten wird ein Volumen '
+                            'geschnitzt (Visual Hull) und mit den '
+                            'Bildfarben eingefärbt. Kein Rigging möglich.',
+                      _ => 'Helligkeit wird zu Höhe – ideal für '
+                          'Landschaften, Prägungen und Logos. Kein '
+                          'Rigging möglich.',
+                    },
                     style: theme.textTheme.bodySmall,
                   ),
-                  Row(
+                  if (_localMode != 'hull') Row(
                     children: [
                       const SizedBox(width: 90, child: Text('Tiefe')),
                       Expanded(
@@ -627,7 +757,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       Text('$_localResolution'),
                     ],
                   ),
-                  if (!_localStandee)
+                  if (_localMode == 'relief')
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Höhen umkehren'),

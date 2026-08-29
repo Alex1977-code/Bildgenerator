@@ -33,8 +33,12 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Export als GLB für Blender/Unity/Unreal/Godot
   - **Eigener lokaler 3D-Generator** (ohne API, kostenlos): baut aus
     Bildern texturierte GLB-Modelle direkt in der App – Relief
-    (Helligkeit → Höhe) und Standee (extrudierte Silhouette aus Bildern
-    mit transparentem Hintergrund); eigener glTF-2.0-Writer in Dart
+    (Helligkeit → Höhe), Standee (extrudierte Silhouette) und
+    360°-Modell (Visual Hull aus bis zu 4 Ansichten mit Farbprojektion);
+    eigener glTF-2.0-Writer in Dart
+  - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
+    allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
+    Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)
   - Wasserzeichen mit eigenem Logo (Position, Größe, Deckkraft)
   - Galerie/Verlauf mit Prompt, Parametern und „Erneut verwenden“
   - Bilder speichern, teilen bzw. herunterladen

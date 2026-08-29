@@ -15,15 +15,19 @@ class LocalMesh {
   LocalMesh()
       : positions = <double>[],
         uvs = <double>[],
+        colors = <double>[],
         indices = <int>[];
 
   final List<double> positions; // x,y,z je Vertex
   final List<double> uvs; // u,v je Vertex
+  final List<double> colors; // r,g,b je Vertex (optional statt Textur)
   final List<int> indices;
 
-  int addVertex(double x, double y, double z, double u, double v) {
+  int addVertex(double x, double y, double z, double u, double v,
+      {double? r, double? g, double? b}) {
     positions.addAll([x, y, z]);
     uvs.addAll([u, v]);
+    if (r != null) colors.addAll([r, g ?? r, b ?? r]);
     return positions.length ~/ 3 - 1;
   }
 
@@ -92,6 +96,13 @@ class RgbaImage {
   }
 
   bool opaqueAt(double u, double v) => bytes[_offset(u, v) + 3] > 127;
+
+  /// Farbe (r,g,b je 0–1) an normierter Position; Grau bei Transparenz.
+  (double, double, double) colorAt(double u, double v) {
+    final o = _offset(u, v);
+    if (bytes[o + 3] < 16) return (0.6, 0.6, 0.6);
+    return (bytes[o] / 255.0, bytes[o + 1] / 255.0, bytes[o + 2] / 255.0);
+  }
 }
 
 /// Relief: Höhenfeld aus der Bildhelligkeit, mit Seitenwänden und Boden.
@@ -231,14 +242,18 @@ LocalMesh buildStandeeMesh(
   return mesh;
 }
 
-/// Schreibt das Mesh als binäres glTF 2.0 (GLB) mit eingebetteter Textur.
-Uint8List buildGlb(LocalMesh mesh, Uint8List pngTexture,
-    {bool alphaMask = false}) {
+/// Schreibt das Mesh als binäres glTF 2.0 (GLB).
+///
+/// Entweder mit eingebetteter PNG-Textur ([pngTexture]) oder – falls das
+/// Mesh Vertex-Farben trägt – mit COLOR_0-Attribut statt Textur.
+Uint8List buildGlb(LocalMesh mesh,
+    {Uint8List? pngTexture, bool alphaMask = false}) {
   final positions = Float32List.fromList(mesh.positions);
   final normals = mesh.computeNormals();
-  final uvs = Float32List.fromList(mesh.uvs);
-  final indices = Uint32List.fromList(mesh.indices);
   final vertexCount = positions.length ~/ 3;
+  final hasTexture = pngTexture != null;
+  final hasColors = !hasTexture && mesh.colors.length == vertexCount * 3;
+  final indices = Uint32List.fromList(mesh.indices);
 
   final minPos = [double.infinity, double.infinity, double.infinity];
   final maxPos = [
@@ -254,24 +269,92 @@ Uint8List buildGlb(LocalMesh mesh, Uint8List pngTexture,
     }
   }
 
-  int pad4(int n) => (n + 3) & ~3;
-  final posBytes = positions.buffer.asUint8List(0, positions.lengthInBytes);
-  final normBytes = normals.buffer.asUint8List(0, normals.lengthInBytes);
-  final uvBytes = uvs.buffer.asUint8List(0, uvs.lengthInBytes);
-  final idxBytes = indices.buffer.asUint8List(0, indices.lengthInBytes);
+  // BIN-Teile in fester Reihenfolge; Attribute vor Indizes vor Textur.
+  final binParts = <Uint8List>[
+    positions.buffer.asUint8List(0, positions.lengthInBytes),
+    normals.buffer.asUint8List(0, normals.lengthInBytes),
+    if (hasTexture)
+      Float32List.fromList(mesh.uvs)
+          .buffer
+          .asUint8List(0, mesh.uvs.length * 4),
+    if (hasColors)
+      Float32List.fromList(mesh.colors)
+          .buffer
+          .asUint8List(0, mesh.colors.length * 4),
+    indices.buffer.asUint8List(0, indices.lengthInBytes),
+    if (hasTexture) pngTexture,
+  ];
+  final indexPart = 2 + (hasTexture ? 1 : 0) + (hasColors ? 1 : 0);
+  final texturePart = indexPart + 1;
 
+  int pad4(int n) => (n + 3) & ~3;
   final offsets = <int>[];
   var cursor = 0;
-  for (final part in [posBytes, normBytes, uvBytes, idxBytes, pngTexture]) {
+  for (final part in binParts) {
     offsets.add(cursor);
     cursor = pad4(cursor + part.length);
   }
   final binLength = cursor;
   final bin = Uint8List(binLength);
-  final parts = [posBytes, normBytes, uvBytes, idxBytes, pngTexture];
-  for (var i = 0; i < parts.length; i++) {
-    bin.setRange(offsets[i], offsets[i] + parts[i].length, parts[i]);
+  for (var i = 0; i < binParts.length; i++) {
+    bin.setRange(offsets[i], offsets[i] + binParts[i].length, binParts[i]);
   }
+
+  final bufferViews = <Map<String, dynamic>>[];
+  for (var i = 0; i < binParts.length; i++) {
+    bufferViews.add({
+      'buffer': 0,
+      'byteOffset': offsets[i],
+      'byteLength': binParts[i].length,
+      if (i < indexPart) 'target': 34962,
+      if (i == indexPart) 'target': 34963,
+    });
+  }
+
+  final accessors = <Map<String, dynamic>>[
+    {
+      'bufferView': 0,
+      'componentType': 5126,
+      'count': vertexCount,
+      'type': 'VEC3',
+      'min': minPos,
+      'max': maxPos,
+    },
+    {
+      'bufferView': 1,
+      'componentType': 5126,
+      'count': vertexCount,
+      'type': 'VEC3',
+    },
+    if (hasTexture)
+      {
+        'bufferView': 2,
+        'componentType': 5126,
+        'count': vertexCount,
+        'type': 'VEC2',
+      },
+    if (hasColors)
+      {
+        'bufferView': 2,
+        'componentType': 5126,
+        'count': vertexCount,
+        'type': 'VEC3',
+      },
+    {
+      'bufferView': indexPart,
+      'componentType': 5125,
+      'count': indices.length,
+      'type': 'SCALAR',
+    },
+  ];
+
+  final attributes = <String, int>{
+    'POSITION': 0,
+    'NORMAL': 1,
+    if (hasTexture) 'TEXCOORD_0': 2,
+    if (hasColors) 'COLOR_0': 2,
+  };
+  final indicesAccessor = accessors.length - 1;
 
   final gltf = {
     'asset': {'version': '2.0', 'generator': 'Bildgenerator (lokal)'},
@@ -288,8 +371,8 @@ Uint8List buildGlb(LocalMesh mesh, Uint8List pngTexture,
       {
         'primitives': [
           {
-            'attributes': {'POSITION': 0, 'NORMAL': 1, 'TEXCOORD_0': 2},
-            'indices': 3,
+            'attributes': attributes,
+            'indices': indicesAccessor,
             'material': 0,
           }
         ]
@@ -298,7 +381,8 @@ Uint8List buildGlb(LocalMesh mesh, Uint8List pngTexture,
     'materials': [
       {
         'pbrMetallicRoughness': {
-          'baseColorTexture': {'index': 0},
+          if (hasTexture) 'baseColorTexture': {'index': 0},
+          if (!hasTexture) 'baseColorFactor': [1.0, 1.0, 1.0, 1.0],
           'metallicFactor': 0.0,
           'roughnessFactor': 0.9,
         },
@@ -307,80 +391,26 @@ Uint8List buildGlb(LocalMesh mesh, Uint8List pngTexture,
         if (alphaMask) 'alphaCutoff': 0.5,
       }
     ],
-    'textures': [
-      {'source': 0, 'sampler': 0}
-    ],
-    'samplers': [
-      {'magFilter': 9729, 'minFilter': 9729, 'wrapS': 33071, 'wrapT': 33071}
-    ],
-    'images': [
-      {'bufferView': 4, 'mimeType': 'image/png'}
-    ],
+    if (hasTexture)
+      'textures': [
+        {'source': 0, 'sampler': 0}
+      ],
+    if (hasTexture)
+      'samplers': [
+        {'magFilter': 9729, 'minFilter': 9729, 'wrapS': 33071, 'wrapT': 33071}
+      ],
+    if (hasTexture)
+      'images': [
+        {'bufferView': texturePart, 'mimeType': 'image/png'}
+      ],
     'buffers': [
       {'byteLength': binLength}
     ],
-    'bufferViews': [
-      {
-        'buffer': 0,
-        'byteOffset': offsets[0],
-        'byteLength': posBytes.length,
-        'target': 34962,
-      },
-      {
-        'buffer': 0,
-        'byteOffset': offsets[1],
-        'byteLength': normBytes.length,
-        'target': 34962,
-      },
-      {
-        'buffer': 0,
-        'byteOffset': offsets[2],
-        'byteLength': uvBytes.length,
-        'target': 34962,
-      },
-      {
-        'buffer': 0,
-        'byteOffset': offsets[3],
-        'byteLength': idxBytes.length,
-        'target': 34963,
-      },
-      {
-        'buffer': 0,
-        'byteOffset': offsets[4],
-        'byteLength': pngTexture.length,
-      },
-    ],
-    'accessors': [
-      {
-        'bufferView': 0,
-        'componentType': 5126,
-        'count': vertexCount,
-        'type': 'VEC3',
-        'min': minPos,
-        'max': maxPos,
-      },
-      {
-        'bufferView': 1,
-        'componentType': 5126,
-        'count': vertexCount,
-        'type': 'VEC3',
-      },
-      {
-        'bufferView': 2,
-        'componentType': 5126,
-        'count': vertexCount,
-        'type': 'VEC2',
-      },
-      {
-        'bufferView': 3,
-        'componentType': 5125,
-        'count': indices.length,
-        'type': 'SCALAR',
-      },
-    ],
+    'bufferViews': bufferViews,
+    'accessors': accessors,
   };
 
-  var jsonBytes = utf8.encode(jsonEncode(gltf));
+  final jsonBytes = utf8.encode(jsonEncode(gltf));
   final jsonPadded = Uint8List(pad4(jsonBytes.length))
     ..fillRange(0, pad4(jsonBytes.length), 0x20)
     ..setRange(0, jsonBytes.length, jsonBytes);
@@ -447,5 +477,194 @@ Future<Uint8List> generateLocalGlb(
             '„Transparenter Hintergrund“ erzeugen).'
         : 'Aus dem Bild ließ sich kein Relief erzeugen.');
   }
-  return buildGlb(mesh, png, alphaMask: standee);
+  return buildGlb(mesh, pngTexture: png, alphaMask: standee);
+}
+
+/// 360°-Modell per Visual Hull: Aus den Silhouetten von Vorder-, Seiten-
+/// und Rückansicht wird ein Voxel-Volumen "geschnitzt" und als farbiges
+/// Mesh (Vertex-Farben) ausgegeben.
+///
+/// Konvention: Alle Bilder zeigen das Objekt vor transparentem
+/// Hintergrund. +z zeigt zur Vorderansicht; in der Links-Ansicht zeigt
+/// die Objekt-Front im Bild nach rechts, in der Rechts-Ansicht nach links.
+LocalMesh buildVisualHullMesh({
+  required RgbaImage front,
+  RgbaImage? left,
+  RgbaImage? right,
+  RgbaImage? back,
+  required int resolution,
+}) {
+  final side = left ?? right;
+  final yExtent = front.height / front.width; // xExtent = 1
+  final zExtent =
+      side == null ? 0.5 : (side.width / side.height) * yExtent;
+
+  final maxExtent = math.max(1.0, math.max(yExtent, zExtent));
+  final cell = maxExtent / resolution;
+  final nx = (1.0 / cell).round().clamp(4, 200);
+  final ny = (yExtent / cell).round().clamp(4, 200);
+  final nz = (zExtent / cell).round().clamp(4, 200);
+
+  // Silhouetten-Test im Objektraum (x,y,z jeweils 0..Extent).
+  bool solidAt(double x, double y, double z) {
+    final uF = x; // 0..1
+    final vF = 1 - y / yExtent;
+    if (!front.opaqueAt(uF, vF)) return false;
+    if (back != null && !back.opaqueAt(1 - uF, vF)) return false;
+    if (left != null && !left.opaqueAt(z / zExtent, vF)) return false;
+    if (right != null && !right.opaqueAt(1 - z / zExtent, vF)) {
+      return false;
+    }
+    return true;
+  }
+
+  final solid = List.generate(
+    nx,
+    (ix) => List.generate(ny, (iy) {
+      final row = List<bool>.filled(nz, false);
+      for (var iz = 0; iz < nz; iz++) {
+        row[iz] = solidAt(
+          (ix + 0.5) / nx,
+          (iy + 0.5) / ny * yExtent,
+          (iz + 0.5) / nz * zExtent,
+        );
+      }
+      return row;
+    }),
+  );
+  bool filled(int ix, int iy, int iz) =>
+      ix >= 0 &&
+      iy >= 0 &&
+      iz >= 0 &&
+      ix < nx &&
+      iy < ny &&
+      iz < nz &&
+      solid[ix][iy][iz];
+
+  // Farbwahl je Blickrichtung der Fläche.
+  (double, double, double) faceColor(
+      int axis, int dir, double x, double y, double z) {
+    final uF = x, vF = 1 - y / yExtent;
+    if (axis == 2) {
+      if (dir > 0) return front.colorAt(uF, vF);
+      return (back ?? front).colorAt(back != null ? 1 - uF : uF, vF);
+    }
+    if (axis == 0) {
+      if (dir < 0 && left != null) return left.colorAt(z / zExtent, vF);
+      if (dir > 0 && right != null) {
+        return right.colorAt(1 - z / zExtent, vF);
+      }
+      final mirror = left ?? right;
+      if (mirror != null) {
+        return mirror.colorAt(
+            left != null ? z / zExtent : 1 - z / zExtent, vF);
+      }
+    }
+    return front.colorAt(uF, vF);
+  }
+
+  final mesh = LocalMesh();
+  final sx = 1.0 / nx, sy = yExtent / ny, sz = zExtent / nz;
+  void addFace(List<List<double>> corners, (double, double, double) color) {
+    final (r, g, b) = color;
+    final ids = [
+      for (final c in corners)
+        mesh.addVertex(c[0] - 0.5, c[1] - yExtent / 2, c[2] - zExtent / 2,
+            0, 0,
+            r: r, g: g, b: b)
+    ];
+    mesh.addQuad(ids[0], ids[1], ids[2], ids[3]);
+  }
+
+  for (var ix = 0; ix < nx; ix++) {
+    for (var iy = 0; iy < ny; iy++) {
+      for (var iz = 0; iz < nz; iz++) {
+        if (!solid[ix][iy][iz]) continue;
+        final x0 = ix * sx, x1 = x0 + sx;
+        final y0 = iy * sy, y1 = y0 + sy;
+        final z0 = iz * sz, z1 = z0 + sz;
+        final cx = x0 + sx / 2, cy = y0 + sy / 2, cz = z0 + sz / 2;
+        if (!filled(ix, iy, iz + 1)) {
+          addFace([
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+          ], faceColor(2, 1, cx, cy, cz));
+        }
+        if (!filled(ix, iy, iz - 1)) {
+          addFace([
+            [x1, y0, z0],
+            [x0, y0, z0],
+            [x0, y1, z0],
+            [x1, y1, z0],
+          ], faceColor(2, -1, cx, cy, cz));
+        }
+        if (!filled(ix + 1, iy, iz)) {
+          addFace([
+            [x1, y0, z1],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x1, y1, z1],
+          ], faceColor(0, 1, cx, cy, cz));
+        }
+        if (!filled(ix - 1, iy, iz)) {
+          addFace([
+            [x0, y0, z0],
+            [x0, y0, z1],
+            [x0, y1, z1],
+            [x0, y1, z0],
+          ], faceColor(0, -1, cx, cy, cz));
+        }
+        if (!filled(ix, iy + 1, iz)) {
+          addFace([
+            [x0, y1, z1],
+            [x1, y1, z1],
+            [x1, y1, z0],
+            [x0, y1, z0],
+          ], faceColor(1, 1, cx, cy, cz));
+        }
+        if (!filled(ix, iy - 1, iz)) {
+          addFace([
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y0, z1],
+            [x0, y0, z1],
+          ], faceColor(1, -1, cx, cy, cz));
+        }
+      }
+    }
+  }
+  return mesh;
+}
+
+/// Komplettpaket: bis zu vier Ansichten → farbiges 360°-GLB.
+Future<Uint8List> generateLocalHullGlb({
+  required Uint8List frontBytes,
+  Uint8List? leftBytes,
+  Uint8List? rightBytes,
+  Uint8List? backBytes,
+  required int resolution,
+}) async {
+  Future<RgbaImage?> decode(Uint8List? bytes) async {
+    if (bytes == null) return null;
+    final (rgba, _) = await decodeForLocal3d(bytes);
+    return rgba;
+  }
+
+  final front = (await decode(frontBytes))!;
+  final mesh = buildVisualHullMesh(
+    front: front,
+    left: await decode(leftBytes),
+    right: await decode(rightBytes),
+    back: await decode(backBytes),
+    resolution: resolution,
+  );
+  if (mesh.indices.isEmpty) {
+    throw Exception(
+        'Keine Silhouette gefunden – die Ansichten brauchen einen '
+        'transparenten Hintergrund (im Generator-Tab mit „Transparenter '
+        'Hintergrund“ erzeugen).');
+  }
+  return buildGlb(mesh);
 }

@@ -23,6 +23,18 @@ RgbaImage _testImage() {
   return RgbaImage(bytes, w, h);
 }
 
+RgbaImage _solidImage() {
+  const w = 8, h = 8;
+  final bytes = Uint8List(w * h * 4);
+  for (var i = 0; i < bytes.length; i += 4) {
+    bytes[i] = 120;
+    bytes[i + 1] = 90;
+    bytes[i + 2] = 60;
+    bytes[i + 3] = 255;
+  }
+  return RgbaImage(bytes, w, h);
+}
+
 Map<String, dynamic> _readGlbJson(Uint8List glb) {
   final data = ByteData.sublistView(glb);
   expect(data.getUint32(0, Endian.little), 0x46546C67,
@@ -51,7 +63,7 @@ void main() {
     expect(mesh.indices.length % 3, 0);
     expect(mesh.positions.length ~/ 3, mesh.uvs.length ~/ 2);
 
-    final glb = buildGlb(mesh, fakePng);
+    final glb = buildGlb(mesh, pngTexture: fakePng);
     final json = _readGlbJson(glb);
     final accessors = json['accessors'] as List;
     expect(accessors, hasLength(4));
@@ -67,8 +79,35 @@ void main() {
     for (var i = 0; i < mesh.positions.length; i += 3) {
       expect(mesh.positions[i], lessThanOrEqualTo(0.01));
     }
-    final glb = buildGlb(mesh, fakePng, alphaMask: true);
+    final glb = buildGlb(mesh, pngTexture: fakePng, alphaMask: true);
     final json = _readGlbJson(glb);
     expect(((json['materials'] as List).first as Map)['alphaMode'], 'MASK');
+  });
+
+  test('Visual Hull erzeugt farbiges 360°-Mesh ohne Textur', () {
+    // Rückansicht ist spiegelverkehrt zur Vorderansicht – für das
+    // links-halbe Testobjekt also rechts-halb; hier: volle Silhouetten
+    // für Seiten/Rücken, Beschnitt kommt aus der Vorderansicht.
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    expect(mesh.indices, isNotEmpty);
+    expect(mesh.colors.length, (mesh.positions.length ~/ 3) * 3);
+
+    final glb = buildGlb(mesh);
+    final json = _readGlbJson(glb);
+    final primitive = (((json['meshes'] as List).first as Map)['primitives']
+        as List)[0] as Map;
+    expect((primitive['attributes'] as Map).containsKey('COLOR_0'), isTrue);
+    expect(json.containsKey('images'), isFalse);
+    // Material nutzt baseColorFactor statt Textur.
+    final material = (json['materials'] as List).first as Map;
+    expect(
+        (material['pbrMetallicRoughness'] as Map)
+            .containsKey('baseColorTexture'),
+        isFalse);
   });
 }

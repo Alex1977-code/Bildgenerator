@@ -144,6 +144,30 @@ class TripoService {
     });
   }
 
+  /// Multiview→Modell: Ansichten in der Reihenfolge Vorn, Links, Hinten,
+  /// Rechts; fehlende Ansichten als leere Einträge.
+  Future<String> createMultiviewTask(
+    List<(String, String)?> views, {
+    required bool texture,
+  }) {
+    Map<String, dynamic> fileEntry((String, String)? view) {
+      if (view == null) return <String, dynamic>{};
+      final (token, mimeType) = view;
+      final subtype = mimeType.split('/').last;
+      return {
+        'type': subtype == 'jpeg' ? 'jpg' : subtype,
+        'file_token': token,
+      };
+    }
+
+    return _createTask({
+      'type': 'multiview_to_model',
+      'files': [for (final view in views) fileEntry(view)],
+      'texture': texture,
+      'pbr': texture,
+    });
+  }
+
   /// Prüft, ob das Modell riggbar ist (Figur erkannt).
   Future<String> createPrerigCheck(String modelTaskId) => _createTask({
         'type': 'animate_prerigcheck',
