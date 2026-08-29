@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -36,6 +37,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   GenerationRequest? _lastRequest;
   String? _usageInfo;
   bool _generating = false;
+  bool _dragOverReferences = false;
   String? _error;
   PromptRelay? _relay;
 
@@ -75,6 +77,29 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     setState(() {
       _promptCtrl.text = current.isEmpty ? suffix : '$current, $suffix';
     });
+  }
+
+  /// Per Drag & Drop abgelegte Dateien als Referenzbilder übernehmen.
+  Future<void> _addDroppedReferences(List<XFile> files) async {
+    var skipped = 0;
+    for (final file in files) {
+      if (_references.length >= _maxReferences) {
+        _showSnack('Maximal $_maxReferences Referenzbilder möglich.');
+        break;
+      }
+      final bytes = await file.readAsBytes();
+      if (!looksLikeSupportedImage(bytes)) {
+        skipped++;
+        continue;
+      }
+      _references.add(ReferenceImage(bytes: bytes, name: file.name));
+    }
+    if (!mounted) return;
+    setState(() => _dragOverReferences = false);
+    if (skipped > 0) {
+      _showSnack('$skipped Datei(en) übersprungen – unterstützt werden '
+          'PNG, JPEG und WebP.');
+    }
   }
 
   Future<void> _pickReferences() async {
@@ -409,7 +434,19 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   }
 
   Widget _buildReferenceCard(bool supportsReferences) {
-    return Card(
+    return DropTarget(
+      enable: supportsReferences && !_generating,
+      onDragEntered: (_) => setState(() => _dragOverReferences = true),
+      onDragExited: (_) => setState(() => _dragOverReferences = false),
+      onDragDone: (detail) => _addDroppedReferences(detail.files),
+      child: Card(
+      shape: _dragOverReferences
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                  color: Theme.of(context).colorScheme.primary, width: 2),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -443,7 +480,8 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             else if (_references.isEmpty)
               Text(
                 'Optional: Bilder als Vorlage hinzufügen (z. B. Produkt, '
-                'Person, Stil). Das Ergebnis orientiert sich an ihnen.',
+                'Person, Stil). Das Ergebnis orientiert sich an ihnen. '
+                'Am PC auch einfach per Drag & Drop hierher ziehen.',
                 style: Theme.of(context).textTheme.bodySmall,
               )
             else
@@ -490,6 +528,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               ),
           ],
         ),
+      ),
       ),
     );
   }

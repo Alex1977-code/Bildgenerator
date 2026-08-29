@@ -20,6 +20,27 @@ enum GenProvider {
       );
 }
 
+/// Prüft anhand der Magic Bytes, ob die Daten ein unterstütztes
+/// Bildformat sind (PNG, JPEG oder WebP).
+bool looksLikeSupportedImage(Uint8List b) {
+  if (b.length > 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E) {
+    return true; // PNG
+  }
+  if (b.length > 3 && b[0] == 0xFF && b[1] == 0xD8) {
+    return true; // JPEG
+  }
+  if (b.length > 12 &&
+      b[0] == 0x52 &&
+      b[1] == 0x49 &&
+      b[2] == 0x46 &&
+      b[3] == 0x46 &&
+      b[8] == 0x57 &&
+      b[9] == 0x45) {
+    return true; // WebP
+  }
+  return false;
+}
+
 /// Ein vom Nutzer gewähltes Referenzbild.
 class ReferenceImage {
   ReferenceImage({required this.bytes, required this.name});

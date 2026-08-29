@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -75,6 +76,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   void _showSnack(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String? _dragOverSlot;
+
+  Future<void> _dropOnSlot(String key, List<XFile> files) async {
+    setState(() => _dragOverSlot = null);
+    for (final file in files) {
+      final bytes = await file.readAsBytes();
+      if (!looksLikeSupportedImage(bytes)) continue;
+      if (!mounted) return;
+      setState(() {
+        _views[key] = ReferenceImage(bytes: bytes, name: file.name);
+      });
+      return;
+    }
+    _showSnack('Keine unterstützte Bilddatei – bitte PNG, JPEG oder WebP '
+        'ablegen.');
   }
 
   Future<void> _pickView(String key) async {
@@ -484,7 +502,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         SizedBox(
           width: 72,
           height: 72,
-          child: Stack(
+          child: DropTarget(
+            enable: !_running,
+            onDragEntered: (_) => setState(() => _dragOverSlot = key),
+            onDragExited: (_) => setState(() => _dragOverSlot = null),
+            onDragDone: (detail) => _dropOnSlot(key, detail.files),
+            child: Stack(
             children: [
               InkWell(
                 onTap: _running ? null : () => _pickView(key),
@@ -493,8 +516,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    border:
-                        Border.all(color: theme.colorScheme.outlineVariant),
+                    border: Border.all(
+                      color: _dragOverSlot == key
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.outlineVariant,
+                      width: _dragOverSlot == key ? 2 : 1,
+                    ),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: image == null
@@ -529,6 +556,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ),
                 ),
             ],
+          ),
           ),
         ),
         const SizedBox(height: 2),
