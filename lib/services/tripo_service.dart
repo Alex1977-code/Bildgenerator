@@ -122,16 +122,49 @@ class TripoService {
     return token;
   }
 
-  Future<String> createTextTask(String prompt, {required bool texture}) =>
+  /// Qualitäts-Optionen, die alle Modell-Endpunkte verstehen. Nur vom
+  /// Standard abweichende Werte werden mitgeschickt.
+  Map<String, dynamic> _qualityFields({
+    required bool texture,
+    String? modelVersion,
+    bool quad = false,
+    bool detailedTexture = false,
+  }) =>
+      {
+        if (modelVersion != null && modelVersion.isNotEmpty)
+          'model_version': modelVersion,
+        if (quad) 'quad': true,
+        if (texture && detailedTexture) 'texture_quality': 'detailed',
+      };
+
+  Future<String> createTextTask(
+    String prompt, {
+    required bool texture,
+    String? modelVersion,
+    bool quad = false,
+    bool detailedTexture = false,
+  }) =>
       _createTask({
         'type': 'text_to_model',
         'prompt': prompt,
         'texture': texture,
         'pbr': texture,
+        ..._qualityFields(
+          texture: texture,
+          modelVersion: modelVersion,
+          quad: quad,
+          detailedTexture: detailedTexture,
+        ),
       });
 
-  Future<String> createImageTask(String fileToken, String mimeType,
-      {required bool texture}) {
+  Future<String> createImageTask(
+    String fileToken,
+    String mimeType, {
+    required bool texture,
+    String? modelVersion,
+    bool quad = false,
+    bool detailedTexture = false,
+  }) {
     final subtype = mimeType.split('/').last;
     return _createTask({
       'type': 'image_to_model',
@@ -141,6 +174,12 @@ class TripoService {
       },
       'texture': texture,
       'pbr': texture,
+      ..._qualityFields(
+        texture: texture,
+        modelVersion: modelVersion,
+        quad: quad,
+        detailedTexture: detailedTexture,
+      ),
     });
   }
 
@@ -149,6 +188,9 @@ class TripoService {
   Future<String> createMultiviewTask(
     List<(String, String)?> views, {
     required bool texture,
+    String? modelVersion,
+    bool quad = false,
+    bool detailedTexture = false,
   }) {
     Map<String, dynamic> fileEntry((String, String)? view) {
       if (view == null) return <String, dynamic>{};
@@ -165,6 +207,12 @@ class TripoService {
       'files': [for (final view in views) fileEntry(view)],
       'texture': texture,
       'pbr': texture,
+      ..._qualityFields(
+        texture: texture,
+        modelVersion: modelVersion,
+        quad: quad,
+        detailedTexture: detailedTexture,
+      ),
     });
   }
 

@@ -57,6 +57,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Modell bauen. Beim lokalen Generator ist das im Text-Modus immer so.
   bool _viewsFromText = false;
 
+  /// T-Pose auch ohne Rigging – Figuren mit gespreizten Armen lassen
+  /// sich deutlich besser räumlich rekonstruieren.
+  bool _tPose = false;
+
+  // Qualitäts-Optionen (Profi) für Meshy/Tripo. Leer/0/auto = die
+  // API-Vorgabe wird nicht überschrieben.
+  String _meshyAiModel = '';
+  int _meshyPolycount = 0;
+  String _symmetryMode = 'auto';
+  bool _quadTopology = false; // Meshy topology=quad bzw. Tripo quad=true
+  bool _pbr = true;
+  String _tripoVersion = '';
+  bool _tripoDetailedTexture = false;
+  final _texturePromptCtrl = TextEditingController();
+
   // Optionen des lokalen Generators.
   String _localMode = 'relief'; // 'relief' | 'standee' | 'hull'
   int _localResolution = 96;
@@ -77,6 +92,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   void dispose() {
     _cancelRequested = true;
     _promptCtrl.dispose();
+    _texturePromptCtrl.dispose();
     super.dispose();
   }
 
@@ -190,7 +206,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         final generated = await generateViewsFromText(
           settings: settings,
           description: prompt,
-          tPose: !isLocal && _rigging,
+          tPose: _tPose || (!isLocal && _rigging),
           onProgress: progress,
           isCancelled: cancelled,
           // Relief/Standee nutzen nur die Vorderansicht – Kosten sparen.
@@ -338,6 +354,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               for (final view in extras) (view.bytes, view.mimeType),
             ],
             texture: _texture,
+            aiModel: _meshyAiModel,
+            quadTopology: _quadTopology,
+            targetPolycount: _meshyPolycount,
+            symmetryMode: _symmetryMode,
+            enablePbr: _pbr,
+            texturePrompt: _texturePromptCtrl.text.trim(),
           );
         } else {
           taskPath = 'v1/image-to-3d';
@@ -345,6 +367,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             source.bytes,
             source.mimeType,
             texture: _texture,
+            aiModel: _meshyAiModel,
+            quadTopology: _quadTopology,
+            targetPolycount: _meshyPolycount,
+            symmetryMode: _symmetryMode,
+            enablePbr: _pbr,
+            texturePrompt: _texturePromptCtrl.text.trim(),
           );
         }
         status = await service.waitForTask(
@@ -357,12 +385,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           isCancelled: cancelled,
         );
       } else {
-        // Für Rigging braucht das Modell eine T-Pose – wird automatisch
-        // an den Prompt angehängt.
+        // Für Rigging (oder auf Wunsch) braucht das Modell eine T-Pose –
+        // wird automatisch an den Prompt angehängt.
         final effectivePrompt =
-            _rigging ? '$prompt, $_tPoseSuffix' : prompt;
+            _rigging || _tPose ? '$prompt, $_tPoseSuffix' : prompt;
         taskPath = 'v2/text-to-3d';
-        taskId = await service.createTextPreview(effectivePrompt, _artStyle);
+        taskId = await service.createTextPreview(
+          effectivePrompt,
+          _artStyle,
+          aiModel: _meshyAiModel,
+          quadTopology: _quadTopology,
+          targetPolycount: _meshyPolycount,
+          symmetryMode: _symmetryMode,
+        );
         status = await service.waitForTask(
           taskPath,
           taskId,
@@ -371,7 +406,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           isCancelled: cancelled,
         );
         if (_texture) {
-          final refineId = await service.createTextRefine(taskId);
+          final refineId = await service.createTextRefine(
+            taskId,
+            enablePbr: _pbr,
+            texturePrompt: _texturePromptCtrl.text.trim(),
+          );
           status = await service.waitForTask(
             taskPath,
             refineId,
@@ -465,6 +504,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             await upload('right'),
           ],
           texture: _texture,
+          modelVersion: _tripoVersion,
+          quad: _quadTopology,
+          detailedTexture: _tripoDetailedTexture,
         );
       } else {
         progress('Bild wird hochgeladen …');
@@ -474,14 +516,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           token,
           source.mimeType,
           texture: _texture,
+          modelVersion: _tripoVersion,
+          quad: _quadTopology,
+          detailedTexture: _tripoDetailedTexture,
         );
       }
     } else {
-      // Für Rigging braucht das Modell eine T-Pose – wird automatisch
-      // an den Prompt angehängt.
-      final effectivePrompt = _rigging ? '$prompt, $_tPoseSuffix' : prompt;
-      modelTaskId =
-          await service.createTextTask(effectivePrompt, texture: _texture);
+      // Für Rigging (oder auf Wunsch) braucht das Modell eine T-Pose –
+      // wird automatisch an den Prompt angehängt.
+      final effectivePrompt =
+          _rigging || _tPose ? '$prompt, $_tPoseSuffix' : prompt;
+      modelTaskId = await service.createTextTask(
+        effectivePrompt,
+        texture: _texture,
+        modelVersion: _tripoVersion,
+        quad: _quadTopology,
+        detailedTexture: _tripoDetailedTexture,
+      );
     }
     final modelData = await service.waitForTask(
       modelTaskId,
@@ -721,6 +772,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       hintText:
                           'z. B. „Ein mittelalterlicher Ritter in voller '
                           'Rüstung mit Schwert“',
+                      helperText:
+                          'Tipp: ein einzelnes, freistehendes Objekt '
+                          'beschreiben – Szenen mit mehreren Objekten '
+                          'eignen sich nicht für 3D.',
+                      helperMaxLines: 3,
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -738,7 +794,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           setState(() => _artStyle = selection.first),
                     ),
                   ],
-                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('T-Pose (für Figuren empfohlen)'),
+                    subtitle: Text(!isLocal && _rigging
+                        ? 'Durch Rigging automatisch aktiv – gespreizte '
+                            'Arme lassen sich am besten rekonstruieren.'
+                        : 'Figur mit gespreizten Armen erzeugen – lässt '
+                            'sich deutlich besser räumlich rekonstruieren, '
+                            'auch ohne Rigging. Für Objekte (Gebäude, '
+                            'Fahrzeuge …) ausschalten.'),
+                    value: _tPose || (!isLocal && _rigging),
+                    onChanged: _running || (!isLocal && _rigging)
+                        ? null
+                        : (v) => setState(() => _tPose = v),
+                  ),
+                  const SizedBox(height: 4),
                   if (isLocal)
                     Text(
                       'Die nötigen Ansichten werden automatisch mit der '
@@ -860,8 +931,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'hull' =>
                         'Echtes räumliches Modell: Aus den Silhouetten von '
                             'Vorn/Links/Rechts/Hinten wird ein Volumen '
-                            'geschnitzt (Visual Hull) und mit den '
-                            'Bildfarben eingefärbt. Kein Rigging möglich.',
+                            'geschnitzt (Visual Hull), die Oberfläche '
+                            'geglättet und mit den Bildfarben eingefärbt. '
+                            'Kein Rigging möglich.',
                       _ => 'Helligkeit wird zu Höhe – ideal für '
                           'Landschaften, Prägungen und Logos. Kein '
                           'Rigging möglich.',
@@ -940,7 +1012,201 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ? null
                         : (v) => setState(() => _rigging = v),
                   ),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    title: const Text('Qualitäts-Optionen (Profi)'),
+                    subtitle: Text(
+                      isTripo
+                          ? 'KI-Generation, Textur-Qualität, Topologie'
+                          : 'KI-Generation, Polygone, Symmetrie, PBR …',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    children: [
+                      DropdownMenu<String>(
+                        key: ValueKey('gen-${settings.threeDProvider}'
+                            '-${isTripo ? _tripoVersion : _meshyAiModel}'),
+                        enabled: !_running,
+                        initialSelection:
+                            isTripo ? _tripoVersion : _meshyAiModel,
+                        label: const Text('KI-Generation'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: isTripo
+                            ? const [
+                                DropdownMenuEntry(
+                                    value: '',
+                                    label: 'Standard (v2.5, bewährt)'),
+                                DropdownMenuEntry(
+                                    value: 'v3.0-20250812',
+                                    label: 'Neueste (v3.0, beste Qualität)'),
+                              ]
+                            : const [
+                                DropdownMenuEntry(
+                                    value: '',
+                                    label: 'Standard (API-Vorgabe)'),
+                                DropdownMenuEntry(
+                                    value: 'meshy-5', label: 'Meshy 5'),
+                                DropdownMenuEntry(
+                                    value: 'meshy-6', label: 'Meshy 6'),
+                                DropdownMenuEntry(
+                                    value: 'latest',
+                                    label: 'Neueste (beste Qualität)'),
+                              ],
+                        onSelected: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            if (isTripo) {
+                              _tripoVersion = value;
+                            } else {
+                              _meshyAiModel = value;
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      if (!isTripo) ...[
+                        DropdownMenu<int>(
+                          key: ValueKey('poly-$_meshyPolycount'),
+                          enabled: !_running,
+                          initialSelection: _meshyPolycount,
+                          label: const Text('Detailgrad (Polygone)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: const [
+                            DropdownMenuEntry(
+                                value: 0, label: 'Standard (ca. 30.000)'),
+                            DropdownMenuEntry(
+                                value: 10000,
+                                label: 'Niedrig (10.000) – für Spiele'),
+                            DropdownMenuEntry(
+                                value: 100000, label: 'Hoch (100.000)'),
+                            DropdownMenuEntry(
+                                value: 300000, label: 'Ultra (300.000)'),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              setState(() => _meshyPolycount = value);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const SizedBox(width: 90, child: Text('Symmetrie')),
+                            Expanded(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: SegmentedButton<String>(
+                                  segments: const [
+                                    ButtonSegment(
+                                        value: 'auto', label: Text('Auto')),
+                                    ButtonSegment(
+                                        value: 'on', label: Text('An')),
+                                    ButtonSegment(
+                                        value: 'off', label: Text('Aus')),
+                                  ],
+                                  selected: {_symmetryMode},
+                                  onSelectionChanged: _running
+                                      ? null
+                                      : (selection) => setState(() =>
+                                          _symmetryMode = selection.first),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '„An“ hilft bei Figuren, Fahrzeugen und Gebäuden; '
+                          '„Aus“ für bewusst asymmetrische Motive.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('PBR-Material'),
+                          subtitle: const Text(
+                              'Zusätzliche Material-Maps (Metall, Rauheit, '
+                              'Normal) für realistischere Oberflächen'),
+                          value: _pbr,
+                          onChanged: _running
+                              ? null
+                              : (v) => setState(() => _pbr = v),
+                        ),
+                      ],
+                      if (isTripo)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Textur-Qualität „detailliert“'),
+                          subtitle: const Text(
+                              'Höher aufgelöste Texturen – kostet '
+                              'zusätzliche Credits'),
+                          value: _tripoDetailedTexture,
+                          onChanged: _running || !_texture
+                              ? null
+                              : (v) =>
+                                  setState(() => _tripoDetailedTexture = v),
+                        ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Quad-Topologie'),
+                        subtitle: const Text(
+                            'Viereck-Netz statt Dreiecke – sauberer für '
+                            'Blender, Animation und Weiterbearbeitung'),
+                        value: _quadTopology,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _quadTopology = v),
+                      ),
+                      if (!isTripo && _texture) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _texturePromptCtrl,
+                          enabled: !_running,
+                          decoration: const InputDecoration(
+                            labelText: 'Textur-Beschreibung (optional)',
+                            hintText: 'z. B. „abgenutztes dunkles Metall '
+                                'mit Kratzern“',
+                            helperText:
+                                'Beschreibt nur die Oberfläche – die Form '
+                                'kommt aus dem Haupt-Prompt bzw. Bild.',
+                            helperMaxLines: 2,
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  leading: const Icon(Icons.lightbulb_outline),
+                  title: const Text('Tipps für bessere 3D-Modelle'),
+                  children: [
+                    Text(
+                      '• Ein Motiv pro Modell: ein einzelnes, '
+                      'freistehendes Objekt beschreiben oder zeigen – '
+                      'keine Szenen mit mehreren Objekten.\n'
+                      '• Figuren in T-Pose erzeugen (Schalter im '
+                      'Text-Modus) – gespreizte Arme rekonstruieren sich '
+                      'deutlich besser, auch ohne Rigging.\n'
+                      '• Erzeugte Ansichten kurz prüfen: eine unpassende '
+                      'Ansicht löschen (X) und neu erzeugen lassen kostet '
+                      'nur ein Bild, verbessert das Modell aber stark.\n'
+                      '• Eigene Bilder: Motiv vollständig sichtbar, '
+                      'möglichst transparenter oder neutraler Hintergrund, '
+                      'gleichmäßiges Licht ohne harte Schatten.\n'
+                      '• Meshy/Tripo: In den Qualitäts-Optionen die '
+                      'neueste KI-Generation wählen – der größte '
+                      'Qualitätssprung. Mehr Polygone und PBR bzw. '
+                      '„detailliert“ für feinere Details.\n'
+                      '• Lokal (360°-Modell): je mehr Ansichten, desto '
+                      'genauer. Vertiefungen und Hohlräume kann das '
+                      'Verfahren nicht abbilden – für komplexe Figuren '
+                      'Meshy oder Tripo verwenden.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [

@@ -93,21 +93,58 @@ class MeshyService {
     return id;
   }
 
+  /// Qualitäts-Optionen, die alle Meshy-Endpunkte verstehen. Nur vom
+  /// Standard abweichende Werte werden mitgeschickt, damit die
+  /// API-Vorgaben (und künftige Änderungen daran) erhalten bleiben.
+  Map<String, dynamic> _qualityFields({
+    String? aiModel,
+    bool quadTopology = false,
+    int? targetPolycount,
+    String? symmetryMode,
+  }) =>
+      {
+        if (aiModel != null && aiModel.isNotEmpty) 'ai_model': aiModel,
+        if (quadTopology) 'topology': 'quad',
+        if (targetPolycount != null && targetPolycount > 0)
+          'target_polycount': targetPolycount,
+        if (symmetryMode != null && symmetryMode != 'auto')
+          'symmetry_mode': symmetryMode,
+      };
+
   /// Schritt 1 bei Text→3D: unbemalte Geometrie (Preview).
-  Future<String> createTextPreview(String prompt, String artStyle) =>
+  Future<String> createTextPreview(
+    String prompt,
+    String artStyle, {
+    String? aiModel,
+    bool quadTopology = false,
+    int? targetPolycount,
+    String? symmetryMode,
+  }) =>
       _createTask('v2/text-to-3d', {
         'mode': 'preview',
         'prompt': prompt,
         'art_style': artStyle,
         'should_remesh': true,
+        ..._qualityFields(
+          aiModel: aiModel,
+          quadTopology: quadTopology,
+          targetPolycount: targetPolycount,
+          symmetryMode: symmetryMode,
+        ),
       });
 
   /// Schritt 2 bei Text→3D: Texturierung des Preview-Modells.
-  Future<String> createTextRefine(String previewTaskId) =>
+  Future<String> createTextRefine(
+    String previewTaskId, {
+    bool enablePbr = true,
+    String? texturePrompt,
+  }) =>
       _createTask('v2/text-to-3d', {
         'mode': 'refine',
         'preview_task_id': previewTaskId,
-        'enable_pbr': true,
+        'enable_pbr': enablePbr,
+        if (texturePrompt != null && texturePrompt.isNotEmpty)
+          'texture_prompt': texturePrompt,
       });
 
   /// Bild→3D (liefert direkt ein – optional texturiertes – Modell).
@@ -115,12 +152,26 @@ class MeshyService {
     Uint8List imageBytes,
     String mimeType, {
     required bool texture,
+    String? aiModel,
+    bool quadTopology = false,
+    int? targetPolycount,
+    String? symmetryMode,
+    bool enablePbr = true,
+    String? texturePrompt,
   }) =>
       _createTask('v1/image-to-3d', {
         'image_url': 'data:$mimeType;base64,${base64Encode(imageBytes)}',
         'should_remesh': true,
         'should_texture': texture,
-        'enable_pbr': texture,
+        'enable_pbr': texture && enablePbr,
+        if (texture && texturePrompt != null && texturePrompt.isNotEmpty)
+          'texture_prompt': texturePrompt,
+        ..._qualityFields(
+          aiModel: aiModel,
+          quadTopology: quadTopology,
+          targetPolycount: targetPolycount,
+          symmetryMode: symmetryMode,
+        ),
       });
 
   /// Mehrbild→3D: 1–4 Ansichten desselben Objekts; das erste Bild ist
@@ -128,6 +179,12 @@ class MeshyService {
   Future<String> createMultiImageTo3d(
     List<(Uint8List, String)> images, {
     required bool texture,
+    String? aiModel,
+    bool quadTopology = false,
+    int? targetPolycount,
+    String? symmetryMode,
+    bool enablePbr = true,
+    String? texturePrompt,
   }) =>
       _createTask('v1/multi-image-to-3d', {
         'image_urls': [
@@ -136,7 +193,15 @@ class MeshyService {
         ],
         'should_remesh': true,
         'should_texture': texture,
-        'enable_pbr': texture,
+        'enable_pbr': texture && enablePbr,
+        if (texture && texturePrompt != null && texturePrompt.isNotEmpty)
+          'texture_prompt': texturePrompt,
+        ..._qualityFields(
+          aiModel: aiModel,
+          quadTopology: quadTopology,
+          targetPolycount: targetPolycount,
+          symmetryMode: symmetryMode,
+        ),
       });
 
   /// Auto-Rigging für Figuren (Skelett + Basis-Animationen).

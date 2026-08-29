@@ -563,77 +563,218 @@ LocalMesh buildVisualHullMesh({
     return front.colorAt(uF, vF);
   }
 
-  final mesh = LocalMesh();
   final sx = 1.0 / nx, sy = yExtent / ny, sz = zExtent / nz;
-  void addFace(List<List<double>> corners, (double, double, double) color) {
-    final (r, g, b) = color;
-    final ids = [
-      for (final c in corners)
-        mesh.addVertex(c[0] - 0.5, c[1] - yExtent / 2, c[2] - zExtent / 2,
-            0, 0,
-            r: r, g: g, b: b)
-    ];
-    mesh.addQuad(ids[0], ids[1], ids[2], ids[3]);
-  }
 
-  for (var ix = 0; ix < nx; ix++) {
-    for (var iy = 0; iy < ny; iy++) {
-      for (var iz = 0; iz < nz; iz++) {
-        if (!solid[ix][iy][iz]) continue;
-        final x0 = ix * sx, x1 = x0 + sx;
-        final y0 = iy * sy, y1 = y0 + sy;
-        final z0 = iz * sz, z1 = z0 + sz;
-        final cx = x0 + sx / 2, cy = y0 + sy / 2, cz = z0 + sz / 2;
-        if (!filled(ix, iy, iz + 1)) {
-          addFace([
-            [x0, y0, z1],
-            [x1, y0, z1],
-            [x1, y1, z1],
-            [x0, y1, z1],
-          ], faceColor(2, 1, cx, cy, cz));
+  // Oberfläche per „Surface Nets“ statt Voxel-Würfeln: Ein Dichtefeld an
+  // den Gitterpunkten (Mittel der 8 Nachbarzellen) glättet die Voxel;
+  // pro Randzelle entsteht ein Vertex am Mittel der Kantenschnittpunkte,
+  // verbunden über die Gitterkanten. Zusammen mit zwei Glättungsläufen
+  // ergibt das eine geschlossene, organische Oberfläche ohne
+  // Treppenstufen. Die Iso-Schwelle liegt unter 0,5, damit auch dünne,
+  // nur 1 Zelle dicke Strukturen (z. B. Schwertklingen) erhalten
+  // bleiben; einzelne isolierte Voxel fallen dagegen weg.
+  final pnx = nx + 1, pny = ny + 1, pnz = nz + 1;
+  final density = Float32List(pnx * pny * pnz);
+  int pIndex(int i, int j, int k) => (i * pny + j) * pnz + k;
+  for (var i = 0; i < pnx; i++) {
+    for (var j = 0; j < pny; j++) {
+      for (var k = 0; k < pnz; k++) {
+        // Rand des Definitionsbereichs bleibt außen – schließt das Mesh.
+        if (i == 0 || j == 0 || k == 0 ||
+            i == pnx - 1 || j == pny - 1 || k == pnz - 1) {
+          continue;
         }
-        if (!filled(ix, iy, iz - 1)) {
-          addFace([
-            [x1, y0, z0],
-            [x0, y0, z0],
-            [x0, y1, z0],
-            [x1, y1, z0],
-          ], faceColor(2, -1, cx, cy, cz));
+        var count = 0;
+        for (var ci = i - 1; ci <= i; ci++) {
+          for (var cj = j - 1; cj <= j; cj++) {
+            for (var ck = k - 1; ck <= k; ck++) {
+              if (filled(ci, cj, ck)) count++;
+            }
+          }
         }
-        if (!filled(ix + 1, iy, iz)) {
-          addFace([
-            [x1, y0, z1],
-            [x1, y0, z0],
-            [x1, y1, z0],
-            [x1, y1, z1],
-          ], faceColor(0, 1, cx, cy, cz));
-        }
-        if (!filled(ix - 1, iy, iz)) {
-          addFace([
-            [x0, y0, z0],
-            [x0, y0, z1],
-            [x0, y1, z1],
-            [x0, y1, z0],
-          ], faceColor(0, -1, cx, cy, cz));
-        }
-        if (!filled(ix, iy + 1, iz)) {
-          addFace([
-            [x0, y1, z1],
-            [x1, y1, z1],
-            [x1, y1, z0],
-            [x0, y1, z0],
-          ], faceColor(1, 1, cx, cy, cz));
-        }
-        if (!filled(ix, iy - 1, iz)) {
-          addFace([
-            [x0, y0, z0],
-            [x1, y0, z0],
-            [x1, y0, z1],
-            [x0, y0, z1],
-          ], faceColor(1, -1, cx, cy, cz));
-        }
+        density[pIndex(i, j, k)] = count / 8.0;
       }
     }
+  }
+  double fieldAt(int i, int j, int k) => density[pIndex(i, j, k)];
+  const iso = 0.35;
+  bool inside(int i, int j, int k) => fieldAt(i, j, k) > iso;
+
+  // Würfelecken als (dx, dy, dz); Index = dx + dy*2 + dz*4.
+  const cellCorners = [
+    [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+    [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+  ];
+  const cellEdges = [
+    [0, 1], [2, 3], [4, 5], [6, 7],
+    [0, 2], [1, 3], [4, 6], [5, 7],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+
+  final cellVertex = Int32List(nx * ny * nz)..fillRange(0, nx * ny * nz, -1);
+  int cIndex(int i, int j, int k) => (i * ny + j) * nz + k;
+  final vertexPos = <double>[]; // x,y,z im Objektraum (0..Extent)
+  final vertexCell = <int>[]; // Zelle (ci,cj,ck) je Vertex
+
+  final cornerValues = List<double>.filled(8, 0);
+  for (var ci = 0; ci < nx; ci++) {
+    for (var cj = 0; cj < ny; cj++) {
+      for (var ck = 0; ck < nz; ck++) {
+        var maskBits = 0;
+        for (var c = 0; c < 8; c++) {
+          cornerValues[c] = fieldAt(ci + cellCorners[c][0],
+              cj + cellCorners[c][1], ck + cellCorners[c][2]);
+          if (cornerValues[c] > iso) maskBits |= 1 << c;
+        }
+        if (maskBits == 0 || maskBits == 255) continue;
+        var ax = 0.0, ay = 0.0, az = 0.0;
+        var crossings = 0;
+        for (final edge in cellEdges) {
+          final a = edge[0], b = edge[1];
+          if (((maskBits >> a) & 1) == ((maskBits >> b) & 1)) continue;
+          final t = (iso - cornerValues[a]) /
+              (cornerValues[b] - cornerValues[a]);
+          ax += cellCorners[a][0] +
+              t * (cellCorners[b][0] - cellCorners[a][0]);
+          ay += cellCorners[a][1] +
+              t * (cellCorners[b][1] - cellCorners[a][1]);
+          az += cellCorners[a][2] +
+              t * (cellCorners[b][2] - cellCorners[a][2]);
+          crossings++;
+        }
+        cellVertex[cIndex(ci, cj, ck)] = vertexPos.length ~/ 3;
+        vertexPos.addAll([
+          (ci + ax / crossings) * sx,
+          (cj + ay / crossings) * sy,
+          (ck + az / crossings) * sz,
+        ]);
+        vertexCell.addAll([ci, cj, ck]);
+      }
+    }
+  }
+
+  // Quads über alle Gitterkanten mit Vorzeichenwechsel; die vier
+  // angrenzenden Zellen tragen die Vertices. Reihenfolge so, dass die
+  // Normale vom Objekt weg zeigt.
+  final quads = <int>[];
+  void emitQuad(int c0, int c1, int c2, int c3, bool lowerInside) {
+    final a = cellVertex[c0], b = cellVertex[c1];
+    final c = cellVertex[c2], d = cellVertex[c3];
+    if (a < 0 || b < 0 || c < 0 || d < 0) return;
+    if (lowerInside) {
+      quads.addAll([a, b, c, d]);
+    } else {
+      quads.addAll([d, c, b, a]);
+    }
+  }
+
+  for (var i = 0; i < nx; i++) {
+    for (var j = 1; j < ny; j++) {
+      for (var k = 1; k < nz; k++) {
+        final a = inside(i, j, k), b = inside(i + 1, j, k);
+        if (a == b) continue;
+        emitQuad(cIndex(i, j - 1, k - 1), cIndex(i, j, k - 1),
+            cIndex(i, j, k), cIndex(i, j - 1, k), a);
+      }
+    }
+  }
+  for (var j = 0; j < ny; j++) {
+    for (var i = 1; i < nx; i++) {
+      for (var k = 1; k < nz; k++) {
+        final a = inside(i, j, k), b = inside(i, j + 1, k);
+        if (a == b) continue;
+        emitQuad(cIndex(i - 1, j, k - 1), cIndex(i - 1, j, k),
+            cIndex(i, j, k), cIndex(i, j, k - 1), a);
+      }
+    }
+  }
+  for (var k = 0; k < nz; k++) {
+    for (var i = 1; i < nx; i++) {
+      for (var j = 1; j < ny; j++) {
+        final a = inside(i, j, k), b = inside(i, j, k + 1);
+        if (a == b) continue;
+        emitQuad(cIndex(i - 1, j - 1, k), cIndex(i, j - 1, k),
+            cIndex(i, j, k), cIndex(i - 1, j, k), a);
+      }
+    }
+  }
+
+  // Zwei Laplace-Glättungsläufe über die Quad-Kanten.
+  final vertexCount = vertexPos.length ~/ 3;
+  for (var pass = 0; pass < 2; pass++) {
+    final sums = Float64List(vertexCount * 3);
+    final counts = Int32List(vertexCount);
+    void link(int a, int b) {
+      for (var c = 0; c < 3; c++) {
+        sums[a * 3 + c] += vertexPos[b * 3 + c];
+        sums[b * 3 + c] += vertexPos[a * 3 + c];
+      }
+      counts[a]++;
+      counts[b]++;
+    }
+
+    for (var q = 0; q < quads.length; q += 4) {
+      link(quads[q], quads[q + 1]);
+      link(quads[q + 1], quads[q + 2]);
+      link(quads[q + 2], quads[q + 3]);
+      link(quads[q + 3], quads[q]);
+    }
+    for (var v = 0; v < vertexCount; v++) {
+      final n = counts[v];
+      if (n == 0) continue;
+      for (var c = 0; c < 3; c++) {
+        vertexPos[v * 3 + c] =
+            0.5 * vertexPos[v * 3 + c] + 0.5 * sums[v * 3 + c] / n;
+      }
+    }
+  }
+
+  // Farbe je Vertex: Blickrichtung aus dem Dichte-Gradienten ableiten
+  // (auswärts = fallende Dichte) und die passende Ansicht projizieren.
+  final mesh = LocalMesh();
+  for (var v = 0; v < vertexCount; v++) {
+    final ci = vertexCell[v * 3], cj = vertexCell[v * 3 + 1],
+        ck = vertexCell[v * 3 + 2];
+    double sideSum(int di, int dj, int dk, int axis) {
+      var sum = 0.0;
+      for (var a = 0; a < 2; a++) {
+        for (var b = 0; b < 2; b++) {
+          sum += switch (axis) {
+            0 => fieldAt(ci + di, cj + a, ck + b),
+            1 => fieldAt(ci + a, cj + dj, ck + b),
+            _ => fieldAt(ci + a, cj + b, ck + dk),
+          };
+        }
+      }
+      return sum;
+    }
+
+    final gx = (sideSum(1, 0, 0, 0) - sideSum(0, 0, 0, 0)) / sx;
+    final gy = (sideSum(0, 1, 0, 1) - sideSum(0, 0, 0, 1)) / sy;
+    final gz = (sideSum(0, 0, 1, 2) - sideSum(0, 0, 0, 2)) / sz;
+    final ox = -gx, oy = -gy, oz = -gz;
+    int axis;
+    int dir;
+    if (ox.abs() >= oy.abs() && ox.abs() >= oz.abs()) {
+      axis = 0;
+      dir = ox >= 0 ? 1 : -1;
+    } else if (oy.abs() >= oz.abs()) {
+      axis = 1;
+      dir = oy >= 0 ? 1 : -1;
+    } else {
+      axis = 2;
+      dir = oz >= 0 ? 1 : -1;
+    }
+    final x = vertexPos[v * 3].clamp(0.0, 1.0);
+    final y = vertexPos[v * 3 + 1].clamp(0.0, yExtent);
+    final z = vertexPos[v * 3 + 2].clamp(0.0, zExtent);
+    final (r, g, b) = faceColor(axis, dir, x, y, z);
+    mesh.addVertex(vertexPos[v * 3] - 0.5, vertexPos[v * 3 + 1] - yExtent / 2,
+        vertexPos[v * 3 + 2] - zExtent / 2, 0, 0,
+        r: r, g: g, b: b);
+  }
+  for (var q = 0; q < quads.length; q += 4) {
+    mesh.addQuad(quads[q], quads[q + 1], quads[q + 2], quads[q + 3]);
   }
   return mesh;
 }

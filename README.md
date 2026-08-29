@@ -34,7 +34,8 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
   - **Eigener lokaler 3D-Generator** (ohne API, kostenlos): baut aus
     Bildern texturierte GLB-Modelle direkt in der App – Relief
     (Helligkeit → Höhe), Standee (extrudierte Silhouette) und
-    360°-Modell (Visual Hull aus bis zu 4 Ansichten mit Farbprojektion);
+    360°-Modell (Visual Hull aus bis zu 4 Ansichten mit Farbprojektion
+    und geglätteter Surface-Nets-Oberfläche statt Voxel-Würfeln);
     eigener glTF-2.0-Writer in Dart
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
@@ -48,6 +49,11 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Text; bei Meshy/Tripo ist die Pipeline im Text-Modus zuschaltbar.
     Bereits erzeugte Ansichten werden wiederverwendet und lassen sich
     einzeln austauschen.
+  - **Qualitäts-Optionen (Profi)** für Meshy/Tripo: KI-Generation
+    wählbar (Meshy 5/6/Neueste bzw. Tripo v2.5/v3.0), Polygonzahl,
+    Quad-Topologie, Symmetrie-Modus, PBR-Material, Textur-Qualität
+    „detailliert“ und eigener Textur-Prompt; dazu T-Pose-Schalter und
+    eingebaute Tipps für bessere 3D-Modelle
   - Wasserzeichen mit eigenem Logo (Position, Größe, Deckkraft)
   - Galerie/Verlauf mit Prompt, Parametern und „Erneut verwenden“
   - Bilder speichern, teilen bzw. herunterladen
