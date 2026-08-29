@@ -85,8 +85,8 @@ class SettingsService extends ChangeNotifier {
   String? _meshyKey;
   String? _tripoKey;
 
-  /// Gewählter 3D-Provider: 'meshy' oder 'tripo'.
-  String threeDProvider = 'meshy';
+  /// Gewählter 3D-Provider: 'local', 'stability', 'meshy' oder 'tripo'.
+  String threeDProvider = 'local';
 
   /// API-Schlüssel für den 3D-Provider Meshy.
   String? get meshyApiKey => _meshyKey;

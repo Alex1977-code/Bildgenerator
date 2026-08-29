@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/auto_rig.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
 import '../services/local_3d.dart';
@@ -33,7 +34,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   final _promptCtrl = TextEditingController();
   final _picker = ImagePicker();
 
-  bool _imageMode = false;
+  bool _imageMode = true;
   /// Ansichten: 'front' ist Pflicht, 'left'/'right'/'back' optional
   /// für Rundum-Modelle.
   final Map<String, ReferenceImage?> _views = {
@@ -83,11 +84,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
 
-  // Optionen des lokalen Generators.
-  String _localMode = 'relief'; // 'relief' | 'standee' | 'hull'
+  // Optionen des lokalen Generators (360°-Modell).
   int _localResolution = 96;
-  double _localDepth = 0.15;
-  bool _localInvert = false;
 
   bool _running = false;
   bool _cancelRequested = false;
@@ -210,7 +208,6 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final augmentViews = _imageMode &&
         _completeViews &&
         !isStability &&
-        (!isLocal || _localMode == 'hull') &&
         _views.values.any((view) => view == null);
     if (!_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
@@ -239,12 +236,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         final generated = await generateViewsFromText(
           settings: settings,
           description: prompt,
-          tPose: _tPose || (!isLocal && !isStability && _rigging),
+          tPose: _tPose || _rigging,
           onProgress: progress,
           isCancelled: cancelled,
-          // Relief/Standee und Stability (1 Bild) brauchen nur die
-          // Vorderansicht – das spart Kosten.
-          frontOnly: (isLocal && _localMode != 'hull') || isStability,
+          // Stability braucht nur ein Bild – das spart Kosten.
+          frontOnly: isStability,
           // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
           existing: {
             for (final entry in _views.entries)
@@ -331,7 +327,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Optional: Tiefenkarten per Bild-KI für plastische Vertiefungen.
     Uint8List? frontDepthMap;
     Uint8List? backDepthMap;
-    if (_localDepthAi && _localMode != 'standee') {
+    if (_localDepthAi) {
       frontDepthMap = await generateDepthMap(
         settings: settings,
         source: source,
@@ -340,7 +336,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         isCancelled: cancelled,
       );
       final backView = _views['back'];
-      if (_localMode == 'hull' && backView != null) {
+      if (backView != null) {
         backDepthMap = await generateDepthMap(
           settings: settings,
           source: backView,
@@ -352,48 +348,48 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (cancelled()) throw GenerationException('Abgebrochen.');
     }
 
-    progress(_localMode == 'hull'
-        ? 'Ansichten werden ausgewertet, Volumen wird geschnitzt …'
-        : 'Bild wird analysiert …');
+    progress('Ansichten werden ausgewertet, Volumen wird geschnitzt …');
     Uint8List glb;
     try {
-      if (_localMode == 'hull') {
-        glb = await generateLocalHullGlb(
-          frontBytes: source.bytes,
-          leftBytes: _views['left']?.bytes,
-          rightBytes: _views['right']?.bytes,
-          backBytes: _views['back']?.bytes,
-          frontDepthBytes: frontDepthMap,
-          backDepthBytes: backDepthMap,
-          resolution: _localResolution.clamp(48, 120),
-        );
-      } else {
-        glb = await generateLocalGlb(
-          source.bytes,
-          standee: _localMode == 'standee',
-          resolution: _localResolution,
-          depth: _localDepth,
-          invert: _localInvert,
-          depthBytes: frontDepthMap,
-        );
-      }
+      glb = await generateLocalHullGlb(
+        frontBytes: source.bytes,
+        leftBytes: _views['left']?.bytes,
+        rightBytes: _views['right']?.bytes,
+        backBytes: _views['back']?.bytes,
+        frontDepthBytes: frontDepthMap,
+        backDepthBytes: backDepthMap,
+        resolution: _localResolution.clamp(48, 120),
+      );
     } on Exception catch (e) {
       throw GenerationException(
           e.toString().replaceFirst('Exception: ', ''));
     }
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
-      label: label ??
-          switch (_localMode) {
-            'hull' => '360°-Modell (lokal)',
-            'standee' => 'Standee (lokal)',
-            _ => 'Relief (lokal)',
-          },
+      label: label ?? '360°-Modell (lokal)',
       providerLabel: 'Lokal',
       thumbnail: source.bytes,
-      rigged: false,
+      rigged: rigged,
       textured: true,
     );
+  }
+
+  /// Baut bei aktivem Rigging das lokale Standard-Skelett ins GLB ein.
+  /// Liefert true, wenn das Modell geriggt wurde.
+  bool _maybeInjectRig(Uint8List Function() getGlb,
+      void Function(Uint8List) setGlb, void Function(String) progress) {
+    if (!_rigging) return false;
+    progress('Skelett wird eingebaut …');
+    try {
+      setGlb(injectHumanoidRig(getGlb()));
+      return true;
+    } on Exception catch (e) {
+      _showSnack('Rigging nicht möglich: '
+          '${e.toString().replaceFirst('Exception: ', '')} – das Modell '
+          'wird ohne Skelett geliefert.');
+      return false;
+    }
   }
 
   Future<void> _runStability(
@@ -408,19 +404,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     progress(_stabilityEngine == 'stable-fast-3d'
         ? 'Modell wird generiert (Stable Fast 3D) …'
         : 'Modell wird generiert (Stable Point Aware 3D) …');
-    final glb = await service.generateModel(
+    var glb = await service.generateModel(
       imageBytes: source.bytes,
       mimeType: source.mimeType,
       engine: _stabilityEngine,
       textureResolution: _stabilityTextureRes,
       quadRemesh: _quadTopology,
     );
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
       label: label,
       providerLabel: 'Stability',
       thumbnail: source.bytes,
-      rigged: false,
+      rigged: rigged,
       textured: true,
     );
   }
@@ -699,6 +696,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
+  /// Rigging-Schalter für Lokal und Stability: eigenes Auto-Rigging,
+  /// das lokal ein Standard-Skelett ins GLB einbaut.
+  Widget _autoRigSwitch() {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('Rigging (Skelett für Animation)'),
+      subtitle: const Text(
+          'Baut lokal ein Standard-Skelett (17 Gelenke) für '
+          'T-Pose-Figuren direkt ins GLB ein – für Animationen in '
+          'Blender/Unity/Godot. T-Pose wird automatisch aktiviert; nur '
+          'für Figuren geeignet.'),
+      value: _rigging,
+      onChanged: _running ? null : (v) => setState(() => _rigging = v),
+    );
+  }
+
   /// Auswahl-Kachel für eine Ansicht (Vorn/Links/Rechts/Hinten).
   Widget _viewSlot(String key, String label) {
     final theme = Theme.of(context);
@@ -800,7 +813,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isTripo = settings.threeDProvider == 'tripo';
     final isLocal = settings.threeDProvider == 'local';
     final isStability = settings.threeDProvider == 'stability';
-    final riggingForcesTPose = !isLocal && !isStability && _rigging;
+    final riggingForcesTPose = _rigging;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -826,11 +839,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   alignment: Alignment.centerLeft,
                   child: SegmentedButton<String>(
                     segments: const [
-                      ButtonSegment(value: 'meshy', label: Text('Meshy')),
-                      ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
+                      ButtonSegment(value: 'local', label: Text('Lokal')),
                       ButtonSegment(
                           value: 'stability', label: Text('Stability')),
-                      ButtonSegment(value: 'local', label: Text('Lokal')),
+                      ButtonSegment(value: 'meshy', label: Text('Meshy')),
+                      ButtonSegment(value: 'tripo', label: Text('Tripo3D')),
                     ],
                     selected: {settings.threeDProvider},
                     onSelectionChanged: _running
@@ -843,8 +856,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 Text(
                   isLocal
                       ? 'Eigener Generator: rechnet komplett lokal in der '
-                          'App – kostenlos, kein API-Schlüssel nötig. '
-                          'Baut Relief- und Aufsteller-Modelle aus Bildern.'
+                          'App – kostenlos, kein API-Schlüssel nötig. Baut '
+                          'aus bis zu 4 Ansichten ein farbiges 360°-Modell '
+                          '(optional mit KI-Ansichten und Tiefenschätzung).'
                       : isStability
                           ? 'Stability 3D: trainierte generative Modelle '
                               '(Stable Fast 3D / Point Aware 3D) – '
@@ -930,13 +944,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               'trainierte Stability-Modell rekonstruiert '
                               'daraus das komplette 3D-Modell inklusive '
                               'Rückseite.'
-                          : 'Die nötigen Ansichten werden automatisch mit '
-                              'der Bild-KI aus dem Generator-Tab '
-                              '(${settings.provider.label}) erzeugt – mit '
-                              'abgestimmten Prompts, damit die Ansichten '
-                              'perfekt zusammenpassen. Beim 360°-Modell '
-                              'sind das 4 Bilder, sonst nur die '
-                              'Vorderansicht.',
+                          : 'Die 4 Ansichten (vorn/links/rechts/hinten) '
+                              'werden automatisch mit der Bild-KI aus dem '
+                              'Generator-Tab (${settings.provider.label}) '
+                              'erzeugt – mit abgestimmten Prompts, damit '
+                              'sie perfekt zusammenpassen.',
                       style: theme.textTheme.bodySmall,
                     )
                   else
@@ -959,8 +971,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   if (isLocal || isStability || _viewsFromText) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
-                      final showAllViews = !isStability &&
-                          (!isLocal || _localMode == 'hull');
+                      final showAllViews = !isStability;
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -985,8 +996,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ],
                 ] else ...[
                   Builder(builder: (context) {
-                    final showAllViews = !isStability &&
-                        (!isLocal || _localMode == 'hull');
+                    final showAllViews = !isStability;
                     return Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -1006,7 +1016,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ? 'Stability nutzt genau ein Bild: Rückseite, '
                             'Vertiefungen und Verdecktes rekonstruiert '
                             'das trainierte Modell selbst.'
-                        : isLocal && _localMode == 'hull'
+                        : isLocal
                             ? 'Vorderansicht ist Pflicht; je mehr echte '
                                 'Ansichten (links/rechts/hinten), desto '
                                 'genauer wird das räumliche Modell. Alle '
@@ -1018,7 +1028,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                 'Rundum-Modell.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (!isStability && (!isLocal || _localMode == 'hull'))
+                  if (!isStability)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
@@ -1040,84 +1050,29 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ],
                 const SectionLabel('Optionen'),
                 if (isLocal) ...[
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                            value: 'relief', label: Text('Relief')),
-                        ButtonSegment(
-                            value: 'standee', label: Text('Standee')),
-                        ButtonSegment(
-                            value: 'hull', label: Text('360°-Modell')),
-                      ],
-                      selected: {_localMode},
-                      onSelectionChanged: _running
-                          ? null
-                          : (selection) =>
-                              setState(() => _localMode = selection.first),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
                   Text(
-                    switch (_localMode) {
-                      'standee' =>
-                        'Extrudiert die Silhouette als Aufsteller – das '
-                            'Bild braucht einen transparenten Hintergrund '
-                            '(im Generator-Tab erzeugen).',
-                      'hull' =>
-                        'Echtes räumliches Modell: Aus den Silhouetten von '
-                            'Vorn/Links/Rechts/Hinten wird ein Volumen '
-                            'geschnitzt (Visual Hull), die Oberfläche '
-                            'geglättet und mit den Bildfarben eingefärbt. '
-                            'Kein Rigging möglich.',
-                      _ => 'Helligkeit wird zu Höhe – ideal für '
-                          'Landschaften, Prägungen und Logos. Kein '
-                          'Rigging möglich.',
-                    },
+                    'Echtes räumliches 360°-Modell: Aus den Silhouetten '
+                    'von Vorn/Links/Rechts/Hinten wird ein Volumen '
+                    'geschnitzt (Visual Hull), die Oberfläche geglättet '
+                    'und mit den Bildfarben eingefärbt.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (_localMode != 'standee')
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title:
-                          const Text('KI-Tiefenschätzung (Vertiefungen)'),
-                      subtitle: Text(_localMode == 'hull'
-                          ? 'Formt Mulden und Vertiefungen: Per '
-                              '${settings.provider.label} geschätzte '
-                              'Tiefenkarten der Vorder-/Rückansicht '
-                              'schieben die Oberfläche nach innen – '
-                              'überwindet die Silhouetten-Grenze des '
-                              'Visual Hull. Ca. 1 Bild je Tiefenkarte.'
-                          : 'Höhen aus einer KI-Tiefenkarte '
-                              '(${settings.provider.label}) statt aus der '
-                              'Helligkeit – echte räumliche Tiefe fürs '
-                              'Relief. Ca. 1 Bildgenerierung.'),
-                      value: _localDepthAi,
-                      onChanged: _running
-                          ? null
-                          : (v) => setState(() => _localDepthAi = v),
-                    ),
-                  if (_localMode != 'hull') Row(
-                    children: [
-                      const SizedBox(width: 90, child: Text('Tiefe')),
-                      Expanded(
-                        child: Slider(
-                          value: _localDepth,
-                          min: 0.05,
-                          max: 0.5,
-                          divisions: 18,
-                          label:
-                              '${(_localDepth * 100).round()} % der Breite',
-                          onChanged: _running
-                              ? null
-                              : (v) => setState(() => _localDepth = v),
-                        ),
-                      ),
-                      Text('${(_localDepth * 100).round()} %'),
-                    ],
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('KI-Tiefenschätzung (Vertiefungen)'),
+                    subtitle: Text(
+                        'Formt Mulden und Vertiefungen: Per '
+                        '${settings.provider.label} geschätzte '
+                        'Tiefenkarten der Vorder-/Rückansicht schieben '
+                        'die Oberfläche nach innen – überwindet die '
+                        'Silhouetten-Grenze des Visual Hull. '
+                        'Ca. 1 Bild je Tiefenkarte.'),
+                    value: _localDepthAi,
+                    onChanged: _running
+                        ? null
+                        : (v) => setState(() => _localDepthAi = v),
                   ),
+                  _autoRigSwitch(),
                   Row(
                     children: [
                       const SizedBox(width: 90, child: Text('Detailgrad')),
@@ -1137,28 +1092,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       Text('$_localResolution'),
                     ],
                   ),
-                  if (_localMode == 'relief')
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Höhen umkehren'),
-                      subtitle:
-                          const Text('Dunkle Stellen werden erhaben'),
-                      value: _localInvert,
-                      onChanged: _running
-                          ? null
-                          : (v) => setState(() => _localInvert = v),
-                    ),
                 ] else if (isStability) ...[
                   Text(
-                    'Textur ist immer enthalten. Rigging wird von '
-                    'Stability-3D nicht unterstützt – falls ein Skelett '
-                    'gebraucht wird, dasselbe Bild bei Meshy oder Tripo3D '
-                    'verwenden.',
+                    'Textur (PBR) ist immer im Modell enthalten.',
                     style: theme.textTheme.bodySmall,
                   ),
+                  _autoRigSwitch(),
                   ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     childrenPadding: const EdgeInsets.only(bottom: 8),
+                    initiallyExpanded: true,
                     title: const Text('Qualitäts-Optionen (Profi)'),
                     subtitle: Text(
                       'Engine, Textur-Auflösung, Topologie',
@@ -1242,6 +1185,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     childrenPadding: const EdgeInsets.only(bottom: 8),
+                    initiallyExpanded: true,
                     title: const Text('Qualitäts-Optionen (Profi)'),
                     subtitle: Text(
                       isTripo

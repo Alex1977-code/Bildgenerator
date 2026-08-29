@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 
@@ -204,6 +205,60 @@ void main() {
         closeTo(maxZWhere(flat, (x) => x > 0.2), 1e-6));
     expect(maxZWhere(shaped, (x) => x > 0.2),
         greaterThan(maxZWhere(shaped, (x) => x < -0.2) + 0.1));
+  });
+
+  test('Auto-Rigging baut Skelett und Gewichte ins GLB ein', () async {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    expect(glbHasSkin(glb), isFalse);
+
+    final rigged = injectHumanoidRig(glb);
+    expect(glbHasSkin(rigged), isTrue);
+
+    final json = _readGlbJson(rigged);
+    final skin = (json['skins'] as List).first as Map;
+    expect(skin['joints'] as List, hasLength(humanoidJointCount));
+    expect(skin.containsKey('inverseBindMatrices'), isTrue);
+
+    final primitive = (((json['meshes'] as List).first as Map)['primitives']
+        as List)[0] as Map;
+    final attrs = primitive['attributes'] as Map;
+    final accessors = json['accessors'] as List;
+    final vertexCount =
+        ((accessors[attrs['POSITION'] as int]) as Map)['count'];
+    expect(((accessors[attrs['JOINTS_0'] as int]) as Map)['count'],
+        vertexCount);
+    expect(((accessors[attrs['WEIGHTS_0'] as int]) as Map)['count'],
+        vertexCount);
+
+    // Gewichte des ersten Vertex summieren sich zu 1.
+    final weightsAccessor = accessors[attrs['WEIGHTS_0'] as int] as Map;
+    final weightsView = (json['bufferViews']
+        as List)[weightsAccessor['bufferView'] as int] as Map;
+    final data = ByteData.sublistView(rigged);
+    final jsonLength = data.getUint32(12, Endian.little);
+    final binStart = 20 + jsonLength + 8;
+    final o = binStart + (weightsView['byteOffset'] as int);
+    var sum = 0.0;
+    for (var c = 0; c < 4; c++) {
+      sum += data.getFloat32(o + c * 4, Endian.little);
+    }
+    expect(sum, closeTo(1.0, 1e-4));
+
+    // Der Mesh-Knoten hängt am Skin, die Vorschau funktioniert weiter.
+    final meshNode = (json['nodes'] as List)
+        .firstWhere((n) => (n as Map).containsKey('mesh')) as Map;
+    expect(meshNode['skin'], 0);
+    final preview = await parseGlbForPreview(rigged);
+    expect(preview.vertexCount, vertexCount);
+
+    // Doppeltes Rigging wird abgelehnt.
+    expect(() => injectHumanoidRig(rigged), throwsException);
   });
 
   test('GLB-Vorschau-Parser liest eigenes GLB zurück (Round-Trip)',

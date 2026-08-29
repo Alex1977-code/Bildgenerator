@@ -36,15 +36,17 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     einem einzigen Bild auch Rückseite, Vertiefungen und Hohlräume
     rekonstruieren – mit demselben Stability-Schlüssel wie die
     Bilderzeugung
-  - **Eigener lokaler 3D-Generator** (ohne API, kostenlos): baut aus
-    Bildern texturierte GLB-Modelle direkt in der App – Relief
-    (Helligkeit → Höhe), Standee (extrudierte Silhouette) und
-    360°-Modell (Visual Hull aus bis zu 4 Ansichten mit Farbprojektion
-    und geglätteter Surface-Nets-Oberfläche statt Voxel-Würfeln);
-    eigener glTF-2.0-Writer in Dart. Optional **KI-Tiefenschätzung**:
-    Per Bild-KI geschätzte Tiefenkarten liefern echte Höhen fürs Relief
-    und formen beim 360°-Modell Mulden und Vertiefungen in Vorder- und
+  - **Eigener lokaler 3D-Generator** (Standard, ohne API, kostenlos):
+    baut direkt in der App ein farbiges 360°-Modell (Visual Hull aus
+    bis zu 4 Ansichten mit Farbprojektion und geglätteter
+    Surface-Nets-Oberfläche); eigener glTF-2.0-Writer in Dart.
+    Optional **KI-Tiefenschätzung**: Per Bild-KI geschätzte
+    Tiefenkarten formen Mulden und Vertiefungen in Vorder- und
     Rückseite – über die Silhouetten-Grenze des Visual Hull hinaus
+  - **Eigenes Auto-Rigging** für Lokal und Stability: ein
+    Standard-Humanoid-Skelett (17 Gelenke, T-Pose-Heuristik,
+    Abstands-Skinning) wird komplett lokal berechnet und direkt ins
+    GLB eingebaut – für Animationstests in Blender/Unity/Godot
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)
