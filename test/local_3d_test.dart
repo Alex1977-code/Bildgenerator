@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
+import 'package:bildgenerator/services/preview_animations.dart';
 
 RgbaImage _testImage() {
   // 8×8: linke Hälfte deckend hell, rechte Hälfte transparent.
@@ -259,6 +260,51 @@ void main() {
 
     // Doppeltes Rigging wird abgelehnt.
     expect(() => injectAutoRig(rigged), throwsException);
+  });
+
+  test('Geriggtes GLB: Skinning, Gelenke und Testanimationen', () async {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final rigged = injectAutoRig(buildGlb(mesh));
+
+    final preview = await parseGlbForPreview(rigged);
+    final rig = preview.rig;
+    expect(rig, isNotNull);
+    expect(rig!.joints, hasLength(rigJointCounts['biped']!));
+    expect(rig.vertexWeights, hasLength(preview.vertexCount * 4));
+    expect(rig.vertexJoints, hasLength(preview.vertexCount * 4));
+
+    // Ruhepose: Skinning reproduziert exakt die Originalpositionen.
+    final rest = computeSkinnedPositions(preview);
+    for (var i = 0; i < preview.positions.length; i += 97) {
+      expect(rest[i], closeTo(preview.positions[i], 1e-4));
+    }
+
+    // Eine Rotation an einem Gelenk verändert die Pose sichtbar.
+    final shoulderNode = rig.joints[rig.jointNames.indexOf('Shoulder_L')];
+    final posed = computeSkinnedPositions(preview, rotationOverrides: {
+      shoulderNode: Float32List.fromList([0, 0, 0.7071, 0.7071]),
+    });
+    var moved = 0.0;
+    for (var i = 0; i < posed.length; i++) {
+      moved += (posed[i] - preview.positions[i]).abs();
+    }
+    expect(moved, greaterThan(0.1));
+
+    // Gelenkpositionen für die Skelett-Anzeige.
+    final jointPositions = computeJointPositions(preview);
+    expect(jointPositions, hasLength(rig.joints.length * 3));
+
+    // Eingebaute Testanimationen passend zum Zweibeiner-Skelett.
+    final clips = proceduralClipsFor(rig);
+    final names = [for (final clip in clips) clip.name];
+    expect(names, contains('Gehen'));
+    expect(names, contains('Wackeltest'));
+    expect(clips.first.poseAt(0.5), isNotEmpty);
   });
 
   test('Auto-Rigging kennt alle Figurtypen', () {

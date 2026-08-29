@@ -51,6 +51,12 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Insekt/Mehrbeiner (22), Vogel mit gespreizten Flügeln (13),
     Schlange (8) und Fisch (6); die passende Rig-Pose fließt
     automatisch in die KI-erzeugten Ansichten ein
+  - **Animationen direkt in der App**: Die 3D-Vorschau spielt
+    Animations-Clips aus der GLB-Datei ab (CPU-Skinning im eigenen
+    Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
+    (Gehen, Winken, Vierbeiner-Gang, Flügelschlag, Krabbeln,
+    Schlängeln, Schwimmen, Wackeltest); das Skelett lässt sich per
+    Knopf grafisch über dem Modell einblenden
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)

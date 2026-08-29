@@ -4,12 +4,16 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
+import '../services/preview_animations.dart';
 
 /// Frei drehbare 3D-Vorschau eines GLB-Modells (eigener Software-Renderer,
-/// läuft auf allen Plattformen inklusive Windows).
+/// läuft auf allen Plattformen inklusive Windows). Geriggte Modelle
+/// lassen sich direkt animieren (Clips aus der Datei oder eingebaute
+/// Testanimationen), das Skelett kann grafisch eingeblendet werden.
 class ModelPreviewScreen extends StatefulWidget {
   const ModelPreviewScreen({
     super.key,
@@ -24,7 +28,8 @@ class ModelPreviewScreen extends StatefulWidget {
   State<ModelPreviewScreen> createState() => _ModelPreviewScreenState();
 }
 
-class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
+class _ModelPreviewScreenState extends State<ModelPreviewScreen>
+    with SingleTickerProviderStateMixin {
   PreviewMesh? _mesh;
   String? _error;
 
@@ -33,22 +38,105 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
   double _zoom = 1.0;
   double _lastScale = 1.0;
 
+  late final Ticker _ticker = createTicker(_onTick);
+  List<PreviewAnimation> _fileClips = const [];
+  List<ProceduralClip> _procClips = const [];
+
+  /// -1 = Standbild; 0..fileClips-1 = Clip aus der Datei; danach die
+  /// eingebauten Testanimationen.
+  int _clipIndex = -1;
+  bool _playing = false;
+  bool _showSkeleton = false;
+  double _time = 0;
+  Float32List? _posedPositions;
+  Float32List? _jointPositions;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     try {
       final mesh = await parseGlbForPreview(widget.glbBytes);
-      if (mounted) setState(() => _mesh = mesh);
+      if (!mounted) return;
+      setState(() {
+        _mesh = mesh;
+        final rig = mesh.rig;
+        if (rig != null) {
+          _fileClips = rig.animations;
+          _procClips = proceduralClipsFor(rig);
+          _jointPositions = computeJointPositions(mesh);
+        }
+      });
     } catch (e) {
       if (mounted) {
         setState(() => _error =
             'Vorschau nicht möglich: ${e.toString().replaceFirst('Exception: ', '')}');
       }
     }
+  }
+
+  bool get _hasClips => _fileClips.isNotEmpty || _procClips.isNotEmpty;
+
+  /// Aktualisiert die Pose (Vertices + Gelenkpositionen) für [_time].
+  void _computePose() {
+    final mesh = _mesh;
+    if (mesh == null || mesh.rig == null) return;
+    PreviewAnimation? animation;
+    Map<int, Float32List>? overrides;
+    if (_clipIndex >= 0 && _clipIndex < _fileClips.length) {
+      animation = _fileClips[_clipIndex];
+    } else if (_clipIndex >= _fileClips.length &&
+        _clipIndex < _fileClips.length + _procClips.length) {
+      overrides = _procClips[_clipIndex - _fileClips.length].poseAt(_time);
+    }
+    _posedPositions = _clipIndex < 0
+        ? null
+        : computeSkinnedPositions(mesh,
+            animation: animation, time: _time, rotationOverrides: overrides);
+    _jointPositions = computeJointPositions(mesh,
+        animation: animation, time: _time, rotationOverrides: overrides);
+  }
+
+  void _onTick(Duration elapsed) {
+    if (_mesh?.rig == null || _clipIndex < 0) return;
+    _time = elapsed.inMicroseconds / 1e6;
+    setState(_computePose);
+  }
+
+  void _togglePlay() {
+    setState(() {
+      _playing = !_playing;
+      if (_playing) {
+        if (_clipIndex < 0 && _hasClips) _clipIndex = 0;
+        _ticker.start();
+      } else {
+        _ticker.stop();
+      }
+    });
+  }
+
+  void _selectClip(int index) {
+    setState(() {
+      _clipIndex = index;
+      _time = 0;
+      if (index < 0) {
+        _ticker.stop();
+        _playing = false;
+      } else if (!_playing) {
+        _playing = true;
+        _ticker.start();
+      }
+      _computePose();
+    });
   }
 
   void _resetView() {
@@ -80,10 +168,23 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mesh = _mesh;
+    final rig = mesh?.rig;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title, overflow: TextOverflow.ellipsis),
         actions: [
+          if (rig != null)
+            IconButton(
+              tooltip: _showSkeleton
+                  ? 'Skelett ausblenden'
+                  : 'Skelett anzeigen',
+              icon: Icon(
+                Icons.polyline,
+                color: _showSkeleton ? theme.colorScheme.primary : null,
+              ),
+              onPressed: () =>
+                  setState(() => _showSkeleton = !_showSkeleton),
+            ),
           IconButton(
             tooltip: 'Ansicht zurücksetzen',
             icon: const Icon(Icons.restart_alt),
@@ -141,6 +242,11 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
                             child: CustomPaint(
                               painter: _MeshPainter(
                                 mesh: mesh,
+                                positions:
+                                    _posedPositions ?? mesh.positions,
+                                skeleton:
+                                    _showSkeleton ? _jointPositions : null,
+                                skeletonParents: rig?.jointParents,
                                 rotX: _rotX,
                                 rotY: _rotY,
                                 zoom: _zoom,
@@ -153,11 +259,59 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
                         ),
                       ),
                     ),
+                    if (rig != null && _hasClips)
+                      Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                        child: Row(
+                          children: [
+                            IconButton.filledTonal(
+                              tooltip:
+                                  _playing ? 'Pause' : 'Abspielen',
+                              icon: Icon(_playing
+                                  ? Icons.pause
+                                  : Icons.play_arrow),
+                              onPressed: _togglePlay,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownMenu<int>(
+                                key: ValueKey('clip-$_clipIndex'),
+                                initialSelection: _clipIndex,
+                                label: const Text('Animation'),
+                                expandedInsets: EdgeInsets.zero,
+                                dropdownMenuEntries: [
+                                  const DropdownMenuEntry(
+                                      value: -1,
+                                      label: 'Keine (Standbild)'),
+                                  for (var i = 0;
+                                      i < _fileClips.length;
+                                      i++)
+                                    DropdownMenuEntry(
+                                        value: i,
+                                        label: _fileClips[i].name),
+                                  for (var i = 0;
+                                      i < _procClips.length;
+                                      i++)
+                                    DropdownMenuEntry(
+                                        value: _fileClips.length + i,
+                                        label:
+                                            '${_procClips[i].name} (Test)'),
+                                ],
+                                onSelected: (value) {
+                                  if (value != null) _selectClip(value);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     Padding(
                       padding: const EdgeInsets.all(8),
                       child: Text(
                         'Ziehen = drehen · Zwei Finger/Mausrad = zoomen · '
-                        '${mesh.triangleCount} Dreiecke',
+                        '${mesh.triangleCount} Dreiecke'
+                        '${rig != null ? ' · ${rig.joints.length} Gelenke' : ''}',
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
@@ -170,6 +324,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen> {
 class _MeshPainter extends CustomPainter {
   _MeshPainter({
     required this.mesh,
+    required this.positions,
+    required this.skeleton,
+    required this.skeletonParents,
     required this.rotX,
     required this.rotY,
     required this.zoom,
@@ -177,6 +334,9 @@ class _MeshPainter extends CustomPainter {
   });
 
   final PreviewMesh mesh;
+  final Float32List positions;
+  final Float32List? skeleton; // x,y,z je Gelenk (Weltkoordinaten)
+  final List<int>? skeletonParents;
   final double rotX;
   final double rotY;
   final double zoom;
@@ -192,27 +352,32 @@ class _MeshPainter extends CustomPainter {
         mesh.extent *
         zoom;
     final cx = size.width / 2, cy = size.height / 2;
-
-    final vertexCount = mesh.vertexCount;
-    final sx = Float32List(vertexCount);
-    final sy = Float32List(vertexCount);
-    final sz = Float32List(vertexCount);
-    final positions = mesh.positions;
     final centerX = mesh.center[0],
         centerY = mesh.center[1],
         centerZ = mesh.center[2];
-    for (var i = 0; i < vertexCount; i++) {
-      final x = positions[i * 3] - centerX;
-      final y = positions[i * 3 + 1] - centerY;
-      final z = positions[i * 3 + 2] - centerZ;
+
+    (double, double, double) project(double x0, double y0, double z0) {
+      final x = x0 - centerX;
+      final y = y0 - centerY;
+      final z = z0 - centerZ;
       // Erst um Y, dann um X drehen.
       final x1 = x * cosY + z * sinY;
       final z1 = -x * sinY + z * cosY;
       final y2 = y * cosX - z1 * sinX;
       final z2 = y * sinX + z1 * cosX;
-      sx[i] = cx + x1 * scale;
-      sy[i] = cy - y2 * scale;
-      sz[i] = z2;
+      return (cx + x1 * scale, cy - y2 * scale, z2);
+    }
+
+    final vertexCount = positions.length ~/ 3;
+    final sx = Float32List(vertexCount);
+    final sy = Float32List(vertexCount);
+    final sz = Float32List(vertexCount);
+    for (var i = 0; i < vertexCount; i++) {
+      final (px, py, pz) = project(positions[i * 3], positions[i * 3 + 1],
+          positions[i * 3 + 2]);
+      sx[i] = px;
+      sy[i] = py;
+      sz[i] = pz;
     }
 
     // Maler-Algorithmus: entfernte Dreiecke zuerst.
@@ -260,11 +425,44 @@ class _MeshPainter extends CustomPainter {
         ui.Vertices.raw(ui.VertexMode.triangles, outPositions,
             colors: outColors);
     canvas.drawVertices(vertices, BlendMode.dst, Paint());
+
+    // Skelett-Overlay: Knochenlinien und Gelenkpunkte über dem Modell.
+    final joints = skeleton;
+    final parents = skeletonParents;
+    if (joints != null && parents != null) {
+      final jointCount = joints.length ~/ 3;
+      final jx = Float32List(jointCount);
+      final jy = Float32List(jointCount);
+      for (var j = 0; j < jointCount; j++) {
+        final (px, py, _) = project(
+            joints[j * 3], joints[j * 3 + 1], joints[j * 3 + 2]);
+        jx[j] = px;
+        jy[j] = py;
+      }
+      final bonePaint = Paint()
+        ..color = const Color(0xFFFFB300)
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round;
+      for (var j = 0; j < jointCount; j++) {
+        final parent = parents[j];
+        if (parent < 0) continue;
+        canvas.drawLine(Offset(jx[parent], jy[parent]),
+            Offset(jx[j], jy[j]), bonePaint);
+      }
+      final jointPaint = Paint()..color = const Color(0xFFE65100);
+      final jointBorder = Paint()..color = const Color(0xFFFFFFFF);
+      for (var j = 0; j < jointCount; j++) {
+        canvas.drawCircle(Offset(jx[j], jy[j]), 4.5, jointBorder);
+        canvas.drawCircle(Offset(jx[j], jy[j]), 3.2, jointPaint);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(_MeshPainter oldDelegate) =>
       oldDelegate.mesh != mesh ||
+      oldDelegate.positions != positions ||
+      oldDelegate.skeleton != skeleton ||
       oldDelegate.rotX != rotX ||
       oldDelegate.rotY != rotY ||
       oldDelegate.zoom != zoom ||
