@@ -178,6 +178,140 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// (2048/1024 px) oder kompakte Vertex-Farben.
   String _localTextureMode = 'atlas2048';
 
+  /// Zuletzt angewendete Vorlage (nur zur Anzeige – danach lassen
+  /// sich alle Optionen weiterhin einzeln ändern).
+  String? _lastPreset;
+
+  /// Bewährte Voreinstellungen: (Kennung, Name, Symbol, 3D-Provider,
+  /// Kurzbeschreibung). Eine Vorlage setzt Provider, Modell und alle
+  /// Qualitäts-Optionen in einem Rutsch auf eine erprobte Kombination.
+  static const _presets = <(String, String, IconData, String, String)>[
+    (
+      'vehicle',
+      'Fahrzeug (Game-Asset)',
+      Icons.directions_car_outlined,
+      'rodin',
+      'Rodin Gen-2.5 High, Quad-Netz mit ca. 10.000 Polygonen, '
+          'Fahrzeug-Rig mit automatischer Rad-Erkennung, symmetrisiert'
+    ),
+    (
+      'figure',
+      'Figur (Game-Asset)',
+      Icons.person_outline,
+      'rodin',
+      'Rodin Gen-2.5 High mit T/A-Pose, Quad-Netz mit ca. 30.000 '
+          'Polygonen, Zweibeiner-Skelett aus dem eigenen Auto-Rigger'
+    ),
+    (
+      'quicktest',
+      'Schnelltest',
+      Icons.bolt_outlined,
+      'fal',
+      'fal.ai TRELLIS aus einem Bild – wenige Cent pro Lauf, ideal '
+          'zum Ausprobieren von Beschreibung und Ansicht'
+    ),
+    (
+      'owngpu',
+      'Eigene GPU',
+      Icons.memory,
+      'selfhost',
+      'Eigener Server (TripoSR/TRELLIS) – kostet nur Strom, alle '
+          'Bilder bleiben auf dem eigenen PC'
+    ),
+    (
+      'topquality',
+      'Höchste Detailtreue',
+      Icons.auto_awesome_outlined,
+      'meshy',
+      'Meshy 7 mit Ultra Mode und Quad-Topologie – die schärfsten '
+          'Texturen, dafür der teuerste Lauf'
+    ),
+    (
+      'print3d',
+      '3D-Druck',
+      Icons.print_outlined,
+      'local',
+      'Lokaler Generator mit 128er-Raster und KI-Tiefenkarten, ohne '
+          'Skelett – geschlossene Form für den Druck-Export'
+    ),
+  ];
+
+  /// Wendet eine Vorlage an. Danach bleibt alles weiterhin einzeln
+  /// änderbar – die Vorlage ist nur ein guter Startpunkt.
+  void _applyPreset(String id) {
+    final settings = context.read<SettingsService>();
+    final preset = _presets.firstWhere((p) => p.$1 == id);
+    final previousSubject = _promptSubject;
+    settings.setThreeDProvider(preset.$4);
+    setState(() {
+      _lastPreset = id;
+      // Gemeinsame Grundlage aller Vorlagen.
+      _texture = true;
+      _pbr = true;
+      _refineProjectTexture = true;
+      _refineSymmetrize = false;
+      _tPose = false;
+      _falCustomCtrl.clear();
+      _replicateCustomCtrl.clear();
+      switch (id) {
+        case 'vehicle':
+          _promptSubject = 'object';
+          _rigging = true;
+          _rigType = 'vehicle';
+          _rodinTier = 'Gen-2.5-High';
+          _rodinQuad = true;
+          _rodinPolycount = 10000;
+          // Fahrzeuge sind symmetrisch – die vom Foto abgewandte
+          // Hälfte gewinnt dadurch deutlich.
+          _refineSymmetrize = true;
+        case 'figure':
+          _promptSubject = 'figure';
+          _rigging = true;
+          _rigType = 'biped';
+          _rodinTier = 'Gen-2.5-High';
+          _rodinQuad = true;
+          _rodinPolycount = 30000;
+        case 'quicktest':
+          _falModel = 'fal-ai/trellis';
+          _rigging = false;
+        case 'owngpu':
+          _rigging = false;
+        case 'topquality':
+          _meshyAiModel = 'meshy-7';
+          _meshyUltra = true;
+          _quadTopology = true;
+          _meshyPolycount = 0;
+          _symmetryMode = 'auto';
+          _rigging = false;
+        case 'print3d':
+          _rigging = false;
+          _localResolution = 128;
+          _localSmoothing = 3;
+          _localTargetTriangles = 0;
+          _localDepthAi = true;
+          _localSurface = 'matt';
+      }
+      // Figur und Objekt brauchen unterschiedliche Ansichten – eine
+      // automatisch erzeugte Kachel würde sonst still weiterverwendet.
+      if (_promptSubject != previousSubject &&
+          _views['front']?.name == 'ansicht_Vorn.png') {
+        _views['front'] = null;
+      }
+    });
+    // Fehlenden Zugang sofort melden statt erst beim Generieren.
+    final access = switch (preset.$4) {
+      'rodin' => settings.rodinApiKey,
+      'fal' => settings.falApiKey,
+      'meshy' => settings.meshyApiKey,
+      'selfhost' => settings.selfHostUrl,
+      _ => 'ok',
+    };
+    final missing = (access ?? '').trim().isEmpty;
+    _showSnack('Vorlage „${preset.$2}“: ${preset.$5}.'
+        '${missing ? ' Achtung: Der Zugang für diesen Anbieter fehlt '
+            'noch – bitte in den Einstellungen hinterlegen.' : ''}');
+  }
+
   /// Oberflächen-Vorwahlen (PBR): (Wert, Name, Metall, Rauheit).
   static const _surfaceOptions = [
     ('matt', 'Matt (Standard)', 0.0, 0.95),
@@ -1778,6 +1912,40 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   'Godot …).',
                   style: theme.textTheme.bodySmall,
                 ),
+                const SectionLabel('Vorlagen'),
+                Text(
+                  'Bewährte Kombinationen aus Anbieter, Modell und '
+                  'Qualitäts-Optionen – ein Klick setzt alles passend, '
+                  'danach lässt sich jede Option weiterhin einzeln '
+                  'ändern.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final preset in _presets)
+                      ActionChip(
+                        avatar: Icon(preset.$3, size: 18),
+                        label: Text(preset.$2),
+                        onPressed:
+                            _running ? null : () => _applyPreset(preset.$1),
+                      ),
+                  ],
+                ),
+                if (_lastPreset != null) ...[
+                  const SizedBox(height: 6),
+                  Builder(builder: (context) {
+                    final preset = _presets
+                        .firstWhere((p) => p.$1 == _lastPreset);
+                    return Text(
+                      'Zuletzt angewendet: ${preset.$2} – ${preset.$5}.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary),
+                    );
+                  }),
+                ],
                 const SectionLabel('3D-Provider'),
                 Builder(builder: (context) {
                   // Grüner Haken = einsatzbereit (Schlüssel hinterlegt

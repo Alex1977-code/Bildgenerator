@@ -29,7 +29,8 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
   - Generierte Bilder als neue Referenz übernehmen (iteratives Verfeinern)
-  - **3D-Bereich (Meshy AI, Tripo3D, Stability 3D oder fal.ai)**: 3D-Figuren
+  - **3D-Bereich mit 8 Anbietern** (Lokal, Stability 3D, Meshy AI,
+    Tripo3D, fal.ai, Rodin, Replicate, eigener Server): 3D-Figuren
     und -Objekte aus Text oder Bild, optional mit Textur und
     Auto-Rigging (T-Pose wird automatisch berücksichtigt, Tripo prüft
     die Riggbarkeit vorab), Export als GLB für
@@ -49,6 +50,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     `server/README.md`. Adresse in den Einstellungen eintragen
     („Speichern & testen“ zeigt Backend und GPU an) – Rigging und
     Veredelung übernimmt wie gewohnt die App
+  - **Vorlagen für bewährte Einstellungen** ganz oben im 3D-Tab: ein
+    Klick setzt Anbieter, Modell und alle Qualitäts-Optionen auf eine
+    erprobte Kombination – „Fahrzeug (Game-Asset)“ und „Figur
+    (Game-Asset)“ (Rodin Gen-2.5 High, Quad-Netz, passendes Rig),
+    „Schnelltest“ (fal.ai TRELLIS für wenige Cent), „Eigene GPU“
+    (eigener Server), „Höchste Detailtreue“ (Meshy 7 Ultra) und
+    „3D-Druck“ (lokaler Generator, 128er-Raster, ohne Skelett);
+    danach bleibt jede Option einzeln änderbar
   - **Rodin (Hyper3D, Beta)** als 3D-Provider: Spitzenklasse für
     Game-Assets – Rodin Gen-2.5 liefert produktionsreife Meshes mit
     sauberer **Quad-Topologie**, PBR-Texturen und wählbarer
