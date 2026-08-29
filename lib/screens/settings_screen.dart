@@ -215,6 +215,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onHelp: () => _openUrl('https://hyper3d.ai/api'),
         ),
         const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'Replicate-API-Token (3D-Bereich)',
+          providerId: 'replicate',
+          currentKey: settings.replicateApiKey,
+          onSave: settings.setReplicateApiKey,
+          keySummary: _keySummary(settings.replicateApiKey),
+          helpLabel:
+              'Token erstellen auf replicate.com (Bezahlung pro Lauf)',
+          onHelp: () =>
+              _openUrl('https://replicate.com/account/api-tokens'),
+        ),
+        const SizedBox(height: 12),
         const _ServerUrlCard(),
         const SizedBox(height: 12),
         _UsageCard(

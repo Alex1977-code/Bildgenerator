@@ -25,6 +25,7 @@ import '../services/model_refine.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/provenance.dart';
+import '../services/replicate_service.dart';
 import '../services/rodin_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
@@ -121,6 +122,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String get _falModelEffective {
     final custom = _falCustomCtrl.text.trim();
     return custom.isNotEmpty ? custom : _falModel;
+  }
+
+  /// Replicate: gewähltes Katalog-Modell plus optionale eigene
+  /// Modell-Kennung „owner/name“ oder „owner/name:version“
+  /// (überschreibt den Katalog).
+  String _replicateModel = 'firtoz/trellis';
+  final _replicateCustomCtrl = TextEditingController();
+
+  String get _replicateModelEffective {
+    final custom = _replicateCustomCtrl.text.trim();
+    return custom.isNotEmpty ? custom : _replicateModel;
   }
 
   /// Rodin (Hyper3D): Generation/Tier ('' = API-Vorgabe),
@@ -392,6 +404,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     _negative3dCtrl.dispose();
     _texturePromptCtrl.dispose();
     _falCustomCtrl.dispose();
+    _replicateCustomCtrl.dispose();
     super.dispose();
   }
 
@@ -477,6 +490,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               'Bezahlung pro Lauf, Startguthaben für neue Konten). '
               'Bitte in den Einstellungen hinterlegen.'
         ),
+      'replicate' => (
+          'Replicate-API-Token fehlt',
+          'Für Replicate wird ein API-Token benötigt (replicate.com – '
+              'Bezahlung pro Lauf, Zahlungsmethode erforderlich). '
+              'Bitte in den Einstellungen hinterlegen.'
+        ),
       'rodin' => (
           'Rodin-API-Schlüssel fehlt',
           'Für Rodin (Hyper3D) wird ein API-Schlüssel benötigt '
@@ -527,6 +546,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isFal = settings.threeDProvider == 'fal';
     final isSelfHost = settings.threeDProvider == 'selfhost';
     final isRodin = settings.threeDProvider == 'rodin';
+    final isReplicate = settings.threeDProvider == 'replicate';
     // Beim eigenen Server steht an Stelle des Schlüssels die Adresse.
     final apiKey = isLocal
         ? ''
@@ -538,19 +558,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ? settings.selfHostUrl
                     : isRodin
                         ? settings.rodinApiKey
-                        : (isTripo
-                            ? settings.tripoApiKey
-                            : settings.meshyApiKey);
+                        : isReplicate
+                            ? settings.replicateApiKey
+                            : (isTripo
+                                ? settings.tripoApiKey
+                                : settings.meshyApiKey);
     if (!isLocal && (apiKey == null || apiKey.trim().isEmpty)) {
       await _showMissingKeyDialog(settings.threeDProvider);
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    // Text-Modus: „Lokal“, Stability, fal.ai und der eigene Server
-    // gehen immer über KI-Ansichten, bei Meshy/Tripo ist die Pipeline
-    // zuschaltbar.
+    // Text-Modus: „Lokal“, Stability, fal.ai, Replicate und der eigene
+    // Server gehen immer über KI-Ansichten, bei Meshy/Tripo ist die
+    // Pipeline zuschaltbar.
     final viewPipeline = !_imageMode &&
-        (isLocal || isStability || isFal || isSelfHost || _viewsFromText);
+        (isLocal ||
+            isStability ||
+            isFal ||
+            isSelfHost ||
+            isReplicate ||
+            _viewsFromText);
     // Bild-Modus: fehlende Ansichten optional per Bild-KI ergänzen –
     // gleiche Konsistenz-Prompts, Vorderansicht als Referenz.
     final augmentViews = _imageMode &&
@@ -558,6 +585,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         !isStability &&
         !isFal &&
         !isSelfHost &&
+        !isReplicate &&
         _views.values.any((view) => view == null);
     if (!_imageMode && prompt.isEmpty) {
       setState(() => _error = 'Bitte zuerst eine Beschreibung eingeben.');
@@ -588,7 +616,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // Figurtyp passende Rig-Pose, sonst optional T-Pose.
         String? pose;
         if (_rigging &&
-            (isLocal || isStability || isFal || isSelfHost || isRodin)) {
+            (isLocal ||
+                isStability ||
+                isFal ||
+                isSelfHost ||
+                isRodin ||
+                isReplicate)) {
           pose = rigPoseParts[_rigType];
         } else if (_rigging || _tPose) {
           pose = rigPoseParts['biped'];
@@ -599,16 +632,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           pose: pose,
           onProgress: progress,
           isCancelled: cancelled,
-          // Stability, fal.ai und der eigene Server brauchen nur ein
-          // Bild – das spart Kosten.
-          frontOnly: isStability || isFal || isSelfHost,
+          // Stability, fal.ai, Replicate und der eigene Server brauchen
+          // nur ein Bild – das spart Kosten.
+          frontOnly: isStability || isFal || isSelfHost || isReplicate,
           // Objekte/Fahrzeuge aus EINEM Bild: Dreiviertelansicht statt
           // Frontalansicht, sonst rekonstruiert Stability nur eine
           // flache Platte ohne Tiefe. Figuren behalten die bewährte
           // Vorderansicht.
-          threeQuarterFront: (isStability || isFal || isSelfHost) &&
-              (_promptSubject == 'object' ||
-                  (_rigging && _rigType == 'vehicle')),
+          threeQuarterFront:
+              (isStability || isFal || isSelfHost || isReplicate) &&
+                  (_promptSubject == 'object' ||
+                      (_rigging && _rigType == 'vehicle')),
           // Bereits gefüllte Ansichten-Kacheln werden wiederverwendet.
           existing: {
             for (final entry in _views.entries)
@@ -646,6 +680,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         await _runRodin(
             RodinService(apiKey!.trim()), prompt, cancelled, progress,
             useImages: useImages, label: label);
+      } else if (isReplicate) {
+        await _runReplicate(
+            ReplicateService(apiKey!.trim()), cancelled, progress,
+            label: label);
       } else if (isTripo) {
         await _runTripo(
             TripoService(apiKey!.trim()), prompt, cancelled, progress,
@@ -980,6 +1018,40 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       glbBytes: glb,
       label: label,
       providerLabel: 'Eigener Server',
+      thumbnail: source.bytes,
+      rigged: rigged,
+      textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
+    );
+  }
+
+  Future<void> _runReplicate(
+    ReplicateService service,
+    bool Function() cancelled,
+    void Function(String) progress, {
+    required String label,
+  }) async {
+    final source = _front;
+    if (source == null) {
+      throw GenerationException('Keine Vorderansicht vorhanden.');
+    }
+    final modelId = _replicateModelEffective;
+    var glb = await service.generateModel(
+      modelId: modelId,
+      images: [(source.bytes, source.mimeType)],
+      onProgress: progress,
+      isCancelled: cancelled,
+    );
+    // Wie bei fal.ai: Ausrichtung je nach Modell unterschiedlich –
+    // Blickrichtung fürs Rigging per geometrischer Schätzung.
+    glb = await _applyLocalRefinements(glb, source.bytes, progress);
+    final unrigged = glb;
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
+    _addResult(
+      glbBytes: glb,
+      label: label,
+      providerLabel: 'Replicate',
       thumbnail: source.bytes,
       rigged: rigged,
       textured: true,
@@ -1661,11 +1733,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isFal = settings.threeDProvider == 'fal';
     final isSelfHost = settings.threeDProvider == 'selfhost';
     final isRodin = settings.threeDProvider == 'rodin';
+    final isReplicate = settings.threeDProvider == 'replicate';
     final riggingForcesTPose = _rigging;
     // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
     // der T-Pose-Schalter wäre dann irreführend.
     final rigPoseActive = _rigging &&
-        (isLocal || isStability || isFal || isSelfHost || isRodin);
+        (isLocal ||
+            isStability ||
+            isFal ||
+            isSelfHost ||
+            isRodin ||
+            isReplicate);
     return DropTarget(
       enable: widget.isActive &&
           (ModalRoute.of(context)?.isCurrent ?? true),
@@ -1701,67 +1779,61 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SectionLabel('3D-Provider'),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Builder(builder: (context) {
-                    // Grüner Haken = einsatzbereit (Schlüssel hinterlegt
-                    // bzw. Lokal ohne Schlüssel).
-                    Widget? ready(bool available) => available
-                        ? const Icon(Icons.check_circle,
-                            color: Colors.green, size: 16)
-                        : const Icon(Icons.key_off, size: 16);
-                    final hasMeshy =
-                        settings.meshyApiKey?.trim().isNotEmpty ?? false;
-                    final hasTripo =
-                        settings.tripoApiKey?.trim().isNotEmpty ?? false;
-                    final hasFal =
-                        settings.falApiKey?.trim().isNotEmpty ?? false;
-                    final hasServer =
-                        settings.selfHostUrl.trim().isNotEmpty;
-                    final hasRodin =
-                        settings.rodinApiKey?.trim().isNotEmpty ?? false;
-                    return SegmentedButton<String>(
-                      showSelectedIcon: false,
-                      segments: [
-                        ButtonSegment(
-                            value: 'local',
-                            label: const Text('Lokal'),
-                            icon: ready(true)),
-                        ButtonSegment(
-                            value: 'stability',
-                            label: const Text('Stability'),
-                            icon: ready(settings
-                                .hasApiKeyFor(GenProvider.stability))),
-                        ButtonSegment(
-                            value: 'meshy',
-                            label: const Text('Meshy'),
-                            icon: ready(hasMeshy)),
-                        ButtonSegment(
-                            value: 'tripo',
-                            label: const Text('Tripo3D'),
-                            icon: ready(hasTripo)),
-                        ButtonSegment(
-                            value: 'fal',
-                            label: const Text('fal.ai'),
-                            icon: ready(hasFal)),
-                        ButtonSegment(
-                            value: 'rodin',
-                            label: const Text('Rodin'),
-                            icon: ready(hasRodin)),
-                        ButtonSegment(
-                            value: 'selfhost',
-                            label: const Text('Server'),
-                            icon: ready(hasServer)),
-                      ],
-                      selected: {settings.threeDProvider},
-                      onSelectionChanged: _running
-                          ? null
-                          : (selection) =>
-                              settings.setThreeDProvider(selection.first),
-                    );
-                  }),
-                ),
+                Builder(builder: (context) {
+                  // Grüner Haken = einsatzbereit (Schlüssel hinterlegt
+                  // bzw. Lokal ohne Schlüssel). Acht Provider: Chips
+                  // brechen auf schmalen Bildschirmen um und bleiben –
+                  // anders als die frühere Segmentleiste – lesbar.
+                  Widget ready(bool available) => available
+                      ? const Icon(Icons.check_circle,
+                          color: Colors.green, size: 16)
+                      : const Icon(Icons.key_off, size: 16);
+                  bool hasKey(String? key) =>
+                      key?.trim().isNotEmpty ?? false;
+                  final providers = <(String, String, bool)>[
+                    ('local', 'Lokal', true),
+                    (
+                      'stability',
+                      'Stability',
+                      settings.hasApiKeyFor(GenProvider.stability)
+                    ),
+                    ('meshy', 'Meshy', hasKey(settings.meshyApiKey)),
+                    ('tripo', 'Tripo3D', hasKey(settings.tripoApiKey)),
+                    ('fal', 'fal.ai', hasKey(settings.falApiKey)),
+                    ('rodin', 'Rodin', hasKey(settings.rodinApiKey)),
+                    (
+                      'replicate',
+                      'Replicate',
+                      hasKey(settings.replicateApiKey)
+                    ),
+                    (
+                      'selfhost',
+                      'Server',
+                      settings.selfHostUrl.trim().isNotEmpty
+                    ),
+                  ];
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final (value, name, available) in providers)
+                        ChoiceChip(
+                          avatar: settings.threeDProvider == value
+                              ? null
+                              : ready(available),
+                          label: Text(name),
+                          selected: settings.threeDProvider == value,
+                          onSelected: _running
+                              ? null
+                              : (selected) {
+                                  if (selected) {
+                                    settings.setThreeDProvider(value);
+                                  }
+                                },
+                        ),
+                    ],
+                  );
+                }),
                 const SizedBox(height: 4),
                 Text(
                   'Grüner Haken = einsatzbereit (API-Schlüssel hinterlegt '
@@ -1802,7 +1874,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                           'mit mehreren Ansichten, '
                                           'Bezahlung nach Verbrauch '
                                           '(hyper3d.ai).'
-                                      : isSelfHost
+                                      : isReplicate
+                                          ? 'Replicate (Beta): '
+                                              'Pay-per-Use-Plattform '
+                                              'mit tausenden Modellen '
+                                              '(TRELLIS, Hunyuan3D u. '
+                                              'v. m.) – Token und '
+                                              'Verbrauch auf '
+                                              'replicate.com '
+                                              '(Zahlungsmethode nötig).'
+                                          : isSelfHost
                                       ? 'Eigener Server: TripoSR oder '
                                           'TRELLIS (MIT-Lizenz) auf dem '
                                           'eigenen PC mit NVIDIA-GPU – '
@@ -1853,8 +1934,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ),
                   const SizedBox(height: 8),
                   _promptHelp(theme,
-                      mode: isLocal || isStability || isFal ||
-                              isSelfHost || _viewsFromText
+                      mode: isLocal ||
+                              isStability ||
+                              isFal ||
+                              isSelfHost ||
+                              isReplicate ||
+                              _viewsFromText
                           ? 'wrapped'
                           : 'native'),
                   if (!isLocal &&
@@ -1862,6 +1947,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       !isFal &&
                       !isSelfHost &&
                       !isRodin &&
+                      !isReplicate &&
                       !_viewsFromText) ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -1885,7 +1971,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       !isStability &&
                       !isFal &&
                       !isSelfHost &&
-                      !isRodin) ...[
+                      !isRodin &&
+                      !isReplicate) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
@@ -1917,13 +2004,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           : (v) => setState(() => _tPose = v),
                     ),
                   const SizedBox(height: 4),
-                  if (isLocal || isStability || isFal || isSelfHost)
+                  if (isLocal ||
+                      isStability ||
+                      isFal ||
+                      isSelfHost ||
+                      isReplicate)
                     Text(
-                      isFal || isSelfHost
+                      isFal || isSelfHost || isReplicate
                           ? 'Die Ansicht wird automatisch mit der '
                               'Bild-KI aus dem Generator-Tab '
                               '(${settings.provider.label}) erzeugt; '
-                              '${isFal ? 'das gewählte fal.ai-Modell' : 'dein eigener Server (TripoSR/TRELLIS)'} '
+                              '${isFal ? 'das gewählte fal.ai-Modell' : isReplicate ? 'das gewählte Replicate-Modell' : 'dein eigener Server (TripoSR/TRELLIS)'} '
                               'rekonstruiert daraus das komplette '
                               '3D-Modell inklusive Rückseite.'
                           : isStability
@@ -1963,12 +2054,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? null
                           : (v) => setState(() => _viewsFromText = v),
                     ),
-                  if (isLocal || isStability || isFal || isSelfHost ||
+                  if (isLocal ||
+                      isStability ||
+                      isFal ||
+                      isSelfHost ||
+                      isReplicate ||
                       _viewsFromText) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
-                      final showAllViews =
-                          !isStability && !isFal && !isSelfHost;
+                      final showAllViews = !isStability &&
+                          !isFal &&
+                          !isSelfHost &&
+                          !isReplicate;
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -1998,8 +2095,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   _promptHelp(theme, mode: 'images'),
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
-                    final showAllViews =
-                        !isStability && !isFal && !isSelfHost;
+                    final showAllViews = !isStability &&
+                        !isFal &&
+                        !isSelfHost &&
+                        !isReplicate;
                     return Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -2015,7 +2114,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   }),
                   const SizedBox(height: 4),
                   Text(
-                    isStability || isFal || isSelfHost
+                    isStability || isFal || isSelfHost || isReplicate
                         ? 'Dieser 3D-Dienst nutzt genau ein Bild: '
                             'Rückseite, Vertiefungen und Verdecktes '
                             'rekonstruiert das trainierte Modell selbst.'
@@ -2031,7 +2130,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                 'Rundum-Modell.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (!isStability && !isFal && !isSelfHost)
+                  if (!isStability && !isFal && !isSelfHost && !isReplicate)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
@@ -2056,20 +2155,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 // seitliche Qualitäts-/Kostenanzeige für den gesamten
                 // Lauf (Bild-KI-Schritte + 3D-Dienst).
                 Builder(builder: (context) {
-                  final viewKeys = isStability || isFal || isSelfHost
-                      ? const ['front']
-                      : const ['front', 'left', 'right', 'back'];
+                  final viewKeys =
+                      isStability || isFal || isSelfHost || isReplicate
+                          ? const ['front']
+                          : const ['front', 'left', 'right', 'back'];
                   final generatesViews = (!_imageMode &&
                           (isLocal ||
                               isStability ||
                               isFal ||
                               isSelfHost ||
+                              isReplicate ||
                               _viewsFromText)) ||
                       (_imageMode &&
                           _completeViews &&
                           !isStability &&
                           !isFal &&
-                          !isSelfHost);
+                          !isSelfHost &&
+                          !isReplicate);
                   final viewsToGenerate = generatesViews
                       ? viewKeys
                           .where((key) => _views[key] == null)
@@ -2085,11 +2187,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         !isStability &&
                         !isFal &&
                         !isSelfHost &&
-                        !isRodin,
+                        !isRodin &&
+                        !isReplicate,
                     meshyAiModel: _meshyAiModel,
                     tripoVersion: _tripoVersion,
                     falModel: _falModelEffective,
                     rodinTier: _rodinTier,
+                    replicateModel: _replicateModelEffective,
                   );
                   final usesImageAi =
                       generatesViews || (isLocal && _localDepthAi);
@@ -2135,6 +2239,46 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'Hohlräume am besten; Fast 3D ist die '
                           'schnellere, einfachere Variante.',
                           style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 12),
+                      ] else if (isReplicate) ...[
+                        DropdownMenu<String>(
+                          key: ValueKey('repmodel-$_replicateModel'),
+                          enabled: !_running,
+                          initialSelection: _replicateModel,
+                          label: const Text('3D-Modell (Replicate)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: [
+                            for (final model in replicateModels)
+                              DropdownMenuEntry(
+                                  value: model.id, label: model.label),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              setState(() => _replicateModel = value);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _replicateCustomCtrl,
+                          enabled: !_running,
+                          decoration: const InputDecoration(
+                            labelText:
+                                'Eigene Replicate-Kennung (optional)',
+                            hintText: 'z. B. owner/name oder '
+                                'owner/name:version',
+                            helperText:
+                                'Überschreibt die Auswahl oben – für '
+                                'weitere Bild→3D-Modelle von '
+                                'replicate.com. Beta: Modelle mit '
+                                'abweichenden Eingabefeldern melden '
+                                'einen Fehler mit dem erwarteten '
+                                'Feldnamen.',
+                            helperMaxLines: 4,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setState(() {}),
                         ),
                         const SizedBox(height: 12),
                       ] else if (isRodin) ...[
@@ -2833,7 +2977,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                     ],
                   ),
-                ] else if (isFal || isSelfHost) ...[
+                ] else if (isFal || isSelfHost || isReplicate) ...[
                   Text(
                     isSelfHost
                         ? 'Der Server liefert das Modell inklusive '

@@ -125,6 +125,7 @@ CostQualityEstimate estimate3dRun(
   String tripoVersion = '',
   String falModel = '',
   String rodinTier = '',
+  String replicateModel = '',
 }) {
   final items = <CostItem>[];
   final (imgMin, imgMax, _) = imageModelCost(settings);
@@ -176,6 +177,17 @@ CostQualityEstimate estimate3dRun(
       };
       items.add(CostItem('3D-Modell ($falLabel, fal.ai)', falMin, falMax));
       tier = falTier;
+    case 'replicate':
+      // Abrechnung je Lauf bzw. nach GPU-Sekunden – Spannen je Modell.
+      final (repLabel, repMin, repMax, repTier) =
+          switch (replicateModel.split(':').first) {
+        'firtoz/trellis' => ('TRELLIS', 0.02, 0.06, 3),
+        'tencent/hunyuan3d-2' => ('Hunyuan3D 2.0', 0.10, 0.30, 4),
+        _ => ('eigenes Modell', 0.02, 0.60, 3),
+      };
+      items.add(
+          CostItem('3D-Modell ($repLabel, Replicate)', repMin, repMax));
+      tier = repTier;
     case 'rodin':
       // Pay per Use; Gen-2.5-Medium ist die schnellere, günstigere
       // Variante. Rigging übernimmt der eigene lokale Auto-Rigger.

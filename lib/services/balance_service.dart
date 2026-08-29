@@ -49,6 +49,10 @@ Future<String?> fetchProviderBalance(
         // Rodin (Hyper3D) bietet keine dokumentierte Guthaben-API –
         // der Verbrauch ist auf hyper3d.ai einsehbar.
         return null;
+      case 'replicate':
+        // Replicate rechnet je Lauf ab; der Verbrauch ist unter
+        // replicate.com/account/billing einsehbar.
+        return null;
     }
   } catch (_) {
     // Guthaben-Anzeige ist optional.

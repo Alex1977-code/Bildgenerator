@@ -72,6 +72,10 @@ Future<void> validateApiKey(String provider, String apiKey) async {
             '00000000-0000-0000-0000-000000000000/status'),
         {'Authorization': 'Key $apiKey'},
       ),
+    'replicate' => (
+        Uri.parse('https://api.replicate.com/v1/account'),
+        {'Authorization': 'Bearer $apiKey'},
+      ),
     // Eigener 3D-Server: hier ist der „Schlüssel“ die Server-Adresse –
     // geprüft wird der /health-Endpunkt.
     'selfhost' => (

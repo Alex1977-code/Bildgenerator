@@ -55,6 +55,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Polygonzahl; Text→3D nativ (Figuren auf Wunsch direkt in
     T/A-Pose) und Bild→3D mit bis zu 4 Ansichten; Bezahlung nach
     Verbrauch (hyper3d.ai)
+  - **Replicate (Beta)** als 3D-Provider: Pay-per-Use-Plattform mit
+    tausenden gehosteten Modellen – eingebauter Katalog (TRELLIS,
+    Hunyuan3D 2.0) plus freiem Feld für jede Replicate-Kennung
+    (`owner/name` oder `owner/name:version`); Bilder gehen über die
+    Replicate-Files-API (kein Data-URI-Limit), die Provider-Auswahl im
+    3D-Tab ist jetzt eine umbrechende Chip-Leiste (8 Provider)
   - **fal.ai-Marktplatz (Beta)** als 3D-Provider: Bild→3D mit
     wählbarem Marktplatz-Modell – TRELLIS (Microsoft, ab wenigen
     Cent), TRELLIS.2, TripoSR (am schnellsten), Hunyuan3D 2.0 und
@@ -206,6 +212,8 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
   <https://fal.ai/dashboard/keys>
 - **Rodin / Hyper3D** (3D-Bereich, Bezahlung nach Verbrauch):
   <https://hyper3d.ai/api>
+- **Replicate** (3D-Bereich, Bezahlung pro Lauf):
+  <https://replicate.com/account/api-tokens>
 
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt
 ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.
