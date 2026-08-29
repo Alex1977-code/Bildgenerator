@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -142,6 +143,93 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String? _error;
   String? _usageInfo;
   final List<ThreeDResult> _results = [];
+
+  /// Kopierbare Anleitungen für eine externe Prompt-KI (ChatGPT,
+  /// Claude & Co.): enthalten alle Regeln, damit der erzeugte Prompt
+  /// perfekt zu unserer 3D-Pipeline passt. (Titel, Kurzbeschreibung,
+  /// Vorlagentext).
+  static const _promptTemplates = [
+    (
+      'Figur für Bild→3D',
+      'Charakter/Person/Tier als 3D-taugliche Bildvorlage',
+      'Aufgabe: Schreibe einen englischen Bild-Prompt für einen '
+          'KI-Bildgenerator. Das Bild dient als Vorlage für eine '
+          '3D-Rekonstruktion (Image-to-3D) – dafür gelten besondere '
+          'Regeln:\n\n'
+          '- GENAU EINE Figur, Ganzkörper, vollständig sichtbar mit '
+          'etwas Rand – nichts anschneiden.\n'
+          '- Exakte Vorderansicht, Figur schaut direkt in die Kamera, '
+          'aufrecht stehend.\n'
+          '- T-Pose oder A-Pose: Arme seitlich ausgestreckt, Beine '
+          'leicht auseinander – Gliedmaßen dürfen Körper und Kopf '
+          'NICHT berühren oder verdecken (sonst verschmelzen sie im '
+          '3D-Modell).\n'
+          '- Komplett transparenter oder einfarbig neutraler '
+          'Hintergrund, kein Boden, kein Schatten, keine Spiegelung.\n'
+          '- Gleichmäßiges, weiches Studiolicht ohne harte Schatten, '
+          'keine dramatische Beleuchtung.\n'
+          '- Klare, kräftige Farben, deutlich lesbare Materialien, '
+          'scharfe Details.\n'
+          '- KEIN Text, kein Wasserzeichen, keine Requisiten, die die '
+          'Silhouette überlappen.\n'
+          '- Stil nennen (z. B. Pixar-Stil, realistisch, Chibi) und '
+          '2–4 markante Merkmale der Figur hervorheben.\n\n'
+          'Meine Figur: [HIER BESCHREIBEN]\n\n'
+          'Gib nur den fertigen englischen Prompt aus.',
+    ),
+    (
+      'Objekt/Fahrzeug für Bild→3D',
+      'Auto, Haus, Möbel, Gerät … als 3D-taugliche Bildvorlage',
+      'Aufgabe: Schreibe einen englischen Bild-Prompt für einen '
+          'KI-Bildgenerator. Das Bild dient als Vorlage für eine '
+          '3D-Rekonstruktion (Image-to-3D) – dafür gelten besondere '
+          'Regeln:\n\n'
+          '- GENAU EIN freistehendes Objekt, vollständig sichtbar mit '
+          'etwas Rand.\n'
+          '- Exakte Vorderansicht ohne starke Perspektive '
+          '(orthographisch wirkend). Bei Fahrzeugen: eben stehend, '
+          'alle Räder vollständig sichtbar und deutlich vom Aufbau '
+          'getrennt.\n'
+          '- Transparenter oder neutraler Hintergrund, kein Boden, '
+          'kein Schatten, keine Umgebungs-Spiegelungen im Lack.\n'
+          '- Gleichmäßiges, weiches Studiolicht.\n'
+          '- Symmetrie betonen, klare Kanten (Hard-Surface), gut '
+          'lesbare Materialien und Farben.\n'
+          '- KEIN Text, Logo, Sockel, Podest und keine Person im '
+          'Bild.\n\n'
+          'Mein Objekt: [HIER BESCHREIBEN]\n\n'
+          'Gib nur den fertigen englischen Prompt aus.',
+    ),
+    (
+      'Natives Text→3D (Meshy/Tripo)',
+      'Knapper 3D-Prompt + Negativ-Prompt',
+      'Aufgabe: Schreibe einen KNAPPEN englischen Text-zu-3D-Prompt '
+          '(kein Bild-Prompt!). Regeln:\n\n'
+          '- Reihenfolge: Objektklasse zuerst → Silhouette und '
+          'Proportionen → 2–4 markante Merkmale → knappe Material-/'
+          'Farbangabe.\n'
+          '- KEINE Kamera-, Licht- oder Qualitätswörter („8k“, '
+          '„photorealistic“, „studio lighting“) – Text-zu-3D-Modelle '
+          'ignorieren sie oder werden schlechter.\n'
+          '- Kurz halten: eine Zeile im Stichwort-Stil mit Kommas. '
+          'Wird das Ergebnis matschig, kürzen statt ergänzen.\n'
+          '- Bei Figuren ergänzen: "standing in T-pose, arms '
+          'stretched out".\n'
+          '- Erzeuge zusätzlich einen englischen Negativ-Prompt '
+          '(z. B. "low poly, blobby, melted, floating parts, base, '
+          'pedestal, text").\n\n'
+          'Mein Motiv: [HIER BESCHREIBEN]\n\n'
+          'Gib Prompt und Negativ-Prompt getrennt aus.',
+    ),
+  ];
+
+  Future<void> _copyTemplate(String title, String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      _showSnack('Vorlage „$title“ kopiert – bei deiner Prompt-KI '
+          'einfügen und das Motiv ergänzen.');
+    }
+  }
 
   static const _tPoseSuffix =
       'full body character in T-pose, arms stretched out horizontally, '
@@ -2041,6 +2129,59 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       '„Vierecke (Quads)“ bzw. Quad-Topologie wählen und '
                       'für professionelle Weiterbearbeitung eine '
                       'Retopologie in Blender einplanen.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  leading: const Icon(Icons.copy_all_outlined),
+                  title:
+                      const Text('Prompt-Vorlagen für deine Prompt-KI'),
+                  subtitle: Text(
+                    'Anleitungen zum Kopieren – damit ChatGPT, Claude & '
+                    'Co. Prompts schreiben, die perfekt zur 3D-Pipeline '
+                    'passen',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  children: [
+                    for (final (title, subtitle, text)
+                        in _promptTemplates)
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding:
+                            const EdgeInsets.only(bottom: 8),
+                        title: Text(title),
+                        subtitle: Text(subtitle,
+                            style: theme.textTheme.bodySmall),
+                        trailing: IconButton(
+                          tooltip: 'Vorlage kopieren',
+                          icon: const Icon(Icons.copy),
+                          onPressed: () => _copyTemplate(title, text),
+                        ),
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme
+                                  .colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: SelectableText(
+                              text,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Ablauf: Vorlage kopieren → bei deiner Prompt-KI '
+                      'einfügen und dein Motiv ergänzen → den erzeugten '
+                      'Prompt im Generator-Tab (Bild-Vorlagen) bzw. hier '
+                      'im Text-Modus (natives Text→3D) verwenden.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
