@@ -733,6 +733,41 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 ),
               ),
             ],
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              leading: const Icon(Icons.savings_outlined),
+              title: const Text('Kosten je Bild im Vergleich'),
+              children: [
+                Text(
+                  'Ungefähre Kosten pro Bild (1024×1024; Hoch-/Querformat '
+                  'ca. das 1,5-Fache):\n'
+                  '• OpenAI gpt-image-1-mini: ≈ 0,005–0,04 \$ je nach '
+                  'Qualität – am günstigsten.\n'
+                  '• OpenAI gpt-image-1: niedrig ≈ 0,011 \$, mittel '
+                  '≈ 0,042 \$, hoch ≈ 0,167 \$; die neueren '
+                  'gpt-image-1.5/2 liegen darüber, mit bester '
+                  'Text-Darstellung im Bild.\n'
+                  '• Google Gemini 2.5 Flash Image („Nano Banana“): '
+                  '≈ 0,039 \$ – bester Allrounder für Referenzbilder '
+                  'und die 3D-Ansichten.\n'
+                  '• Google Nano Banana Pro (gemini-3-pro-image): '
+                  '≈ 0,13 \$ (1K/2K) bis ≈ 0,24 \$ (4K) – höchste '
+                  'Qualität und Auflösung.\n'
+                  '• Stability Core: ≈ 0,03 \$ (3 Credits) – günstig, '
+                  'mit Style-Presets; SD 3.5: ≈ 0,035–0,065 \$; '
+                  'Ultra: ≈ 0,08 \$ – beste Stability-Qualität. '
+                  'Kein Referenzbild-Support (für die 3D-Pipeline '
+                  'OpenAI/Gemini wählen).\n'
+                  'Faustregel: Zum Experimentieren gpt-image-1-mini oder '
+                  'Stability Core, für gute Alltagsbilder Gemini Flash '
+                  'Image, für Feinstes gpt-image (hoch) oder Nano Banana '
+                  'Pro. Preise laut Anbieter (Stand 2026) – können sich '
+                  'ändern.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ],
         ),
       ),

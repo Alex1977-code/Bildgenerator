@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import '../services/animation_bake.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
+import '../services/mesh_check.dart';
 import '../services/preview_animations.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
@@ -53,6 +54,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   double _time = 0;
   Float32List? _posedPositions;
   Float32List? _jointPositions;
+  MeshCheckResult? _meshCheck;
 
   @override
   void initState() {
@@ -72,6 +74,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
       if (!mounted) return;
       setState(() {
         _mesh = mesh;
+        _meshCheck = checkMeshWatertight(mesh.positions, mesh.indices);
         final rig = mesh.rig;
         if (rig != null) {
           _fileClips = rig.animations;
@@ -176,9 +179,28 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     }
   }
 
-  /// Fragt die Druckgröße (längste Seite in mm) ab.
+  /// Fragt die Druckgröße (längste Seite in mm) ab und zeigt das
+  /// Ergebnis der Wasserdichtheits-Prüfung an.
   Future<double?> _askPrintSize(String title, String note) {
     final controller = TextEditingController(text: '100');
+    final check = _meshCheck;
+    final (checkIcon, checkColor, checkText) = check == null
+        ? (Icons.help_outline, Colors.grey, 'Netz nicht geprüft.')
+        : check.watertight
+            ? (
+                Icons.check_circle,
+                Colors.green,
+                'Geprüft: Das Modell ist geschlossen (wasserdicht) und '
+                    'damit druckbar.'
+                    '${check.nonManifoldEdges > 0 ? ' ${check.nonManifoldEdges} Berührungskanten – für Slicer unkritisch.' : ''}'
+              )
+            : (
+                Icons.warning_amber,
+                Colors.orange,
+                '${check.openEdges} offene Kanten gefunden – meist '
+                    'unkritisch: PrusaSlicer, Bambu Studio & Co. '
+                    'reparieren das beim Import automatisch.'
+              );
     return showDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
@@ -197,6 +219,18 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               ),
             ),
             const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(checkIcon, color: checkColor, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(checkText,
+                      style: const TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Text(note, style: const TextStyle(fontSize: 12)),
           ],
         ),

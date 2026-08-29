@@ -8,6 +8,7 @@ import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
+import 'package:bildgenerator/services/mesh_check.dart';
 import 'package:bildgenerator/services/stl_export.dart';
 import 'package:bildgenerator/services/threemf_export.dart';
 import 'package:archive/archive.dart';
@@ -388,6 +389,31 @@ void main() {
         .reduce((a, b) => a > b ? a : b);
     expect(largest, closeTo(80, 0.5));
     expect(minZ, closeTo(0, 1e-3));
+  });
+
+  test('Wasserdichtheits-Prüfung: Hull geschlossen, offenes Netz nicht',
+      () {
+    final hull = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final closed = checkMeshWatertight(
+      Float32List.fromList(hull.positions),
+      Uint32List.fromList(hull.indices),
+    );
+    expect(closed.watertight, isTrue);
+    expect(closed.openEdges, 0);
+    expect(closed.triangles, hull.indices.length ~/ 3);
+
+    // Ein einzelnes Dreieck hat drei offene Kanten.
+    final open = checkMeshWatertight(
+      Float32List.fromList([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      Uint32List.fromList([0, 1, 2]),
+    );
+    expect(open.watertight, isFalse);
+    expect(open.openEdges, 3);
   });
 
   test('3MF-Export: gültiger Container mit Farbpalette', () async {
