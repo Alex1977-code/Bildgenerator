@@ -1737,6 +1737,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     depthMaps: isLocal && _localDepthAi ? 2 : 0,
                     stabilityEngine: _stabilityEngine,
                     rigging: _rigging && !isLocal && !isStability,
+                    meshyAiModel: _meshyAiModel,
+                    tripoVersion: _tripoVersion,
                   );
                   final usesImageAi =
                       generatesViews || (isLocal && _localDepthAi);
@@ -1756,6 +1758,83 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   final controls = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 3D-Modell zuerst: bestimmt die Qualitätsstufe.
+                      if (isStability) ...[
+                        DropdownMenu<String>(
+                          key: ValueKey('sengine-$_stabilityEngine'),
+                          enabled: !_running,
+                          initialSelection: _stabilityEngine,
+                          label: const Text('3D-Modell (Engine)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: [
+                            for (final (value, name)
+                                in Stability3dService.engines)
+                              DropdownMenuEntry(
+                                  value: value, label: name),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              setState(() => _stabilityEngine = value);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Point Aware 3D rekonstruiert Rückseite und '
+                          'Hohlräume am besten; Fast 3D ist die '
+                          'schnellere, einfachere Variante.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 12),
+                      ] else if (!isLocal) ...[
+                        DropdownMenu<String>(
+                          key: ValueKey(
+                              'gen-${settings.threeDProvider}'
+                              '-${isTripo ? _tripoVersion : _meshyAiModel}'),
+                          enabled: !_running,
+                          initialSelection:
+                              isTripo ? _tripoVersion : _meshyAiModel,
+                          label: const Text('3D-Modell (KI-Generation)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: isTripo
+                              ? const [
+                                  DropdownMenuEntry(
+                                      value: '',
+                                      label:
+                                          'Standard (v2.5, bewährt)'),
+                                  DropdownMenuEntry(
+                                      value: 'v3.0-20250812',
+                                      label:
+                                          'Neueste (v3.0, beste Qualität)'),
+                                ]
+                              : const [
+                                  DropdownMenuEntry(
+                                      value: '',
+                                      label: 'Standard (API-Vorgabe)'),
+                                  DropdownMenuEntry(
+                                      value: 'meshy-5',
+                                      label: 'Meshy 5'),
+                                  DropdownMenuEntry(
+                                      value: 'meshy-6',
+                                      label: 'Meshy 6'),
+                                  DropdownMenuEntry(
+                                      value: 'latest',
+                                      label:
+                                          'Neueste (beste Qualität)'),
+                                ],
+                          onSelected: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              if (isTripo) {
+                                _tripoVersion = value;
+                              } else {
+                                _meshyAiModel = value;
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       if (usesImageAi) ...[
                         DropdownMenu<String>(
                           key: ValueKey(
@@ -2021,32 +2100,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     initiallyExpanded: true,
                     title: const Text('Qualitäts-Optionen (Profi)'),
                     subtitle: Text(
-                      'Engine, Textur, Polygonform & -zahl, Detailgrad',
+                      'Textur, Polygonform & -zahl, Detailgrad – die '
+                      'Engine steht oben bei „Modell & Kosten“',
                       style: theme.textTheme.bodySmall,
                     ),
                     children: [
-                      DropdownMenu<String>(
-                        key: ValueKey('sengine-$_stabilityEngine'),
-                        enabled: !_running,
-                        initialSelection: _stabilityEngine,
-                        label: const Text('Engine'),
-                        expandedInsets: EdgeInsets.zero,
-                        dropdownMenuEntries: [
-                          for (final (value, name)
-                              in Stability3dService.engines)
-                            DropdownMenuEntry(value: value, label: name),
-                        ],
-                        onSelected: (value) {
-                          if (value != null) {
-                            setState(() => _stabilityEngine = value);
-                          }
-                        },
-                      ),
-                      _optionInfo(
-                          'Point Aware 3D rekonstruiert auch Rückseite '
-                          'und Hohlräume am besten (Standard); Fast 3D '
-                          'liefert in Sekunden ein Ergebnis und schätzt '
-                          'zusätzlich PBR-Materialwerte.'),
                       DropdownMenu<int>(
                         key: ValueKey('stex-$_stabilityTextureRes'),
                         enabled: !_running,
@@ -2193,52 +2251,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     title: const Text('Qualitäts-Optionen (Profi)'),
                     subtitle: Text(
                       isTripo
-                          ? 'KI-Generation, Textur-Qualität, Topologie'
-                          : 'KI-Generation, Polygone, Symmetrie, PBR …',
+                          ? 'Textur-Qualität, Topologie – die '
+                              'KI-Generation steht oben bei '
+                              '„Modell & Kosten“'
+                          : 'Polygone, Symmetrie, PBR … – die '
+                              'KI-Generation steht oben bei '
+                              '„Modell & Kosten“',
                       style: theme.textTheme.bodySmall,
                     ),
                     children: [
-                      DropdownMenu<String>(
-                        key: ValueKey('gen-${settings.threeDProvider}'
-                            '-${isTripo ? _tripoVersion : _meshyAiModel}'),
-                        enabled: !_running,
-                        initialSelection:
-                            isTripo ? _tripoVersion : _meshyAiModel,
-                        label: const Text('KI-Generation'),
-                        expandedInsets: EdgeInsets.zero,
-                        dropdownMenuEntries: isTripo
-                            ? const [
-                                DropdownMenuEntry(
-                                    value: '',
-                                    label: 'Standard (v2.5, bewährt)'),
-                                DropdownMenuEntry(
-                                    value: 'v3.0-20250812',
-                                    label: 'Neueste (v3.0, beste Qualität)'),
-                              ]
-                            : const [
-                                DropdownMenuEntry(
-                                    value: '',
-                                    label: 'Standard (API-Vorgabe)'),
-                                DropdownMenuEntry(
-                                    value: 'meshy-5', label: 'Meshy 5'),
-                                DropdownMenuEntry(
-                                    value: 'meshy-6', label: 'Meshy 6'),
-                                DropdownMenuEntry(
-                                    value: 'latest',
-                                    label: 'Neueste (beste Qualität)'),
-                              ],
-                        onSelected: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            if (isTripo) {
-                              _tripoVersion = value;
-                            } else {
-                              _meshyAiModel = value;
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
                       if (!isTripo) ...[
                         DropdownMenu<int>(
                           key: ValueKey('poly-$_meshyPolycount'),

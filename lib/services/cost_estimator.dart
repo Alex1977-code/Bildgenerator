@@ -121,6 +121,8 @@ CostQualityEstimate estimate3dRun(
   required int depthMaps,
   required String stabilityEngine,
   required bool rigging,
+  String meshyAiModel = '',
+  String tripoVersion = '',
 }) {
   final items = <CostItem>[];
   final (imgMin, imgMax, _) = imageModelCost(settings);
@@ -148,20 +150,22 @@ CostQualityEstimate estimate3dRun(
           spar ? '3D-Modell (Point Aware 3D)' : '3D-Modell (Fast 3D)',
           spar ? 0.04 : 0.02,
           spar ? 0.04 : 0.02));
-      tier = 2;
+      tier = spar ? 2 : 1;
     case 'tripo':
       // Abo-Credits: Euro-Wert je nach Paket – daher eine Spanne.
       items.add(CostItem(
           rigging ? '3D-Modell + Rigging (Tripo)' : '3D-Modell (Tripo)',
           rigging ? 0.15 : 0.10,
           rigging ? 0.60 : 0.40));
-      tier = 5;
+      tier = tripoVersion.isEmpty ? 4 : 5;
     default: // meshy
       items.add(CostItem(
           rigging ? '3D-Modell + Rigging (Meshy)' : '3D-Modell (Meshy)',
           rigging ? 0.20 : 0.15,
           rigging ? 0.70 : 0.50));
-      tier = 5;
+      tier = meshyAiModel == 'meshy-6' || meshyAiModel == 'latest'
+          ? 5
+          : 4;
   }
 
   return CostQualityEstimate(
