@@ -54,6 +54,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   bool _showSkeleton = false;
   double _time = 0;
   Float32List? _posedPositions;
+  Float32List? _posedNormals;
   Float32List? _jointPositions;
   MeshCheckResult? _meshCheck;
 
@@ -66,6 +67,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   @override
   void dispose() {
     _ticker.dispose();
+    _mesh?.dispose();
     super.dispose();
   }
 
@@ -109,6 +111,10 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         ? null
         : computeSkinnedPositions(mesh,
             animation: animation, time: _time, rotationOverrides: overrides);
+    // Beleuchtung folgt der Pose: Normalen aus den bewegten Positionen.
+    _posedNormals = _posedPositions == null
+        ? null
+        : computeSmoothNormals(_posedPositions!, mesh.indices);
     _jointPositions = computeJointPositions(mesh,
         animation: animation, time: _time, rotationOverrides: overrides);
   }
@@ -434,6 +440,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                                 mesh: mesh,
                                 positions:
                                     _posedPositions ?? mesh.positions,
+                                normals: _posedNormals ?? mesh.normals,
                                 skeleton:
                                     _showSkeleton ? _jointPositions : null,
                                 skeletonParents: rig?.jointParents,
@@ -515,6 +522,7 @@ class _MeshPainter extends CustomPainter {
   _MeshPainter({
     required this.mesh,
     required this.positions,
+    required this.normals,
     required this.skeleton,
     required this.skeletonParents,
     required this.rotX,
@@ -525,12 +533,16 @@ class _MeshPainter extends CustomPainter {
 
   final PreviewMesh mesh;
   final Float32List positions;
+  final Float32List normals;
   final Float32List? skeleton; // x,y,z je Gelenk (Weltkoordinaten)
   final List<int>? skeletonParents;
   final double rotX;
   final double rotY;
   final double zoom;
   final Color background;
+
+  static final Float64List _identityMatrix = Float64List.fromList(
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -582,39 +594,81 @@ class _MeshPainter extends CustomPainter {
     }
     order.sort((a, b) => depth[a].compareTo(depth[b]));
 
+    // Weiche per-Vertex-Beleuchtung aus den mitgedrehten Normalen
+    // (Gouraud-Shading statt facettiertem Flat-Shading).
+    final shade = Float32List(vertexCount);
+    for (var i = 0; i < vertexCount; i++) {
+      final nx = normals[i * 3],
+          ny = normals[i * 3 + 1],
+          nz = normals[i * 3 + 2];
+      final x1 = nx * cosY + nz * sinY;
+      final z1 = -nx * sinY + nz * cosY;
+      final y2 = ny * cosX - z1 * sinX;
+      final z2 = ny * sinX + z1 * cosX;
+      // Licht schräg von oben vorn; doppelseitig (Betrag).
+      var dot = (-0.26 * x1 + 0.44 * y2 + 0.86 * z2).abs();
+      if (dot > 1) dot = 1;
+      shade[i] = 0.42 + 0.58 * dot;
+    }
+
+    final texture = mesh.texture;
+    final uvs = mesh.uvs;
+    final textured = texture != null && uvs != null;
     final outPositions = Float32List(triangleCount * 6);
     final outColors = Int32List(triangleCount * 3);
-    var p = 0, c = 0;
+    final outTex = textured ? Float32List(triangleCount * 6) : null;
+    var p = 0, c = 0, texOut = 0;
     for (final t in order) {
-      final ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
-      // Beleuchtung aus der Bildschirm-Normalen (flach schattiert).
-      final ux = sx[ib] - sx[ia], uy = sy[ib] - sy[ia], uz = sz[ib] - sz[ia];
-      final vx = sx[ic] - sx[ia], vy = sy[ic] - sy[ia], vz = sz[ic] - sz[ia];
-      final nx = uy * vz - uz * vy;
-      final ny = uz * vx - ux * vz;
-      final nz = ux * vy - uy * vx;
-      final length = math.sqrt(nx * nx + ny * ny + nz * nz);
-      final intensity =
-          length < 1e-9 ? 1.0 : 0.35 + 0.65 * (nz.abs() / length);
-
+      final ia = indices[t * 3],
+          ib = indices[t * 3 + 1],
+          ic = indices[t * 3 + 2];
       for (final vi in [ia, ib, ic]) {
         outPositions[p++] = sx[vi];
         outPositions[p++] = sy[vi];
-        final color = mesh.colors[vi];
-        final r = ((color >> 16) & 0xFF) * intensity;
-        final g = ((color >> 8) & 0xFF) * intensity;
-        final b = (color & 0xFF) * intensity;
-        outColors[c++] = 0xFF000000 |
-            (r.round().clamp(0, 255) << 16) |
-            (g.round().clamp(0, 255) << 8) |
-            b.round().clamp(0, 255);
+        final s = shade[vi];
+        if (textured) {
+          var u = uvs[vi * 2] % 1.0;
+          if (u < 0) u += 1;
+          var v = uvs[vi * 2 + 1] % 1.0;
+          if (v < 0) v += 1;
+          outTex![texOut++] = u * texture.width;
+          outTex[texOut++] = v * texture.height;
+          final grey = (s * 255).round().clamp(0, 255);
+          outColors[c++] =
+              0xFF000000 | (grey << 16) | (grey << 8) | grey;
+        } else {
+          final color = mesh.colors[vi];
+          final r = ((color >> 16) & 0xFF) * s;
+          final g = ((color >> 8) & 0xFF) * s;
+          final b = (color & 0xFF) * s;
+          outColors[c++] = 0xFF000000 |
+              (r.round().clamp(0, 255) << 16) |
+              (g.round().clamp(0, 255) << 8) |
+              b.round().clamp(0, 255);
+        }
       }
     }
 
-    final vertices =
+    if (textured) {
+      // Echtes Textur-Mapping: Texturkoordinaten je Vertex, Helligkeit
+      // über die Vertex-Farben (modulate) – volle Texturschärfe.
+      final paint = Paint()
+        ..shader = ui.ImageShader(texture, ui.TileMode.clamp,
+            ui.TileMode.clamp, _identityMatrix);
+      canvas.drawVertices(
         ui.Vertices.raw(ui.VertexMode.triangles, outPositions,
-            colors: outColors);
-    canvas.drawVertices(vertices, BlendMode.dst, Paint());
+            textureCoordinates: outTex, colors: outColors),
+        BlendMode.modulate,
+        paint,
+      );
+    } else {
+      canvas.drawVertices(
+        ui.Vertices.raw(ui.VertexMode.triangles, outPositions,
+            colors: outColors),
+        BlendMode.dst,
+        Paint(),
+      );
+    }
 
     // Skelett-Overlay: Knochenlinien und Gelenkpunkte über dem Modell.
     final joints = skeleton;
@@ -652,6 +706,7 @@ class _MeshPainter extends CustomPainter {
   bool shouldRepaint(_MeshPainter oldDelegate) =>
       oldDelegate.mesh != mesh ||
       oldDelegate.positions != positions ||
+      oldDelegate.normals != normals ||
       oldDelegate.skeleton != skeleton ||
       oldDelegate.rotX != rotX ||
       oldDelegate.rotY != rotY ||

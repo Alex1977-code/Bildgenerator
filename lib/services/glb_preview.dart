@@ -12,22 +12,78 @@ class PreviewMesh {
     required this.positions,
     required this.indices,
     required this.colors,
+    required this.normals,
     required this.center,
     required this.extent,
+    this.uvs,
+    this.texture,
     this.rig,
   });
 
   final Float32List positions; // x,y,z je Vertex
   final Uint32List indices;
-  final Int32List colors; // ARGB je Vertex
+  final Int32List colors; // ARGB je Vertex (Fallback/Export)
+  final Float32List normals; // glatte Normalen, x,y,z je Vertex
   final List<double> center;
   final double extent;
+
+  /// Texturkoordinaten (u,v je Vertex) – gesetzt, wenn [texture]
+  /// verwendet werden kann.
+  final Float32List? uvs;
+
+  /// Volltextur fürs echte Textur-Mapping im Viewer (statt der auf die
+  /// Vertices heruntergerechneten Farben). Null bei Vertex-Farb-Meshes
+  /// oder mehreren unterschiedlichen Texturen.
+  final ui.Image? texture;
 
   /// Skelett samt Skin-Gewichten und Animationen (falls vorhanden).
   final PreviewRig? rig;
 
   int get vertexCount => positions.length ~/ 3;
   int get triangleCount => indices.length ~/ 3;
+
+  /// Gibt die gehaltene Textur frei (vom Vorschau-Screen aufzurufen).
+  void dispose() => texture?.dispose();
+}
+
+/// Glatte Normalen: Flächennormalen flächengewichtet auf die Vertices
+/// akkumulieren und normalisieren.
+Float32List computeSmoothNormals(
+    Float32List positions, Uint32List indices) {
+  final normals = Float32List(positions.length);
+  for (var i = 0; i < indices.length; i += 3) {
+    final ia = indices[i] * 3,
+        ib = indices[i + 1] * 3,
+        ic = indices[i + 2] * 3;
+    final ax = positions[ia], ay = positions[ia + 1], az = positions[ia + 2];
+    final ux = positions[ib] - ax,
+        uy = positions[ib + 1] - ay,
+        uz = positions[ib + 2] - az;
+    final vx = positions[ic] - ax,
+        vy = positions[ic + 1] - ay,
+        vz = positions[ic + 2] - az;
+    final nx = uy * vz - uz * vy;
+    final ny = uz * vx - ux * vz;
+    final nz = ux * vy - uy * vx;
+    for (final o in [ia, ib, ic]) {
+      normals[o] += nx;
+      normals[o + 1] += ny;
+      normals[o + 2] += nz;
+    }
+  }
+  for (var i = 0; i < normals.length; i += 3) {
+    final length = math.sqrt(normals[i] * normals[i] +
+        normals[i + 1] * normals[i + 1] +
+        normals[i + 2] * normals[i + 2]);
+    if (length > 1e-12) {
+      normals[i] /= length;
+      normals[i + 1] /= length;
+      normals[i + 2] /= length;
+    } else {
+      normals[i + 2] = 1;
+    }
+  }
+  return normals;
 }
 
 /// Knoten der Szenen-Hierarchie (nur Translation/Rotation/Skalierung).
@@ -232,9 +288,8 @@ int _packColor(double r, double g, double b) =>
 
 const int _defaultColor = 0xFFB9BCC4;
 
-/// Dekodiert die Basisfarb-Textur eines Primitivs (falls vorhanden).
-Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
-    _Gltf gltf, Map<String, dynamic> primitive) async {
+/// Index des Basisfarb-Textur-Bildes eines Primitivs (oder null).
+int? _baseColorImageIndex(_Gltf gltf, Map<String, dynamic> primitive) {
   try {
     final materialIndex = primitive['material'] as int?;
     if (materialIndex == null) return null;
@@ -246,13 +301,25 @@ Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
     if (textureInfo == null) return null;
     final texture = (gltf.json['textures'] as List)[textureInfo['index'] as int]
         as Map<String, dynamic>;
-    final image = (gltf.json['images'] as List)[texture['source'] as int]
+    return texture['source'] as int?;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Dekodiert die Basisfarb-Textur eines Primitivs zum Farb-Abtasten.
+Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
+    _Gltf gltf, Map<String, dynamic> primitive) async {
+  try {
+    final imageIndex = _baseColorImageIndex(gltf, primitive);
+    if (imageIndex == null) return null;
+    final image = (gltf.json['images'] as List)[imageIndex]
         as Map<String, dynamic>;
     final bufferView = image['bufferView'] as int?;
     if (bufferView == null) return null;
     final codec = await ui.instantiateImageCodec(
       gltf.viewBytes(bufferView),
-      targetWidth: 256,
+      targetWidth: 512,
       allowUpscaling: false,
     );
     final frame = await codec.getNextFrame();
@@ -269,6 +336,26 @@ Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
     } finally {
       decoded.dispose();
     }
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Dekodiert ein Textur-Bild in voller Auflösung (bis 2048 px) für das
+/// echte Textur-Mapping im Viewer.
+Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex) async {
+  try {
+    final image = (gltf.json['images'] as List)[imageIndex]
+        as Map<String, dynamic>;
+    final bufferView = image['bufferView'] as int?;
+    if (bufferView == null) return null;
+    final codec = await ui.instantiateImageCodec(
+      gltf.viewBytes(bufferView),
+      targetWidth: 2048,
+      allowUpscaling: false,
+    );
+    final frame = await codec.getNextFrame();
+    return frame.image;
   } catch (_) {
     return null;
   }
@@ -300,7 +387,13 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
   final allIndices = <int>[];
   final allJoints = <int>[];
   final allWeights = <double>[];
+  final allUvs = <double>[];
   var hasSkinData = false;
+  // Volltextur fürs echte Mapping: nur nutzbar, wenn alle Primitive
+  // dieselbe Textur und UV-Koordinaten haben.
+  var textureUsable = true;
+  int? textureImage;
+  ui.Image? fullTexture;
 
   final meshes = json['meshes'] as List? ?? [];
   for (final mesh in meshes) {
@@ -318,6 +411,25 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
       final positions = _readFloats(gltf, positionAccessor);
       final vertexCount = positions.length ~/ 3;
       final base = allPositions.length ~/ 3;
+
+      // UVs und Volltextur fürs echte Textur-Mapping.
+      final uvAccessorIndex = attributes['TEXCOORD_0'] as int?;
+      if (uvAccessorIndex != null) {
+        allUvs.addAll(_readFloats(gltf, uvAccessorIndex));
+      } else {
+        allUvs.addAll(List.filled(vertexCount * 2, 0.0));
+        textureUsable = false;
+      }
+      final imageIndex = _baseColorImageIndex(gltf, primitive);
+      if (imageIndex == null) {
+        textureUsable = false;
+      } else if (textureImage == null) {
+        textureImage = imageIndex;
+        fullTexture = await _decodeTextureImage(gltf, imageIndex);
+        if (fullTexture == null) textureUsable = false;
+      } else if (textureImage != imageIndex) {
+        textureUsable = false;
+      }
 
       // Farben: COLOR_0, sonst Textur-Abtastung, sonst Grau.
       var colors = List<int>.filled(vertexCount, _defaultColor);
@@ -418,12 +530,21 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
     }
   }
 
+  if (!textureUsable) {
+    fullTexture?.dispose();
+    fullTexture = null;
+  }
+
+  final indices = Uint32List.fromList(allIndices);
   return PreviewMesh(
     positions: positions,
-    indices: Uint32List.fromList(allIndices),
+    indices: indices,
     colors: Int32List.fromList(allColors),
+    normals: computeSmoothNormals(positions, indices),
     center: center,
     extent: extent <= 0 ? 1 : extent,
+    uvs: textureUsable ? Float32List.fromList(allUvs) : null,
+    texture: fullTexture,
     rig: rig,
   );
 }

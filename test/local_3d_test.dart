@@ -595,6 +595,9 @@ void main() {
     expect(preview.vertexCount, mesh.positions.length ~/ 3);
     expect(preview.indices.length, mesh.indices.length);
     expect(preview.colors.length, preview.vertexCount);
+    expect(preview.normals, hasLength(preview.positions.length));
+    // Vertex-Farb-Mesh ohne Textur → kein Textur-Mapping-Pfad.
+    expect(preview.texture, isNull);
     expect(preview.extent, greaterThan(0));
     // Vertex-Farben kommen aus COLOR_0, nicht aus dem Grau-Fallback.
     expect(preview.colors.toSet().length, greaterThan(1));
