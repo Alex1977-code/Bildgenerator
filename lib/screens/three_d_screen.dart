@@ -14,6 +14,7 @@ import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
+import 'model_preview_screen.dart';
 
 /// 3D-Bereich: Figuren und Objekte aus Text oder Bild generieren
 /// (Meshy AI), optional mit Textur und Auto-Rigging, Export als GLB.
@@ -565,6 +566,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
+  void _openModelPreview(ThreeDResult result) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: result.glbBytes,
+        title: result.label,
+      ),
+    ));
+  }
+
   Future<void> _exportGlb(ThreeDResult result) async {
     final fileName =
         'modell_${DateTime.now().millisecondsSinceEpoch}.glb';
@@ -957,10 +967,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   result.textured ? 'mit Textur' : 'ohne Textur',
                   if (result.rigged) 'geriggt',
                 ].join(' · ')),
-                trailing: FilledButton.tonalIcon(
-                  onPressed: () => _exportGlb(result),
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('GLB'),
+                onTap: () => _openModelPreview(result),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: '3D-Ansicht (frei drehbar)',
+                      icon: const Icon(Icons.threed_rotation),
+                      onPressed: () => _openModelPreview(result),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: () => _exportGlb(result),
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('GLB'),
+                    ),
+                  ],
                 ),
               ),
             ),

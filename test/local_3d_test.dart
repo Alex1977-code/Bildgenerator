@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 
 RgbaImage _testImage() {
@@ -109,5 +110,24 @@ void main() {
         (material['pbrMetallicRoughness'] as Map)
             .containsKey('baseColorTexture'),
         isFalse);
+  });
+
+  test('GLB-Vorschau-Parser liest eigenes GLB zurück (Round-Trip)',
+      () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 10,
+    );
+    final glb = buildGlb(mesh);
+
+    final preview = await parseGlbForPreview(glb);
+    expect(preview.vertexCount, mesh.positions.length ~/ 3);
+    expect(preview.indices.length, mesh.indices.length);
+    expect(preview.colors.length, preview.vertexCount);
+    expect(preview.extent, greaterThan(0));
+    // Vertex-Farben kommen aus COLOR_0, nicht aus dem Grau-Fallback.
+    expect(preview.colors.toSet().length, greaterThan(1));
   });
 }
