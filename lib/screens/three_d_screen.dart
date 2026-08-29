@@ -914,9 +914,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               'den Stability-Bildschlüssel, wenige Credits '
                               'pro Modell.'
                           : isTripo
-                              ? 'Tripo3D: Bezahlung nach Verbrauch, '
-                                  'Startguthaben für neue Konten '
-                                  '(platform.tripo3d.ai).'
+                              ? 'Tripo3D: ca. 35–75 Credits je Modell '
+                                  '(Rohmodell + Textur + Rigging), '
+                                  '10 € = 1000 Credits; Startguthaben für '
+                                  'neue Konten (platform.tripo3d.ai).'
                               : 'Meshy: ca. 20 Credits pro Modell, '
                                   'API-Zugang ab Pro-Plan (meshy.ai).',
                   style: theme.textTheme.bodySmall,
@@ -1440,27 +1441,31 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   title: const Text('Kosten & Qualität im Vergleich'),
                   children: [
                     Text(
-                      '• Lokal: kostenlos und offline – Qualität gut bei '
-                      'einfachen, kompakten Motiven; Vertex-Farben statt '
-                      'echter Texturen, keine Hohlräume. Mit KI-Ansichten '
-                      'und Tiefenschätzung fallen nur Bildkosten an '
-                      '(ca. 4–6 Bilder, wenige Cent).\n'
-                      '• Stability: ca. 4–10 Credits (≈ 0,04–0,10 \$) pro '
-                      'Modell, Antwort in Sekunden – bestes '
-                      'Preis-Leistungs-Verhältnis; echte Texturen, '
-                      'plausible Rückseiten und Hohlräume, Details '
-                      'mittel bis hoch.\n'
-                      '• Tripo3D: ca. 10–30 Credits (≈ 0,10–0,30 \$) je '
-                      'nach Optionen, Startguthaben für neue Konten – '
-                      'sehr hohe Qualität, v3.0 und „detailliert“ nahe '
-                      'Produktionsniveau, natives Rigging.\n'
-                      '• Meshy: ca. 20 Credits, API erst ab Pro-Abo '
-                      '(≈ 16 \$/Monat) – Top-Qualität und viele Optionen, '
+                      'Gesamtkosten je Komplettmodell mit Textur und '
+                      'Rigging:\n'
+                      '• Lokal: 0 € – Auto-Rigging der App inklusive; '
+                      '„Textur“ sind Vertex-Farben statt echter '
+                      'Textur-Maps, keine Hohlräume. Per Text nur '
+                      'Bildkosten (ca. 4–6 Bilder, wenige Cent).\n'
+                      '• Stability + App-Rigging: ca. 4–10 Credits '
+                      '(≈ 0,04–0,10 \$) – echte PBR-Texturen sind immer '
+                      'dabei, das Skelett baut die App kostenlos ein. '
+                      'Günstigste Variante mit echter Textur.\n'
+                      '• Tripo3D: ca. 75 Credits komplett (35 Rohmodell '
+                      '+ 20 Textur + 20 Rigging) ≈ 0,75 € – kleinstes '
+                      'Paket 10 € = 1000 Credits, also ~13 '
+                      'Komplettmodelle; Startguthaben für neue Konten. '
+                      'Höchste Qualität und professionelles natives '
+                      'Rigging.\n'
+                      '• Meshy: ca. 20–30 Credits (Geometrie + Textur + '
+                      'Rigging), API aber nur mit Pro-Abo '
+                      '(≈ 16 \$/Monat = 1000 Credits) – Top-Qualität, '
                       'lohnt bei regelmäßiger Nutzung.\n'
-                      'Empfehlung: Zum Ausprobieren Lokal (gratis), für '
-                      'gute Modelle zum kleinen Preis Stability, für '
-                      'maximale Qualität Tripo3D/Meshy. Preise laut '
-                      'Anbieter (Stand 2026) – können sich ändern.',
+                      'Empfehlung: Am günstigsten mit echter Textur und '
+                      'Skelett ist Stability plus App-Rigging (wenige '
+                      'Cent). Die beste Rigging-Qualität liefert Tripo3D '
+                      '(~0,75 € je Komplettmodell). Preise laut Anbieter '
+                      '(Stand 2026) – können sich ändern.',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
