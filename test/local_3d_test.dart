@@ -538,7 +538,7 @@ void main() {
     expect(clear.colorBilinear(0.5, 0), isNull);
   });
 
-  test('GLB-Material übernimmt Oberflächen-Werte (PBR)', () {
+  test('GLB-Material übernimmt Oberflächen-Werte (PBR)', () async {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),
       left: _solidImage(),
@@ -551,6 +551,13 @@ void main() {
         as Map)['pbrMetallicRoughness'] as Map;
     expect(pbr['metallicFactor'], closeTo(0.9, 1e-6));
     expect(pbr['roughnessFactor'], closeTo(0.35, 1e-6));
+
+    // Der Viewer-Parser liest die Werte zurück (für die
+    // Glanzlicht-Anzeige in der Vorschau).
+    final preview = await parseGlbForPreview(glb);
+    expect(preview.metallic, closeTo(0.9, 1e-6));
+    expect(preview.roughness, closeTo(0.35, 1e-6));
+    preview.dispose();
   });
 
   test('Auto-Rigging vermisst Chibi-Proportionen (Hals unter dem Kopf)',

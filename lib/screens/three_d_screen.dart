@@ -1337,10 +1337,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ),
                   _optionInfo(
                       'PBR-Materialwerte (Metall/Rauheit) im GLB: '
-                      'bestimmen, wie Blender, Unity, Godot & Co. das '
-                      'Modell beleuchten – von matt bis metallisch '
-                      'glänzend. Die App-Vorschau zeigt diesen Effekt '
-                      'nicht an.'),
+                      'bestimmen, wie das Modell beleuchtet wird – von '
+                      'matt bis metallisch glänzend. Die 3D-Vorschau '
+                      'zeigt den Effekt direkt (Glanzlichter), Blender, '
+                      'Unity & Co. nutzen dieselben Werte.'),
                 ] else if (isStability) ...[
                   Text(
                     'Textur (PBR) ist immer im Modell enthalten.',

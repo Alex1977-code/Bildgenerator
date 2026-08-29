@@ -71,7 +71,9 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     das Skelett lässt sich per
     Knopf grafisch über dem Modell einblenden. Die Testanimationen
     können optional als echte, loopbare glTF-Clips mit ins exportierte
-    GLB gebacken werden („GLB + Testanimationen exportieren“)
+    GLB gebacken werden („GLB + Testanimationen exportieren“). Die
+    Vorschau zeigt auch die PBR-Oberfläche des Materials: Glanzlichter
+    je nach Metall- und Rauheitswert (matt bis metallisch)
   - **STL-, 3MF- und OBJ-Export**: Der Viewer exportiert Modelle als
     binäres STL (nur Form) oder als 3MF **mit Farben** (Material-
     Palette je Dreieck) – jeweils aufs Druckbett gedreht, zentriert

@@ -666,8 +666,23 @@ class _MeshPainter extends CustomPainter {
     order.sort((a, b) => depth[a].compareTo(depth[b]));
 
     // Weiche per-Vertex-Beleuchtung aus den mitgedrehten Normalen
-    // (Gouraud-Shading statt facettiertem Flat-Shading).
+    // (Gouraud-Shading statt facettiertem Flat-Shading) – plus
+    // PBR-Glanzlichter nach Metall/Rauheit des Materials: Metalle
+    // streuen weniger diffus und bekommen einen additiven
+    // Spekular-Pass (Blinn-Phong-Näherung).
+    final metallic = mesh.metallic;
+    final gloss = (1 - mesh.roughness).clamp(0.0, 1.0);
+    final shininess = 4 + gloss * gloss * 96;
+    final specStrength =
+        (0.25 + 0.75 * metallic) * math.pow(gloss, 1.5).toDouble();
+    // Halbvektor aus Lichtrichtung (-0.26, 0.44, 0.86) und Blick (0,0,1).
+    var hx = -0.26, hy = 0.44, hz = 1.86;
+    final hLen = math.sqrt(hx * hx + hy * hy + hz * hz);
+    hx /= hLen;
+    hy /= hLen;
+    hz /= hLen;
     final shade = Float32List(vertexCount);
+    final spec = specStrength > 0.01 ? Float32List(vertexCount) : null;
     for (var i = 0; i < vertexCount; i++) {
       final nx = normals[i * 3],
           ny = normals[i * 3 + 1],
@@ -679,7 +694,12 @@ class _MeshPainter extends CustomPainter {
       // Licht schräg von oben vorn; doppelseitig (Betrag).
       var dot = (-0.26 * x1 + 0.44 * y2 + 0.86 * z2).abs();
       if (dot > 1) dot = 1;
-      shade[i] = 0.42 + 0.58 * dot;
+      shade[i] = (0.42 + 0.58 * dot) * (1 - 0.45 * metallic);
+      if (spec != null) {
+        var hDot = (hx * x1 + hy * y2 + hz * z2).abs();
+        if (hDot > 1) hDot = 1;
+        spec[i] = specStrength * math.pow(hDot, shininess).toDouble();
+      }
     }
 
     final texture = mesh.texture;
@@ -688,7 +708,8 @@ class _MeshPainter extends CustomPainter {
     final outPositions = Float32List(triangleCount * 6);
     final outColors = Int32List(triangleCount * 3);
     final outTex = textured ? Float32List(triangleCount * 6) : null;
-    var p = 0, c = 0, texOut = 0;
+    final specColors = spec != null ? Int32List(triangleCount * 3) : null;
+    var p = 0, c = 0, texOut = 0, scOut = 0;
     for (final t in order) {
       final ia = indices[t * 3],
           ib = indices[t * 3 + 1],
@@ -697,6 +718,19 @@ class _MeshPainter extends CustomPainter {
         outPositions[p++] = sx[vi];
         outPositions[p++] = sy[vi];
         final s = shade[vi];
+        if (specColors != null) {
+          // Glanzlicht-Farbe: weiß für Nichtmetalle, bei Metallen zur
+          // Grundfarbe hin getönt.
+          final sv = spec![vi];
+          final base = mesh.colors[vi];
+          final br = 255 + (((base >> 16) & 0xFF) - 255) * metallic;
+          final bg = 255 + (((base >> 8) & 0xFF) - 255) * metallic;
+          final bb = 255 + ((base & 0xFF) - 255) * metallic;
+          specColors[scOut++] = 0xFF000000 |
+              ((sv * br).round().clamp(0, 255) << 16) |
+              ((sv * bg).round().clamp(0, 255) << 8) |
+              (sv * bb).round().clamp(0, 255);
+        }
         if (textured) {
           var u = uvs[vi * 2] % 1.0;
           if (u < 0) u += 1;
@@ -738,6 +772,18 @@ class _MeshPainter extends CustomPainter {
             colors: outColors),
         BlendMode.dst,
         Paint(),
+      );
+    }
+
+    // Additiver Glanzlicht-Pass (PBR): hellt dort auf, wo die
+    // Oberfläche das Licht zur Kamera spiegelt – sichtbar bei
+    // glänzenden und metallischen Materialien.
+    if (specColors != null) {
+      canvas.drawVertices(
+        ui.Vertices.raw(ui.VertexMode.triangles, outPositions,
+            colors: specColors),
+        BlendMode.dst,
+        Paint()..blendMode = BlendMode.plus,
       );
     }
 

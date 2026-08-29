@@ -18,6 +18,8 @@ class PreviewMesh {
     this.uvs,
     this.texture,
     this.rig,
+    this.metallic = 0.0,
+    this.roughness = 0.9,
   });
 
   final Float32List positions; // x,y,z je Vertex
@@ -38,6 +40,11 @@ class PreviewMesh {
 
   /// Skelett samt Skin-Gewichten und Animationen (falls vorhanden).
   final PreviewRig? rig;
+
+  /// PBR-Oberfläche (Metall/Rauheit) des ersten Materials – der Viewer
+  /// zeigt daraus Glanzlichter (matt bis metallisch).
+  final double metallic;
+  final double roughness;
 
   int get vertexCount => positions.length ~/ 3;
   int get triangleCount => indices.length ~/ 3;
@@ -535,6 +542,29 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
     fullTexture = null;
   }
 
+  // PBR-Oberfläche (Metall/Rauheit) aus dem ersten Material für die
+  // Glanzlicht-Anzeige. Vorschau-Näherung: Fehlt der Faktor, wird
+  // neutral (nicht metallisch) angenommen; trägt das Material eine
+  // Metallic-Roughness-Textur, die wir nicht auswerten, werden die
+  // Faktoren gedämpft, damit texturierte Modelle nicht komplett
+  // metallisch wirken.
+  var metallic = 0.0, roughness = 0.9;
+  final materials = gltf.json['materials'] as List?;
+  if (materials != null && materials.isNotEmpty) {
+    final pbr = (materials.first as Map)['pbrMetallicRoughness'];
+    if (pbr is Map) {
+      final hasMrTexture = pbr['metallicRoughnessTexture'] != null;
+      metallic = ((pbr['metallicFactor'] as num?)?.toDouble() ?? 0.0)
+          .clamp(0.0, 1.0);
+      roughness = ((pbr['roughnessFactor'] as num?)?.toDouble() ?? 0.9)
+          .clamp(0.0, 1.0);
+      if (hasMrTexture) {
+        metallic = math.min(metallic, 0.35);
+        roughness = roughness.clamp(0.5, 1.0);
+      }
+    }
+  }
+
   final indices = Uint32List.fromList(allIndices);
   return PreviewMesh(
     positions: positions,
@@ -546,6 +576,8 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
     uvs: textureUsable ? Float32List.fromList(allUvs) : null,
     texture: fullTexture,
     rig: rig,
+    metallic: metallic,
+    roughness: roughness,
   );
 }
 
