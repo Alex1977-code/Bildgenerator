@@ -19,6 +19,7 @@ import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
+import '../widgets/print_size_dialog.dart';
 import 'rig_edit_screen.dart';
 
 /// Frei drehbare 3D-Vorschau eines GLB-Modells (eigener Software-Renderer,
@@ -235,73 +236,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
 
   /// Fragt die Druckgröße (längste Seite in mm) ab und zeigt das
   /// Ergebnis der Wasserdichtheits-Prüfung an.
-  Future<double?> _askPrintSize(String title, String note) {
-    final controller = TextEditingController(text: '100');
-    final check = _meshCheck;
-    final (checkIcon, checkColor, checkText) = check == null
-        ? (Icons.help_outline, Colors.grey, 'Netz nicht geprüft.')
-        : check.watertight
-            ? (
-                Icons.check_circle,
-                Colors.green,
-                'Geprüft: Das Modell ist geschlossen (wasserdicht) und '
-                    'damit druckbar.'
-                    '${check.nonManifoldEdges > 0 ? ' ${check.nonManifoldEdges} Berührungskanten – für Slicer unkritisch.' : ''}'
-              )
-            : (
-                Icons.warning_amber,
-                Colors.orange,
-                '${check.openEdges} offene Kanten gefunden – meist '
-                    'unkritisch: PrusaSlicer, Bambu Studio & Co. '
-                    'reparieren das beim Import automatisch.'
-              );
-    return showDialog<double>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Größe der längsten Seite (mm)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(checkIcon, color: checkColor, size: 18),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(checkText,
-                      style: const TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(note, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(
-                double.tryParse(controller.text.replaceAll(',', '.'))),
-            child: const Text('Exportieren'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<double?> _askPrintSize(String title, String note) =>
+      askPrintSizeDialog(context,
+          title: title, note: note, check: _meshCheck);
 
   /// Rig-Editor öffnen; danach das Modell mit dem angepassten Skelett
   /// neu laden und dem Aufrufer (Ergebnisliste) mitteilen.

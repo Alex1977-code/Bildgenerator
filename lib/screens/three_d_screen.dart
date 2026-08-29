@@ -10,11 +10,17 @@ import '../services/auto_rig.dart';
 import '../services/balance_service.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart' show GenerationException;
+import '../services/glb_preview.dart';
 import '../services/history_service.dart';
 import '../services/local_3d.dart';
+import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_import.dart';
+import '../services/obj_export.dart';
 import '../services/provenance.dart';
+import '../services/stl_export.dart';
+import '../services/threemf_export.dart';
+import '../widgets/print_size_dialog.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
@@ -1017,6 +1023,117 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       final message = await exportImageBytes(
           result.glbBytes, fileName, 'model/gltf-binary');
       if (message != null && mounted) _showSnack(message);
+    } catch (e) {
+      if (mounted) _showSnack('Export fehlgeschlagen: $e');
+    }
+  }
+
+  /// Export-Menü direkt am Ergebnis: alle Formate wie im Viewer.
+  void _showExportMenu(ThreeDResult result) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.view_in_ar),
+              title: const Text('GLB exportieren'),
+              subtitle:
+                  const Text('Original mit Textur und ggf. Rigging'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _exportGlb(result);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.polyline_outlined),
+              title: const Text('OBJ exportieren (mit Vertexfarben)'),
+              subtitle: const Text('Für Blender, MeshLab & Co.'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _exportResultAs(result, 'obj');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.print_outlined),
+              title: const Text('STL für 3D-Druck …'),
+              subtitle: const Text(
+                  'Nur Form – aufs Druckbett gedreht, Größe in mm'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _exportResultAs(result, 'stl');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.palette_outlined),
+              title: const Text('3MF mit Farben …'),
+              subtitle:
+                  const Text('Für Farb-3D-Druck und Druckdienste'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _exportResultAs(result, '3mf');
+              },
+            ),
+            ListTile(
+              enabled: false,
+              leading: const Icon(Icons.movie_outlined),
+              title: const Text('GLB mit Testanimationen'),
+              subtitle: const Text(
+                  'Im Viewer (3D-Ansicht) unter Export zu finden'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportResultAs(ThreeDResult result, String format) async {
+    try {
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      switch (format) {
+        case 'obj':
+          final obj = await glbToObj(result.glbBytes);
+          final message = await exportImageBytes(
+              obj, 'modell_$ts.obj', 'model/obj');
+          if (message != null && mounted) _showSnack(message);
+        case 'stl':
+        case '3mf':
+          // Wasserdichtheits-Prüfung wie im Viewer.
+          MeshCheckResult? check;
+          try {
+            final mesh = await parseGlbForPreview(result.glbBytes);
+            check = checkMeshWatertight(mesh.positions, mesh.indices);
+            mesh.dispose();
+          } catch (_) {}
+          if (!mounted) return;
+          final size = await askPrintSizeDialog(
+            context,
+            title: format == 'stl'
+                ? 'STL für 3D-Druck'
+                : '3MF mit Farben für 3D-Druck',
+            note: format == 'stl'
+                ? 'STL enthält nur die Form (ohne Farben und Textur). '
+                    'Das Modell wird aufs Druckbett gedreht und '
+                    'zentriert. Die Datei danach in einen Slicer laden '
+                    '(z. B. PrusaSlicer, Cura, Bambu Studio).'
+                : '3MF enthält die Form samt Farben (Material-Palette '
+                    'je Dreieck) – ideal für Farb-3D-Druck und '
+                    'Druckdienste. Gedreht, zentriert und in mm '
+                    'skaliert.',
+            check: check,
+          );
+          if (size == null || size <= 0 || !mounted) return;
+          final bytes = format == 'stl'
+              ? await glbToStl(result.glbBytes, targetSizeMm: size)
+              : await glbTo3mf(result.glbBytes, targetSizeMm: size);
+          final message = await exportImageBytes(
+              bytes,
+              'modell_$ts.$format',
+              format == 'stl' ? 'model/stl' : 'model/3mf');
+          if (message != null && mounted) _showSnack(message);
+      }
     } catch (e) {
       if (mounted) _showSnack('Export fehlgeschlagen: $e');
     }
@@ -2061,9 +2178,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       onPressed: () => _exportModelProvenance(result),
                     ),
                     FilledButton.tonalIcon(
-                      onPressed: () => _exportGlb(result),
+                      onPressed: () => _showExportMenu(result),
                       icon: const Icon(Icons.download, size: 18),
-                      label: const Text('GLB'),
+                      label: const Text('Export'),
                     ),
                   ],
                 ),
