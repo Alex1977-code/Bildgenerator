@@ -110,6 +110,13 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     öffnet den Viewer); nach der Generierung zeigt der 3D-Tab den
     Token-Verbrauch der Bild-KI-Schritte und das Restguthaben des
     Providers an
+  - **Lokale Veredelungs-Pipeline** (Stability): Nachbearbeitung nach
+    Profi-Vorbild, komplett in der App ohne Zusatzkosten – Fahrzeuge
+    aus Dreiviertelansichten werden automatisch **gerade ausgerichtet**
+    (Hauptachsen-Analyse; danach greift die Rad-Erkennung), und auf
+    Wunsch wird die vom Foto abgewandte, verwaschene Modellhälfte
+    durch die **gespiegelte bessere Hälfte ersetzt** (Symmetrisierung
+    für Fahrzeuge und symmetrische Motive)
   - **Modellwahl mit Kosten-/Qualitätsanzeige**: Das KI-Modell wird
     direkt im Generator- und im 3D-Tab gewählt; eine grafische Anzeige
     daneben zeigt die Qualitätsstufe (5er-Skala) und die geschätzten

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -11,6 +12,7 @@ import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
 import 'package:bildgenerator/services/mesh_check.dart';
 import 'package:bildgenerator/services/model_import.dart';
+import 'package:bildgenerator/services/model_refine.dart';
 import 'package:bildgenerator/services/obj_export.dart';
 import 'package:bildgenerator/services/stl_export.dart';
 import 'package:bildgenerator/services/threemf_export.dart';
@@ -878,6 +880,126 @@ void main() {
           reason: 'Verbeugung muss zum Gesicht ($expected z) gehen');
       preview.dispose();
     }
+  });
+
+  test(
+      'Veredelung: kanonische Ausrichtung dreht schräge Fahrzeuge '
+      'gerade und macht sie riggbar', () {
+    // Standard-Testauto (Länge entlang z), um 25° um die y-Achse
+    // gedreht – wie eine Stability-Rekonstruktion aus einer
+    // Dreiviertelansicht.
+    const angle = 25 * math.pi / 180;
+    LocalMesh rotatedCar() {
+      final mesh = LocalMesh();
+      void add(double x, double y, double z) {
+        mesh.addVertex(x * math.cos(angle) + z * math.sin(angle), y,
+            -x * math.sin(angle) + z * math.cos(angle), 0, 0);
+      }
+
+      void box(List<double> b) {
+        for (final z in [b[4], b[5]]) {
+          for (final x in [b[0], b[1]]) {
+            for (final y in [b[2], b[3]]) {
+              add(x, y, z);
+            }
+          }
+        }
+      }
+
+      box([-0.5, 0.5, 0.3, 1.0, -1.0, 1.0]); // Karosserie
+      for (final (z0, z1) in [(0.5, 0.9), (-0.9, -0.5)]) {
+        box([-0.45, -0.25, 0.0, 0.35, z0, z1]);
+        box([0.25, 0.45, 0.0, 0.35, z0, z1]);
+        for (var step = 0; step <= 60; step++) {
+          final z = z0 + (z1 - z0) * step / 60;
+          add(-0.35, 0.02, z);
+          add(0.35, 0.02, z);
+        }
+      }
+      final a = mesh.addVertex(0, 0, 0, 0, 0);
+      final b2 = mesh.addVertex(0.1, 0, 0, 0, 0);
+      final c = mesh.addVertex(0, 0.1, 0, 0, 0);
+      mesh.addTriangle(a, b2, c);
+      return mesh;
+    }
+
+    final glb = buildGlb(rotatedCar());
+    final (aligned, degrees) = canonicalizeYawGlb(glb);
+    // Der angewendete Winkel entspricht der Verdrehung (±3°).
+    expect(degrees.abs(), inInclusiveRange(22, 28));
+    // Nach der Ausrichtung greift die Rad-Erkennung wieder.
+    final rigged = injectAutoRig(aligned, rigType: 'vehicle');
+    final json = _readGlbJson(rigged);
+    final nodes = json['nodes'] as List;
+    final skin = (json['skins'] as List).first as Map;
+    final names = [
+      for (final j in skin['joints'] as List)
+        (nodes[j as int] as Map)['name'] as String,
+    ];
+    expect(
+        names,
+        unorderedEquals(
+            ['Body', 'Wheel1_L', 'Wheel1_R', 'Wheel2_L', 'Wheel2_R']));
+    // Bereits ausgerichtete Modelle bleiben unverändert.
+    final (_, zeroDegrees) = canonicalizeYawGlb(aligned);
+    expect(zeroDegrees, 0);
+  });
+
+  test(
+      'Veredelung: Symmetrisieren ersetzt die schwächere Hälfte durch '
+      'das Spiegelbild', () async {
+    // Texturiertes Testnetz: dichte linke Hälfte, rechts nur ein
+    // grober „Klumpen“-Fortsatz (wie die abgewandte Seite einer
+    // Einzelbild-Rekonstruktion).
+    final mesh = LocalMesh();
+    void quad(double x0, double x1, double y0, double y1, double z) {
+      final a = mesh.addVertex(x0, y0, z, 0.1, 0.1);
+      final b = mesh.addVertex(x1, y0, z, 0.9, 0.1);
+      final c = mesh.addVertex(x1, y1, z, 0.9, 0.9);
+      final d = mesh.addVertex(x0, y1, z, 0.1, 0.9);
+      mesh.addQuad(a, b, c, d);
+    }
+
+    // Dichte linke Seite (viele kleine Quads) über die Mitte hinweg.
+    for (var i = 0; i < 8; i++) {
+      quad(-0.5 + i * 0.05, -0.45 + i * 0.05, 0.0, 0.5, 0.1 * (i % 2));
+    }
+    quad(-0.5, 0.5, 0.0, 0.5, 0.3); // über die Mittelebene
+    // Grobe rechte Markierung, die verschwinden muss.
+    quad(0.38, 0.42, 0.6, 0.9, 0.0);
+
+    final rgba = Uint8List.fromList(
+        List.generate(16, (i) => i % 4 == 3 ? 255 : 180));
+    final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+    final descriptor = ui.ImageDescriptor.raw(buffer,
+        width: 2, height: 2, pixelFormat: ui.PixelFormat.rgba8888);
+    final codec = await descriptor.instantiateCodec();
+    final frame = await codec.getNextFrame();
+    final png =
+        (await frame.image.toByteData(format: ui.ImageByteFormat.png))!
+            .buffer
+            .asUint8List();
+    frame.image.dispose();
+    final glb = buildGlb(mesh, pngTexture: png);
+    final symmetrized = await mirrorSymmetrizeGlb(glb);
+
+    final preview = await parseGlbForPreview(symmetrized);
+    expect(preview.texture, isNotNull, reason: 'Textur bleibt erhalten');
+    final positions = preview.positions;
+    // Perfekt symmetrisch: jede x-Koordinate existiert gespiegelt.
+    var leftCount = 0, rightCount = 0;
+    var hasRightMarker = false;
+    for (var i = 0; i < positions.length; i += 3) {
+      if (positions[i] < -1e-6) leftCount++;
+      if (positions[i] > 1e-6) rightCount++;
+      if (positions[i] > 0.3 && positions[i + 1] > 0.55) {
+        hasRightMarker = true;
+      }
+    }
+    expect(leftCount, rightCount, reason: 'beide Hälften gleich dicht');
+    expect(hasRightMarker, isFalse,
+        reason: 'die grobe rechte Hälfte wurde ersetzt');
+    preview.dispose();
   });
 
   test('Fahrzeug-Rig lehnt flache „Platten“-Modelle verständlich ab', () {

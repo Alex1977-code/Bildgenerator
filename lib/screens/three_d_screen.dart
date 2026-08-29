@@ -19,6 +19,7 @@ import '../services/local_3d.dart';
 import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_import.dart';
+import '../services/model_refine.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/provenance.dart';
@@ -112,6 +113,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String _stabilityRemesh = 'none';
   int _stabilityPolycount = 0;
   String _stabilityDetail = 'auto'; // 'auto' | 'fine' | 'safe'
+
+  /// Veredelung (lokale Nachbearbeitung): schwächere Modellhälfte
+  /// durch die gespiegelte bessere ersetzen (Fahrzeuge & symmetrische
+  /// Motive).
+  bool _refineSymmetrize = false;
 
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
@@ -760,6 +766,34 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       targetPolycount: _stabilityPolycount,
       foregroundRatio: foregroundRatio,
     );
+    // Lokale Veredelung: erst gerade ausrichten (Fahrzeuge aus
+    // Dreiviertelansichten stehen sonst schräg im Raum und die
+    // Rad-Erkennung greift nicht), dann optional symmetrisieren.
+    final refineNotes = <String>[];
+    if (_rigging && _rigType == 'vehicle') {
+      progress('Veredelung: Ausrichtung wird geprüft …');
+      try {
+        final (aligned, degrees) = canonicalizeYawGlb(glb);
+        if (degrees != 0) {
+          glb = aligned;
+          refineNotes.add('um ${degrees.abs().round()}° gerade '
+              'ausgerichtet');
+        }
+      } catch (_) {}
+    }
+    if (_refineSymmetrize) {
+      progress('Veredelung: Modell wird symmetrisiert …');
+      try {
+        glb = await mirrorSymmetrizeGlb(glb);
+        refineNotes.add('symmetrisiert (bessere Hälfte gespiegelt)');
+      } on Exception catch (e) {
+        _showSnack('Symmetrisieren nicht möglich: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    }
+    if (refineNotes.isNotEmpty) {
+      _showSnack('Veredelung: ${refineNotes.join(' · ')}.');
+    }
     final unrigged = glb;
     // Stability rekonstruiert im Kamera-Raum: Die im Bild sichtbare
     // Seite (Vorderansicht) zeigt im Modell nach -z.
@@ -2226,6 +2260,25 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           '(aufgeblähte Formen) – deshalb ist '
                           '„Ausgewogen“ die empfohlene Vorgabe; '
                           '„Sicher“ lässt extra viel Rand.'),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'Symmetrisieren (lokale Veredelung)'),
+                        subtitle: const Text(
+                            'Ersetzt die vom Foto abgewandte, '
+                            'verwaschene Modellhälfte durch die '
+                            'gespiegelte bessere Hälfte – ideal für '
+                            'Fahrzeuge und andere symmetrische Motive; '
+                            'bei bewusst unsymmetrischen Motiven '
+                            'ausschalten. Läuft komplett lokal (keine '
+                            'Zusatzkosten); PBR-Zusatztexturen werden '
+                            'dabei zu Pauschalwerten.'),
+                        value: _refineSymmetrize,
+                        onChanged: _running
+                            ? null
+                            : (v) =>
+                                setState(() => _refineSymmetrize = v),
+                      ),
                     ],
                   ),
                 ] else ...[
