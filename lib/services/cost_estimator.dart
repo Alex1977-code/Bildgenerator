@@ -157,13 +157,15 @@ CostQualityEstimate estimate3dRun(
           rigging ? '3D-Modell + Rigging (Tripo)' : '3D-Modell (Tripo)',
           rigging ? 0.15 : 0.10,
           rigging ? 0.60 : 0.40));
-      tier = tripoVersion.isEmpty ? 4 : 5;
+      tier = tripoVersion.startsWith('v3') ? 5 : 4;
     default: // meshy
       items.add(CostItem(
           rigging ? '3D-Modell + Rigging (Meshy)' : '3D-Modell (Meshy)',
           rigging ? 0.20 : 0.15,
           rigging ? 0.70 : 0.50));
-      tier = meshyAiModel == 'meshy-6' || meshyAiModel == 'latest'
+      tier = meshyAiModel == 'meshy-6' ||
+              meshyAiModel == 'meshy-7' ||
+              meshyAiModel == 'latest'
           ? 5
           : 4;
   }

@@ -161,12 +161,15 @@ class MeshyService {
     String? symmetryMode,
     bool enablePbr = true,
     String? texturePrompt,
+    bool ultraMode = false,
   }) =>
       _createTask('v1/image-to-3d', {
         'image_url': 'data:$mimeType;base64,${base64Encode(imageBytes)}',
         'should_remesh': true,
         'should_texture': texture,
         'enable_pbr': texture && enablePbr,
+        // Meshy 7: maximale Geometrie-Treue (laut Doku nur Einzelbild).
+        if (ultraMode) 'ultra_mode': true,
         if (texture && texturePrompt != null && texturePrompt.isNotEmpty)
           'texture_prompt': texturePrompt,
         ..._qualityFields(

@@ -99,6 +99,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   // Qualitäts-Optionen (Profi) für Meshy/Tripo. Leer/0/auto = die
   // API-Vorgabe wird nicht überschrieben.
   String _meshyAiModel = '';
+
+  /// Meshy 7 Ultra Mode: maximale Geometrie-Treue (nur Einzelbild→3D).
+  bool _meshyUltra = false;
   int _meshyPolycount = 0;
   String _symmetryMode = 'auto';
   bool _quadTopology = false; // Meshy topology=quad bzw. Tripo quad=true
@@ -885,6 +888,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             symmetryMode: _symmetryMode,
             enablePbr: _pbr,
             texturePrompt: _texturePromptCtrl.text.trim(),
+            ultraMode: _meshyUltra && _meshyAiModel == 'meshy-7',
           );
         }
         status = await service.waitForTask(
@@ -1871,8 +1875,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                           'Standard (v2.5, bewährt)'),
                                   DropdownMenuEntry(
                                       value: 'v3.0-20250812',
+                                      label: 'v3.0 (H3)'),
+                                  DropdownMenuEntry(
+                                      value: 'v3.1-20260211',
                                       label:
-                                          'Neueste (v3.0, beste Qualität)'),
+                                          'Neueste (H3.1, beste Qualität)'),
                                 ]
                               : const [
                                   DropdownMenuEntry(
@@ -1884,6 +1891,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                   DropdownMenuEntry(
                                       value: 'meshy-6',
                                       label: 'Meshy 6'),
+                                  DropdownMenuEntry(
+                                      value: 'meshy-7',
+                                      label:
+                                          'Meshy 7 (neueste Generation)'),
                                   DropdownMenuEntry(
                                       value: 'latest',
                                       label:
@@ -1900,6 +1911,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             });
                           },
                         ),
+                        if (!isTripo && _meshyAiModel == 'meshy-7')
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Ultra Mode (Meshy 7)'),
+                            subtitle: const Text(
+                                'Maximale Geometrie-Treue zum Bild – '
+                                'wirkt nur bei Einzelbild→3D (bei '
+                                'mehreren Ansichten ohne Wirkung), '
+                                'höhere Credit-Kosten.'),
+                            value: _meshyUltra,
+                            onChanged: _running
+                                ? null
+                                : (v) =>
+                                    setState(() => _meshyUltra = v),
+                          ),
                         const SizedBox(height: 12),
                       ],
                       if (usesImageAi) ...[
