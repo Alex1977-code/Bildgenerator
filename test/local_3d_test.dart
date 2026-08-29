@@ -8,6 +8,7 @@ import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/preview_animations.dart';
+import 'package:bildgenerator/services/stl_export.dart';
 
 RgbaImage _testImage() {
   // 8×8: linke Hälfte deckend hell, rechte Hälfte transparent.
@@ -346,6 +347,45 @@ void main() {
       moved += (posed[i] - bakedPreview.positions[i]).abs();
     }
     expect(moved, greaterThan(0.01));
+  });
+
+  test('STL-Export: gültiges binäres STL in Druckgröße', () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    final stl = await glbToStl(glb, targetSizeMm: 80);
+
+    final data = ByteData.sublistView(stl);
+    final triangleCount = data.getUint32(80, Endian.little);
+    expect(triangleCount, mesh.indices.length ~/ 3);
+    expect(stl.length, 84 + triangleCount * 50);
+
+    // Grenzen aller Eckpunkte: längste Seite 80 mm, Unterseite auf z=0.
+    var minX = double.infinity, maxX = double.negativeInfinity;
+    var minY = double.infinity, maxY = double.negativeInfinity;
+    var minZ = double.infinity, maxZ = double.negativeInfinity;
+    for (var t = 0; t < triangleCount; t++) {
+      final base = 84 + t * 50 + 12; // Normale überspringen
+      for (var v = 0; v < 3; v++) {
+        final x = data.getFloat32(base + v * 12, Endian.little);
+        final y = data.getFloat32(base + v * 12 + 4, Endian.little);
+        final z = data.getFloat32(base + v * 12 + 8, Endian.little);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+    final largest = [maxX - minX, maxY - minY, maxZ - minZ]
+        .reduce((a, b) => a > b ? a : b);
+    expect(largest, closeTo(80, 0.5));
+    expect(minZ, closeTo(0, 1e-3));
   });
 
   test('Auto-Rigging kennt alle Figurtypen', () {

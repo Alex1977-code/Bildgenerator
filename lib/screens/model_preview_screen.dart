@@ -10,6 +10,7 @@ import '../services/animation_bake.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/preview_animations.dart';
+import '../services/stl_export.dart';
 
 /// Frei drehbare 3D-Vorschau eines GLB-Modells (eigener Software-Renderer,
 /// läuft auf allen Plattformen inklusive Windows). Geriggte Modelle
@@ -174,6 +175,68 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     }
   }
 
+  /// STL-Export mit wählbarer Druckgröße (längste Seite in mm).
+  Future<void> _exportStl() async {
+    final controller = TextEditingController(text: '100');
+    final size = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('STL für 3D-Druck'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Größe der längsten Seite (mm)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'STL enthält nur die Form (ohne Farben und Textur). Das '
+              'Modell wird aufs Druckbett gedreht und zentriert. Die '
+              'Datei danach in einen Slicer laden (z. B. PrusaSlicer, '
+              'Cura, Bambu Studio) und von dort drucken – kleine Löcher '
+              'repariert der Slicer automatisch.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(
+                double.tryParse(controller.text.replaceAll(',', '.'))),
+            child: const Text('Exportieren'),
+          ),
+        ],
+      ),
+    );
+    if (size == null || size <= 0 || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final stl = await glbToStl(widget.glbBytes, targetSizeMm: size);
+      final message = await exportImageBytes(
+        stl,
+        'modell_${DateTime.now().millisecondsSinceEpoch}.stl',
+        'model/stl',
+      );
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('STL-Export fehlgeschlagen: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -200,26 +263,31 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
             icon: const Icon(Icons.restart_alt),
             onPressed: _resetView,
           ),
-          if (_procClips.isEmpty)
-            IconButton(
-              tooltip: 'GLB exportieren',
-              icon: const Icon(Icons.download),
-              onPressed: _export,
-            )
-          else
-            PopupMenuButton<bool>(
-              tooltip: 'GLB exportieren',
-              icon: const Icon(Icons.download),
-              onSelected: (withAnimations) =>
-                  _export(withAnimations: withAnimations),
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                    value: false, child: Text('GLB exportieren')),
-                PopupMenuItem(
-                    value: true,
+          PopupMenuButton<String>(
+            tooltip: 'Exportieren',
+            icon: const Icon(Icons.download),
+            onSelected: (choice) {
+              switch (choice) {
+                case 'glb':
+                  _export();
+                case 'glb_anim':
+                  _export(withAnimations: true);
+                case 'stl':
+                  _exportStl();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                  value: 'glb', child: Text('GLB exportieren')),
+              if (_procClips.isNotEmpty)
+                const PopupMenuItem(
+                    value: 'glb_anim',
                     child: Text('GLB + Testanimationen exportieren')),
-              ],
-            ),
+              const PopupMenuItem(
+                  value: 'stl',
+                  child: Text('STL für 3D-Druck exportieren …')),
+            ],
+          ),
         ],
       ),
       body: _error != null

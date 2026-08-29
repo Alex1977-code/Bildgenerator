@@ -61,6 +61,10 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Knopf grafisch über dem Modell einblenden. Die Testanimationen
     können optional als echte, loopbare glTF-Clips mit ins exportierte
     GLB gebacken werden („GLB + Testanimationen exportieren“)
+  - **STL-Export für den 3D-Druck**: Der Viewer exportiert Modelle als
+    binäres STL – aufs Druckbett gedreht, zentriert und auf die
+    gewünschte Größe in mm skaliert; die Datei dann in einen Slicer
+    laden (PrusaSlicer, Cura, Bambu Studio …) und drucken
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)
