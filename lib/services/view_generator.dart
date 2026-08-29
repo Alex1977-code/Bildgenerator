@@ -67,12 +67,17 @@ String _turnPrompt(String viewInstruction) =>
     'same scale, framing and camera distance as the reference image, '
     '$_stagingPart';
 
-/// Prüft, dass der konfigurierte Bild-Provider Referenzbilder kann und
-/// ein Schlüssel hinterlegt ist; liefert Provider, Schlüssel, Generator.
-(GenProvider, String, ImageGenerator) _requireReferenceProvider(
-    SettingsService settings) {
+/// Prüft den konfigurierten Bild-Provider und liefert Provider,
+/// Schlüssel und Generator. [needsReferences] verlangt zusätzlich
+/// Referenzbild-Unterstützung – nötig für die gedrehten Ansichten und
+/// Tiefenkarten; die reine Vorderansicht (Stability-3D) kann dagegen
+/// jeder Provider erzeugen, auch Stability Stable Image
+/// (Core/SD3.5/Ultra).
+(GenProvider, String, ImageGenerator) _requireProvider(
+    SettingsService settings,
+    {required bool needsReferences}) {
   final provider = settings.provider;
-  if (!provider.supportsReferences) {
+  if (needsReferences && !provider.supportsReferences) {
     throw GenerationException(
         'Hierfür wird ein referenzbildfähiger Bild-Provider benötigt '
         '(OpenAI oder Google Gemini). Bitte in den Einstellungen '
@@ -129,7 +134,10 @@ Future<GeneratedViews> generateViewsFromText({
         views: {for (final key in neededKeys) key: existing[key]!});
   }
 
-  final (provider, apiKey, generator) = _requireReferenceProvider(settings);
+  // Nur die gedrehten Zusatz-Ansichten brauchen Referenzbilder – die
+  // reine Vorderansicht (Stability-3D) erzeugt jeder Provider.
+  final (provider, apiKey, generator) =
+      _requireProvider(settings, needsReferences: !frontOnly);
   var totalTokens = 0;
   var hasTokens = false;
 
@@ -215,7 +223,8 @@ Future<Uint8List> generateDepthMap({
   required void Function(String stage) onProgress,
   required bool Function() isCancelled,
 }) async {
-  final (provider, apiKey, generator) = _requireReferenceProvider(settings);
+  final (provider, apiKey, generator) =
+      _requireProvider(settings, needsReferences: true);
   if (isCancelled()) throw GenerationException('Abgebrochen.');
   onProgress('Tiefenkarte „$label“ wird geschätzt …');
   final result = await generator.generate(
