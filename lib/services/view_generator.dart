@@ -48,31 +48,38 @@ const rigPoseParts = {
 };
 
 /// Studio-Vorgaben der Ansichten. Nur OpenAI liefert echte
-/// Transparenz; alle anderen Provider bekommen einen Greenscreen
+/// Transparenz; alle anderen Provider bekommen einen Magenta-Screen
 /// angefordert, der anschließend per Chroma-Key entfernt wird –
-/// deutlich robuster als das Erraten „neutraler“ Hintergründe, die
-/// Bild-KIs gern mit Studioboden und Schatten füllen.
+/// robuster als das Erraten „neutraler“ Hintergründe, die Bild-KIs
+/// gern mit Studioboden und Schatten füllen. Magenta statt Grün, weil
+/// Grün ständig im Motiv vorkommt (Fahrzeuge, Pflanzen, Kleidung) und
+/// als Farbschein auf Lack und Glas abfärbte.
 String _stagingPart(bool trueAlpha) =>
     'single subject only, perfectly centered, completely '
     'visible with a small margin, orthographic view without perspective '
     'distortion, '
     '${trueAlpha ? 'plain fully transparent background' : 'the ENTIRE '
-        'background is a perfectly uniform bright green screen '
-        '(chroma key green #00B140), the subject itself contains no '
-        'green'}, no ground plane, no '
-    'floor, no shadow, no reflections, even diffuse studio lighting, '
-    'crisp details';
+        'background is a perfectly uniform bright magenta screen '
+        '(chroma key magenta #FF00FF), no color bounce from the '
+        'backdrop onto the subject'}, the subject floats with no '
+    'ground plane, no floor, absolutely no shadow cast anywhere, no '
+    'reflections, even diffuse studio lighting, crisp details';
 
 String _frontPrompt(String description, String? pose,
         {bool threeQuarter = false, required bool trueAlpha}) =>
     // Kamera-Anweisung ZUERST und nachdrücklich – Bild-KIs neigen bei
-    // dichten Objektbeschreibungen sonst zur dramatischen Frontale.
+    // dichten Objektbeschreibungen sonst zur dramatischen Frontale
+    // oder zum erhöhten „Hero-Shot“ (der die Silhouetten des lokalen
+    // Generators zerstört).
     '${threeQuarter ? 'THREE-QUARTER VIEW, mandatory: the camera is '
         'positioned about 40 degrees to the front-left of the subject '
         'and slightly elevated, so the front AND the entire left side '
         'are BOTH clearly visible with real depth. NOT a frontal view, '
-        'NOT head-on, NOT a side profile. ' : 'Exact FRONT view, the '
-        'subject faces the camera directly. '}'
+        'NOT head-on, NOT a side profile. ' : 'Exact FRONT view, '
+        'mandatory: the camera is at the subject\'s mid-height with a '
+        'perfectly horizontal camera axis, the subject faces the '
+        'camera directly. NOT elevated, NOT from above, no bird\'s-eye '
+        'or hero angle. '}'
     '$description. ${pose == null ? '' : '$pose, '}'
     '${_stagingPart(trueAlpha)}';
 
@@ -80,8 +87,8 @@ String _turnPrompt(String viewInstruction, {required bool trueAlpha}) =>
     'Exactly the same subject as in the reference image: identical shape, '
     'proportions, colors, materials, clothing and details – do not change '
     'anything about the subject itself. $viewInstruction Keep exactly the '
-    'same scale, framing and camera distance as the reference image, '
-    '${_stagingPart(trueAlpha)}';
+    'same camera height, scale, framing and camera distance as the '
+    'reference image, ${_stagingPart(trueAlpha)}';
 
 /// Prüft den konfigurierten Bild-Provider und liefert Provider,
 /// Schlüssel und Generator. [needsReferences] verlangt zusätzlich
@@ -270,12 +277,14 @@ Future<Uint8List> generateDepthMap({
 }
 
 /// Entfernt den Hintergrund einer generierten Ansicht. Bei
-/// [expectGreenScreen] wurde ein Greenscreen angefordert: alle grünen,
-/// vom Bildrand aus zusammenhängenden Pixel werden transparent
-/// (Chroma-Key), anschließend werden Grünsäume an den Objekträndern
-/// entschärft. Grüne Flächen IM Motiv bleiben erhalten (kein
-/// Rand-Verbund). Hat die Bild-KI den Greenscreen ignoriert, greift
-/// der generische Flutlauf [ensureTransparentBackground].
+/// [expectGreenScreen] wurde ein Farb-Screen angefordert (aktuell
+/// Magenta; Grün wird für ältere Kacheln weiter erkannt): alle
+/// Screen-farbigen, vom Bildrand aus zusammenhängenden Pixel werden
+/// transparent (Chroma-Key) – auch abgedunkelte Schattenbereiche auf
+/// dem Screen –, anschließend werden Farbsäume an den Objekträndern
+/// entschärft. Screen-farbige Flächen IM Motiv bleiben erhalten (kein
+/// Rand-Verbund). Hat die Bild-KI den Screen ignoriert, greift der
+/// generische Flutlauf [ensureTransparentBackground].
 Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
     {required bool expectGreenScreen}) async {
   if (!expectGreenScreen) return ensureTransparentBackground(imageBytes);
@@ -288,17 +297,29 @@ Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
     final pixels = raw.buffer.asUint8List();
     final width = image.width, height = image.height;
 
+    // Niedrige Schwellen, damit auch Schatten AUF dem Screen (dunkles
+    // Magenta/Grün) mit entfernt werden – die blieben sonst stehen und
+    // wurden von den 3D-Diensten als Teil des Objekts rekonstruiert.
     bool isGreen(int o) {
       final r = pixels[o], g = pixels[o + 1], b = pixels[o + 2];
-      return g > 80 && g > r + 40 && g > b + 40;
+      return g > 50 && g > r + 25 && g > b + 25;
     }
 
-    // Greenscreen nur akzeptieren, wenn der Bildrand klar grün ist.
+    bool isMagenta(int o) {
+      final r = pixels[o], g = pixels[o + 1], b = pixels[o + 2];
+      return r > 50 && b > 50 && r > g + 25 && b > g + 25;
+    }
+
+    // Screen-Farbe am Bildrand bestimmen (Magenta bevorzugt, Grün für
+    // ältere Kacheln).
     var borderGreen = 0;
+    var borderMagenta = 0;
     var borderTotal = 0;
     void sample(int x, int y) {
       borderTotal++;
-      if (isGreen((y * width + x) * 4)) borderGreen++;
+      final o = (y * width + x) * 4;
+      if (isGreen(o)) borderGreen++;
+      if (isMagenta(o)) borderMagenta++;
     }
 
     for (var x = 0; x < width; x += 4) {
@@ -309,17 +330,19 @@ Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
       sample(0, y);
       sample(width - 1, y);
     }
-    if (borderGreen < borderTotal * 0.3) {
+    final useMagenta = borderMagenta >= borderGreen;
+    final screenMatch = useMagenta ? isMagenta : isGreen;
+    if ((useMagenta ? borderMagenta : borderGreen) < borderTotal * 0.3) {
       return await ensureTransparentBackground(imageBytes);
     }
 
-    // Flutlauf über grüne Pixel ab dem Rand (grüne Flächen im Motiv
-    // bleiben stehen).
+    // Flutlauf über Screen-farbige Pixel ab dem Rand (Screen-Farben im
+    // Motiv bleiben stehen).
     final visited = Uint8List(width * height);
     final queue = Queue<int>();
     void seed(int x, int y) {
       final index = y * width + x;
-      if (visited[index] == 0 && isGreen(index * 4)) {
+      if (visited[index] == 0 && screenMatch(index * 4)) {
         visited[index] = 1;
         queue.add(index);
       }
@@ -343,8 +366,8 @@ Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
       if (y < height - 1) seed(x, y + 1);
     }
 
-    // Entgrünung: Randpixel des Motivs, die ans entfernte Grün grenzen,
-    // verlieren ihren Grünstich (g auf max(r, b) begrenzen).
+    // Farbsaum entfernen: Randpixel des Motivs, die an den entfernten
+    // Screen grenzen, verlieren den Farbstich der Screen-Farbe.
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
         final index = y * width + x;
@@ -355,8 +378,19 @@ Future<Uint8List> removeGeneratedBackground(Uint8List imageBytes,
             (y < height - 1 && visited[index + width] != 0);
         if (!nearRemoved) continue;
         final o = index * 4;
-        final cap = pixels[o] > pixels[o + 2] ? pixels[o] : pixels[o + 2];
-        if (pixels[o + 1] > cap) pixels[o + 1] = cap;
+        if (useMagenta) {
+          // Magenta-Saum: Rot und Blau auf Grün begrenzen, wenn beide
+          // dominieren (echte Rot- oder Blautöne bleiben unberührt).
+          final g = pixels[o + 1];
+          if (pixels[o] > g && pixels[o + 2] > g) {
+            pixels[o] = g;
+            pixels[o + 2] = g;
+          }
+        } else {
+          final cap =
+              pixels[o] > pixels[o + 2] ? pixels[o] : pixels[o + 2];
+          if (pixels[o + 1] > cap) pixels[o + 1] = cap;
+        }
       }
     }
 

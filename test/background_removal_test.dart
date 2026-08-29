@@ -74,6 +74,47 @@ void main() {
             : result[edge + 2]));
   });
 
+  test('Magenta-Screen: Hintergrund samt Schatten weg, Motiv bleibt',
+      () async {
+    const size = 32;
+    final rgba = Uint8List(size * size * 4);
+    void put(int x, int y, int r, int g, int b) {
+      final o = (y * size + x) * 4;
+      rgba[o] = r;
+      rgba[o + 1] = g;
+      rgba[o + 2] = b;
+      rgba[o + 3] = 255;
+    }
+
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        put(x, y, 240, 20, 240); // Magenta-Screen
+      }
+    }
+    // Abgedunkelter „Schatten“ auf dem Screen (dunkles Magenta).
+    for (var x = 4; x < 28; x++) {
+      put(x, 26, 90, 20, 95);
+    }
+    // GRÜNES Motiv in der Mitte – der Grund für den Magenta-Wechsel.
+    for (var y = 10; y < 22; y++) {
+      for (var x = 10; x < 22; x++) {
+        put(x, y, 40, 160, 60);
+      }
+    }
+
+    final out = await removeGeneratedBackground(
+        await _encodePng(rgba, size),
+        expectGreenScreen: true);
+    final result = await _decodeRgba(out);
+    int alpha(int x, int y) => result[(y * size + x) * 4 + 3];
+    expect(alpha(0, 0), 0, reason: 'Magenta-Screen entfernt');
+    expect(alpha(10, 26), 0, reason: 'Schatten auf dem Screen entfernt');
+    expect(alpha(15, 15), 255, reason: 'grünes Motiv bleibt deckend');
+    final o = ((15 * size) + 15) * 4;
+    expect(result[o + 1], greaterThan(120),
+        reason: 'Grün des Motivs bleibt unangetastet');
+  });
+
   test('Greenscreen-Freistellung: Rückfall auf Flutlauf ohne Grün',
       () async {
     const size = 16;
