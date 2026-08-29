@@ -25,13 +25,32 @@ const _tPosePart = 'full body character standing in a strict T-pose, arms '
     'stretched out horizontally to the sides, legs slightly apart, neutral '
     'expression';
 
+/// Rig-Posen je Figurtyp (siehe auto_rig.dart): sorgen dafür, dass die
+/// erzeugten Ansichten zur jeweiligen Skelett-Vorlage passen.
+const rigPoseParts = {
+  'biped': _tPosePart,
+  'quadruped': 'full body animal standing squarely on all four straight '
+      'legs, legs clearly separated, head raised and facing forward, tail '
+      'extended straight behind',
+  'insect': 'full body insect or arthropod with the body horizontal and '
+      'all legs spread out symmetrically to the sides, every leg clearly '
+      'separated and visible',
+  'bird': 'full body bird with both wings fully spread out horizontally '
+      'to the sides, tail feathers extended behind, legs visible below '
+      'the body',
+  'snake': 'full body snake stretched out almost straight with only '
+      'gentle curves, head clearly visible at one end',
+  'fish': 'full body fish with the body straight and horizontal, all '
+      'fins spread and clearly visible',
+};
+
 const _stagingPart = 'single subject only, perfectly centered, completely '
     'visible with a small margin, orthographic view without perspective '
     'distortion, plain fully transparent background, no ground plane, no '
     'shadow, no reflections, even diffuse studio lighting, crisp details';
 
-String _frontPrompt(String description, bool tPose) =>
-    '$description. ${tPose ? '$_tPosePart, ' : ''}'
+String _frontPrompt(String description, String? pose) =>
+    '$description. ${pose == null ? '' : '$pose, '}'
     'exact FRONT view (subject facing the camera directly), $_stagingPart';
 
 String _turnPrompt(String viewInstruction) =>
@@ -76,11 +95,13 @@ const _viewInstructions = {
 /// Erzeugt die vier Ansichten (bzw. nur die Vorderansicht bei
 /// [frontOnly]). In [existing] bereits vorhandene Ansichten werden
 /// wiederverwendet statt neu generiert – so lassen sich einzelne
-/// Ansichten gezielt austauschen. Wirft [GenerationException] bei Fehlern.
+/// Ansichten gezielt austauschen. [pose] ist eine optionale
+/// Pose-Anweisung (siehe [rigPoseParts]) für rigging-taugliche
+/// Ansichten. Wirft [GenerationException] bei Fehlern.
 Future<GeneratedViews> generateViewsFromText({
   required SettingsService settings,
   required String description,
-  required bool tPose,
+  String? pose,
   required void Function(String stage) onProgress,
   required bool Function() isCancelled,
   bool frontOnly = false,
@@ -135,7 +156,7 @@ Future<GeneratedViews> generateViewsFromText({
   }
 
   final front = existing['front'] ??
-      await generateOne('Vorn', _frontPrompt(description, tPose));
+      await generateOne('Vorn', _frontPrompt(description, pose));
   final views = <String, ReferenceImage>{'front': front};
   if (!frontOnly) {
     const labels = {'left': 'Links', 'right': 'Rechts', 'back': 'Hinten'};

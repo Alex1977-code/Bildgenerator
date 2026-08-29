@@ -217,12 +217,12 @@ void main() {
     final glb = buildGlb(mesh);
     expect(glbHasSkin(glb), isFalse);
 
-    final rigged = injectHumanoidRig(glb);
+    final rigged = injectAutoRig(glb);
     expect(glbHasSkin(rigged), isTrue);
 
     final json = _readGlbJson(rigged);
     final skin = (json['skins'] as List).first as Map;
-    expect(skin['joints'] as List, hasLength(humanoidJointCount));
+    expect(skin['joints'] as List, hasLength(rigJointCounts['biped']!));
     expect(skin.containsKey('inverseBindMatrices'), isTrue);
 
     final primitive = (((json['meshes'] as List).first as Map)['primitives']
@@ -258,7 +258,33 @@ void main() {
     expect(preview.vertexCount, vertexCount);
 
     // Doppeltes Rigging wird abgelehnt.
-    expect(() => injectHumanoidRig(rigged), throwsException);
+    expect(() => injectAutoRig(rigged), throwsException);
+  });
+
+  test('Auto-Rigging kennt alle Figurtypen', () {
+    final mesh = buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final glb = buildGlb(mesh);
+    for (final (rigType, _) in rigTypeOptions) {
+      final rigged = injectAutoRig(glb, rigType: rigType);
+      final json = _readGlbJson(rigged);
+      final skin = (json['skins'] as List).first as Map;
+      expect(skin['joints'] as List, hasLength(rigJointCounts[rigType]!),
+          reason: 'Gelenkzahl für $rigType');
+      // Alle Gelenk-Knoten existieren und der Wurzelknoten hängt in
+      // der Szene.
+      final nodes = json['nodes'] as List;
+      for (final jointIndex in skin['joints'] as List) {
+        expect((nodes[jointIndex as int] as Map).containsKey('translation'),
+            isTrue);
+      }
+      expect(((json['scenes'] as List).first as Map)['nodes'] as List,
+          contains(skin['skeleton']));
+    }
   });
 
   test('GLB-Vorschau-Parser liest eigenes GLB zurück (Round-Trip)',

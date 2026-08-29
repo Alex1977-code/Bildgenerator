@@ -84,6 +84,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Lokaler Generator: Vertiefungen per KI-Tiefenkarte formen.
   bool _localDepthAi = false;
 
+  /// Figurtyp fürs eigene Auto-Rigging (Lokal/Stability), siehe
+  /// [rigTypeOptions]: Zweibeiner, Vierbeiner, Insekt, Vogel, Schlange,
+  /// Fisch.
+  String _rigType = 'biped';
+
   // Optionen des lokalen Generators (360°-Modell).
   int _localResolution = 96;
 
@@ -233,10 +238,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
     try {
       if (viewPipeline || augmentViews) {
+        // Pose der Ansichten: beim eigenen Auto-Rigging die zum
+        // Figurtyp passende Rig-Pose, sonst optional T-Pose.
+        String? pose;
+        if (_rigging && (isLocal || isStability)) {
+          pose = rigPoseParts[_rigType];
+        } else if (_rigging || _tPose) {
+          pose = rigPoseParts['biped'];
+        }
         final generated = await generateViewsFromText(
           settings: settings,
           description: prompt,
-          tPose: _tPose || _rigging,
+          pose: pose,
           onProgress: progress,
           isCancelled: cancelled,
           // Stability braucht nur ein Bild – das spart Kosten.
@@ -382,7 +395,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (!_rigging) return false;
     progress('Skelett wird eingebaut …');
     try {
-      setGlb(injectHumanoidRig(getGlb()));
+      setGlb(injectAutoRig(getGlb(), rigType: _rigType));
       return true;
     } on Exception catch (e) {
       _showSnack('Rigging nicht möglich: '
@@ -697,18 +710,49 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   /// Rigging-Schalter für Lokal und Stability: eigenes Auto-Rigging,
-  /// das lokal ein Standard-Skelett ins GLB einbaut.
+  /// das lokal ein Standard-Skelett ins GLB einbaut – mit wählbarem
+  /// Figurtyp (Zweibeiner, Vierbeiner, Insekt, Vogel, Schlange, Fisch).
   Widget _autoRigSwitch() {
-    return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      title: const Text('Rigging (Skelett für Animation)'),
-      subtitle: const Text(
-          'Baut lokal ein Standard-Skelett (17 Gelenke) für '
-          'T-Pose-Figuren direkt ins GLB ein – für Animationen in '
-          'Blender/Unity/Godot. T-Pose wird automatisch aktiviert; nur '
-          'für Figuren geeignet.'),
-      value: _rigging,
-      onChanged: _running ? null : (v) => setState(() => _rigging = v),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Rigging (Skelett für Animation)'),
+          subtitle: const Text(
+              'Baut lokal ein Standard-Skelett direkt ins GLB ein – für '
+              'Animationen in Blender/Unity/Godot. Bei erzeugten '
+              'Ansichten wird automatisch die passende Rig-Pose '
+              'verwendet.'),
+          value: _rigging,
+          onChanged: _running ? null : (v) => setState(() => _rigging = v),
+        ),
+        if (_rigging) ...[
+          DropdownMenu<String>(
+            key: ValueKey('rigtype-$_rigType'),
+            enabled: !_running,
+            initialSelection: _rigType,
+            label: const Text('Figurtyp (Skelett)'),
+            expandedInsets: EdgeInsets.zero,
+            dropdownMenuEntries: [
+              for (final (value, name) in rigTypeOptions)
+                DropdownMenuEntry(value: value, label: name),
+            ],
+            onSelected: (value) {
+              if (value != null) setState(() => _rigType = value);
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Heuristisches Standard-Skelett mit '
+            '${rigJointCounts[_rigType]} Gelenken. Das Motiv sollte in '
+            'der passenden Rig-Pose stehen – bei automatisch erzeugten '
+            'Ansichten passiert das von selbst.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
     );
   }
 
@@ -814,6 +858,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isLocal = settings.threeDProvider == 'local';
     final isStability = settings.threeDProvider == 'stability';
     final riggingForcesTPose = _rigging;
+    // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
+    // der T-Pose-Schalter wäre dann irreführend.
+    final rigPoseActive = _rigging && (isLocal || isStability);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -919,21 +966,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           setState(() => _artStyle = selection.first),
                     ),
                   ],
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('T-Pose (für Figuren empfohlen)'),
-                    subtitle: Text(riggingForcesTPose
-                        ? 'Durch Rigging automatisch aktiv – gespreizte '
-                            'Arme lassen sich am besten rekonstruieren.'
-                        : 'Figur mit gespreizten Armen erzeugen – lässt '
-                            'sich deutlich besser räumlich rekonstruieren, '
-                            'auch ohne Rigging. Für Objekte (Gebäude, '
-                            'Fahrzeuge …) ausschalten.'),
-                    value: _tPose || riggingForcesTPose,
-                    onChanged: _running || riggingForcesTPose
-                        ? null
-                        : (v) => setState(() => _tPose = v),
-                  ),
+                  if (!rigPoseActive)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('T-Pose (für Figuren empfohlen)'),
+                      subtitle: Text(riggingForcesTPose
+                          ? 'Durch Rigging automatisch aktiv – gespreizte '
+                              'Arme lassen sich am besten rekonstruieren.'
+                          : 'Figur mit gespreizten Armen erzeugen – lässt '
+                              'sich deutlich besser räumlich '
+                              'rekonstruieren, auch ohne Rigging. Für '
+                              'Objekte (Gebäude, Fahrzeuge …) '
+                              'ausschalten.'),
+                      value: _tPose || riggingForcesTPose,
+                      onChanged: _running || riggingForcesTPose
+                          ? null
+                          : (v) => setState(() => _tPose = v),
+                    ),
                   const SizedBox(height: 4),
                   if (isLocal || isStability)
                     Text(
@@ -1359,7 +1408,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'keine Szenen mit mehreren Objekten.\n'
                       '• Figuren in T-Pose erzeugen (Schalter im '
                       'Text-Modus) – gespreizte Arme rekonstruieren sich '
-                      'deutlich besser, auch ohne Rigging.\n'
+                      'deutlich besser, auch ohne Rigging. Beim Rigging '
+                      'von Tieren, Robotern oder Fantasy-Wesen den '
+                      'passenden Figurtyp wählen – die richtige Rig-Pose '
+                      'wird automatisch verwendet.\n'
                       '• Erzeugte Ansichten kurz prüfen: eine unpassende '
                       'Ansicht löschen (X) und neu erzeugen lassen kostet '
                       'nur ein Bild, verbessert das Modell aber stark.\n'

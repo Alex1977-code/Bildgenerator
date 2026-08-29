@@ -44,9 +44,13 @@ Eine Codebasis (Flutter) für **Windows, Android, iOS und Web**.
     Tiefenkarten formen Mulden und Vertiefungen in Vorder- und
     Rückseite – über die Silhouetten-Grenze des Visual Hull hinaus
   - **Eigenes Auto-Rigging** für Lokal und Stability: ein
-    Standard-Humanoid-Skelett (17 Gelenke, T-Pose-Heuristik,
-    Abstands-Skinning) wird komplett lokal berechnet und direkt ins
-    GLB eingebaut – für Animationstests in Blender/Unity/Godot
+    Standard-Skelett wird komplett lokal berechnet (Heuristik aus der
+    Bounding Box, Abstands-Skinning) und direkt ins GLB eingebaut –
+    für Animationstests in Blender/Unity/Godot. Wählbare Figurtypen:
+    Mensch/Roboter/Fantasy (T-Pose, 17 Gelenke), Vierbeiner (19),
+    Insekt/Mehrbeiner (22), Vogel mit gespreizten Flügeln (13),
+    Schlange (8) und Fisch (6); die passende Rig-Pose fließt
+    automatisch in die KI-erzeugten Ansichten ein
   - **Multi-View 3D**: Ansichten von vorn/links/rechts/hinten ergeben bei
     allen drei 3D-Wegen ein deutlich genaueres Rundum-Modell (Meshy
     Multi-Image-API, Tripo multiview_to_model, lokal per Voxel-Carving)

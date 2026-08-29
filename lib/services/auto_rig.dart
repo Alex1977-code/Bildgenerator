@@ -1,11 +1,12 @@
-/// Eigenes Auto-Rigging: baut ein Standard-Humanoid-Skelett (17 Gelenke,
-/// T-Pose-Heuristik aus der Bounding Box) direkt in eine GLB-Datei ein –
-/// komplett lokal, ohne API. Die Skin-Gewichte entstehen über den
-/// Abstand jedes Vertex zu den Knochensegmenten (die zwei nächsten
-/// Knochen werden gemischt).
+/// Eigenes Auto-Rigging: baut ein Standard-Skelett (Heuristik aus der
+/// Bounding Box) direkt in eine GLB-Datei ein – komplett lokal, ohne
+/// API. Die Skin-Gewichte entstehen über den Abstand jedes Vertex zu
+/// den Knochensegmenten (die zwei nächsten Knochen werden gemischt).
 ///
-/// Funktioniert für aufrecht stehende Figuren in T-Pose (y = oben,
-/// Blick nach +z) – genau das, was die App bei aktivem Rigging erzeugt.
+/// Es gibt Skelett-Vorlagen für Zweibeiner (Mensch/Roboter/Fantasy in
+/// T-Pose), Vierbeiner, Insekten/Mehrbeiner, Vögel (gespreizte Flügel),
+/// Schlangen und Fische. Konvention: y = oben, Blick/Kopf nach +z –
+/// genau das, was die App bei aktivem Rigging erzeugt.
 /// Texturen, Materialien und alle übrigen Daten der GLB bleiben
 /// unverändert; es kommen nur Skelett-Knoten, ein Skin und
 /// JOINTS_0/WEIGHTS_0-Attribute hinzu.
@@ -13,6 +14,16 @@ library;
 
 import 'dart:convert';
 import 'dart:typed_data';
+
+/// Verfügbare Figurtypen: (Wert, deutsche Bezeichnung).
+const rigTypeOptions = [
+  ('biped', 'Mensch / Roboter / Fantasy (2 Beine)'),
+  ('quadruped', 'Vierbeiner (Hund, Pferd, Katze …)'),
+  ('insect', 'Insekt / Mehrbeiner'),
+  ('bird', 'Vogel (gespreizte Flügel)'),
+  ('snake', 'Schlange / ohne Beine'),
+  ('fish', 'Fisch'),
+];
 
 class _Vec3 {
   const _Vec3(this.x, this.y, this.z);
@@ -49,77 +60,147 @@ double _distToSegmentSq(double px, double py, double pz, _Vec3 a, _Vec3 b) {
   return dx * dx + dy * dy + dz * dz;
 }
 
-/// Baut das Skelett aus der Bounding Box der Figur.
-(List<_Joint>, List<_Bone>) _buildSkeleton(
-    double minX, double maxX, double minY, double maxY,
-    double minZ, double maxZ) {
+/// Sammelt Gelenke und Knochen: Jedes Gelenk (außer der Wurzel)
+/// erzeugt automatisch einen Knochen vom Elternteil, der vom Elternteil
+/// gesteuert wird; [tip] hängt an Blatt-Gelenke ein virtuelles
+/// Endsegment für die Gewichtsverteilung an.
+class _SkeletonBuilder {
+  final joints = <_Joint>[];
+  final bones = <_Bone>[];
+
+  int joint(String name, int parent, _Vec3 position) {
+    joints.add(_Joint(name, parent, position));
+    if (parent >= 0) {
+      bones.add(_Bone(parent, joints[parent].position, position));
+    }
+    return joints.length - 1;
+  }
+
+  void tip(int jointIndex, _Vec3 to) =>
+      bones.add(_Bone(jointIndex, joints[jointIndex].position, to));
+}
+
+/// Baut das Skelett des gewünschten Figurtyps aus der Bounding Box.
+/// Konvention: y = oben, Kopf/Blick nach +z.
+(List<_Joint>, List<_Bone>) _skeletonFor(String rigType, double minX,
+    double maxX, double minY, double maxY, double minZ, double maxZ) {
   final h = maxY - minY;
   final w = maxX - minX;
   final d = maxZ - minZ;
   final cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
-  _Vec3 at(double xOffset, double yFraction, [double zOffset = 0]) =>
-      _Vec3(cx + xOffset, minY + h * yFraction, cz + zOffset);
+  _Vec3 p(double x, double yFraction, [double z = 0]) =>
+      _Vec3(cx + x, minY + h * yFraction, cz + z);
+  final b = _SkeletonBuilder();
 
-  final hips = at(0, 0.52);
-  final spine = at(0, 0.62);
-  final chest = at(0, 0.74);
-  final neck = at(0, 0.84);
-  final head = at(0, 0.90);
-  final headTop = at(0, 1.0);
-  final armY = 0.80;
-  final shoulderL = at(-0.10 * w, armY), shoulderR = at(0.10 * w, armY);
-  final elbowL = at(-0.28 * w, armY), elbowR = at(0.28 * w, armY);
-  final handL = at(-0.43 * w, armY), handR = at(0.43 * w, armY);
-  final handTipL = at(-0.5 * w, armY), handTipR = at(0.5 * w, armY);
-  final legX = 0.06 * w;
-  final upperLegL = at(-legX, 0.48), upperLegR = at(legX, 0.48);
-  final kneeL = at(-legX, 0.26), kneeR = at(legX, 0.26);
-  final footL = at(-legX, 0.05), footR = at(legX, 0.05);
-  final toeL = at(-legX, 0.02, 0.2 * d), toeR = at(legX, 0.02, 0.2 * d);
-
-  final joints = [
-    _Joint('Hips', -1, hips), // 0
-    _Joint('Spine', 0, spine), // 1
-    _Joint('Chest', 1, chest), // 2
-    _Joint('Neck', 2, neck), // 3
-    _Joint('Head', 3, head), // 4
-    _Joint('Shoulder_L', 2, shoulderL), // 5
-    _Joint('Elbow_L', 5, elbowL), // 6
-    _Joint('Hand_L', 6, handL), // 7
-    _Joint('Shoulder_R', 2, shoulderR), // 8
-    _Joint('Elbow_R', 8, elbowR), // 9
-    _Joint('Hand_R', 9, handR), // 10
-    _Joint('UpperLeg_L', 0, upperLegL), // 11
-    _Joint('Knee_L', 11, kneeL), // 12
-    _Joint('Foot_L', 12, footL), // 13
-    _Joint('UpperLeg_R', 0, upperLegR), // 14
-    _Joint('Knee_R', 14, kneeR), // 15
-    _Joint('Foot_R', 15, footR), // 16
-  ];
-  final bones = [
-    _Bone(0, hips, spine),
-    _Bone(0, hips, upperLegL),
-    _Bone(0, hips, upperLegR),
-    _Bone(1, spine, chest),
-    _Bone(2, chest, neck),
-    _Bone(2, chest, shoulderL),
-    _Bone(2, chest, shoulderR),
-    _Bone(3, neck, head),
-    _Bone(4, head, headTop),
-    _Bone(5, shoulderL, elbowL),
-    _Bone(6, elbowL, handL),
-    _Bone(7, handL, handTipL),
-    _Bone(8, shoulderR, elbowR),
-    _Bone(9, elbowR, handR),
-    _Bone(10, handR, handTipR),
-    _Bone(11, upperLegL, kneeL),
-    _Bone(12, kneeL, footL),
-    _Bone(13, footL, toeL),
-    _Bone(14, upperLegR, kneeR),
-    _Bone(15, kneeR, footR),
-    _Bone(16, footR, toeR),
-  ];
-  return (joints, bones);
+  switch (rigType) {
+    case 'quadruped':
+      final hips = b.joint('Hips', -1, p(0, 0.6, -0.25 * d));
+      final spine = b.joint('Spine', hips, p(0, 0.65, 0));
+      final chest = b.joint('Chest', spine, p(0, 0.65, 0.2 * d));
+      final neck = b.joint('Neck', chest, p(0, 0.75, 0.35 * d));
+      final head = b.joint('Head', neck, p(0, 0.85, 0.45 * d));
+      b.tip(head, p(0, 0.88, 0.52 * d));
+      final tail1 = b.joint('Tail_1', hips, p(0, 0.6, -0.4 * d));
+      final tail2 = b.joint('Tail_2', tail1, p(0, 0.55, -0.48 * d));
+      b.tip(tail2, p(0, 0.5, -0.55 * d));
+      for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+        for (final (prefix, legRoot, legZ) in [
+          ('Front', chest, 0.2 * d),
+          ('Hind', hips, -0.25 * d),
+        ]) {
+          final upper = b.joint('${prefix}UpperLeg_$suffix', legRoot,
+              p(sign * 0.22 * w, 0.5, legZ));
+          final knee = b.joint('${prefix}LowerLeg_$suffix', upper,
+              p(sign * 0.24 * w, 0.25, legZ));
+          final foot = b.joint(
+              '${prefix}Foot_$suffix', knee, p(sign * 0.25 * w, 0.04, legZ));
+          b.tip(foot, p(sign * 0.25 * w, 0.02, legZ + 0.06 * d));
+        }
+      }
+    case 'insect':
+      final root = b.joint('Thorax', -1, p(0, 0.55, 0));
+      final head = b.joint('Head', root, p(0, 0.6, 0.32 * d));
+      b.tip(head, p(0, 0.6, 0.5 * d));
+      final abdomen1 = b.joint('Abdomen_1', root, p(0, 0.52, -0.25 * d));
+      final abdomen2 =
+          b.joint('Abdomen_2', abdomen1, p(0, 0.48, -0.42 * d));
+      b.tip(abdomen2, p(0, 0.45, -0.52 * d));
+      var pair = 0;
+      for (final legZ in [0.18 * d, 0.0, -0.18 * d]) {
+        pair++;
+        for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+          final hip = b.joint(
+              'Leg${pair}Hip_$suffix', root, p(sign * 0.14 * w, 0.5, legZ));
+          final mid = b.joint('Leg${pair}Mid_$suffix', hip,
+              p(sign * 0.32 * w, 0.32, legZ));
+          final foot = b.joint('Leg${pair}Foot_$suffix', mid,
+              p(sign * 0.46 * w, 0.04, legZ));
+          b.tip(foot, p(sign * 0.5 * w, 0.02, legZ));
+        }
+      }
+    case 'bird':
+      final root = b.joint('Body', -1, p(0, 0.5, 0));
+      final chest = b.joint('Chest', root, p(0, 0.6, 0.12 * d));
+      final neck = b.joint('Neck', chest, p(0, 0.72, 0.28 * d));
+      final head = b.joint('Head', neck, p(0, 0.82, 0.4 * d));
+      b.tip(head, p(0, 0.85, 0.5 * d));
+      final tail = b.joint('Tail', root, p(0, 0.45, -0.4 * d));
+      b.tip(tail, p(0, 0.42, -0.52 * d));
+      for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+        final wing = b.joint(
+            'Wing_$suffix', chest, p(sign * 0.12 * w, 0.62, 0));
+        final wingMid =
+            b.joint('WingMid_$suffix', wing, p(sign * 0.3 * w, 0.62, 0));
+        b.tip(wingMid, p(sign * 0.5 * w, 0.62, 0));
+        final leg = b.joint('Leg_$suffix', root, p(sign * 0.07 * w, 0.32, 0));
+        final foot =
+            b.joint('Foot_$suffix', leg, p(sign * 0.07 * w, 0.04, 0));
+        b.tip(foot, p(sign * 0.07 * w, 0.02, 0.06 * d));
+      }
+    case 'snake' || 'fish':
+      // Gelenk-Kette entlang der längeren horizontalen Achse, Kopf am
+      // +Ende (bei z: vorn).
+      final segments = rigType == 'snake' ? 8 : 6;
+      final alongZ = d >= w;
+      var parent = -1;
+      for (var i = 0; i < segments; i++) {
+        final t = 0.45 - 0.9 * i / (segments - 1);
+        parent = b.joint(
+          i == 0 ? 'Head' : 'Spine_$i',
+          parent,
+          alongZ ? p(0, 0.5, t * d) : p(t * w, 0.5),
+        );
+      }
+      b.tip(parent, alongZ ? p(0, 0.5, -0.55 * d) : p(-0.55 * w, 0.5));
+      b.tip(0, alongZ ? p(0, 0.5, 0.55 * d) : p(0.55 * w, 0.5));
+    default: // 'biped'
+      final hips = b.joint('Hips', -1, p(0, 0.52));
+      final spine = b.joint('Spine', hips, p(0, 0.62));
+      final chest = b.joint('Chest', spine, p(0, 0.74));
+      final neck = b.joint('Neck', chest, p(0, 0.84));
+      final head = b.joint('Head', neck, p(0, 0.90));
+      b.tip(head, p(0, 1.0));
+      const armY = 0.80;
+      for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+        final shoulder =
+            b.joint('Shoulder_$suffix', chest, p(sign * 0.10 * w, armY));
+        final elbow =
+            b.joint('Elbow_$suffix', shoulder, p(sign * 0.28 * w, armY));
+        final hand =
+            b.joint('Hand_$suffix', elbow, p(sign * 0.43 * w, armY));
+        b.tip(hand, p(sign * 0.5 * w, armY));
+      }
+      for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
+        final upper =
+            b.joint('UpperLeg_$suffix', hips, p(sign * 0.06 * w, 0.48));
+        final knee =
+            b.joint('Knee_$suffix', upper, p(sign * 0.06 * w, 0.26));
+        final foot =
+            b.joint('Foot_$suffix', knee, p(sign * 0.06 * w, 0.05));
+        b.tip(foot, p(sign * 0.06 * w, 0.02, 0.2 * d));
+      }
+  }
+  return (b.joints, b.bones);
 }
 
 /// Liest die Positionen eines POSITION-Accessors (float32 VEC3).
@@ -153,9 +234,10 @@ Float32List _readPositions(Map<String, dynamic> json, Uint8List bin,
   return out;
 }
 
-/// Baut das Humanoid-Skelett in die GLB ein und liefert die neue Datei.
-/// Wirft [Exception] mit verständlicher Meldung, wenn das nicht geht.
-Uint8List injectHumanoidRig(Uint8List glb) {
+/// Baut das Standard-Skelett des gewählten [rigType] in die GLB ein und
+/// liefert die neue Datei. Wirft [Exception] mit verständlicher
+/// Meldung, wenn das nicht geht.
+Uint8List injectAutoRig(Uint8List glb, {String rigType = 'biped'}) {
   // GLB zerlegen.
   if (glb.length < 20) throw Exception('Ungültige GLB-Datei.');
   final header = ByteData.sublistView(glb);
@@ -214,13 +296,14 @@ Uint8List injectHumanoidRig(Uint8List glb) {
   if (height <= 0 || width <= 0) {
     throw Exception('Die Geometrie ist leer oder flach.');
   }
-  if (height < 0.5 * width) {
+  if (rigType == 'biped' && height < 0.4 * width) {
     throw Exception(
         'Das Modell wirkt nicht wie eine aufrecht stehende Figur '
-        '(zu breit/flach für das Standard-Skelett).');
+        '(zu breit/flach) – ggf. einen anderen Figurtyp wählen.');
   }
 
-  final (joints, bones) = _buildSkeleton(minX, maxX, minY, maxY, minZ, maxZ);
+  final (joints, bones) =
+      _skeletonFor(rigType, minX, maxX, minY, maxY, minZ, maxZ);
 
   // Neue Binärdaten: pro Primitive JOINTS_0 (ubyte VEC4) und WEIGHTS_0
   // (float VEC4), dazu die inversen Bind-Matrizen (MAT4 float).
@@ -407,8 +490,15 @@ Uint8List injectHumanoidRig(Uint8List glb) {
   return out.buffer.asUint8List();
 }
 
-/// Für Tests: Anzahl der Gelenke des Standard-Skeletts.
-const humanoidJointCount = 17;
+/// Für Tests und Anzeige: Gelenkzahl je Figurtyp.
+const rigJointCounts = {
+  'biped': 17,
+  'quadruped': 19,
+  'insect': 22,
+  'bird': 13,
+  'snake': 8,
+  'fish': 6,
+};
 
 /// Kleiner Selbsttest-Helfer: prüft, ob eine GLB ein Skin trägt.
 bool glbHasSkin(Uint8List glb) {
