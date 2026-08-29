@@ -25,6 +25,7 @@ import '../services/model_refine.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/provenance.dart';
+import '../services/rodin_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
@@ -121,6 +122,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final custom = _falCustomCtrl.text.trim();
     return custom.isNotEmpty ? custom : _falModel;
   }
+
+  /// Rodin (Hyper3D): Generation/Tier ('' = API-Vorgabe),
+  /// Quad-Topologie (Standard – ideal für Game-Assets) und optionale
+  /// Ziel-Polygonzahl (0 = API-Vorgabe).
+  String _rodinTier = '';
+  bool _rodinQuad = true;
+  int _rodinPolycount = 0;
 
   String _stabilityEngine = 'stable-point-aware-3d';
   int _stabilityTextureRes = 2048;
@@ -469,6 +477,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               'Bezahlung pro Lauf, Startguthaben für neue Konten). '
               'Bitte in den Einstellungen hinterlegen.'
         ),
+      'rodin' => (
+          'Rodin-API-Schlüssel fehlt',
+          'Für Rodin (Hyper3D) wird ein API-Schlüssel benötigt '
+              '(hyper3d.ai – Bezahlung nach Verbrauch). Bitte in den '
+              'Einstellungen hinterlegen.'
+        ),
       'selfhost' => (
           'Server-Adresse fehlt',
           'Für den eigenen 3D-Server die Adresse in den Einstellungen '
@@ -512,6 +526,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isStability = settings.threeDProvider == 'stability';
     final isFal = settings.threeDProvider == 'fal';
     final isSelfHost = settings.threeDProvider == 'selfhost';
+    final isRodin = settings.threeDProvider == 'rodin';
     // Beim eigenen Server steht an Stelle des Schlüssels die Adresse.
     final apiKey = isLocal
         ? ''
@@ -521,9 +536,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ? settings.falApiKey
                 : isSelfHost
                     ? settings.selfHostUrl
-                    : (isTripo
-                        ? settings.tripoApiKey
-                        : settings.meshyApiKey);
+                    : isRodin
+                        ? settings.rodinApiKey
+                        : (isTripo
+                            ? settings.tripoApiKey
+                            : settings.meshyApiKey);
     if (!isLocal && (apiKey == null || apiKey.trim().isEmpty)) {
       await _showMissingKeyDialog(settings.threeDProvider);
       return;
@@ -570,7 +587,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // Pose der Ansichten: beim eigenen Auto-Rigging die zum
         // Figurtyp passende Rig-Pose, sonst optional T-Pose.
         String? pose;
-        if (_rigging && (isLocal || isStability || isFal || isSelfHost)) {
+        if (_rigging &&
+            (isLocal || isStability || isFal || isSelfHost || isRodin)) {
           pose = rigPoseParts[_rigType];
         } else if (_rigging || _tPose) {
           pose = rigPoseParts['biped'];
@@ -624,6 +642,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         await _runSelfHost(
             SelfHostService(apiKey!.trim()), cancelled, progress,
             label: label);
+      } else if (isRodin) {
+        await _runRodin(
+            RodinService(apiKey!.trim()), prompt, cancelled, progress,
+            useImages: useImages, label: label);
       } else if (isTripo) {
         await _runTripo(
             TripoService(apiKey!.trim()), prompt, cancelled, progress,
@@ -854,11 +876,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Fahrzeug-Rig gerade ausrichten, optional symmetrisieren.
   Future<Uint8List> _applyLocalRefinements(
     Uint8List glb,
-    Uint8List sourceImageBytes,
+    Uint8List? sourceImageBytes,
     void Function(String) progress,
   ) async {
     final refineNotes = <String>[];
-    if (_refineProjectTexture) {
+    if (_refineProjectTexture && sourceImageBytes != null) {
       progress('Veredelung: Textur wird aus dem Originalbild geschärft …');
       try {
         final sharpened =
@@ -959,6 +981,57 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       label: label,
       providerLabel: 'Eigener Server',
       thumbnail: source.bytes,
+      rigged: rigged,
+      textured: true,
+      unriggedGlb: rigged ? unrigged : null,
+      rigTypeUsed: rigged ? _rigType : null,
+    );
+  }
+
+  Future<void> _runRodin(
+    RodinService service,
+    String prompt,
+    bool Function() cancelled,
+    void Function(String) progress, {
+    required bool useImages,
+    required String label,
+  }) async {
+    var images = const <(Uint8List, String)>[];
+    if (useImages) {
+      final source = _front;
+      if (source == null) {
+        throw GenerationException('Keine Vorderansicht vorhanden.');
+      }
+      images = [
+        (source.bytes, source.mimeType),
+        for (final view in _extraViews) (view.bytes, view.mimeType),
+      ];
+    }
+    progress('Auftrag wird angelegt (Rodin) …');
+    final (taskUuid, subscriptionKey) = await service.createTask(
+      images: images,
+      // Ohne Bilder: natives Text→3D von Rodin.
+      prompt: useImages ? null : prompt,
+      tier: _rodinTier,
+      quadTopology: _rodinQuad,
+      targetPolycount: _rodinPolycount,
+      // Rodins eigener T/A-Pose-Parameter ersetzt den Prompt-Zusatz.
+      taPose: !useImages && (_rigging || _tPose),
+    );
+    await service.waitForTask(subscriptionKey,
+        onProgress: progress, isCancelled: cancelled);
+    progress('GLB wird heruntergeladen …');
+    var glb = await service.downloadGlb(taskUuid);
+    // Veredelung + eigenes Rigging wie bei fal.ai; ohne Ausgangsbild
+    // (natives Text→3D) entfällt nur die Textur-Reprojektion.
+    glb = await _applyLocalRefinements(glb, _front?.bytes, progress);
+    final unrigged = glb;
+    final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
+    _addResult(
+      glbBytes: glb,
+      label: label,
+      providerLabel: 'Rodin',
+      thumbnail: _front?.bytes,
       rigged: rigged,
       textured: true,
       unriggedGlb: rigged ? unrigged : null,
@@ -1587,11 +1660,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isStability = settings.threeDProvider == 'stability';
     final isFal = settings.threeDProvider == 'fal';
     final isSelfHost = settings.threeDProvider == 'selfhost';
+    final isRodin = settings.threeDProvider == 'rodin';
     final riggingForcesTPose = _rigging;
     // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
     // der T-Pose-Schalter wäre dann irreführend.
-    final rigPoseActive =
-        _rigging && (isLocal || isStability || isFal || isSelfHost);
+    final rigPoseActive = _rigging &&
+        (isLocal || isStability || isFal || isSelfHost || isRodin);
     return DropTarget(
       enable: widget.isActive &&
           (ModalRoute.of(context)?.isCurrent ?? true),
@@ -1645,6 +1719,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         settings.falApiKey?.trim().isNotEmpty ?? false;
                     final hasServer =
                         settings.selfHostUrl.trim().isNotEmpty;
+                    final hasRodin =
+                        settings.rodinApiKey?.trim().isNotEmpty ?? false;
                     return SegmentedButton<String>(
                       showSelectedIcon: false,
                       segments: [
@@ -1669,6 +1745,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             value: 'fal',
                             label: const Text('fal.ai'),
                             icon: ready(hasFal)),
+                        ButtonSegment(
+                            value: 'rodin',
+                            label: const Text('Rodin'),
+                            icon: ready(hasRodin)),
                         ButtonSegment(
                             value: 'selfhost',
                             label: const Text('Server'),
@@ -1713,7 +1793,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                       'TripoSR, Hunyuan3D) – Abrechnung '
                                       'pro Lauf ab ca. 1–2 US-Cent, '
                                       'Schlüssel und Verbrauch auf fal.ai.'
-                                  : isSelfHost
+                                  : isRodin
+                                      ? 'Rodin (Hyper3D, Beta): '
+                                          'Spitzenklasse für Game-Assets '
+                                          '– saubere Quad-Topologie, '
+                                          'PBR-Texturen, T/A-Pose für '
+                                          'Figuren; Text→3D und Bild→3D '
+                                          'mit mehreren Ansichten, '
+                                          'Bezahlung nach Verbrauch '
+                                          '(hyper3d.ai).'
+                                      : isSelfHost
                                       ? 'Eigener Server: TripoSR oder '
                                           'TRELLIS (MIT-Lizenz) auf dem '
                                           'eigenen PC mit NVIDIA-GPU – '
@@ -1772,6 +1861,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       !isStability &&
                       !isFal &&
                       !isSelfHost &&
+                      !isRodin &&
                       !_viewsFromText) ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -1794,7 +1884,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       !isLocal &&
                       !isStability &&
                       !isFal &&
-                      !isSelfHost) ...[
+                      !isSelfHost &&
+                      !isRodin) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
@@ -1993,10 +2084,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         !isLocal &&
                         !isStability &&
                         !isFal &&
-                        !isSelfHost,
+                        !isSelfHost &&
+                        !isRodin,
                     meshyAiModel: _meshyAiModel,
                     tripoVersion: _tripoVersion,
                     falModel: _falModelEffective,
+                    rodinTier: _rodinTier,
                   );
                   final usesImageAi =
                       generatesViews || (isLocal && _localDepthAi);
@@ -2041,6 +2134,42 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'Point Aware 3D rekonstruiert Rückseite und '
                           'Hohlräume am besten; Fast 3D ist die '
                           'schnellere, einfachere Variante.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 12),
+                      ] else if (isRodin) ...[
+                        DropdownMenu<String>(
+                          key: ValueKey('rodintier-$_rodinTier'),
+                          enabled: !_running,
+                          initialSelection: _rodinTier,
+                          label: const Text('3D-Modell (Generation)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: const [
+                            DropdownMenuEntry(
+                                value: '',
+                                label: 'Standard (API-Vorgabe)'),
+                            DropdownMenuEntry(
+                                value: 'Gen-2.5-High',
+                                label:
+                                    'Gen-2.5 High (beste Qualität)'),
+                            DropdownMenuEntry(
+                                value: 'Gen-2.5-Medium',
+                                label:
+                                    'Gen-2.5 Medium (schneller & '
+                                    'günstiger)'),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              setState(() => _rodinTier = value);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Rodin Gen-2.5 (SIGGRAPH-Best-Paper-'
+                          'Forschung): produktionsreife Meshes mit '
+                          'sauberer Topologie – ideal für Fahrzeuge, '
+                          'Gebäude und andere Game-Assets.',
                           style: theme.textTheme.bodySmall,
                         ),
                         const SizedBox(height: 12),
@@ -2592,6 +2721,110 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             'Greift nur, wenn Bild und Modell '
                             'zusammenpassen; komplett lokal, keine '
                             'Zusatzkosten.'),
+                        value: _refineProjectTexture,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(
+                                () => _refineProjectTexture = v),
+                      ),
+                    ],
+                  ),
+                ] else if (isRodin) ...[
+                  Text(
+                    'Textur (PBR) ist immer im Modell enthalten; bei '
+                    'aktiver T-Pose bzw. Rigging erzeugt Rodin Figuren '
+                    'direkt in T/A-Pose. Rigging übernimmt der eigene '
+                    'lokale Auto-Rigger (kostenlos).',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  _autoRigSwitch(),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    initiallyExpanded: true,
+                    title: const Text('Qualitäts-Optionen (Profi)'),
+                    subtitle: Text(
+                      'Topologie & Polygonzahl – die Generation steht '
+                      'oben bei „Modell & Kosten“',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Quad-Topologie'),
+                        subtitle: const Text(
+                            'Sauberes Vierecks-Netz (Rodins '
+                            'Spezialität) – ideal für Blender, '
+                            'Animation und Game-Engines. Aus = rohes '
+                            'Dreiecks-Netz mit maximaler '
+                            'Detaildichte.'),
+                        value: _rodinQuad,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _rodinQuad = v),
+                      ),
+                      DropdownMenu<int>(
+                        key: ValueKey('rodinpoly-$_rodinPolycount'),
+                        enabled: !_running,
+                        initialSelection: _rodinPolycount,
+                        label: const Text('Polygonzahl'),
+                        expandedInsets: EdgeInsets.zero,
+                        dropdownMenuEntries: const [
+                          DropdownMenuEntry(
+                              value: 0,
+                              label: 'Standard (API-Vorgabe)'),
+                          DropdownMenuEntry(
+                              value: 100000,
+                              label: '≈ 100.000 (sehr hoch)'),
+                          DropdownMenuEntry(
+                              value: 30000, label: '≈ 30.000 (hoch)'),
+                          DropdownMenuEntry(
+                              value: 10000,
+                              label: '≈ 10.000 (Spiele/AR)'),
+                          DropdownMenuEntry(
+                              value: 4000,
+                              label: '≈ 4.000 (sehr schlank)'),
+                        ],
+                        onSelected: (value) {
+                          if (value != null) {
+                            setState(() => _rodinPolycount = value);
+                          }
+                        },
+                      ),
+                      _optionInfo(
+                          'Ziel-Polygonzahl des Meshes '
+                          '(quality_override): „Standard“ überlässt '
+                          'Rodin die Wahl; kleinere Werte liefern '
+                          'direkt engine-fertige Assets.'),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'Symmetrisieren (lokale Veredelung)'),
+                        subtitle: const Text(
+                            'Ersetzt die schwächere Modellhälfte durch '
+                            'die gespiegelte bessere – für Fahrzeuge '
+                            'und andere symmetrische Motive; bei '
+                            'unsymmetrischen Motiven ausschalten. '
+                            'Komplett lokal, keine Zusatzkosten.'),
+                        value: _refineSymmetrize,
+                        onChanged: _running
+                            ? null
+                            : (v) =>
+                                setState(() => _refineSymmetrize = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'Textur aus Originalbild schärfen '
+                            '(lokale Veredelung)'),
+                        subtitle: const Text(
+                            'Projiziert das scharfe Ausgangsbild '
+                            'zurück auf die sichtbare Modellseite – '
+                            'greift nur, wenn die automatische '
+                            'Kalibrierung Bild und Modell sicher '
+                            'zusammenbringt; ohne Ausgangsbild '
+                            '(natives Text→3D) ohne Wirkung. Komplett '
+                            'lokal, keine Zusatzkosten.'),
                         value: _refineProjectTexture,
                         onChanged: _running
                             ? null

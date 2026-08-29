@@ -203,6 +203,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onHelp: () => _openUrl('https://fal.ai/dashboard/keys'),
         ),
         const SizedBox(height: 12),
+        _ApiKeyCard(
+          title: 'Rodin-API-Schlüssel (Hyper3D, 3D-Bereich)',
+          providerId: 'rodin',
+          currentKey: settings.rodinApiKey,
+          onSave: settings.setRodinApiKey,
+          keySummary: _keySummary(settings.rodinApiKey),
+          helpLabel:
+              'Schlüssel erstellen auf hyper3d.ai (Bezahlung nach '
+              'Verbrauch)',
+          onHelp: () => _openUrl('https://hyper3d.ai/api'),
+        ),
+        const SizedBox(height: 12),
         const _ServerUrlCard(),
         const SizedBox(height: 12),
         _UsageCard(

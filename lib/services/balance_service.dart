@@ -45,6 +45,10 @@ Future<String?> fetchProviderBalance(
         // fal.ai bietet keine öffentliche Guthaben-API – der Verbrauch
         // ist im Dashboard (fal.ai/dashboard) einsehbar.
         return null;
+      case 'rodin':
+        // Rodin (Hyper3D) bietet keine dokumentierte Guthaben-API –
+        // der Verbrauch ist auf hyper3d.ai einsehbar.
+        return null;
     }
   } catch (_) {
     // Guthaben-Anzeige ist optional.

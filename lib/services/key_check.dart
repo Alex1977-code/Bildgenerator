@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -10,6 +11,36 @@ import 'self_host_service.dart';
 /// gültigem Schlüssel normal zurück, sonst fliegt eine
 /// [GenerationException] mit verständlicher Meldung.
 Future<void> validateApiKey(String provider, String apiKey) async {
+  // Rodin kennt nur POST-Endpunkte: eine Status-Abfrage mit
+  // Dummy-Schlüssel prüft die Authentifizierung, ohne etwas zu kosten.
+  if (provider == 'rodin') {
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('https://api.hyper3d.com/api/v2/status'),
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'subscription_key': 'key-check'}),
+          )
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      throw GenerationException(
+          'Prüfung nicht möglich – Netzwerkfehler: $e');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw GenerationException(
+          'Der Schlüssel wurde abgelehnt (${response.statusCode}) – '
+          'bitte auf Tippfehler prüfen und neu einfügen.');
+    }
+    if (response.statusCode < 500) return;
+    throw GenerationException(
+        'Unerwartete Antwort (${response.statusCode}) – der Schlüssel '
+        'konnte nicht bestätigt werden.');
+  }
+
   final (url, headers) = switch (provider) {
     'openai' => (
         Uri.parse('https://api.openai.com/v1/models'),

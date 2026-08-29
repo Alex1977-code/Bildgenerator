@@ -124,6 +124,7 @@ CostQualityEstimate estimate3dRun(
   String meshyAiModel = '',
   String tripoVersion = '',
   String falModel = '',
+  String rodinTier = '',
 }) {
   final items = <CostItem>[];
   final (imgMin, imgMax, _) = imageModelCost(settings);
@@ -175,6 +176,13 @@ CostQualityEstimate estimate3dRun(
       };
       items.add(CostItem('3D-Modell ($falLabel, fal.ai)', falMin, falMax));
       tier = falTier;
+    case 'rodin':
+      // Pay per Use; Gen-2.5-Medium ist die schnellere, günstigere
+      // Variante. Rigging übernimmt der eigene lokale Auto-Rigger.
+      final medium = rodinTier == 'Gen-2.5-Medium';
+      items.add(CostItem('3D-Modell (Rodin Gen-2.5)', medium ? 0.15 : 0.25,
+          medium ? 0.40 : 0.80));
+      tier = medium ? 4 : 5;
     case 'tripo':
       // Abo-Credits: Euro-Wert je nach Paket – daher eine Spanne.
       items.add(CostItem(

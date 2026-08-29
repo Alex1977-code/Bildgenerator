@@ -85,9 +85,11 @@ class SettingsService extends ChangeNotifier {
   String? _meshyKey;
   String? _tripoKey;
   String? _falKey;
+  String? _rodinKey;
 
   /// Gewählter 3D-Provider: 'local', 'stability', 'meshy', 'tripo',
-  /// 'fal' oder 'selfhost' (eigener 3D-Server, siehe server/README.md).
+  /// 'fal', 'rodin' oder 'selfhost' (eigener 3D-Server, siehe
+  /// server/README.md).
   String threeDProvider = 'local';
 
   /// Adresse des eigenen 3D-Servers (server/local3d_server.py),
@@ -118,6 +120,9 @@ class SettingsService extends ChangeNotifier {
   /// API-Schlüssel für den 3D-Marktplatz fal.ai.
   String? get falApiKey => _falKey;
 
+  /// API-Schlüssel für Rodin (Hyper3D von Deemos).
+  String? get rodinApiKey => _rodinKey;
+
   Future<void> setMeshyApiKey(String value) async {
     final trimmed = value.trim();
     _meshyKey = trimmed.isEmpty ? null : trimmed;
@@ -147,6 +152,17 @@ class SettingsService extends ChangeNotifier {
       await _secure.delete('fal_api_key');
     } else {
       await _secure.write('fal_api_key', trimmed);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setRodinApiKey(String value) async {
+    final trimmed = value.trim();
+    _rodinKey = trimmed.isEmpty ? null : trimmed;
+    if (trimmed.isEmpty) {
+      await _secure.delete('rodin_api_key');
+    } else {
+      await _secure.write('rodin_api_key', trimmed);
     }
     notifyListeners();
   }
@@ -220,6 +236,9 @@ class SettingsService extends ChangeNotifier {
           .timeout(const Duration(seconds: 5));
       _falKey = await _secure
           .read('fal_api_key')
+          .timeout(const Duration(seconds: 5));
+      _rodinKey = await _secure
+          .read('rodin_api_key')
           .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Secure Storage nicht verfügbar – Schlüssel müssen erneut
