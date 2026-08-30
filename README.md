@@ -479,7 +479,7 @@ Die App exportiert GLB und OBJ; für eine gerigte Figur führt der Weg
 
 | Regel | Grenze |
 | --- | --- |
-| Dreiecke je Mesh | höchstens **20.000**, Arbeitsziel unter **10.000** |
+| Dreiecke **je Mesh** | höchstens **20.000**, Arbeitsziel unter **10.000** |
 | UGC-Accessoires | höchstens **4.000** Dreiecke je Mesh |
 | Material | genau **eines** je Mesh (sonst Texture-Atlas nötig) |
 | UVs | **ein** Satz, vollständig im **0–1**-Raum |
@@ -500,6 +500,55 @@ das macht deutlich weniger Ärger als nachträgliches Dezimieren:
   Ziel-Dreiecke.
 
 Reicht das nicht, hilft nur noch Blender: Modifier **Decimate**.
+
+**Quads sind keine Dreiecke.** Roblox zählt Dreiecke, die Anbieter
+zählen Polygone. Bei eingeschalteter Quad-Topologie wird aus jedem
+Viereck beim Export ein Paar Dreiecke – ein „10.000er"-Quad-Netz landet
+also bei 20.000 Dreiecken, genau auf der harten Grenze. Die App rechnet
+das um: Das Ziel ist immer in **Dreiecken** angegeben, und der Anbieter
+bekommt bei Quad-Topologie die halbe Zahl. Die Roblox-Karte schreibt
+aus, was gerade tatsächlich gesetzt ist, z. B. „Ziel: 10.000 Dreiecke
+(Budget 5.000 Polygone). Aktuell eingestellt: Meshy „target_polycount"
+= 5.000".
+
+**Die Einheiten der Anbieter meinen nicht dasselbe.** `face_limit` bei
+Tripo, `target_polycount` bei Meshy und `quality_override` bei Rodin
+sind drei verschiedene Größen; Rodin arbeitet zusätzlich mit
+Qualitätsstufen, eine Zahl darauf abzubilden bleibt eine Näherung. Die
+Stability-Auswahl kennt nur feste Stufen – genommen wird die größte,
+die unter dem Budget bleibt. Was beim gewählten Anbieter herauskommt,
+steht deshalb im Klartext in der Karte.
+
+**Die Grenze gilt je Mesh, nicht fürs Modell.** Ein Modell aus fünf
+Teilen à 6.000 Dreiecken geht durch, ein einzelnes Teil mit 21.000
+nicht. Die Prüfliste meldet deshalb das größte Mesh und nennt die
+Summe nur als Leistungshinweis. Dasselbe gilt für die Materialregel:
+Entscheidend ist, dass **je Mesh** genau eines vorliegt.
+
+### Figur oder UGC-Accessoire
+
+Die Vorlage deckt beide Fälle ab; umgeschaltet wird in der
+Roblox-Karte. Der Unterschied ist größer als nur die Dreieckszahl,
+deshalb stellt die App gleich mit um:
+
+| | Figur / Prop | UGC-Accessoire |
+| --- | --- | --- |
+| Dreiecke | 20.000 hart, Ziel unter 10.000 | 4.000 |
+| Skelett | Zweibeiner-Rig | keins – starres Netz |
+| Pose | T-Pose | keine |
+| Motivart | Figur (Vorderansicht) | Objekt (Dreiviertelansicht) |
+| Prompt-Zusatz | genau eine Figur, T-Pose | nur das Teil allein, keine Figur |
+
+Ein Hut, eine Frisur oder ein Rucksack ist kein kleiner Charakter: Es
+ist ein einzelnes starres Netz, das in Studio über einen **Handle**
+mit einem **Attachment** (z. B. `HatAttachment`) am Avatar befestigt
+wird – dabei hilft das **Accessory Fitting Tool**. Ein Skelett gehört
+da nicht hinein; die Prüfung meldet es deshalb als Warnung.
+
+Die Ausnahme ist **Layered Clothing** – Kleidung, die sich mit dem
+Körper verformt. Die braucht ein Rig *und* zusätzlich Innen- und
+Außen-Cage-Meshes in derselben Datei. Die erzeugt diese App nicht;
+dafür führt der Weg über Blender.
 
 ### Bei gerigten Figuren zusätzlich
 
@@ -524,11 +573,44 @@ Vertex, Bone-Transformationen und der Wurzelknochen. Jeder Punkt sagt,
 was zu tun ist; erledigte Punkte stehen mit grünem Haken dabei, damit
 man sieht, was schon stimmt. Umschalten zwischen **Figur/Prop**
 (20.000 hart, 10.000 Ziel) und **UGC-Accessoire** (4.000) geht in der
-Roblox-Karte.
+Roblox-Karte; die Prüfliste passt sich mit an – bei Accessoires kommen
+der Hinweis auf Handle und Attachment sowie die Warnung vor einem
+überflüssigen Skelett dazu, T-Pose und Rig-Typ entfallen.
 
-Zwei Dinge kann die App nicht messen und listet sie deshalb als
-Hinweis: ob das Modell wirklich in T-Pose steht und welcher Rig-Typ
-beim Import zu wählen ist.
+Dazu kommen drei Prüfungen, die über die reine Löcher-Suche
+hinausgehen:
+
+- **Skalierung.** Die häufigste Importpanne: glTF rechnet laut
+  Spezifikation in Metern, der Importer steht per Vorgabe auf *Stud*.
+  Die App liest die Bounding Box, rechnet mit 1 Stud ≈ 0,28 m um und
+  sagt, was herauskommt – Vergleichsmaßstab ist ein Standard-Charakter
+  mit rund 5 Studs. Bei einem 1,4 m hohen Modell heißt das: Scale Unit
+  auf *Meter* stellen, sonst baut Studio etwas Kniehohes.
+- **Backfaces und Normalen.** Offene Kanten allein decken das nicht ab.
+  Die App misst die Kantenrichtungen: Gegenläufig gewickelte Nachbarn
+  ergeben unsichtbare Flächen (→ *Recalculate Outside*), ein negatives
+  Gesamtvolumen heißt, alle Normalen zeigen nach innen (→ *Flip*).
+- **Nullstärke.** Aus Volumen und Bounding Box fällt auf, wenn das
+  „Modell" eine Platte ohne Dicke ist – genau der Fehler, vor dem der
+  Prompt-Block bei Umhängen, Schleiern und Netzen warnt (→ *Solidify*).
+  Degenerierte Dreiecke werden mitgezählt.
+
+Drei Dinge kann die App **nicht** messen und listet sie deshalb als
+Hinweis:
+
+- ob das Modell wirklich in **T-Pose** steht,
+- welcher **Rig-Typ** beim Import zu wählen ist,
+- ob **Quad-Topologie** geliefert wurde – glTF speichert ausschließlich
+  Dreiecke, die Vierecke stehen schlicht nicht in der Datei. Die
+  angezeigte Zahl ist die Dreieckszahl nach der Triangulierung, also
+  genau das, was Roblox zählt.
+
+**Die Prüfung gilt für die GLB.** Geht das Modell für ein Rig über
+Blender nach FBX, ändern sich genau dort Dreieckszahl und
+Bone-Transforms. Die Prüfliste sagt das am Ende und nennt, was in
+Blender gegenzuprüfen ist: Statistik-Overlay für die Dreiecke, N-Panel
+→ Item → Transform für Scale 1,1,1 und Rotation 0,0,0 der Bones,
+notfalls Object → Apply → All Transforms.
 
 ### Was der Prompt beitragen kann
 
@@ -544,12 +626,22 @@ oder Markenbezüge.
 ### Lizenz und Moderation
 
 Ein Roblox-Upload ist eine **Veröffentlichung auf fremder Plattform**.
-Dafür gilt: nur mit **bezahlten Credits** generieren, nicht mit
-Gratis-Kontingenten – deren Lizenzbedingungen decken eine
-Veröffentlichung in der Regel nicht ab. Wer eigene Meshes darüber
-hinaus als Accessoires im **Marketplace verkaufen** will, muss die
-zusätzlichen Kontovoraussetzungen von Roblox erfüllen. Und alles
-Hochgeladene – Meshes wie Texturen – geht durch die
+
+Bei den **API-Anbietern** (OpenAI, Gemini, Stability, Meshy, Tripo,
+fal.ai, Rodin, Replicate) gilt deshalb: nur mit **bezahlten Credits**
+generieren, nicht mit Gratis-Kontingenten – deren Lizenzbedingungen
+decken eine Veröffentlichung in der Regel nicht ab.
+
+Beim **lokalen Generator und beim eigenen Server** greift diese Regel
+nicht; dort entscheidet die Lizenz des verwendeten Modells. Die ist
+nicht überall eindeutig: Bei TRELLIS etwa steht MIT im Repository,
+während die Projektseite von Forschungszweck spricht. Vor einer
+kommerziellen Veröffentlichung also die Lizenz des konkreten Modells
+nachlesen.
+
+Unabhängig davon: Wer eigene Meshes als Accessoires im **Marketplace
+verkaufen** will, muss die zusätzlichen Kontovoraussetzungen von Roblox
+erfüllen. Und alles Hochgeladene – Meshes wie Texturen – geht durch die
 **Roblox-Moderation**.
 
 ## Voraussetzung: API-Schlüssel

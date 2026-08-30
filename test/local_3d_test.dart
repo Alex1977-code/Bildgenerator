@@ -422,6 +422,42 @@ void main() {
     expect(open.openEdges, 3);
   });
 
+  test('Orientierung: Volumen, Wicklung und Nullstärke', () {
+    final hull = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    );
+    final positions = Float32List.fromList(hull.positions);
+    final indices = Uint32List.fromList(hull.indices);
+    final report = checkMeshOrientation(positions, indices);
+    // Ein geschlossener Körper: einheitliche Wicklung, Volumen nach
+    // außen, spürbares Volumen im Verhältnis zur Ausdehnung.
+    expect(report.windingConsistent, isTrue);
+    expect(report.normalsInverted, isFalse);
+    expect(report.volumeRatio, greaterThan(0.001));
+    expect(report.degenerateTriangles, 0);
+
+    // Dieselbe Form mit umgedrehter Wicklung: Normalen nach innen.
+    final flipped = Uint32List.fromList([
+      for (var t = 0; t + 2 < indices.length; t += 3) ...[
+        indices[t],
+        indices[t + 2],
+        indices[t + 1],
+      ],
+    ]);
+    expect(checkMeshOrientation(positions, flipped).normalsInverted, isTrue);
+
+    // Zwei Dreiecke als Platte: kein Volumen, dünnste Seite null.
+    final sheet = checkMeshOrientation(
+      Float32List.fromList([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]),
+      Uint32List.fromList([0, 1, 2, 0, 2, 3]),
+    );
+    expect(sheet.volumeRatio, lessThan(0.0001));
+    expect(sheet.smallestSide, 0);
+  });
+
   test('OBJ-Export: Vertices mit Farben und 1-basierte Flächen',
       () async {
     final mesh = buildVisualHullMesh(

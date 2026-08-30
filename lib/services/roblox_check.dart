@@ -63,6 +63,23 @@ const int robloxMaxTexture = 1024;
 /// Höchstzahl der Bones, die einen Vertex beeinflussen dürfen.
 const int robloxMaxInfluences = 4;
 
+/// Ein Stud in Metern. glTF rechnet laut Spezifikation in Metern –
+/// daraus ergibt sich, welche Scale Unit im Importer stimmt.
+const double robloxStudMeters = 0.28;
+
+/// Höhe eines Standard-Charakters in Studs (Vergleichsmaßstab).
+const double robloxCharacterStuds = 5.0;
+
+/// Rechnet ein Dreiecks-Budget in die Polygonzahl um, die ein Anbieter
+/// als Ziel bekommt.
+///
+/// Roblox zählt **Dreiecke**. Ein Viereck wird beim Export zu zwei
+/// Dreiecken – bei Quad-Topologie darf der Anbieter also nur die
+/// halbe Zahl liefern, sonst landet ein „10.000er"-Netz bei 20.000
+/// Dreiecken und damit genau auf der harten Grenze.
+int robloxPolygonBudget(int triangles, {required bool quad}) =>
+    quad ? triangles ~/ 2 : triangles;
+
 /// Wie schwer ein Fund wiegt.
 enum RobloxLevel {
   /// Der Importer lehnt ab oder das Modell ist unbrauchbar.
@@ -118,6 +135,13 @@ class RobloxFacts {
     required this.uvMax,
     required this.openEdges,
     required this.textures,
+    this.meshTriangles = const [],
+    this.maxPrimitivesPerMesh = 1,
+    this.size = const [0.0, 0.0, 0.0],
+    this.reversedEdges = 0,
+    this.signedVolume = 0.0,
+    this.volumeRatio = 0.0,
+    this.degenerateTriangles = 0,
     this.jointSets = 0,
     this.boneCount = 0,
     this.maxInfluences = 0,
@@ -128,8 +152,35 @@ class RobloxFacts {
     this.rootName = '',
   });
 
+  /// Dreiecke über alle Meshes zusammen.
   final int triangles;
   final int meshCount;
+
+  /// Dreiecke je einzelnem Mesh. Roblox deckelt **je Mesh**, nicht das
+  /// ganze Modell – ein Modell aus fünf Teilen à 6.000 geht durch.
+  final List<int> meshTriangles;
+
+  /// Meiste Primitive in einem einzelnen Mesh – mehr als eines heißt
+  /// mehr als ein Material in diesem Mesh.
+  final int maxPrimitivesPerMesh;
+
+  /// Ausdehnung in x, y, z in glTF-Einheiten (laut Spezifikation
+  /// Meter).
+  final List<double> size;
+
+  /// Kanten mit gegenläufig gewickelten Nachbardreiecken (Backfaces).
+  final int reversedEdges;
+
+  /// Eingeschlossenes Volumen mit Vorzeichen; negativ = Normalen nach
+  /// innen.
+  final double signedVolume;
+
+  /// Volumen im Verhältnis zum Würfel der größten Kante – nahe null
+  /// bei einer Fläche ohne Dicke.
+  final double volumeRatio;
+
+  /// Dreiecke ohne Fläche.
+  final int degenerateTriangles;
 
   /// Zeichenaufrufe – mehr als einer je Mesh heißt mehr als ein
   /// Material.
@@ -171,6 +222,17 @@ class RobloxFacts {
 
   bool get hasRig => boneCount > 0;
   bool get hasUvs => uvSets > 0;
+
+  /// Das größte einzelne Mesh – daran misst der Importer.
+  int get largestMesh => meshTriangles.isEmpty
+      ? triangles
+      : meshTriangles.reduce((a, b) => a > b ? a : b);
+
+  /// Höhe in glTF-Einheiten (y-Achse).
+  double get height => size.length > 1 ? size[1] : 0;
+
+  /// Höhe in Studs, wenn der Importer die Datei als Meter liest.
+  double get studsAsMeters => height / robloxStudMeters;
 }
 
 String _n(int value) {
@@ -190,45 +252,64 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
   final findings = <RobloxFinding>[];
 
   // 1. Dreiecke – der Grund, an dem KI-Modelle fast immer scheitern.
+  // Die Grenze gilt je Mesh: Ein Modell aus fünf Teilen à 6.000 geht
+  // durch, ein einzelnes Teil mit 21.000 nicht.
   final hard = target.hardTriangles;
   final goal = target.goalTriangles;
-  if (facts.triangles > hard) {
+  final largest = facts.largestMesh;
+  final sum = facts.meshCount > 1
+      ? ' Zusammen sind es ${_n(facts.triangles)} in '
+          '${facts.meshCount} Meshes; die Grenze gilt je Mesh, die '
+          'Summe zählt für die Leistung im Erlebnis.'
+      : '';
+  final label = facts.meshCount > 1
+      ? 'Größtes Mesh: ${_n(largest)} Dreiecke'
+      : 'Dreiecke: ${_n(largest)}';
+  if (largest > hard) {
     findings.add(RobloxFinding(
         RobloxLevel.blocker,
-        'Dreiecke: ${_n(facts.triangles)}',
+        label,
         'Über der Grenze von ${_n(hard)} je Mesh – der Importer weist '
-            'das Modell ab. Am besten schon bei der Generierung '
-            'begrenzen (Meshy „target_polycount", Rodin-Polygonzahl, '
-            'Tripo-Face-Limit); nur wenn das nicht reicht, hinterher in '
-            'Blender mit „Decimate" nacharbeiten.'));
-  } else if (facts.triangles > goal) {
+            'es ab. Am besten schon bei der Generierung begrenzen '
+            '(Meshy „target_polycount", Tripo „face_limit", Rodin '
+            '„quality_override"); nur wenn das nicht reicht, hinterher '
+            'in Blender mit „Decimate" nacharbeiten. Achtung bei '
+            'Quad-Netzen: Jedes Viereck wird zu zwei Dreiecken.$sum'));
+  } else if (largest > goal) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,
-        'Dreiecke: ${_n(facts.triangles)}',
-        'Der Import geht durch (Grenze ${_n(hard)}), das Arbeitsziel '
-            'liegt aber unter ${_n(goal)}. Darüber kostet jede Instanz '
-            'im Erlebnis spürbar Leistung.'));
+        label,
+        'Der Import geht durch (Grenze ${_n(hard)} je Mesh), das '
+            'Arbeitsziel liegt aber unter ${_n(goal)}. Darüber kostet '
+            'jede Instanz im Erlebnis spürbar Leistung.$sum'));
   } else {
     findings.add(RobloxFinding(
         RobloxLevel.ok,
-        'Dreiecke: ${_n(facts.triangles)}',
-        'Innerhalb des Arbeitsziels von ${_n(goal)} für '
-            '${target.label}.'));
+        label,
+        'Innerhalb des Arbeitsziels von ${_n(goal)} je Mesh für '
+            '${target.label}.$sum'));
   }
 
-  // 2. Ein Material je Mesh.
-  if (facts.materialCount > 1 || facts.primitiveCount > facts.meshCount) {
+  // 2. Ein Material je Mesh – auch das zählt je Mesh, nicht im Modell.
+  if (facts.maxPrimitivesPerMesh > 1) {
     findings.add(RobloxFinding(
         RobloxLevel.blocker,
-        'Materialien: ${facts.materialCount} in '
-            '${facts.primitiveCount} Teilnetzen',
-        'Roblox erlaubt genau ein Material je Mesh. Mehrere '
-            'Oberflächen müssen in einem Texture-Atlas '
-            'zusammengefasst werden (in Blender: Materialien '
-            'zusammenlegen, UVs neu packen, eine Textur backen).'));
+        'Bis zu ${facts.maxPrimitivesPerMesh} Materialien in einem Mesh',
+        'Roblox erlaubt genau ein Material je Mesh (insgesamt '
+            '${facts.materialCount} in ${facts.primitiveCount} '
+            'Teilnetzen). Mehrere Oberflächen müssen in einem '
+            'Texture-Atlas zusammengefasst werden (in Blender: '
+            'Materialien zusammenlegen, UVs neu packen, eine Textur '
+            'backen).'));
   } else {
-    findings.add(const RobloxFinding(RobloxLevel.ok, 'Ein Material',
-        'Genau ein Material je Mesh – so verlangt es der Importer.'));
+    findings.add(RobloxFinding(
+        RobloxLevel.ok,
+        'Ein Material je Mesh',
+        facts.meshCount > 1
+            ? '${facts.materialCount} Material(ien) auf '
+                '${facts.meshCount} Meshes verteilt – je Mesh genau '
+                'eines, so verlangt es der Importer.'
+            : 'Genau ein Material – so verlangt es der Importer.'));
   }
 
   // 3. Geschlossene Form.
@@ -236,13 +317,72 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,
         'Offene Kanten: ${_n(facts.openEdges)}',
-        'Das Netz ist nicht wasserdicht. Löcher und einseitige '
-            'Flächen werden im Spiel von hinten durchsichtig; '
-            'Nullstärke-Flächen flackern. In Blender schließen '
+        'Das Netz ist nicht wasserdicht. Löcher werden im Spiel von '
+            'hinten durchsichtig. In Blender schließen '
             '(Mesh → Clean Up) oder das Modell dicker generieren.'));
   } else {
     findings.add(const RobloxFinding(RobloxLevel.ok, 'Wasserdicht',
-        'Keine offenen Kanten – keine Löcher, keine Rückseiten.'));
+        'Keine offenen Kanten – keine Löcher im Netz.'));
+  }
+
+  // 3b. Backfaces: nach innen zeigende oder uneinheitliche Normalen.
+  if (facts.reversedEdges > 0) {
+    findings.add(RobloxFinding(
+        RobloxLevel.warning,
+        'Uneinheitliche Wicklung: ${_n(facts.reversedEdges)} Kanten',
+        'An diesen Kanten stoßen gegenläufig gewickelte Dreiecke '
+            'aneinander – solche Flächen sind im Spiel von außen '
+            'unsichtbar (Backfaces). In Blender im Edit-Modus alles '
+            'auswählen und Mesh → Normals → Recalculate Outside.'));
+  } else if (facts.signedVolume < 0) {
+    findings.add(const RobloxFinding(
+        RobloxLevel.warning,
+        'Normalen zeigen nach innen',
+        'Die Wicklung ist zwar einheitlich, aber verkehrt herum – das '
+            'ganze Modell wird im Spiel von außen unsichtbar. In '
+            'Blender: Mesh → Normals → Flip.'));
+  } else {
+    findings.add(const RobloxFinding(
+        RobloxLevel.ok,
+        'Normalen nach außen',
+        'Einheitliche Wicklung, keine Backfaces.'));
+  }
+
+  // 3c. Nullstärke – genau der Fehler, vor dem der Prompt bei
+  // Umhängen, Schleiern und Netzen warnt.
+  final thinnest = facts.size.isEmpty
+      ? 0.0
+      : facts.size.reduce((a, b) => a < b ? a : b);
+  final widest = facts.size.isEmpty
+      ? 0.0
+      : facts.size.reduce((a, b) => a > b ? a : b);
+  final flat = widest > 0 && thinnest / widest < 0.01;
+  if (flat || facts.volumeRatio < 0.0005) {
+    findings.add(RobloxFinding(
+        RobloxLevel.warning,
+        flat ? 'Fläche ohne Dicke' : 'Kaum Volumen',
+        flat
+            ? 'Die dünnste Ausdehnung ist weniger als ein Hundertstel '
+                'der größten – das ist eine Platte, kein Körper. '
+                'Roblox verlangt Volumen; Nullstärke flackert im '
+                'Spiel. In Blender mit „Solidify" Dicke geben.'
+            : 'Das eingeschlossene Volumen ist verschwindend klein '
+                'gegenüber der Ausdehnung. Meist sind das offene '
+                'Schalen oder hauchdünne Teile (Umhänge, Schleier, '
+                'Netze) – in Blender mit „Solidify" Dicke geben.'));
+  } else {
+    findings.add(const RobloxFinding(RobloxLevel.ok, 'Hat Volumen',
+        'Keine Nullstärke, kein flaches Blatt.'));
+  }
+
+  // 3d. Degenerierte Dreiecke.
+  if (facts.degenerateTriangles > 0) {
+    findings.add(RobloxFinding(
+        RobloxLevel.warning,
+        'Dreiecke ohne Fläche: ${_n(facts.degenerateTriangles)}',
+        'Flächen mit zusammenfallenden Ecken. Sie kosten nichts, '
+            'können aber Schatten- und Kollisionsfehler auslösen. In '
+            'Blender: Mesh → Clean Up → Degenerate Dissolve.'));
   }
 
   // 4. UVs.
@@ -303,13 +443,60 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     }
   }
 
-  // 6. Skelett.
+  // 5b. Skalierung – die häufigste Importpanne. glTF rechnet in
+  // Metern, der Importer steht aber auf Studs.
+  final height = facts.height;
+  if (height <= 0) {
+    findings.add(const RobloxFinding(RobloxLevel.hint, 'Größe unbekannt',
+        'Die Höhe ließ sich nicht bestimmen.'));
+  } else {
+    final studs = facts.studsAsMeters;
+    final asStud = height;
+    final detail = 'Das Modell ist ${height.toStringAsFixed(2)} '
+        'glTF-Einheiten hoch. glTF rechnet laut Spezifikation in '
+        'Metern, also im Importer die Scale Unit auf „Meter" stellen – '
+        'daraus werden ${studs.toStringAsFixed(1)} Studs (ein '
+        'Standard-Charakter ist etwa '
+        '${robloxCharacterStuds.toStringAsFixed(0)} Studs hoch). Die '
+        'Vorgabe „Stud" ergäbe nur ${asStud.toStringAsFixed(2)} Studs '
+        'und damit etwas Kniehohes.';
+    // Nur wenn beide Deutungen weit von einer brauchbaren Größe weg
+    // sind, ist wirklich etwas faul.
+    final plausible = studs > 0.3 && studs < 60;
+    findings.add(RobloxFinding(
+        plausible ? RobloxLevel.hint : RobloxLevel.warning,
+        'Größe: ${height.toStringAsFixed(2)} Einheiten '
+            '(≈ ${studs.toStringAsFixed(1)} Studs als Meter)',
+        plausible
+            ? detail
+            : '$detail Beide Deutungen liegen weit neben einer '
+                'brauchbaren Größe – das Modell vor dem Import in '
+                'Blender auf ein sinnvolles Maß skalieren.'));
+  }
+
+  // 6. Skelett. Ein Accessoire ist ein starres Teil – dort ist ein
+  // Skelett nicht nur unnötig, sondern falsch.
   if (!facts.hasRig) {
-    findings.add(const RobloxFinding(
-        RobloxLevel.hint,
+    findings.add(RobloxFinding(
+        RobloxLevel.ok,
         'Ohne Skelett',
-        'Beim Import „No Rig" wählen. Für Props und Accessoires ist '
-            'das richtig; eine animierbare Figur braucht ein Skelett.'));
+        target == RobloxTarget.accessory
+            ? 'Richtig so: Ein Accessoire wie Hut, Frisur oder '
+                'Rucksack ist ein starres Netz. Beim Import „No Rig" '
+                'wählen.'
+            : 'Beim Import „No Rig" wählen. Für Props ist das richtig; '
+                'eine animierbare Figur braucht ein Skelett.'));
+  } else if (target == RobloxTarget.accessory) {
+    findings.add(RobloxFinding(
+        RobloxLevel.warning,
+        'Skelett in einem Accessoire',
+        'Das Modell trägt ${facts.boneCount} Bones. Ein klassisches '
+            'Accessoire (Hut, Frisur, Rucksack, Brille) ist ein '
+            'starres Netz und wird über einen Attachment-Punkt am '
+            'Avatar befestigt – das Skelett kann weg. Nur Layered '
+            'Clothing, das sich mitverformt, braucht eines, und dafür '
+            'gehören zusätzlich Innen- und Außen-Cage-Meshes in die '
+            'Datei; die erzeugt diese App nicht.'));
   } else {
     if (facts.jointSets > 1 || facts.maxInfluences > robloxMaxInfluences) {
       findings.add(RobloxFinding(
@@ -371,7 +558,20 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             'Modell importiert man als „Custom".'));
   }
 
-  // 7. Dateiformat.
+  // 7. Was nur für Accessoires gilt.
+  if (target == RobloxTarget.accessory) {
+    findings.add(const RobloxFinding(
+        RobloxLevel.hint,
+        'Befestigung kommt aus Studio',
+        'Das Mesh allein ist noch kein Accessoire: In Studio wird '
+            'daraus ein Accessory mit einem Handle und einem '
+            'Attachment (z. B. HatAttachment), das die Lage am Avatar '
+            'festlegt – dabei hilft das Accessory Fitting Tool. Der '
+            'Verkauf im Marketplace hängt zusätzlich an den '
+            'Kontovoraussetzungen von Roblox.'));
+  }
+
+  // 8. Dateiformat.
   findings.add(const RobloxFinding(
       RobloxLevel.hint,
       'Format: GLB',
@@ -380,6 +580,24 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
           'Rig-Unterstützung. Für gerigte Figuren ist FBX der '
           'Standardfall – dafür die GLB in Blender öffnen und als FBX '
           'ausgeben. OBJ passt nur für einfache statische Props.'));
+
+  // 9. Was diese Prüfung grundsätzlich nicht sehen kann.
+  findings.add(const RobloxFinding(
+      RobloxLevel.hint,
+      'Quad-Topologie ist hier nicht messbar',
+      'glTF speichert ausschließlich Dreiecke – ob der Generator ein '
+          'Viereck-Netz geliefert hat, steht nicht in der Datei. Die '
+          'Zahl oben ist die Dreieckszahl nach der Triangulierung, '
+          'also genau das, was Roblox zählt.'));
+  findings.add(const RobloxFinding(
+      RobloxLevel.hint,
+      'Diese Prüfung gilt für die GLB',
+      'Geht das Modell für ein Rig über Blender nach FBX, ändern sich '
+          'genau dort Dreieckszahl und Bone-Transforms. Nach dem '
+          'Export in Blender gegenprüfen: Statistik-Overlay für die '
+          'Dreiecke, N-Panel → Item → Transform für Scale 1,1,1 und '
+          'Rotation 0,0,0 der Bones, notfalls Object → Apply → All '
+          'Transforms.'));
 
   return findings;
 }
@@ -394,22 +612,36 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
   // Geometrie nicht gelesen werden.
   final meshes = json['meshes'] as List? ?? const [];
   final materials = <int>{};
+  final meshTriangles = <int>[];
   var primitiveCount = 0;
+  var maxPrimitivesPerMesh = 0;
   var uvSets = 0;
   var jointSets = 0;
   final uvAccessors = <int>{};
   for (final mesh in meshes) {
     final primitives =
         (mesh as Map<String, dynamic>)['primitives'] as List? ?? const [];
+    var trianglesInMesh = 0;
+    var primitivesInMesh = 0;
     for (final raw in primitives) {
       final primitive = raw as Map<String, dynamic>;
       final mode = (primitive['mode'] as num?)?.toInt() ?? 4;
       if (mode != 4) continue;
       primitiveCount++;
+      primitivesInMesh++;
+      // Dreiecke je Mesh – daran misst der Roblox-Importer, nicht am
+      // ganzen Modell.
+      final indices = (primitive['indices'] as num?)?.toInt();
+      final attributesRaw =
+          primitive['attributes'] as Map<String, dynamic>? ?? const {};
+      final counted = indices != null
+          ? _accessorCount(json, indices)
+          : _accessorCount(json, (attributesRaw['POSITION'] as num?)
+              ?.toInt());
+      trianglesInMesh += counted ~/ 3;
       final material = (primitive['material'] as num?)?.toInt();
       if (material != null) materials.add(material);
-      final attributes =
-          primitive['attributes'] as Map<String, dynamic>? ?? const {};
+      final attributes = attributesRaw;
       for (final key in attributes.keys) {
         if (key.startsWith('TEXCOORD_')) {
           final index = int.tryParse(key.substring(9)) ?? 0;
@@ -421,6 +653,11 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
           if (index + 1 > jointSets) jointSets = index + 1;
         }
       }
+    }
+    if (primitivesInMesh == 0) continue;
+    meshTriangles.add(trianglesInMesh);
+    if (primitivesInMesh > maxPrimitivesPerMesh) {
+      maxPrimitivesPerMesh = primitivesInMesh;
     }
   }
 
@@ -460,6 +697,8 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
   final mesh = await parseGlbForPreview(glb);
   try {
     final check = checkMeshWatertight(mesh.positions, mesh.indices);
+    final orientation =
+        checkMeshOrientation(mesh.positions, mesh.indices);
     final rig = mesh.rig;
     var maxInfluences = 0;
     var scaled = 0, rotated = 0;
@@ -507,7 +746,15 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
     }
     return RobloxFacts(
       triangles: mesh.triangleCount,
-      meshCount: meshes.length,
+      meshCount: meshTriangles.length,
+      meshTriangles: meshTriangles,
+      maxPrimitivesPerMesh:
+          maxPrimitivesPerMesh == 0 ? 1 : maxPrimitivesPerMesh,
+      size: orientation.size,
+      reversedEdges: orientation.reversedEdges,
+      signedVolume: orientation.signedVolume,
+      volumeRatio: orientation.volumeRatio,
+      degenerateTriangles: orientation.degenerateTriangles,
       primitiveCount: primitiveCount,
       materialCount: materials.length,
       uvSets: uvSets,
@@ -527,6 +774,17 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
   } finally {
     mesh.dispose();
   }
+}
+
+/// Anzahl der Elemente eines Accessors – für die Dreieckszahl reicht
+/// der Kopf, die Daten müssen dafür nicht gelesen werden.
+int _accessorCount(Map<String, dynamic> json, int? accessor) {
+  if (accessor == null) return 0;
+  final list = json['accessors'] as List?;
+  if (list == null || accessor >= list.length) return 0;
+  return ((list[accessor] as Map<String, dynamic>)['count'] as num?)
+          ?.toInt() ??
+      0;
 }
 
 /// Liest Breite, Höhe und Typ aus den ersten Bytes eines PNG- oder

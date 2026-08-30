@@ -25,8 +25,22 @@ RobloxFacts _good({
   int rotatedBones = 0,
   bool rootAtOrigin = true,
   bool rootWeighted = false,
+  List<int>? meshTriangles,
+  int maxPrimitivesPerMesh = 1,
+  List<double> size = const [0.4, 1.4, 0.3],
+  int reversedEdges = 0,
+  double signedVolume = 0.05,
+  double volumeRatio = 0.02,
+  int degenerateTriangles = 0,
 }) =>
     RobloxFacts(
+      meshTriangles: meshTriangles ?? [triangles],
+      maxPrimitivesPerMesh: maxPrimitivesPerMesh,
+      size: size,
+      reversedEdges: reversedEdges,
+      signedVolume: signedVolume,
+      volumeRatio: volumeRatio,
+      degenerateTriangles: degenerateTriangles,
       triangles: triangles,
       meshCount: meshCount,
       primitiveCount: primitiveCount,
@@ -93,11 +107,51 @@ void main() {
           isEmpty);
     });
 
-    test('Mehrere Materialien sind ein Blocker mit Atlas-Hinweis', () {
+    test('Mehrere Materialien in EINEM Mesh sind ein Blocker', () {
       final findings = checkRobloxFacts(
-          _good(materialCount: 3, primitiveCount: 3),
+          _good(materialCount: 3, primitiveCount: 3,
+              maxPrimitivesPerMesh: 3),
           RobloxTarget.character);
       expect(_text(_blockers(findings)), contains('Atlas'));
+    });
+
+    test('Ein Material je Mesh ist auch bei mehreren Meshes in Ordnung',
+        () {
+      // Drei Meshes mit je einem eigenen Material – der Importer legt
+      // daraus drei MeshParts an, jede mit genau einem Material.
+      final findings = checkRobloxFacts(
+          _good(
+              triangles: 18000,
+              meshTriangles: [6000, 6000, 6000],
+              meshCount: 3,
+              materialCount: 3,
+              primitiveCount: 3,
+              maxPrimitivesPerMesh: 1),
+          RobloxTarget.character);
+      expect(_blockers(findings), isEmpty, reason: _text(findings));
+    });
+
+    test('Die Dreiecksgrenze gilt je Mesh, nicht für die Summe', () {
+      // 5 × 6.000 = 30.000 gesamt, aber jedes Mesh bleibt unter 20.000.
+      final ok = checkRobloxFacts(
+          _good(
+              triangles: 30000,
+              meshTriangles: [6000, 6000, 6000, 6000, 6000],
+              meshCount: 5),
+          RobloxTarget.character);
+      expect(_blockers(ok), isEmpty, reason: _text(ok));
+      expect(_text(ok), contains('Größtes Mesh: 6.000'));
+      expect(_text(ok), contains('30.000'));
+
+      // Umgekehrt: ein einzelnes zu großes Teil faellt auf, obwohl die
+      // Summe klein wirkt.
+      final bad = checkRobloxFacts(
+          _good(
+              triangles: 21500,
+              meshTriangles: [21000, 500],
+              meshCount: 2),
+          RobloxTarget.character);
+      expect(_text(_blockers(bad)), contains('21.000'));
     });
 
     test('Offene Kanten sind eine Warnung, kein Blocker', () {
@@ -170,6 +224,108 @@ void main() {
       expect(text, contains('T-Pose'));
       expect(text, contains('R15'));
       expect(text, contains('.fbx'));
+    });
+
+    test('Backfaces: uneinheitliche Wicklung und innen liegende Normalen',
+        () {
+      final mixed =
+          checkRobloxFacts(_good(reversedEdges: 12), RobloxTarget.character);
+      expect(_text(mixed), contains('Recalculate Outside'));
+      final inverted = checkRobloxFacts(
+          _good(signedVolume: -0.05), RobloxTarget.character);
+      expect(_text(inverted), contains('nach innen'));
+      // Ein sauberes Modell bekommt den grünen Haken.
+      expect(
+          checkRobloxFacts(_good(), RobloxTarget.character)
+              .where((f) => f.title == 'Normalen nach außen')
+              .single
+              .level,
+          RobloxLevel.ok);
+    });
+
+    test('Nullstärke: eine Platte wird erkannt', () {
+      final sheet = checkRobloxFacts(
+          _good(size: const [1.0, 1.4, 0.002], volumeRatio: 0.00001),
+          RobloxTarget.character);
+      expect(_text(sheet), contains('Solidify'));
+      expect(_text(sheet), contains('ohne Dicke'));
+      // Ein Körper mit Volumen nicht.
+      expect(_text(checkRobloxFacts(_good(), RobloxTarget.character)),
+          contains('Hat Volumen'));
+    });
+
+    test('Degenerierte Dreiecke werden gemeldet', () {
+      expect(
+          _text(checkRobloxFacts(
+              _good(degenerateTriangles: 7), RobloxTarget.character)),
+          contains('Degenerate Dissolve'));
+    });
+
+    test('Skalierung: Höhe wird in Studs umgerechnet', () {
+      // 1,4 m ÷ 0,28 m = 5 Studs, also Charaktergröße.
+      final findings = checkRobloxFacts(
+          _good(size: const [0.4, 1.4, 0.3]), RobloxTarget.character);
+      final scale =
+          findings.firstWhere((f) => f.title.startsWith('Größe:'));
+      expect(scale.title, contains('5.0 Studs'));
+      expect(scale.detail, contains('Scale Unit'));
+      expect(scale.level, RobloxLevel.hint);
+
+      // Ein winziges Modell ist eine Warnung.
+      final tiny = checkRobloxFacts(
+          _good(size: const [0.01, 0.02, 0.01]), RobloxTarget.character);
+      expect(tiny.firstWhere((f) => f.title.startsWith('Größe:')).level,
+          RobloxLevel.warning);
+    });
+
+    test('Quad- und FBX-Grenzen der Prüfung stehen in der Liste', () {
+      final text = _text(checkRobloxFacts(_good(), RobloxTarget.character));
+      expect(text, contains('Quad-Topologie ist hier nicht messbar'));
+      expect(text, contains('gilt für die GLB'));
+      expect(text, contains('Apply → All Transforms'));
+    });
+
+    test('Quad-Budget: Roblox zählt Dreiecke, der Anbieter Polygone', () {
+      // 10.000 Dreiecke = 5.000 Vierecke; ohne Quads bleibt es gleich.
+      expect(robloxPolygonBudget(10000, quad: true), 5000);
+      expect(robloxPolygonBudget(10000, quad: false), 10000);
+      expect(robloxPolygonBudget(4000, quad: true), 2000);
+    });
+
+    test('Accessoire: Skelett ist eine Warnung, kein Skelett richtig',
+        () {
+      final rigged =
+          checkRobloxFacts(_good(triangles: 3000), RobloxTarget.accessory);
+      final text = _text(rigged);
+      expect(_blockers(rigged), isEmpty);
+      expect(text, contains('Skelett in einem Accessoire'));
+      expect(text, contains('Cage'));
+
+      final rigid = checkRobloxFacts(
+          _good(triangles: 3000, boneCount: 0, maxInfluences: 0,
+              jointSets: 0),
+          RobloxTarget.accessory);
+      expect(
+          rigid
+              .where((f) => f.title == 'Ohne Skelett')
+              .single
+              .level,
+          RobloxLevel.ok);
+      // Ohne Skelett steht der T-Pose-Hinweis nicht in der Liste.
+      expect(_text(rigid), isNot(contains('T-Pose')));
+    });
+
+    test('Accessoires bekommen den Hinweis auf Handle und Attachment',
+        () {
+      final text = _text(checkRobloxFacts(
+          _good(triangles: 3000, boneCount: 0, maxInfluences: 0,
+              jointSets: 0),
+          RobloxTarget.accessory));
+      expect(text, contains('Attachment'));
+      expect(text, contains('Marketplace'));
+      // Für eine Figur ist der Hinweis nicht dabei.
+      expect(_text(checkRobloxFacts(_good(), RobloxTarget.character)),
+          isNot(contains('Attachment')));
     });
 
     test('Die Kurzfassung nennt alle harten Grenzen', () {

@@ -329,23 +329,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _localDepthAi = true;
           _localSurface = 'matt';
         case 'roblox':
-          // Alle Grenzen des Roblox-Importers auf einmal: unter 10.000
-          // Dreiecke, eine einzige 1024er-Textur, T-Pose fürs Rig.
-          _promptSubject = 'figure';
+          // Was für beide Roblox-Ziele gilt; Dreiecksbudget, Rigging
+          // und Pose setzt gleich [_applyRobloxTarget] – die hängen an
+          // der Wahl Figur/Accessoire.
           _robloxMode = true;
-          _robloxTarget = RobloxTarget.character;
           _meshyAiModel = 'meshy-5';
           _meshyUltra = false;
-          _meshyPolycount = robloxGoalTriangles;
           _quadTopology = true;
-          _tripoFaceLimit = robloxGoalTriangles;
-          _rodinPolycount = robloxGoalTriangles;
-          _stabilityPolycount = robloxGoalTriangles;
-          _localTargetTriangles = robloxGoalTriangles;
           _localTextureMode = 'atlas1024';
-          _rigging = true;
-          _rigType = 'biped';
-          _tPose = true;
           _symmetryMode = 'auto';
       }
       // Nur die Roblox-Vorlage schaltet den Modus ein – jede andere
@@ -359,6 +350,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _views['front'] = null;
       }
     });
+    // Die Roblox-Vorlage startet bei „Figur / Prop"; in der Karte
+    // lässt sich auf „UGC-Accessoire" umschalten – dann fallen Skelett
+    // und T-Pose weg und das Budget sinkt auf 4.000 Dreiecke.
+    if (id == 'roblox') _applyRobloxTarget(RobloxTarget.character);
     // Fehlenden Zugang sofort melden statt erst beim Generieren.
     final access = switch (preset.$4) {
       'rodin' => settings.rodinApiKey,
@@ -806,7 +801,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Hier steht nur, was ein Bild- oder 3D-Prompt überhaupt
   /// beeinflussen kann – Dreiecksgrenze, Materialzahl und Rig-Regeln
   /// setzt die App selbst bzw. prüft sie am fertigen Modell.
-  static const _robloxPromptRules =
+  static const _robloxFigureRules =
       '\n\nZUSÄTZLICH – das Modell wird nach Roblox hochgeladen. Der '
       'Prompt muss deshalb ein Motiv beschreiben, das der Importer '
       'annimmt:\n\n'
@@ -830,6 +825,41 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       '- Keine Schrift, keine Logos, keine Marken- oder '
       'Figurenbezüge: Alles Hochgeladene geht durch die '
       'Roblox-Moderation.';
+
+  /// Dasselbe für ein UGC-Accessoire – da gilt fast das Gegenteil:
+  /// keine Figur, keine Pose, dafür ein einzelnes Teil, das später an
+  /// einem Avatar hängt, mit nur 4.000 Dreiecken.
+  static const _robloxAccessoryRules =
+      '\n\nZUSÄTZLICH – das Modell wird als UGC-Accessoire nach '
+      'Roblox hochgeladen. Der Prompt muss deshalb ein Motiv '
+      'beschreiben, das der Importer annimmt:\n\n'
+      '- KEINE Figur, kein Avatar, kein Kopf, kein Körper – nur das '
+      'Accessoire allein (Hut, Frisur, Rucksack, Brille, Flügel, '
+      'Schulterteil …), freistehend und vollständig sichtbar.\n'
+      '- GENAU EIN zusammenhängendes Teil. Keine Sets, keine zweite '
+      'Variante daneben, kein Sockel, kein Ständer, keine Hand, die '
+      'es hält.\n'
+      '- Sehr einfache, kompakte Form: Das Modell wird auf unter '
+      '4.000 Dreiecke reduziert – das ist ein Viertel dessen, was '
+      'eine Figur haben darf. Grobe Volumen, wenige klare Flächen, '
+      'keine Feinstruktur.\n'
+      '- Geschlossene, massive Formen mit sichtbarer Dicke. Keine '
+      'hauchdünnen Bänder, Netze, Schleier oder Einzelhaare – die '
+      'kommen als Flächen ohne Stärke heraus und flackern im Spiel.\n'
+      '- Keine losen, freischwebenden Kleinteile: Alles muss am '
+      'Hauptkörper des Accessoires hängen.\n'
+      '- Wenige, klar getrennte Farbflächen und ein einheitlicher '
+      'Materiallook – Roblox erlaubt nur ein Material je Mesh, alles '
+      'landet in einer einzigen 1024er-Textur.\n'
+      '- Keine Schrift, keine Logos, keine Marken- oder '
+      'Figurenbezüge: Alles Hochgeladene geht durch die '
+      'Roblox-Moderation.';
+
+  /// Der Zusatz, der zur aktuellen Zielwahl passt.
+  String get _robloxPromptRules =>
+      _robloxTarget == RobloxTarget.accessory
+          ? _robloxAccessoryRules
+          : _robloxFigureRules;
 
   Future<void> _copyTemplate(String title, String text) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -924,9 +954,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         const SizedBox(height: 4),
         Text(
             _robloxMode
-                ? '$hint Die Roblox-Regeln (eine Figur, T-Pose, '
-                    'massive Formen, wenige Farbflächen, keine Schrift) '
-                    'hängen automatisch mit dran.'
+                ? '$hint ${_robloxTarget == RobloxTarget.accessory
+                    ? 'Die Roblox-Regeln für Accessoires (nur das Teil '
+                        'allein, keine Figur, unter 4.000 Dreiecke, '
+                        'massive Formen) hängen automatisch mit dran.'
+                    : 'Die Roblox-Regeln (eine Figur, T-Pose, massive '
+                        'Formen, wenige Farbflächen, keine Schrift) '
+                        'hängen automatisch mit dran.'}'
                 : hint,
             style: theme.textTheme.bodySmall),
       ],
@@ -2233,10 +2267,100 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
+  /// Stellt alles auf das gewählte Roblox-Ziel um. Ein Accessoire ist
+  /// kein kleiner Charakter: Ein Hut, ein Rucksack oder eine Frisur ist
+  /// ein einzelnes starres Netz ohne Skelett und ohne T-Pose, und es
+  /// darf nur 4.000 Dreiecke haben.
+  void _applyRobloxTarget(RobloxTarget target) {
+    final previousSubject = _promptSubject;
+    setState(() {
+      _robloxTarget = target;
+      // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
+      // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
+      // Dreiecke, das Ziel muss dort also halbiert werden.
+      final goal = target.goalTriangles;
+      final budget = robloxPolygonBudget(goal, quad: _quadTopology);
+      _meshyPolycount = budget;
+      _tripoFaceLimit = budget;
+      _rodinPolycount = budget;
+      // Die Stability-Auswahl kennt nur feste Stufen – es zählt die
+      // größte, die unter dem Budget bleibt.
+      _stabilityPolycount = _stabilityStepUnder(budget);
+      // Der lokale Generator liefert direkt Dreiecke.
+      _localTargetTriangles = goal;
+      if (target == RobloxTarget.accessory) {
+        _promptSubject = 'object';
+        _rigging = false;
+        _tPose = false;
+      } else {
+        _promptSubject = 'figure';
+        _rigging = true;
+        _rigType = 'biped';
+        _tPose = true;
+      }
+      // Figur (Vorderansicht) und Objekt (Dreiviertelansicht) brauchen
+      // verschiedene Ansichten – eine automatisch erzeugte Kachel würde
+      // sonst still weiterverwendet.
+      if (_promptSubject != previousSubject &&
+          _views['front']?.name == 'ansicht_Vorn.png') {
+        _views['front'] = null;
+      }
+    });
+  }
+
+  /// Was beim gerade gewählten Anbieter tatsächlich eingestellt ist –
+  /// die Zahlen bedeuten je Anbieter etwas anderes, deshalb steht es
+  /// ausgeschrieben da.
+  String _robloxBudgetNote(SettingsService settings) {
+    final goal = _robloxTarget.goalTriangles;
+    final budget = robloxPolygonBudget(goal, quad: _quadTopology);
+    final quadNote = _quadTopology
+        ? ' Weil Quad-Topologie eingeschaltet ist, bekommt der '
+            'Anbieter die halbe Zahl – jedes Viereck wird beim Export '
+            'zu zwei Dreiecken.'
+        : '';
+    final provider = switch (settings.threeDProvider) {
+      'meshy' => 'Meshy „target_polycount" = ${_n(_meshyPolycount)}',
+      'tripo' => 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}',
+      'rodin' => 'Rodin „quality_override" = ${_n(_rodinPolycount)} '
+          '(Rodin arbeitet eigentlich in Qualitätsstufen, die Zahl '
+          'ist dort eine Näherung)',
+      'stability' =>
+        'Stability-Polygonzahl = ${_n(_stabilityPolycount)} (nur feste '
+            'Stufen wählbar, genommen wird die größte darunter)',
+      'local' => 'Lokal: Ziel-Dreiecke = ${_n(_localTargetTriangles)}',
+      _ => 'Dieser Anbieter kennt keine Ziel-Polygonzahl – die '
+          'Dreiecke müssen hinterher in Blender reduziert werden',
+    };
+    return 'Ziel: ${_n(goal)} Dreiecke (Budget ${_n(budget)} '
+        'Polygone).$quadNote Aktuell eingestellt: $provider.';
+  }
+
+  /// Tausenderpunkte für die Anzeige.
+  static String _n(int value) {
+    final text = '$value';
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) buffer.write('.');
+      buffer.write(text[i]);
+    }
+    return buffer.toString();
+  }
+
+  /// Größte Stufe der Stability-Auswahl, die unter dem Budget bleibt.
+  static int _stabilityStepUnder(int budget) {
+    const steps = [20000, 10000, 5000, 2000];
+    for (final step in steps) {
+      if (step <= budget) return step;
+    }
+    return 2000;
+  }
+
   /// Hinweiskarte, solange die Roblox-Vorlage aktiv ist: die Grenzen
   /// der Plattform, die Zielwahl (Figur/Prop oder Accessoire) und der
   /// Weg zur Prüfung am fertigen Modell.
-  Widget _robloxCard(ThemeData theme) => Card(
+  Widget _robloxCard(ThemeData theme, SettingsService settings) =>
+      Card(
         margin: const EdgeInsets.only(top: 12),
         color: theme.colorScheme.surfaceContainerHighest,
         child: Padding(
@@ -2264,7 +2388,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Ziel-Polygonzahl, Textur-Größe, T-Pose und Skelett '
+                'Ziel-Polygonzahl, Textur-Größe, Pose und Skelett '
                 'sind auf die Grenzen des Roblox-Importers gesetzt. '
                 'Alles lässt sich weiterhin einzeln ändern – die '
                 'Prüfung am fertigen Modell sagt dann, was noch '
@@ -2287,29 +2411,51 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 showSelectedIcon: false,
                 onSelectionChanged: _running
                     ? null
-                    : (selection) => setState(() {
-                          _robloxTarget = selection.first;
-                          final goal = _robloxTarget.goalTriangles;
-                          _meshyPolycount = goal;
-                          _tripoFaceLimit = goal;
-                          _rodinPolycount = goal;
-                          _stabilityPolycount =
-                              goal >= 5000 ? goal : 5000;
-                          _localTargetTriangles = goal;
-                        }),
+                    : (selection) => _applyRobloxTarget(selection.first),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+              Text(
+                _robloxTarget == RobloxTarget.accessory
+                    ? 'Accessoire: ein einzelnes starres Netz mit '
+                        'höchstens 4.000 Dreiecken – ohne Skelett und '
+                        'ohne T-Pose. Rigging und Pose sind deshalb '
+                        'ausgeschaltet, die Motivart steht auf '
+                        '„Objekt", und die Prompt-Vorlage verlangt das '
+                        'Accessoire allein, ohne Figur.'
+                    : 'Figur: bis 20.000 Dreiecke (Ziel unter 10.000), '
+                        'mit Zweibeiner-Skelett und T-Pose – so '
+                        'verlangt es der Importer für animierbare '
+                        'Charaktere.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text(_robloxBudgetNote(settings),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary)),
+              const SizedBox(height: 8),
               Text(robloxRulesSummary(_robloxTarget),
                   style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),
               Text(
-                'Lizenz: Ein Roblox-Upload ist eine Veröffentlichung '
-                'auf fremder Plattform – dafür nur mit bezahlten '
-                'Credits generieren, nicht mit Gratis-Kontingenten. '
-                'Der Verkauf eigener Accessoires im Marketplace hängt '
-                'an weiteren Kontovoraussetzungen, und alles '
-                'Hochgeladene (Meshes wie Texturen) geht durch die '
-                'Roblox-Moderation.',
+                'Lizenz bei den API-Anbietern: Ein Roblox-Upload ist '
+                'eine Veröffentlichung auf fremder Plattform – dafür '
+                'nur mit bezahlten Credits generieren, nicht mit '
+                'Gratis-Kontingenten. Der Verkauf eigener Accessoires '
+                'im Marketplace hängt an weiteren Kontovoraussetzungen, '
+                'und alles Hochgeladene (Meshes wie Texturen) geht '
+                'durch die Roblox-Moderation.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Beim lokalen Generator und beim eigenen Server gilt '
+                'das nicht – dort entscheidet die Lizenz des '
+                'verwendeten Modells. Die ist nicht überall eindeutig: '
+                'Bei TRELLIS etwa steht MIT im Repository, während die '
+                'Projektseite von Forschungszweck spricht. Vor einer '
+                'kommerziellen Veröffentlichung die Lizenz des '
+                'konkreten Modells nachlesen.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
@@ -2563,7 +2709,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ),
                 const SizedBox(height: 10),
                 _customPresetBar(theme, settings),
-                if (_robloxMode) _robloxCard(theme),
+                if (_robloxMode) _robloxCard(theme, settings),
                 if (_lastPresetInfo != null) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -4169,13 +4315,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Quad-Topologie'),
-                        subtitle: const Text(
-                            'Viereck-Netz statt Dreiecke – sauberer für '
-                            'Blender, Animation und Weiterbearbeitung'),
+                        subtitle: Text(_robloxMode
+                            ? 'Viereck-Netz statt Dreiecke – sauberer '
+                                'für Blender und Animation. Jedes '
+                                'Viereck wird beim Export zu zwei '
+                                'Dreiecken; das Anbieter-Ziel wird '
+                                'deshalb halbiert.'
+                            : 'Viereck-Netz statt Dreiecke – sauberer '
+                                'für Blender, Animation und '
+                                'Weiterbearbeitung'),
                         value: _quadTopology,
                         onChanged: _running
                             ? null
-                            : (v) => setState(() => _quadTopology = v),
+                            : (v) {
+                                setState(() => _quadTopology = v);
+                                // Im Roblox-Modus hängt das
+                                // Anbieter-Budget an der Topologie.
+                                if (_robloxMode) {
+                                  _applyRobloxTarget(_robloxTarget);
+                                }
+                              },
                       ),
                       if (!isTripo && _texture) ...[
                         const SizedBox(height: 8),
