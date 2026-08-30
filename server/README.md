@@ -20,35 +20,97 @@ Selbst-Hosten, dessen Community-Lizenz die EU ausschließt).
 
 - NVIDIA-GPU mit aktuellem Treiber
 - Python 3.10 oder 3.11 und Git
-- Windows: am einfachsten unter **WSL2 (Ubuntu)**; nativ unter Windows
-  werden zusätzlich die „Visual Studio Build Tools“ (C++) benötigt,
-  weil TripoSR das Paket `torchmcubes` beim Installieren kompiliert.
+- Windows: TripoSR läuft nativ (siehe unten); für TRELLIS ist
+  **WSL2 (Ubuntu)** dringend zu empfehlen.
 
 ## Installation – TripoSR (empfohlen)
 
-```bash
-# 1) Repo klonen und Umgebung anlegen
+### Windows (PowerShell)
+
+Wichtig: PowerShell **ohne** „Als Administrator ausführen" starten –
+sonst landest du in `C:\WINDOWS\System32` und darfst dort nichts
+anlegen. Ein eigener Ordner ist Pflicht, kein Systemordner.
+
+Vorab einmalig installieren:
+
+- **Python 3.10 oder 3.11** von python.org (beim Setup „Add python.exe
+  to PATH" ankreuzen) – die Version aus dem Microsoft Store macht
+  häufiger Ärger.
+- **Git** von git-scm.com
+- **Visual Studio Build Tools** mit der Arbeitslast „Desktopentwicklung
+  mit C++" – TripoSR kompiliert beim Installieren das Paket
+  `torchmcubes`, ohne die Build Tools bricht das ab.
+
+Dann:
+
+```powershell
+# 1) Eigener Arbeitsordner (NICHT System32)
+mkdir C:\KI
+cd C:\KI
+
+# 2) Repo holen und Umgebung anlegen
 git clone https://github.com/VAST-AI-Research/TripoSR.git
 cd TripoSR
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
+```
 
-# 2) PyTorch MIT CUDA installieren (Version passend zur GPU, siehe
-#    pytorch.org – Beispiel für CUDA 12.x):
+Meldet PowerShell „Die Datei kann nicht geladen werden, da die
+Ausführung von Skripts auf diesem System deaktiviert ist", einmalig:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Vor der Eingabezeile steht danach `(.venv)`. Weiter:
+
+```powershell
+# 3) PyTorch MIT CUDA (Beispiel CUDA 12.1 – aktuelle Zeile auf
+#    pytorch.org/get-started/locally nachsehen)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# 3) TripoSR-Abhängigkeiten + Server-Abhängigkeiten
+# 4) TripoSR- und Server-Abhängigkeiten
 pip install -r requirements.txt
 pip install rembg onnxruntime
-pip install -r /pfad/zum/Bildgenerator/server/requirements.txt
+pip install fastapi uvicorn pydantic pillow
 
-# 4) Server-Skript in den TripoSR-Ordner kopieren und starten
-cp /pfad/zum/Bildgenerator/server/local3d_server.py .
+# 5) Server-Skript herunterladen und starten
+curl.exe -L -o local3d_server.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/local3d_server.py
 python local3d_server.py --backend triposr --port 8765
 ```
 
 Beim ersten Lauf lädt der Server die Modellgewichte automatisch von
-Hugging Face herunter (~1,5 GB).
+Hugging Face herunter (~1,5 GB). Läuft er, meldet die Konsole die
+Adresse `http://127.0.0.1:8765` – genau die kommt in die App.
+
+Zum späteren Starten reichen drei Zeilen:
+
+```powershell
+cd C:\KI\TripoSR
+.\.venv\Scripts\Activate.ps1
+python local3d_server.py --backend triposr --port 8765
+```
+
+### Linux / macOS / WSL2
+
+```bash
+mkdir -p ~/ki && cd ~/ki
+git clone https://github.com/VAST-AI-Research/TripoSR.git
+cd TripoSR
+python -m venv .venv
+source .venv/bin/activate
+
+# PyTorch MIT CUDA (Version passend zur GPU, siehe pytorch.org)
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+pip install -r requirements.txt
+pip install rembg onnxruntime
+pip install fastapi uvicorn pydantic pillow
+
+curl -L -o local3d_server.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/local3d_server.py
+python local3d_server.py --backend triposr --port 8765
+```
 
 ## Installation – TRELLIS (beste Qualität)
 
@@ -95,3 +157,16 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   oben mit dem CUDA-Index wiederholen.
 - **Out of Memory** → andere GPU-Programme schließen; bei TRELLIS
   `texture_size` im Skript auf 512 senken.
+- **`Permission denied` / `Zugriff verweigert` beim Klonen** → du bist
+  in `C:\WINDOWS\System32`. PowerShell ohne Administrator-Rechte neu
+  starten und in einen eigenen Ordner wechseln (`cd C:\KI`).
+- **`source .venv/bin/activate` wird nicht erkannt** → das ist
+  Linux-Syntax. Unter Windows: `.\.venv\Scripts\Activate.ps1`.
+- **Fehler beim Bauen von `torchmcubes`** → die Visual Studio Build
+  Tools mit „Desktopentwicklung mit C++" fehlen; nach der Installation
+  eine neue PowerShell öffnen und `pip install -r requirements.txt`
+  wiederholen.
+- **`python` öffnet den Microsoft Store** → Python von python.org
+  installieren (mit „Add python.exe to PATH") oder unter
+  „Einstellungen → Apps → App-Ausführungsaliase" die Python-Aliase
+  abschalten.
