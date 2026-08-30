@@ -1,5 +1,7 @@
 #include "win32_window.h"
 
+#include "window_state.h"
+
 #include <dwmapi.h>
 #include <flutter_windows.h>
 
@@ -180,6 +182,8 @@ Win32Window::MessageHandler(HWND hwnd,
                             LPARAM const lparam) noexcept {
   switch (message) {
     case WM_DESTROY:
+      // Noch mit gueltigem Fenster: Groesse und Lage wegschreiben.
+      SaveWindowState(hwnd);
       window_handle_ = nullptr;
       Destroy();
       if (quit_on_close_) {
@@ -197,7 +201,16 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
+    // Nach dem Ziehen an Rahmen oder Titelleiste: gleich merken. Sonst
+    // ginge die neue Groesse verloren, falls die App einmal abstuerzt.
+    case WM_EXITSIZEMOVE:
+      SaveWindowState(hwnd);
+      return 0;
+
     case WM_SIZE: {
+      if (wparam == SIZE_MAXIMIZED) {
+        SaveWindowState(hwnd);
+      }
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
         // Size and position the child window.

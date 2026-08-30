@@ -2903,13 +2903,35 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// auf ein hochgeladenes MeshPart, und das Hochladen samt Moderation
   /// passiert in Studio).
   Future<void> _prepareForRoblox(ThreeDResult result) async {
-    RobloxRigResult rig;
+    RobloxPrepareResult rig;
+    final repairs = <String>[];
     try {
-      rig = renameBonesToR15(result.glbBytes);
+      // Erst die Geometrie, dann die Textur, dann das Skelett: Löcher
+      // schließen ändert die Indexliste, und das Skelett rechnet auf
+      // der fertigen Geometrie.
+      final fixed = fixGlbForRoblox(result.glbBytes,
+          closeHoles: true, fixWinding: true);
+      if (fixed.report.filledHoles > 0) {
+        repairs.add('${fixed.report.filledHoles} Loch/Löcher geschlossen '
+            '(${fixed.report.addedTriangles} neue Dreiecke, keine neuen '
+            'Vertices – UVs und Gewichte bleiben).');
+      }
+      if (fixed.report.flippedFaces > 0) {
+        repairs.add('${fixed.report.flippedFaces} Fläche(n) in die '
+            'einheitliche Wicklung gedreht, Normalen neu gerechnet.');
+      }
+      final small = await shrinkGlbTextures(fixed.glb, maxSize: 1024);
+      for (final change in small.changed) {
+        repairs.add('Textur von ${change.fromWidth} auf ${change.toWidth} '
+            'px verkleinert (Roblox nimmt höchstens 1024).');
+      }
+      rig = prepareRigForRoblox(small.glb);
+      repairs.addAll(robloxPrepareSummary(rig.report));
     } catch (e) {
       if (mounted) _showSnack('$e');
       return;
     }
+    if (!mounted) return;
     final install = await findRobloxStudio();
     if (!mounted) return;
 
@@ -2920,7 +2942,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setLocal) {
           final theme = Theme.of(context);
-          final report = rig.report;
+          final report = rig.report.rig;
           return AlertDialog(
             title: const Text('Für Roblox vorbereiten'),
             content: SizedBox(
@@ -2982,6 +3004,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         'genau so verlangt es der Importer.',
                         style: theme.textTheme.bodySmall,
                       ),
+                    if (repairs.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text('Dafür geändert:',
+                          style: theme.textTheme.labelMedium),
+                      for (final line in repairs)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text('• $line',
+                              style: theme.textTheme.bodySmall),
+                        ),
+                      const SizedBox(height: 8),
+                    ],
                     if (report.untouched.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
@@ -3115,7 +3149,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           fbxFile: fbxFile,
           scriptFile: scriptFile,
           luaFile: luaFile,
-          missingBones: rig.report.missing,
+          missingBones: rig.report.rig.missing,
+          repairs: repairs.map(_ohneUmlaute).toList(),
         ),
       };
       var message = await exportImageBytes(
@@ -3135,6 +3170,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (mounted) _showSnack('Speichern fehlgeschlagen: $e');
     }
   }
+
+  /// Die Kurzanleitung im Paket landet oft im Windows-Editor, der mit
+  /// UTF-8 ohne Kennung nicht immer zurechtkommt. Deshalb ohne
+  /// Umlaute – im Rest der App bleiben sie.
+  static String _ohneUmlaute(String text) => text
+      .replaceAll('ä', 'ae')
+      .replaceAll('ö', 'oe')
+      .replaceAll('ü', 'ue')
+      .replaceAll('Ä', 'Ae')
+      .replaceAll('Ö', 'Oe')
+      .replaceAll('Ü', 'Ue')
+      .replaceAll('ß', 'ss')
+      .replaceAll('–', '-')
+      .replaceAll('„', '"')
+      .replaceAll('“', '"');
 
   /// Prüft ein fertiges Modell gegen die Roblox-Regeln und zeigt die
   /// Liste – erledigte Punkte inbegriffen, damit man sieht, was schon

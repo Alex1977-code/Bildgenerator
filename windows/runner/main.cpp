@@ -4,6 +4,7 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include "window_state.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -30,6 +31,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"3DGenerator", origin, size)) {
     return EXIT_FAILURE;
   }
+  // Beim ersten Start bleibt es bei 1280x720; danach steht das Fenster
+  // wieder so da, wie es zuletzt verlassen wurde. Das muss vor dem
+  // Anzeigen passieren, sonst springt es sichtbar.
+  ApplyWindowState(window.GetHandle());
   window.SetQuitOnClose(true);
 
   ::MSG msg;

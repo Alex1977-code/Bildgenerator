@@ -269,6 +269,17 @@ Future<Map<String, String>> _buildEnvironment(String targetDir) async {
   // (MSVC bindet dann vcomp selbst ein). Die Modulkennung ist ein
   // Sicherheitsnetz: Setzt PyTorch sie selbst (ninja-Weg), gewinnt der
   // Wert von der Befehlszeile, weil CL davor eingefügt wird.
+  // PyTorch bricht den Bau ab, sobald es die Build-Tools-Umgebung
+  // sieht (VSCMD_ARG_TGT_ARCH), ohne dass DISTUTILS_USE_SDK gesetzt
+  // ist: „It seems that the VC environment is activated but
+  // DISTUTILS_USE_SDK is not set." Gemeint ist damit, dass setuptools
+  // den Compiler **nicht** noch einmal selbst suchen soll – sonst
+  // liefe vcvars zweimal übereinander. Genau das wollen wir hier:
+  // Die Umgebung steht schon, cl.exe und die Bibliothekspfade
+  // stimmen. MSSdk gehört als zweiter Schalter dazu.
+  _replace(env, 'DISTUTILS_USE_SDK', '1');
+  _replace(env, 'MSSdk', '1');
+
   const flags = '/std:c++17 /openmp /DTORCH_EXTENSION_NAME=_C';
   final existing = _lookup(env, 'CL') ?? '';
   _replace(env, 'CL', existing.isEmpty ? flags : '$existing $flags');
@@ -508,6 +519,12 @@ Stream<String> installServer({
       'pip',
       'install',
       'torch',
+      // torchvision gehört aus derselben Quelle: Wird es später aus
+      // requirements.txt nachgezogen, verlangt die dortige Fassung ein
+      // neueres torch – und pip tauscht das eben installierte
+      // CUDA-Paket gegen eine CPU-Fassung aus. Die GPU wäre danach
+      // stumm, ohne dass eine Fehlermeldung darauf hinweist.
+      'torchvision',
       '--index-url',
       'https://download.pytorch.org/whl/cu121',
     ],
@@ -546,6 +563,16 @@ Stream<String> installServer({
         ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel', 'ninja'],
         workingDirectory: targetDir,
       );
+      // NumPy vor dem Bauen: Ohne es meldet torch beim ersten Import
+      // „Failed to initialize NumPy" und die Erweiterungen werden
+      // ohne NumPy-Anbindung übersetzt. Unter 2, weil torch 2.5.1
+      // gegen die NumPy-1-Schnittstelle gebaut ist.
+      yield '# NumPy vorab (torch braucht es schon beim Bauen)';
+      yield* _run(
+        venvPython,
+        ['-m', 'pip', 'install', 'numpy<2'],
+        workingDirectory: targetDir,
+      );
       // ninja liegt danach in .venv\Scripts. Wir rufen python.exe von
       // dort direkt auf, ohne die Umgebung zu aktivieren – deshalb muss
       // das Verzeichnis ausdrücklich in den PATH, sonst sucht PyTorch
@@ -553,7 +580,8 @@ Stream<String> installServer({
       final buildEnv = await _buildEnvironment(targetDir);
       if (Platform.isWindows) {
         yield _lookup(buildEnv, 'VSCMD_ARG_TGT_ARCH') != null
-            ? 'Build-Tools-Umgebung geladen – ninja findet cl.exe.'
+            ? 'Build-Tools-Umgebung geladen – ninja findet cl.exe, '
+                'DISTUTILS_USE_SDK ist gesetzt.'
             : 'Hinweis: Die Build-Tools-Umgebung ließ sich nicht laden; '
                 'PyTorch versucht es notfalls selbst.';
       }

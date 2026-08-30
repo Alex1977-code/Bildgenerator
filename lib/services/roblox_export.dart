@@ -34,20 +34,47 @@ String blenderFbxScript({
 # Wandelt die geriggte GLB in ein FBX um, wie es der Roblox-Importer
 # erwartet. Die Knochennamen hat die App schon auf R15 gesetzt.
 #
-#   blender --background --python ${_pyName(glbFile)}_roblox_fbx.py
+#   blender --background --python ${_pyName(glbFile)}_blender_fbx.py
 #
 # Ohne Blender-Installation: blender.org, kostenlos.
 
 import bpy
-import math
+import glob
 import os
+import sys
 
-GLB = r"$glbFile"
-FBX = r"$fbxFile"
+# Neben dem Skript suchen, nicht im Arbeitsverzeichnis: Blender
+# startet je nach Aufruf woanders. Wurden die Dateien umbenannt, wird
+# die einzige .glb daneben genommen - der haeufigste Stolperstein.
+HERE = os.path.dirname(os.path.abspath(__file__))
+GLB = os.path.join(HERE, r"$glbFile")
+if not os.path.exists(GLB):
+    neben = sorted(glob.glob(os.path.join(HERE, "*.glb")))
+    if len(neben) == 1:
+        GLB = neben[0]
+        print("Umbenannt vorgefunden, nehme:", os.path.basename(GLB))
+    else:
+        sys.exit("Keine .glb neben dem Skript gefunden: " + GLB)
+FBX = os.path.splitext(GLB)[0] + ".fbx"
 
 # Leere Szene - sonst landet Blenders Standardwuerfel mit im Export.
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=GLB)
+
+# Der glTF-Importer legt sich eine Hilfsform fuer die Knochen an und
+# sammelt sie in der Sammlung "glTF_not_exported". Ohne diese Zeilen
+# landet sie im FBX - und in Roblox steht eine kleine Kugel neben der
+# Figur, die niemand dort haben will.
+for sammlung in list(bpy.data.collections):
+    if sammlung.name.startswith("glTF_not_exported"):
+        for obj in list(sammlung.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.collections.remove(sammlung)
+
+# Leere Knoten ohne Inhalt (Reste der Szenenstruktur) mit hinaus.
+for obj in list(bpy.data.objects):
+    if obj.type == "EMPTY" and not obj.children:
+        bpy.data.objects.remove(obj, do_unlink=True)
 
 # Alles auswaehlen und die Transformationen einfrieren: Der
 # Roblox-Importer verlangt Scale 1,1,1 und Rotation 0,0,0 an jedem
@@ -118,11 +145,34 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local MODEL_NAME = "$modelName"
 local HIP_HEIGHT = $hipHeight
 
-local model = Workspace:FindFirstChild(MODEL_NAME)
-    or StarterPlayer:FindFirstChild(MODEL_NAME)
+-- Der 3D-Importer benennt das Modell nach der Datei. Wurde die
+-- umbenannt, heisst es hier anders - dann wird das einzige Modell mit
+-- einem Mesh genommen, statt abzubrechen.
+local function findeModell()
+    local direkt = Workspace:FindFirstChild(MODEL_NAME)
+        or StarterPlayer:FindFirstChild(MODEL_NAME)
+    if direkt then return direkt end
+    local treffer, anzahl = nil, 0
+    for _, kind in ipairs(Workspace:GetChildren()) do
+        if kind:IsA("Model")
+            and kind:FindFirstChildWhichIsA("MeshPart", true) then
+            treffer = kind
+            anzahl += 1
+        end
+    end
+    if anzahl == 1 then
+        print("Kein Modell namens '" .. MODEL_NAME .. "' - nehme '"
+            .. treffer.Name .. "'.")
+        return treffer
+    end
+    return nil
+end
+
+local model = findeModell()
 if not model then
-    warn("Kein Modell namens '" .. MODEL_NAME .. "' gefunden. Es muss "
-        .. "in Workspace liegen und genau so heissen.")
+    warn("Kein Modell gefunden. Das importierte Modell muss in "
+        .. "Workspace liegen; heisst es anders als '" .. MODEL_NAME
+        .. "', oben MODEL_NAME anpassen.")
     return
 end
 
@@ -204,6 +254,7 @@ String robloxReadme({
   required String scriptFile,
   required String luaFile,
   required List<String> missingBones,
+  List<String> repairs = const [],
 }) =>
     '''
 Roblox-Paket
@@ -217,6 +268,9 @@ Diese Dateien gehoeren zusammen:
 
 ${missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als StarterCharacter.' : 'Achtung: Diese R15-Gelenke fehlen noch:\n  ${missingBones.join(', ')}\nOhne sie laesst sich das Modell nur mit der Import-Einstellung\n"Custom" verwenden (Katalog-Animationen laufen, Startfigur nicht).'}
 
+\${repairs.isEmpty ? '' : 'Was die App an der Datei geaendert hat\n'
+    '--------------------------------------\n'
+    '\${repairs.map((e) => '  * \$e').join('\n')}\n'}
 Schritt 1 - FBX erzeugen
 ------------------------
 Roblox importiert Meshes mit Rig ueber .fbx, nicht ueber .glb.
