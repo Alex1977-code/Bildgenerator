@@ -664,7 +664,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             : (selection) => setState(() => _batchMode = selection.first),
       ),
       const SizedBox(height: 12),
-      if (_batchMode) _buildBatchCard() else _buildPromptCard(),
+      if (_batchMode) _buildBatchCard() else _buildPromptCard(settings),
       const SizedBox(height: 12),
       _buildReferenceCard(settings.provider.supportsReferences),
       const SizedBox(height: 12),
@@ -1018,7 +1018,35 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  Widget _buildPromptCard() {
+  /// Verneinungen im Prompt („no text", „ohne Schrift"). Die
+  /// Bild-Modelle auf der eigenen GPU können damit nichts anfangen –
+  /// sie lesen nur die Stichworte und holen das Gemeinte ins Bild.
+  static final _negationPattern = RegExp(
+      r'(^|[\s,;.(-])(no|not|without|avoid|keine?|kein|ohne)\s+[a-zA-ZäöüÄÖÜ]',
+      caseSensitive: false);
+
+  Widget _buildPromptCard(SettingsService settings) {
+    final theme = Theme.of(context);
+    final text = _promptCtrl.text;
+    final local = settings.provider.isLocal;
+    final hints = <String>[
+      if (local && _negationPattern.hasMatch(text))
+        'Verneinungen wie „no text" oder „ohne Schrift" versteht Stable '
+            'Diffusion nicht – es liest nur die Stichworte und holt das '
+            'Gemeinte eher ins Bild. Solche Angaben gehören unten in '
+            'den Negativ-Prompt.',
+      if (local && text.length > 900)
+        'Sehr langer Prompt (${text.length} Zeichen). Der Server reicht '
+            'ihn inzwischen vollständig durch, die Modelle gewichten '
+            'aber den Anfang am stärksten – das Wichtigste (Motiv, '
+            'Bauform, Farben) nach vorn, Kamera und Licht ans Ende.',
+      if (local && RegExp(r'^[A-Z][A-Z ]{3,}$', multiLine: true)
+          .hasMatch(text))
+        'Gegliederte Briefings mit Überschriften (SUBJECT, STYLE, '
+            'OUTPUT …) sind für GPT-Image und Gemini gedacht. Stable '
+            'Diffusion liest alles als eine Stichwortliste – für die '
+            'eigene GPU besser ein durchgehender, dichter Satz.',
+    ];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1030,6 +1058,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               minLines: 2,
               maxLines: 5,
               textInputAction: TextInputAction.newline,
+              onChanged: (_) {
+                // Die Hinweise unten hängen am Text.
+                if (settings.provider.isLocal) setState(() {});
+              },
               decoration: const InputDecoration(
                 labelText: 'Bildbeschreibung (Prompt)',
                 hintText:
@@ -1037,6 +1069,22 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 border: OutlineInputBorder(),
               ),
             ),
+            for (final hint in hints) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.tips_and_updates_outlined,
+                      size: 15, color: theme.colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(hint,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.outline)),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 10),
             Text('Stil-Vorlagen',
                 style: Theme.of(context).textTheme.labelMedium),
@@ -1266,6 +1314,30 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                       ),
                     ],
                   ),
+                  if (_localModelNote(settings) case final note?) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline,
+                            size: 15,
+                            color: Theme.of(context).colorScheme.outline),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            note,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outline),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SectionLabel('Format & Größe'),
                   DropdownMenu<String>(
                     key: ValueKey(
@@ -1428,17 +1500,25 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.outline),
             ),
-            if (isStability) ...[
+            // Negativ-Prompt und Seed gibt es bei Stability und beim
+            // eigenen Server; Style-Presets nur bei Stability Core.
+            if (isStability || provider.isLocal) ...[
               const SectionLabel('Profi-Optionen'),
               TextField(
                 controller: _negativeCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Negativ-Prompt',
                   hintText: 'Was im Bild vermieden werden soll …',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  helperText: provider.isLocal &&
+                          settings.selfHostImageModel.contains('turbo')
+                      ? 'SDXL Turbo wertet den Negativ-Prompt nicht aus '
+                          '(arbeitet ohne Guidance).'
+                      : null,
+                  helperMaxLines: 2,
                 ),
               ),
-              if (settings.stabilityModel == 'core') ...[
+              if (isStability && settings.stabilityModel == 'core') ...[
                 const SizedBox(height: 12),
                 DropdownMenu<String>(
                   initialSelection: settings.stylePreset,
@@ -1510,6 +1590,32 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         ),
       ),
     );
+  }
+
+  /// Hinweis zum gewählten Modell der eigenen GPU. Stable Diffusion
+  /// liest einen Prompt anders als GPT-Image oder Gemini – wer das
+  /// nicht weiß, wundert sich über das Ergebnis.
+  String? _localModelNote(SettingsService settings) {
+    if (settings.provider != GenProvider.selfhost) return null;
+    final model = settings.selfHostImageModel;
+    final specific = switch (model) {
+      'sdxl-turbo' => 'SDXL Turbo ist auf Tempo gebaut (4 Schritte, '
+          'ohne Guidance): Es hält sich nur grob an den Prompt und '
+          'wertet den Negativ-Prompt gar nicht aus. Für lange, genaue '
+          'Vorgaben besser SDXL Base oder SD 3.5 Medium wählen.',
+      'sd15' => 'SD 1.5 ist sparsam, aber das älteste Modell hier – '
+          'komplizierte Vorgaben (Proportionen, Pose, Farbwahl) setzt '
+          'es oft nur ungefähr um.',
+      'sdxl' => 'SDXL Base hält sich gut an den Prompt (30 Schritte, '
+          'Guidance 7) und wertet den Negativ-Prompt aus.',
+      'sd35-medium' => 'SD 3.5 Medium versteht auch längere, '
+          'zusammenhängende Beschreibungen und schreibt Text im Bild '
+          'lesbar.',
+      'flux-schnell' => 'FLUX.1 schnell liest den Prompt am genauesten, '
+          'kennt aber keinen Negativ-Prompt.',
+      _ => null,
+    };
+    return specific;
   }
 
   /// Beschriftung einer Größen-Option inklusive Pixelmaßen.

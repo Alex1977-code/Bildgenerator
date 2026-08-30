@@ -47,6 +47,14 @@ app.add_middleware(
 # Auswaehlbare Modelle: Kennung -> (Hugging-Face-Repo, Familie,
 # Vorgabe-Schritte, Vorgabe-Guidance, Kantenlaenge, VRAM in GB).
 # Die App zeigt dieselben Kennungen in ihrer Modell-Liste.
+#
+# Zur Familie gehoert, wie der Text verarbeitet wird:
+#   sd/sdxl  CLIP, hart begrenzt auf 77 Tokens (~60 Woerter). Laengere
+#            Prompts schneidet diffusers stillschweigend ab - deshalb
+#            zerlegt dieser Server sie selbst in Bloecke und haengt die
+#            Text-Vektoren aneinander (_embed_long, siehe unten).
+#   sd3      CLIP + T5, bis 256 Tokens.
+#   flux     T5, bis 512 Tokens.
 MODELS = {
     "sd15": ("stable-diffusion-v1-5/stable-diffusion-v1-5", "sd",
              25, 7.5, 512, 4),
@@ -187,6 +195,118 @@ def _load(name: str):
     return _pipe
 
 
+# Wie viele Tokens die Textmodelle am Stueck verstehen. Bei CLIP sind
+# es 77 einschliesslich Start- und Endmarke, also 75 echte Tokens.
+_CLIP_CHUNK = 75
+
+
+def _chunk_ids(tokenizer, text: str) -> list[list[int]]:
+    """Zerlegt einen Text in CLIP-Bloecke zu je 75 Tokens.
+
+    Jeder Block bekommt Start- und Endmarke und wird auf volle Laenge
+    aufgefuellt, damit alle Bloecke dieselbe Form haben.
+    """
+    ids = tokenizer(text, truncation=False,
+                    add_special_tokens=False).input_ids
+    blocks = [ids[i:i + _CLIP_CHUNK]
+              for i in range(0, len(ids), _CLIP_CHUNK)] or [[]]
+    bos = tokenizer.bos_token_id
+    eos = tokenizer.eos_token_id
+    pad = tokenizer.pad_token_id
+    if pad is None:
+        pad = eos
+    out = []
+    for block in blocks:
+        full = [bos] + block + [eos]
+        full += [pad] * (_CLIP_CHUNK + 2 - len(full))
+        out.append(full)
+    return out
+
+
+def _embed_clip(pipe, text: str, device, blocks: int):
+    """Text-Vektoren fuer Stable Diffusion 1.5 (ein CLIP-Encoder)."""
+    import torch
+
+    chunks = _chunk_ids(pipe.tokenizer, text)
+    while len(chunks) < blocks:
+        chunks.append(_chunk_ids(pipe.tokenizer, "")[0])
+    parts = []
+    for chunk in chunks[:blocks]:
+        ids = torch.tensor([chunk], device=device)
+        parts.append(pipe.text_encoder(ids)[0])
+    return torch.cat(parts, dim=1)
+
+
+def _embed_sdxl(pipe, text: str, device, blocks: int):
+    """Text-Vektoren fuer SDXL (zwei CLIP-Encoder plus Pooling)."""
+    import torch
+
+    tokenizers = [pipe.tokenizer, pipe.tokenizer_2]
+    encoders = [pipe.text_encoder, pipe.text_encoder_2]
+    chunk_sets = [_chunk_ids(tok, text) for tok in tokenizers]
+    for tok, chunks in zip(tokenizers, chunk_sets):
+        while len(chunks) < blocks:
+            chunks.append(_chunk_ids(tok, "")[0])
+
+    pooled = None
+    parts = []
+    for index in range(blocks):
+        halves = []
+        for position, (encoder, chunks) in enumerate(
+                zip(encoders, chunk_sets)):
+            ids = torch.tensor([chunks[index]], device=device)
+            out = encoder(ids, output_hidden_states=True)
+            # SDXL nutzt die vorletzte Schicht beider Encoder; der
+            # Pooling-Vektor kommt aus dem zweiten und nur aus dem
+            # ersten Block (er beschreibt den Gesamteindruck).
+            if position == 1 and pooled is None:
+                pooled = out[0]
+            halves.append(out.hidden_states[-2])
+        parts.append(torch.cat(halves, dim=-1))
+    return torch.cat(parts, dim=1), pooled
+
+
+def _block_count(pipe, family: str, texts: list[str]) -> int:
+    """Wie viele 75-Token-Bloecke der laengste Text braucht."""
+    tokenizer = pipe.tokenizer
+    longest = 1
+    for text in texts:
+        ids = tokenizer(text, truncation=False,
+                        add_special_tokens=False).input_ids
+        longest = max(longest, -(-len(ids) // _CLIP_CHUNK) or 1)
+    return longest
+
+
+def _long_prompt_kwargs(pipe, family: str, prompt: str, negative: str):
+    """Baut die Text-Vektoren fuer lange Prompts.
+
+    Liefert None, wenn der Prompt ohnehin in 77 Tokens passt oder die
+    Familie (SD 3.5, FLUX) von Haus aus lange Texte versteht - dann
+    bekommt die Pipeline wie bisher einfach den Text.
+    """
+    if family not in ("sd", "sdxl"):
+        return None
+    blocks = _block_count(pipe, family, [prompt, negative])
+    if blocks <= 1:
+        return None
+    device = pipe._execution_device
+    if family == "sdxl":
+        embeds, pooled = _embed_sdxl(pipe, prompt, device, blocks)
+        negative_embeds, negative_pooled = _embed_sdxl(
+            pipe, negative, device, blocks)
+        return {
+            "prompt_embeds": embeds,
+            "pooled_prompt_embeds": pooled,
+            "negative_prompt_embeds": negative_embeds,
+            "negative_pooled_prompt_embeds": negative_pooled,
+        }
+    return {
+        "prompt_embeds": _embed_clip(pipe, prompt, device, blocks),
+        "negative_prompt_embeds": _embed_clip(pipe, negative, device,
+                                              blocks),
+    }
+
+
 def _cutout(image):
     """Hintergrund entfernen - fuer die Ansichten des 3D-Teils."""
     global _remover
@@ -219,6 +339,22 @@ def health():
         "kind": "image",
         "model": MODEL,
         "models": sorted(MODELS),
+        # Was die App ueber die Modelle wissen will: Schritte, Guidance
+        # (0 = kein Negativ-Prompt moeglich) und ob lange Prompts
+        # ungekuerzt ankommen.
+        "modelInfo": {
+            key: {
+                "family": family,
+                "steps": steps,
+                "guidance": guidance,
+                "size": base,
+                "vram": vram,
+                "negativePrompt": guidance > 0 and family != "flux",
+                "longPrompt": True,
+            }
+            for key, (_, family, steps, guidance, base, vram)
+            in MODELS.items()
+        },
         "device": device,
         "gpu": gpu,
         "missing": missing,
@@ -244,7 +380,6 @@ def generate(req: GenerateRequest):
     ).manual_seed(seed)
 
     kwargs = dict(
-        prompt=req.prompt,
         width=width,
         height=height,
         num_inference_steps=int(steps),
@@ -254,8 +389,42 @@ def generate(req: GenerateRequest):
     )
     # FLUX und SDXL-Turbo kennen keinen Negativ-Prompt.
     family = MODELS[name][1]
-    if req.negative_prompt and family not in ("flux",) and guidance > 0:
-        kwargs["negative_prompt"] = req.negative_prompt
+    use_negative = (
+        bool(req.negative_prompt) and family != "flux" and guidance > 0
+    )
+
+    # Lange Prompts: SD 1.5 und SDXL verstehen am Stueck nur 77 Tokens.
+    # Statt den Rest wegzuwerfen, zerlegen wir den Text in Bloecke und
+    # reichen die fertigen Text-Vektoren durch.
+    long_kwargs = None
+    if len(req.prompt) > 200:
+        try:
+            long_kwargs = _long_prompt_kwargs(
+                pipe, family, req.prompt,
+                req.negative_prompt if use_negative else "")
+        except Exception as exc:  # pragma: no cover - modellabhaengig
+            print(
+                "Langer Prompt konnte nicht zerlegt werden, es gilt das "
+                f"77-Token-Limit: {exc}",
+                flush=True,
+            )
+            long_kwargs = None
+
+    if long_kwargs:
+        kwargs.update(long_kwargs)
+        if not use_negative:
+            kwargs.pop("negative_prompt_embeds", None)
+            kwargs.pop("negative_pooled_prompt_embeds", None)
+    else:
+        kwargs["prompt"] = req.prompt
+        if use_negative:
+            kwargs["negative_prompt"] = req.negative_prompt
+        # SD 3.5 und FLUX verstehen laengere Texte, muessen aber
+        # ausdruecklich danach gefragt werden.
+        if family == "sd3":
+            kwargs["max_sequence_length"] = 256
+        elif family == "flux":
+            kwargs["max_sequence_length"] = 512
 
     try:
         result = pipe(**kwargs)

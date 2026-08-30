@@ -48,13 +48,44 @@ verlässt den PC. Beide richtet derselbe Assistent in der App ein
 
 ### Bild-Server: Modelle und Speicherbedarf
 
-| Kennung | Modell | VRAM | Bemerkung |
-| --- | --- | --- | --- |
-| `sd15` | Stable Diffusion 1.5 | ~4 GB | sparsam, schnell |
-| `sdxl-turbo` | SDXL Turbo | ~7 GB | wenige Schritte, sehr schnell |
-| `sdxl` | SDXL Base 1.0 | ~8 GB | beste Allround-Qualität |
-| `sd35-medium` | SD 3.5 Medium | ~10 GB | auch Schrift im Bild |
-| `flux-schnell` | FLUX.1 schnell | ~16 GB | Spitzenklasse |
+| Kennung | Modell | VRAM | Schritte | Negativ-Prompt | Bemerkung |
+| --- | --- | --- | --- | --- | --- |
+| `sd15` | Stable Diffusion 1.5 | ~4 GB | 25 | ja | sparsam, schnell |
+| `sdxl-turbo` | SDXL Turbo | ~7 GB | 4 | **nein** | sehr schnell, hält sich nur grob an den Prompt |
+| `sdxl` | SDXL Base 1.0 | ~8 GB | 30 | ja | beste Allround-Qualität, folgt dem Prompt genau |
+| `sd35-medium` | SD 3.5 Medium | ~10 GB | 28 | ja | auch Schrift im Bild, versteht längere Texte |
+| `flux-schnell` | FLUX.1 schnell | ~16 GB | 4 | **nein** | Spitzenklasse, liest den Prompt am genauesten |
+
+`sdxl-turbo` und `flux-schnell` arbeiten ohne Guidance (CFG). Das macht
+sie schnell, schaltet aber den Negativ-Prompt ab und lockert die
+Bindung an den Prompt – für genaue Vorgaben `sdxl` oder `sd35-medium`
+nehmen.
+
+### Lange Prompts
+
+Stable Diffusion 1.5 und SDXL hängen an CLIP und verstehen am Stück nur
+**77 Tokens** – rund 60 Wörter oder 300 Zeichen. Alles darüber schneidet
+`diffusers` stillschweigend ab: Ein ausführliches Briefing landet also
+nur mit seinem Anfang im Bild, und niemand sagt einem das.
+
+Der Server umgeht das: Längere Texte werden in 75-Token-Blöcke zerlegt,
+jeder Block einzeln durch den Text-Encoder geschickt und die Vektoren
+aneinandergehängt (bei SDXL für beide Encoder, der Pooling-Vektor kommt
+aus dem ersten Block). Der komplette Prompt kommt damit an. `sd35-medium`
+(256 Tokens) und `flux-schnell` (512 Tokens) können das von Haus aus und
+bekommen die passende Obergrenze mitgegeben.
+
+Zwei Eigenheiten bleiben, weil sie in den Modellen stecken:
+
+- **Verneinungen wirken nicht.** „no text", „ohne Schrift", „keine
+  Wasserzeichen" liest das Modell als Stichworte *text*, *Schrift*,
+  *Wasserzeichen* und holt sie eher ins Bild. Solches gehört in den
+  **Negativ-Prompt** (im Bild-Tab unter „Profi-Optionen").
+- **Der Anfang zählt am meisten.** Motiv, Bauform und Farben nach vorn,
+  Kamera, Licht und Hintergrund ans Ende. Gegliederte Briefings mit
+  Überschriften (SUBJECT, STYLE, OUTPUT …) sind für GPT-Image und
+  Gemini gedacht – die sind sprachverstehend. Stable Diffusion liest
+  alles als eine Stichwortliste.
 
 Reicht der Grafikspeicher nicht, lagert der Server Teile automatisch
 aus – langsamer, aber es läuft. Das Modell wird in der App gewählt
