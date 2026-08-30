@@ -98,6 +98,43 @@ cd C:\KI\TripoSR
 python local3d_server.py --backend triposr --port 8765
 ```
 
+### Wenn `torchmcubes` nicht baut (kein CUDA-Toolkit)
+
+`pip install -r requirements.txt` bricht bei `torchmcubes` mit
+„CMake configuration failed" ab, sobald `nvcc` fehlt – der
+CUDA-Compiler steckt weder im Grafiktreiber noch in PyTorch, sondern
+nur im separaten **CUDA-Toolkit** (~3 GB).
+
+Statt es zu installieren, reicht der mitgelieferte CPU-Ersatz
+(`server/shim/torchmcubes.py`, nutzt scikit-image). Marching Cubes
+läuft dann auf der CPU – bei Auflösung 256 rund eine Sekunde –, das
+Modell selbst weiter auf der GPU:
+
+```powershell
+# im TripoSR-Ordner, Umgebung aktiv
+curl.exe -L -o torchmcubes.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/shim/torchmcubes.py
+
+# restliche Abhängigkeiten ohne torchmcubes installieren
+Select-String -Path requirements.txt -Pattern torchmcubes -NotMatch |
+  ForEach-Object { $_.Line } | Set-Content requirements-ohne-mcubes.txt
+pip install -r requirements-ohne-mcubes.txt
+pip install fastapi uvicorn pydantic
+```
+
+Kommt das erzeugte Modell **gespiegelt oder verdreht** heraus, ist nur
+die Achsen-Reihenfolge andersherum – dann den Server so starten:
+
+```powershell
+$env:TORCHMCUBES_SHIM_FLIP = "0"
+python local3d_server.py --backend triposr --port 8765
+```
+
+Wer lieber den offiziellen Weg geht: CUDA-Toolkit passend zur
+PyTorch-Version installieren (bei `cu121` also 12.1, siehe
+<https://developer.nvidia.com/cuda-toolkit-archive>), neue PowerShell
+öffnen, `nvcc --version` prüfen und
+`pip install -r requirements.txt` wiederholen.
+
 ### Linux / macOS / WSL2
 
 ```bash
@@ -172,10 +209,11 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   starten und in einen eigenen Ordner wechseln (`cd C:\KI`).
 - **`source .venv/bin/activate` wird nicht erkannt** → das ist
   Linux-Syntax. Unter Windows: `.\.venv\Scripts\Activate.ps1`.
-- **Fehler beim Bauen von `torchmcubes`** → die Visual Studio Build
-  Tools mit „Desktopentwicklung mit C++" fehlen; nach der Installation
-  eine neue PowerShell öffnen und `pip install -r requirements.txt`
-  wiederholen.
+- **Fehler beim Bauen von `torchmcubes`** → bei
+  „Microsoft Visual C++ 14.0 or greater is required" fehlen die Visual
+  Studio Build Tools; bei „CMake configuration failed" mit
+  `CMakeDetermineCUDACompiler` fehlt das CUDA-Toolkit – dafür gibt es
+  den CPU-Ersatz, siehe Abschnitt „Wenn `torchmcubes` nicht baut".
 - **`tokenizers` bricht mit „Rust not found" / `metadata-generation-failed`
   ab** → die Umgebung läuft auf Python 3.12 oder neuer. Umgebung
   löschen (`Remove-Item -Recurse -Force .venv`) und mit
