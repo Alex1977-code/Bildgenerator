@@ -938,6 +938,29 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ? _robloxAccessoryRules
           : _robloxFigureRules;
 
+  /// Deutsche Bezeichnung des eingestellten Figurtyps.
+  String get _rigTypeLabel {
+    for (final (value, name) in rigTypeOptions) {
+      if (value == _rigType) return name;
+    }
+    return _rigType;
+  }
+
+  /// Der Absatz über den Figurtyp, der in die kopierte Vorlage geht.
+  ///
+  /// Ohne ihn beschreibt die Prompt-KI eine Figur, die sich hinterher
+  /// nicht riggen lässt – anliegende Arme, ein Umhang über den Beinen,
+  /// ein eingerollter Schwanz. Das Skelett kann nur andocken, wo im
+  /// Netz getrennte Volumen sind.
+  String get _rigTypePromptRule {
+    if (!_rigging) return '';
+    final rule = rigTypePromptRules[_rigType];
+    if (rule == null) return '';
+    return '\n\nFIGURTYP – eingestellt ist „$_rigTypeLabel". Das '
+        'Skelett wird danach gebaut, die Beschreibung muss dazu '
+        'passen:\n- $rule';
+  }
+
   Future<void> _copyTemplate(String title, String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
@@ -982,7 +1005,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           '(Dreiviertelansicht – aus reiner Frontalansicht entsteht nur '
           'eine flache Platte): bei deiner Prompt-KI einfügen.';
     }
-    final fullText = _robloxMode ? '$text$_robloxPromptRules' : text;
+    final fullText =
+        (_robloxMode ? '$text$_robloxPromptRules' : text) +
+            _rigTypePromptRule;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -5016,6 +5041,61 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ? null
                         : (v) => setState(() => _rigging = v),
                   ),
+                  // Der Figurtyp geht als „rig_type" mit an den
+                  // Anbieter – ohne ihn muss der raten. Und er steht
+                  // in der kopierten Prompt-Vorlage, damit die
+                  // Beschreibung dazu passt: Ein Skelett kann nur an
+                  // Gliedmaßen andocken, die im Netz getrennt sind.
+                  if (_rigging) ...[
+                    DropdownMenu<String>(
+                      key: ValueKey('providerrig-$_rigType'),
+                      enabled: !_running,
+                      initialSelection: _rigType,
+                      label: const Text('Figurtyp (Skelett)'),
+                      expandedInsets: EdgeInsets.zero,
+                      dropdownMenuEntries: [
+                        for (final (value, name) in rigTypeOptions)
+                          if (!isTripo ||
+                              TripoService.rigTypes[value] != null)
+                            DropdownMenuEntry(value: value, label: name),
+                      ],
+                      onSelected: (value) {
+                        if (value != null) {
+                          setState(() => _rigType = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (_robloxMode &&
+                            _robloxTarget == RobloxTarget.character &&
+                            _rigType != 'biped')
+                          'ACHTUNG: Roblox’ R15-Skelett ist '
+                              'zweibeinig. Ein anderer Figurtyp lässt '
+                              'sich nicht auf R15 umbenennen – als '
+                              'Avatar taugt das Modell dann nicht, als '
+                              'freies Mesh schon.',
+                        if (isTripo)
+                          'Geht als „rig_type" = '
+                              '${TripoService.rigTypes[_rigType]} an '
+                              'Tripo; die Knochen kommen im '
+                              'Mixamo-Schema, das die R15-Umbenennung '
+                              'dieser App erwartet.',
+                        rigTypePromptRules[_rigType] ?? '',
+                        'Der Absatz steht auch in der kopierten '
+                            'Prompt-Vorlage.',
+                      ].where((t) => t.isNotEmpty).join(' '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _robloxMode &&
+                                _robloxTarget == RobloxTarget.character &&
+                                _rigType != 'biped'
+                            ? Colors.orange.shade800
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     childrenPadding: const EdgeInsets.only(bottom: 8),

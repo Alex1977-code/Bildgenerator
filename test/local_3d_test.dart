@@ -1550,4 +1550,25 @@ void main() {
             .join(' '),
         contains('UV'));
   });
+
+  test('Jeder Figurtyp sagt, was der Prompt zeigen muss', () {
+    // Ohne diese Regeln beschreibt die Prompt-KI Figuren, die sich
+    // hinterher nicht riggen lassen – anliegende Arme, ein Umhang
+    // über den Beinen, ein eingerollter Schwanz.
+    for (final (value, _) in rigTypeOptions) {
+      final rule = rigTypePromptRules[value];
+      expect(rule, isNotNull, reason: value);
+      expect(rule!.length, greaterThan(40), reason: value);
+    }
+    // Kein Eintrag ohne zugehörigen Typ.
+    for (final key in rigTypePromptRules.keys) {
+      expect(rigTypeOptions.map((o) => o.$1), contains(key));
+    }
+    // Die Regeln nennen das Wesentliche.
+    expect(rigTypePromptRules['biped'], contains('Arme'));
+    expect(rigTypePromptRules['quadruped'], contains('Vier Beine'));
+    expect(rigTypePromptRules['insect'], contains('Sechs Beine'));
+    expect(rigTypePromptRules['snake'], contains('ohne Gliedmaßen'));
+    expect(rigTypePromptRules['vehicle'], contains('Räder'));
+  });
 }

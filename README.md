@@ -678,11 +678,34 @@ Nicht gesendet werden bewusst `generate_parts` (zerlegt das Modell in
 mehrere Meshes) und `compress` (gepackte GLB). `test/tripo_service_test.dart`
 hält das fest, damit die Prüfung nicht wieder zur Vermutung wird.
 
-**Tripos Figurtypen** (`rig_type`) und wie die App sie abbildet:
-`biped` (zweibeinig – Mensch, Roboter, Fantasy), `quadruped`
-(Vierbeiner), `hexapod` (Insekt/Mehrbeiner), `avian` (Vogel),
-`serpentine` (Schlange), `aquatic` (Fisch). Für Fahrzeuge gibt es
-keinen – die riggt die App selbst.
+#### Figurtyp: Dropdown und Prompt-Vorlage
+
+Der **Figurtyp** steht jetzt bei jedem Anbieter unter dem
+Rigging-Schalter, nicht mehr nur beim lokalen Generator. Er tut zwei
+Dinge auf einmal:
+
+- Er geht als `rig_type` an den Anbieter, statt ihn raten zu lassen.
+- Er hängt einen Absatz an die **kopierte Prompt-Vorlage**, damit die
+  Beschreibung zum Skelett passt. Das ist keine Kosmetik: Ein Skelett
+  kann nur an Gliedmaßen andocken, die im Netz als getrennte Volumen
+  vorhanden sind. Arme, die am Körper anliegen, verschmelzen bei der
+  Rekonstruktion mit dem Rumpf – danach ist nichts mehr zu trennen,
+  weder für den Auto-Rigger dieser App noch für Tripos.
+
+| App-Typ | Tripo | Was der Prompt zeigen muss |
+| --- | --- | --- |
+| Mensch / Roboter / Fantasy (2 Beine) | `biped` | Zwei Beine, zwei Arme, **nicht am Körper anliegend**; Hände und Füße als eigene Volumen. Ein Umhang über den Beinen macht die Figur unriggbar. |
+| Vierbeiner | `quadruped` | Vier Beine einzeln getrennt, stehend – nicht sitzend oder liegend; Kopf abgesetzt, Schwanz frei. |
+| Insekt / Mehrbeiner | `hexapod` | Sechs Beine paarweise abstehend, Körper in Kopf/Brust/Hinterleib. |
+| Vogel | `avian` | Flügel **gespreizt** (angelegt verschmelzen sie), zwei Beine, Schwanzfedern als eigenes Volumen. |
+| Schlange | `serpentine` | Langgestreckt, gleichmäßig dick, nicht eingerollt. |
+| Fisch | `aquatic` | Flossen mit sichtbarer Dicke, seitlich symmetrisch. |
+| Fahrzeug | – | Räder als eigene runde Volumen; riggt die App selbst mit automatischer Achsenerkennung. |
+
+Bei der Roblox-Vorlage mit Ziel **Figur** warnt die App, wenn ein
+anderer Typ als `biped` eingestellt ist: R15 ist ein zweibeiniges
+Skelett, ein Vierbeiner lässt sich nicht darauf umbenennen. Als freies
+Mesh geht er trotzdem, nur nicht als Avatar.
 
 **Bleibt es trotzdem zu groß**, gibt es den Reparaturweg: **„Bei
 Tripo3D nachrechnen"** in der Prüfung schickt das fertige Modell über

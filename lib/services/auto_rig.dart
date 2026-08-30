@@ -18,6 +18,40 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+/// Was die Beschreibung zeigen muss, damit sich ein Modell dieses
+/// Typs überhaupt riggen lässt.
+///
+/// Ein Skelett kann nur an Gliedmaßen andocken, die im Netz auch als
+/// getrennte Volumen vorhanden sind. Arme, die am Körper anliegen,
+/// verschmelzen bei der Rekonstruktion mit dem Rumpf – danach ist
+/// nichts mehr zu trennen, weder vom Auto-Rigger dieser App noch von
+/// Tripos. Deshalb gehört der Hinweis in den Prompt, nicht in die
+/// Nachbearbeitung.
+const rigTypePromptRules = <String, String>{
+  'biped': 'Zwei Beine und zwei Arme, deutlich vom Rumpf abgesetzt und '
+      'nicht am Körper anliegend; Hände und Füße als eigene Volumen '
+      'erkennbar. Ein Umhang oder ein Rock, der Beine oder Arme '
+      'verdeckt, macht die Figur unriggbar.',
+  'quadruped': 'Vier Beine, alle vier sichtbar und einzeln getrennt, '
+      'Kopf am Halsansatz abgesetzt, Schwanz frei. Keine sitzende, '
+      'liegende oder zusammengekauerte Haltung – stehend auf allen '
+      'vieren.',
+  'insect': 'Sechs Beine, paarweise getrennt und vom Körper abstehend; '
+      'der Körper in Kopf, Brust und Hinterleib gegliedert. Fühler und '
+      'Flügel dick genug, dass sie Volumen haben.',
+  'bird': 'Zwei gespreizte Flügel, zwei Beine, Schwanzfedern als '
+      'eigenes Volumen. Angelegte Flügel verschmelzen mit dem Rumpf.',
+  'snake': 'Langgestreckter Körper ohne Gliedmaßen, gleichmäßig dick, '
+      'nicht eingerollt und nicht verknotet – sonst lässt sich die '
+      'Gelenkkette nicht sauber legen.',
+  'fish': 'Rumpf mit deutlich abgesetzten Flossen und Schwanzflosse, '
+      'seitlich symmetrisch. Flossen mit sichtbarer Dicke, nicht als '
+      'hauchdünne Fahnen.',
+  'vehicle': 'Räder als eigene runde Volumen, vom Chassis abgesetzt und '
+      'vollständig sichtbar – die App erkennt Achsen und Radzahl an '
+      'der bodennahen Geometrie.',
+};
+
 /// Verfügbare Figurtypen: (Wert, deutsche Bezeichnung).
 const rigTypeOptions = [
   ('biped', 'Mensch / Roboter / Fantasy (2 Beine)'),
