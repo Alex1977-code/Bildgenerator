@@ -171,10 +171,11 @@ Iterable<String> _patchNativeSources(String targetDir) sync* {
   if (!Platform.isWindows) return;
   // Jede Python-Erweiterung braucht unter Windows eine Init-Funktion
   // PyInit_<Modul>; der Linker verlangt sie ausdrücklich
-  // (/EXPORT:PyInit__C). SF3D und SPAR3D melden ihre Funktionen aber
-  // nur über TORCH_LIBRARY an und definieren keine – unter Linux egal,
-  // unter Windows endet es mit „LNK2001: PyInit__C". Wir hängen die
-  // vom PyTorch-Handbuch vorgesehene Minimal-Fassung an.
+  // (/EXPORT:PyInit__C). SF3D und SPAR3D bringen dafür
+  // PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) mit – das genügt, solange
+  // PyTorch beim Übersetzen -DTORCH_EXTENSION_NAME=_C mitgibt (siehe
+  // _buildEnvironment). Fehlt die Zeile in einem anderen Projekt ganz,
+  // hängen wir die vom PyTorch-Handbuch vorgesehene Minimal-Fassung an.
   for (final (package, file) in const [
     ('uv_unwrapper', 'unwrapper.cpp'),
     ('texture_baker', 'baker.cpp'),
@@ -182,19 +183,22 @@ Iterable<String> _patchNativeSources(String targetDir) sync* {
     final dir = Directory('$targetDir$sep$package$sep$package${sep}csrc');
     if (!dir.existsSync()) continue;
     // Schon eine Init-Funktion vorhanden (eigene oder über pybind11)?
-    var hasInit = false;
+    String? found;
     for (final entry in dir.listSync()) {
       if (entry is! File) continue;
       final name = entry.path.toLowerCase();
       if (!name.endsWith('.cpp') && !name.endsWith('.cu')) continue;
       final text = entry.readAsStringSync();
-      if (text.contains('PyInit_') || text.contains('PYBIND11_MODULE')) {
-        hasInit = true;
+      final marker = text.contains('PYBIND11_MODULE')
+          ? 'PYBIND11_MODULE'
+          : (text.contains('PyInit_') ? 'PyInit_' : null);
+      if (marker != null) {
+        found = '${entry.uri.pathSegments.last}: $marker';
         break;
       }
     }
-    if (hasInit) {
-      yield '$package: Modul-Init ist vorhanden.';
+    if (found != null) {
+      yield '$package: Modul-Init ist vorhanden ($found).';
       continue;
     }
     final target = File('${dir.path}$sep$file');
@@ -221,25 +225,71 @@ Iterable<String> _patchNativeSources(String targetDir) sync* {
   }
 }
 
-/// Umgebung für das Bauen der C++-Erweiterungen. Unter Windows
-/// übersetzt MSVC sonst nach C++14, während die PyTorch-Header C++17
-/// verlangen – daraus werden unverständliche Vorlagen-Fehler. Über die
-/// Variable CL hängt cl.exe den Schalter an jeden Aufruf an.
-Map<String, String> _buildEnvironment() {
-  if (!Platform.isWindows) return const {};
+/// Umgebung für das Bauen der C++-Erweiterungen.
+///
+/// Wir rufen `python` aus der virtuellen Umgebung direkt auf, statt sie
+/// vorher zu aktivieren. Dadurch fehlt der Umgebung dreierlei – der
+/// PATH-Eintrag auf allen Systemen, die beiden Compiler-Schalter nur
+/// unter Windows:
+///
+/// 1. **PATH**: `ninja` liegt in `.venv\Scripts` (Windows) bzw.
+///    `.venv/bin`. Ohne diesen Eintrag findet PyTorch das Werkzeug
+///    nicht, fällt auf den alten distutils-Weg zurück – und der
+///    schickt `.cu`-Dateien an cl.exe
+///    („blockIdx: nicht deklarierter Bezeichner") und verliert dabei
+///    auch `-DTORCH_EXTENSION_NAME=_C`, worauf der Linker mit
+///    „LNK2001: PyInit__C" abbricht. Mit ninja stimmt beides.
+/// 2. **CL**: MSVC übersetzt sonst nach C++14, die PyTorch-Header
+///    verlangen C++17.
+/// 3. **NVCC_PREPEND_FLAGS**: CUDA 12.x lehnt neuere MSVC-Fassungen
+///    sonst rundheraus ab.
+Map<String, String> _buildEnvironment(String targetDir) {
+  final sep = Platform.pathSeparator;
+  // Platform.environment ist unter Windows unabhängig von Groß- und
+  // Kleinschreibung, die Kopie ist es nicht: erst den alten Eintrag
+  // entfernen, sonst stehen „Path" und „PATH" nebeneinander.
+  final env = <String, String>{...Platform.environment};
+  final oldPath = Platform.environment['PATH'] ?? '';
+  env.removeWhere((key, _) => key.toLowerCase() == 'path');
+  final scripts = Platform.isWindows
+      ? '$targetDir$sep.venv${sep}Scripts'
+      : '$targetDir$sep.venv${sep}bin';
+  final listSep = Platform.isWindows ? ';' : ':';
+  env['PATH'] = oldPath.isEmpty ? scripts : '$scripts$listSep$oldPath';
+  if (!Platform.isWindows) return env;
+
   final existing = Platform.environment['CL'] ?? '';
   // /openmp schaltet die parallelen Schleifen des Quellcodes scharf
-  // (MSVC bindet dann vcomp selbst ein).
-  const flags = '/std:c++17 /openmp';
-  return {
-    ...Platform.environment,
-    'CL': existing.isEmpty ? flags : '$existing $flags',
-    // CUDA 12.x lehnt neuere MSVC-Fassungen sonst rundheraus ab.
-    'NVCC_PREPEND_FLAGS':
-        '${Platform.environment['NVCC_PREPEND_FLAGS'] ?? ''} '
-                '-allow-unsupported-compiler'
-            .trim(),
-  };
+  // (MSVC bindet dann vcomp selbst ein). Die Modulkennung ist ein
+  // Sicherheitsnetz: Setzt PyTorch sie selbst (ninja-Weg), gewinnt der
+  // Wert von der Befehlszeile, weil CL davor eingefügt wird.
+  const flags = '/std:c++17 /openmp /DTORCH_EXTENSION_NAME=_C';
+  env['CL'] = existing.isEmpty ? flags : '$existing $flags';
+  env['NVCC_PREPEND_FLAGS'] =
+      '${Platform.environment['NVCC_PREPEND_FLAGS'] ?? ''} '
+              '-allow-unsupported-compiler'
+          .trim();
+  return env;
+}
+
+/// Prüft, ob PyTorch in dieser Umgebung `ninja` findet. PyTorch sucht
+/// es genau so – über den PATH des Kindprozesses.
+Future<bool> _ninjaVisible(
+    String python, String targetDir, Map<String, String> environment) async {
+  try {
+    final result = await Process.run(
+      python,
+      [
+        '-c',
+        'import shutil, sys; sys.exit(0 if shutil.which("ninja") else 1)',
+      ],
+      workingDirectory: targetDir,
+      environment: environment.isEmpty ? null : environment,
+    );
+    return result.exitCode == 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 Future<void> _download(String url, File target) async {
@@ -401,6 +451,19 @@ Stream<String> installServer({
         ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel', 'ninja'],
         workingDirectory: targetDir,
       );
+      // ninja liegt danach in .venv\Scripts. Wir rufen python.exe von
+      // dort direkt auf, ohne die Umgebung zu aktivieren – deshalb muss
+      // das Verzeichnis ausdrücklich in den PATH, sonst sucht PyTorch
+      // vergeblich. Diese Prüfung sagt vor dem langen Bauen Bescheid.
+      final buildEnv = _buildEnvironment(targetDir);
+      if (await _ninjaVisible(venvPython, targetDir, buildEnv)) {
+        yield 'ninja ist für PyTorch sichtbar – CUDA-Dateien gehen an '
+            'nvcc, und die Modulkennung stimmt.';
+      } else {
+        yield 'Warnung: ninja ist trotz Installation nicht auffindbar. '
+            'Der Bau läuft weiter, kann aber an „blockIdx" oder '
+            '„LNK2001: PyInit__C" scheitern.';
+      }
       yield '# Quellcode der C++-Erweiterungen wird geprüft';
       for (final line in _patchNativeSources(targetDir)) {
         yield line;
@@ -429,7 +492,7 @@ Stream<String> installServer({
           '--no-build-isolation',
         ],
         workingDirectory: targetDir,
-        environment: _buildEnvironment(),
+        environment: buildEnv,
       );
     }
   }

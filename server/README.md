@@ -343,45 +343,66 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   Welche fehlen, steht im Protokoll in den Zeilen darüber. Der
   Assistent speichert das vollständige Protokoll als
   `einrichtung-protokoll.txt` im Zielordner und hat einen Knopf
-  „Kopieren". Zwei Fälle sind bekannt, beide behebt der Assistent
-  inzwischen selbst:
-  1. `LNK2001: Nicht aufgelöstes externes Symbol "PyInit__C"` →
-     Die Erweiterung meldet ihre Funktionen nur über `TORCH_LIBRARY`
-     an und hat gar keine Python-Modul-Startfunktion. Unter Linux
-     stört das nicht, der Windows-Linker bekommt von setuptools aber
-     `/EXPORT:PyInit__C` mitgegeben und sucht sie. Abhilfe ist der
-     Mini-Baustein aus der PyTorch-Anleitung zu eigenen Operatoren,
-     ans Ende von `uv_unwrapper/…/csrc/unwrapper.cpp` bzw.
-     `texture_baker/…/csrc/baker.cpp`:
+  „Kopieren".
 
-     ```cpp
-     #ifdef _WIN32
-     #include <Python.h>
-     extern "C" {
-     PyObject *PyInit__C(void) {
-       static struct PyModuleDef module_def = {
-           PyModuleDef_HEAD_INIT, "_C", NULL, -1,
-           NULL, NULL, NULL, NULL, NULL, };
-       return PyModule_Create(&module_def);
-     }
-     }
-     #endif
-     ```
+  Fast immer haben zwei auffällige Meldungen dieselbe Wurzel:
 
+  1. `LNK2001: Nicht aufgelöstes externes Symbol "PyInit__C"`
   2. `"blockIdx": nichtdeklarierter Bezeichner` / `Syntaxfehler: "<"`
-     in einer `.cu`-Datei → weiter oben im Protokoll steht dann
-     „Attempted to use ninja as the BuildExtension backend but we
-     could not find ninja". Ohne **ninja** fällt PyTorch auf den alten
-     distutils-Weg zurück und schickt die CUDA-Dateien an `cl.exe`
-     statt an `nvcc`; der MSVC kennt CUDA-Syntax nicht. Abhilfe:
+     in einer `.cu`-Datei
 
-     ```powershell
-     pip install ninja
-     ```
+  Die Ursache steht weiter oben im Protokoll: „Attempted to use ninja
+  as the BuildExtension backend but we could not find ninja. Falling
+  back to using the slow distutils backend." Ohne **ninja** nimmt
+  PyTorch unter Windows den alten distutils-Weg, und der macht zwei
+  Dinge falsch: Er schickt die CUDA-Dateien an `cl.exe` statt an
+  `nvcc` (daher `blockIdx`), und er lässt beim Übersetzen
+  `-DTORCH_EXTENSION_NAME=_C` weg. Aus
+  `PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)` in `unwrapper.cpp` bzw.
+  `baker.cpp` wird dann `PyInit_TORCH_EXTENSION_NAME` – der Linker
+  sucht aber `PyInit__C` und findet nichts. Mit ninja stimmt beides.
 
-     Passen CUDA- und MSVC-Version nicht zusammen (CUDA 12.4 mit
-     MSVC 14.40+), zusätzlich
-     `$env:NVCC_PREPEND_FLAGS = "-allow-unsupported-compiler"`.
+  Die Tücke dabei: `pip install ninja` allein genügt nicht. `ninja.exe`
+  landet in `<Zielordner>\.venv\Scripts`, und wer – wie der Assistent –
+  `.venv\Scripts\python.exe` direkt aufruft, ohne die Umgebung zu
+  aktivieren, hat dieses Verzeichnis nicht im Suchpfad. PyTorch sucht
+  `ninja` genau dort, im PATH des Kindprozesses. Von Hand also:
+
+  ```powershell
+  cd C:\KI\SF3D
+  .\.venv\Scripts\Activate.ps1     # setzt den Suchpfad
+  pip install ninja
+  ninja --version                  # muss eine Zahl ausgeben
+  $env:CL = "/std:c++17 /openmp"
+  $env:NVCC_PREPEND_FLAGS = "-allow-unsupported-compiler"
+  pip install -r requirements.txt --no-build-isolation
+  ```
+
+  Der Assistent setzt den PATH inzwischen selbst und meldet vor dem
+  Bauen „ninja ist für PyTorch sichtbar". Steht dort stattdessen eine
+  Warnung, bricht der Bau später an einer der beiden Meldungen ab.
+
+  Fehlt einer Erweiterung die Modul-Startfunktion wirklich (kein
+  `PYBIND11_MODULE`, nur `TORCH_LIBRARY`), hängt der Assistent den
+  Mini-Baustein aus der PyTorch-Anleitung zu eigenen Operatoren ans
+  Ende der Quelldatei:
+
+  ```cpp
+  #ifdef _WIN32
+  #include <Python.h>
+  extern "C" {
+  PyObject *PyInit__C(void) {
+    static struct PyModuleDef module_def = {
+        PyModuleDef_HEAD_INIT, "_C", NULL, -1,
+        NULL, NULL, NULL, NULL, NULL, };
+    return PyModule_Create(&module_def);
+  }
+  }
+  #endif
+  ```
+
+  Bei SF3D und SPAR3D ist das nicht nötig – dort steht die Zeile
+  `PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}` bereits im Quellcode.
 
   Hintergrund: SF3D und SPAR3D werden vom Projekt selbst nur unter
   Linux gebaut – die `setup.py` beider C++-Teile kennt ausschließlich
