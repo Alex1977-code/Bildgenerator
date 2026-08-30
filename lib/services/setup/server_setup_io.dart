@@ -148,6 +148,8 @@ Stream<String> installServer({
   required String shimUrl,
   required String requirementsUrl,
   required String pythonExe,
+  String backend = 'sf3d',
+  String repoUrl = 'https://github.com/Stability-AI/stable-fast-3d.git',
 }) async* {
   final dir = Directory(targetDir);
   final parent = dir.parent;
@@ -156,18 +158,19 @@ Stream<String> installServer({
     parent.createSync(recursive: true);
   }
 
-  if (Directory('$targetDir${Platform.pathSeparator}tsr').existsSync()) {
-    yield '# TripoSR ist bereits vorhanden – überspringe das Klonen.';
+  // Paketordner des jeweiligen Modells – daran erkennen wir, ob das
+  // Repository schon geholt wurde.
+  final packageDir = switch (backend) {
+    'triposr' => 'tsr',
+    'spar3d' => 'spar3d',
+    _ => 'sf3d',
+  };
+  if (Directory('$targetDir${Platform.pathSeparator}$packageDir')
+      .existsSync()) {
+    yield '# Das Modell ist bereits vorhanden – überspringe das Klonen.';
   } else {
-    yield '# 1/6 TripoSR wird geladen (~37 MB)';
-    yield* _run(
-      'git',
-      [
-        'clone',
-        'https://github.com/VAST-AI-Research/TripoSR.git',
-        targetDir,
-      ],
-    );
+    yield '# 1/6 Modell-Quellcode wird geladen';
+    yield* _run('git', ['clone', repoUrl, targetDir]);
   }
 
   final venvPython = _venvPython(targetDir);
@@ -195,34 +198,56 @@ Stream<String> installServer({
 
   yield '# 4/6 Hilfsdateien werden geladen';
   final sep = Platform.pathSeparator;
-  await _download(shimUrl, File('$targetDir${sep}torchmcubes.py'));
-  yield 'torchmcubes.py (CPU-Ersatz, kein CUDA-Toolkit nötig)';
-  await _download(
-      requirementsUrl, File('$targetDir${sep}requirements-triposr.txt'));
-  yield 'requirements-triposr.txt';
+  const listName = 'requirements-server.txt';
+  if (backend == 'triposr') {
+    // Nur TripoSR baut torchmcubes und braucht deshalb den CPU-Ersatz.
+    await _download(shimUrl, File('$targetDir${sep}torchmcubes.py'));
+    yield 'torchmcubes.py (CPU-Ersatz, kein CUDA-Toolkit nötig)';
+  }
+  await _download(requirementsUrl, File('$targetDir$sep$listName'));
+  yield listName;
   await _download(serverScriptUrl, File('$targetDir${sep}local3d_server.py'));
   yield 'local3d_server.py';
 
   yield '# 5/6 Restliche Pakete werden installiert (~1 GB)';
+  if (backend != 'triposr') {
+    // SF3D und SPAR3D bringen eine eigene Liste mit.
+    if (File('$targetDir${sep}requirements.txt').existsSync()) {
+      yield* _run(
+        venvPython,
+        ['-m', 'pip', 'install', '-r', 'requirements.txt'],
+        workingDirectory: targetDir,
+      );
+    }
+  }
   yield* _run(
     venvPython,
-    ['-m', 'pip', 'install', '-r', 'requirements-triposr.txt'],
+    ['-m', 'pip', 'install', '-r', listName],
     workingDirectory: targetDir,
   );
 
   yield '# 6/6 Installation wird geprüft';
+  final needed = backend == 'triposr'
+      ? "['numpy','PIL','torch','torchmcubes','transformers','trimesh',"
+          "'omegaconf','einops','rembg','skimage']"
+      : "['numpy','PIL','torch','trimesh','rembg','$packageDir']";
   yield* _run(
     venvPython,
     [
       '-c',
-      "import importlib.util as u; miss=[m for m in "
-          "['numpy','PIL','torch','torchmcubes','transformers','trimesh',"
-          "'omegaconf','einops','rembg','skimage'] if not u.find_spec(m)]; "
+      'import importlib.util as u; miss=[m for m in $needed '
+          'if not u.find_spec(m)]; '
           "print('FEHLT: '+', '.join(miss) if miss else "
           "'Alle Pakete vorhanden.')",
     ],
     workingDirectory: targetDir,
   );
+  if (backend != 'triposr') {
+    yield '# Hinweis: Die Modellgewichte sind auf Hugging Face '
+        'freigabepflichtig. Einmalig die Lizenz auf der Modellseite '
+        'bestätigen und in dieser Umgebung "huggingface-cli login" '
+        'ausführen, sonst schlägt der erste Lauf fehl.';
+  }
   yield '# Fertig. Der Server kann jetzt gestartet werden.';
 }
 
@@ -232,6 +257,7 @@ Stream<String> installServer({
 Future<String> startServer({
   required String targetDir,
   required int port,
+  String backend = 'sf3d',
 }) async {
   final venvPython = _venvPython(targetDir);
   if (!File(venvPython).existsSync()) {
@@ -240,7 +266,7 @@ Future<String> startServer({
   }
   await Process.start(
     venvPython,
-    ['local3d_server.py', '--backend', 'triposr', '--port', '$port'],
+    ['local3d_server.py', '--backend', backend, '--port', '$port'],
     workingDirectory: targetDir,
     mode: ProcessStartMode.detached,
   );

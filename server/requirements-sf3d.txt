@@ -1,0 +1,20 @@
+# Pakete für den 3DGenerator-Server mit SF3D (Stable Fast 3D) bzw.
+# SPAR3D. Die Modelle bringen ihre eigene requirements.txt mit – diese
+# Liste ergänzt nur, was der Server zusätzlich braucht.
+#
+# PyTorch vorher separat mit CUDA installieren:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# WICHTIG: Beide Modelle sind auf Hugging Face zugriffsbeschränkt.
+# Einmalig die Lizenz auf der Modellseite bestätigen
+# (huggingface.co/stabilityai/stable-fast-3d bzw. .../spar3d) und
+# danach in der aktiven Umgebung "huggingface-cli login" ausführen.
+
+rembg
+onnxruntime
+huggingface-hub
+
+# Der Server selbst
+fastapi
+uvicorn
+pydantic

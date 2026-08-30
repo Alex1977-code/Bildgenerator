@@ -12,6 +12,8 @@ Stream<String> installServer({
   required String shimUrl,
   required String requirementsUrl,
   required String pythonExe,
+  String backend = 'sf3d',
+  String repoUrl = '',
 }) async* {
   throw UnsupportedError('Nur in der Desktop-App verfügbar.');
 }
@@ -19,6 +21,7 @@ Stream<String> installServer({
 Future<String> startServer({
   required String targetDir,
   required int port,
+  String backend = 'sf3d',
 }) async =>
     throw UnsupportedError('Nur in der Desktop-App verfügbar.');
 

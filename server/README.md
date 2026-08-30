@@ -11,10 +11,25 @@ Beide Modelle sind **MIT-lizenziert** und damit auch in der EU ohne
 Einschränkungen nutzbar (anders als z. B. Hunyuan3D 2.1 zum
 Selbst-Hosten, dessen Community-Lizenz die EU ausschließt).
 
-| Backend | Qualität | Tempo | VRAM | Installation |
+| Backend | Qualität | VRAM | Besonderheit | Lizenz |
 |---|---|---|---|---|
-| **TripoSR** (empfohlen zum Start) | solide | Sekunden | ~4–6 GB | einfach |
-| **TRELLIS** | deutlich besser (Textur!) | 1–3 Min. | ~12–16 GB | aufwendig |
+| **TripoSR** | solide, Vertex-Farben | ~4–6 GB | Sekunden; optional Textur-Backen | MIT |
+| **SF3D** (Empfehlung) | gut, echte UV-Textur | ~6 GB | dasselbe Modell wie Stabilitys „Fast 3D"-API | Community (frei < 1 Mio. US-$) |
+| **SPAR3D** | sehr gut, UV-Textur | ~7–10,5 GB | beste Rückseiten-Rekonstruktion | Community |
+| **TRELLIS** | am besten | ~12–16 GB | **Multiview**: wertet mehrere Ansichten gemeinsam aus; Windows nur über WSL2 | MIT |
+
+SF3D und SPAR3D sind auf Hugging Face freigabepflichtig: einmalig die
+Lizenz auf der Modellseite bestätigen und `huggingface-cli login`
+ausführen.
+
+Nicht dabei ist **Hunyuan3D**: Dessen Community-Lizenz schließt die EU,
+Großbritannien und Südkorea vom Selbst-Hosten aus. Über fal.ai oder
+Replicate ist es dagegen ganz normal nutzbar.
+
+Der Server meldet unter `/health`, was das laufende Modell kann
+(`multiview`, `texture_resolution`, `remesh`, `target_count`,
+`resolution`, `bake_texture`) – die App blendet genau die passenden
+Bedienelemente ein.
 
 ## Der bequeme Weg: Assistent in der App
 
@@ -22,7 +37,9 @@ Die Windows-, Linux- und macOS-App bringt die Einrichtung fertig mit:
 **Einstellungen → Eigener 3D-Server → „Einrichtungs-Assistent"**. Er
 prüft Python 3.11, Git und die GPU, zeigt vorab, was installiert wird,
 erledigt alle Schritte mit Live-Protokoll und startet den Server. Die
-Anleitung unten ist der Weg von Hand – nötig nur für TRELLIS oder wenn
+Er lässt auch das Modell wählen (TripoSR, SF3D, SPAR3D, TRELLIS) und
+gleicht den VRAM-Bedarf mit der erkannten Karte ab. Die Anleitung unten
+ist der Weg von Hand – nötig nur für TRELLIS unter Windows oder wenn
 etwas schiefgeht.
 
 ## Voraussetzungen

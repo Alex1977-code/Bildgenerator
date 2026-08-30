@@ -51,6 +51,16 @@ class SelfHostService {
     return 'Server-Fehler (${response.statusCode}): $detail';
   }
 
+  /// Was das laufende Backend kann (z. B. 'multiview',
+  /// 'texture_resolution', 'remesh', 'target_count',
+  /// 'resolution', 'bake_texture') – der 3D-Tab blendet danach
+  /// seine Bedienelemente ein. Wird von [health] gefüllt.
+  static List<String> lastCapabilities = const [];
+
+  /// Name des laufenden Backends (triposr, sf3d, spar3d,
+  /// trellis).
+  static String lastBackend = '';
+
   /// Fragt den /health-Endpunkt ab und liefert eine Kurzinfo,
   /// z. B. „triposr auf cuda (NVIDIA GeForce RTX 4070)“.
   Future<String> health() async {
@@ -67,7 +77,12 @@ class SelfHostService {
     }
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      return '${json['backend']} auf ${json['device']}';
+      lastBackend = json['backend']?.toString() ?? '';
+      lastCapabilities = [
+        for (final c in (json['capabilities'] as List?) ?? [])
+          c.toString(),
+      ];
+      return '$lastBackend auf ${json['device']}';
     } catch (_) {
       return 'erreichbar';
     }
@@ -79,6 +94,12 @@ class SelfHostService {
     required Uint8List imageBytes,
     required String mimeType,
     required void Function(String stage) onProgress,
+    List<(Uint8List, String)> extraViews = const [],
+    int? textureResolution,
+    String? remesh,
+    int? targetCount,
+    int? resolution,
+    bool? bakeTexture,
   }) async {
     onProgress('3D-Modell wird auf dem eigenen Server berechnet …');
     http.Response response;
@@ -90,6 +111,19 @@ class SelfHostService {
             body: jsonEncode({
               'image': base64Encode(imageBytes),
               'mime_type': mimeType,
+              // Weitere Ansichten nutzt nur ein Backend mit
+              // „multiview"; die anderen ignorieren sie.
+              if (extraViews.isNotEmpty)
+                'images': [
+                  for (final (bytes, _) in extraViews)
+                    base64Encode(bytes),
+                ],
+              'texture_resolution': ?textureResolution,
+              if (remesh != null && remesh.isNotEmpty) 'remesh': remesh,
+              if (targetCount != null && targetCount > 0)
+                'target_count': targetCount,
+              'resolution': ?resolution,
+              'bake_texture': ?bakeTexture,
             }),
           )
           .timeout(const Duration(minutes: 15));

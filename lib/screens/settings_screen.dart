@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform,
+    TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -468,6 +470,18 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   final List<String> _log = [];
 
   Map<String, String?>? _prereq;
+  String _backend = 'sf3d';
+
+  /// Grafikspeicher der erkannten Karte in GB (aus nvidia-smi, z. B.
+  /// „NVIDIA GeForce RTX 3070, 8192 MiB"). Null = unbekannt.
+  double? get _gpuMemoryGb {
+    final gpu = _prereq?['gpu'];
+    if (gpu == null) return null;
+    final match = RegExp(r'(\d+)\s*MiB').firstMatch(gpu);
+    if (match == null) return null;
+    return int.parse(match.group(1)!) / 1024.0;
+  }
+
   bool _checking = true;
   bool _installing = false;
   bool _installed = false;
@@ -521,6 +535,7 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
       await for (final line in setup.installServer(
         targetDir: _dirCtrl.text.trim(),
         pythonExe: pythonExe,
+        backend: _backend,
       )) {
         if (!mounted) return;
         _append(line);
@@ -538,8 +553,8 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
 
   Future<void> _startAndClose() async {
     try {
-      final message =
-          await setup.startServer(targetDir: _dirCtrl.text.trim());
+      final message = await setup.startServer(
+          targetDir: _dirCtrl.text.trim(), backend: _backend);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
@@ -623,6 +638,84 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                 'gewählten Ordner; dein System-Python bleibt unberührt.',
                 style: theme.textTheme.bodySmall,
               ),
+              const SizedBox(height: 16),
+              Text('Modell', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              for (final backend in setup.setupBackends)
+                Builder(builder: (context) {
+                  final fits = _gpuMemoryGb == null ||
+                      _gpuMemoryGb! + 0.5 >= backend.minVramGb;
+                  final onWindows =
+                      defaultTargetPlatform == TargetPlatform.windows;
+                  final blocked = onWindows && !backend.nativeOnWindows;
+                  return RadioMenuButton<String>(
+                    value: backend.id,
+                    groupValue: _backend,
+                    onChanged: (_installing || blocked)
+                        ? null
+                        : (value) => setState(() {
+                              _backend = value ?? _backend;
+                              // Jedes Modell in einen eigenen Ordner,
+                              // damit sie sich nicht überschreiben.
+                              final base = setup.defaultTargetDir();
+                              final cut =
+                                  base.lastIndexOf(RegExp(r'[\\/]'));
+                              _dirCtrl.text = cut < 0
+                                  ? base
+                                  : '${base.substring(0, cut + 1)}'
+                                      '${_backend.toUpperCase()}';
+                            }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '${backend.name} · '
+                                  '${backend.vramLabel}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Abgleich mit der erkannten Karte.
+                              if (_gpuMemoryGb != null)
+                                Icon(
+                                  fits
+                                      ? Icons.check_circle
+                                      : Icons.warning_amber,
+                                  size: 15,
+                                  color: fits
+                                      ? Colors.green.shade600
+                                      : Colors.orange.shade700,
+                                ),
+                            ],
+                          ),
+                          Text(backend.description,
+                              style: theme.textTheme.bodySmall),
+                          if (blocked)
+                            Text(
+                              'Unter Windows nur über WSL2 (Ubuntu) – '
+                              'siehe server/README.md.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.error),
+                            )
+                          else if (!fits)
+                            Text(
+                              'Deine Karte hat '
+                              '${_gpuMemoryGb!.toStringAsFixed(0)} GB – '
+                              'das wird knapp bis unmöglich.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.orange.shade800),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
               const SizedBox(height: 12),
               TextField(
                 controller: _dirCtrl,

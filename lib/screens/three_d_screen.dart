@@ -136,6 +136,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     return custom.isNotEmpty ? custom : _replicateModel;
   }
 
+  /// Eigener Server: Qualitäts-Optionen, die das laufende Backend
+  /// laut /health unterstützt (siehe SelfHostService.lastCapabilities).
+  int _serverTextureRes = 1024;
+  String _serverRemesh = 'none';
+  int _serverTargetCount = 0;
+  int _serverResolution = 256;
+  bool _serverBakeTexture = true;
+
   /// Rodin (Hyper3D): Generation/Tier ('' = API-Vorgabe),
   /// Quad-Topologie (Standard – ideal für Game-Assets) und optionale
   /// Ziel-Polygonzahl (0 = API-Vorgabe).
@@ -1437,10 +1445,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (source == null) {
       throw GenerationException('Keine Vorderansicht vorhanden.');
     }
+    final can = SelfHostService.lastCapabilities;
     var glb = await service.generateModel(
       imageBytes: source.bytes,
       mimeType: source.mimeType,
       onProgress: progress,
+      // Nur Backends mit „multiview" werten weitere Ansichten aus.
+      extraViews: can.contains('multiview')
+          ? [for (final view in _extraViews) (view.bytes, view.mimeType)]
+          : const [],
+      textureResolution:
+          can.contains('texture_resolution') ? _serverTextureRes : null,
+      remesh: can.contains('remesh') ? _serverRemesh : null,
+      targetCount:
+          can.contains('target_count') ? _serverTargetCount : null,
+      resolution: can.contains('resolution') ? _serverResolution : null,
+      bakeTexture:
+          can.contains('bake_texture') ? _serverBakeTexture : null,
     );
     if (cancelled()) throw GenerationException('Abgebrochen.');
     // Wie bei fal.ai: Ausrichtung je nach Backend unterschiedlich –
@@ -2528,10 +2549,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       _viewsFromText) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
-                      final showAllViews = !isStability &&
-                          !isFal &&
-                          !isSelfHost &&
-                          !isReplicate;
+                      // Der eigene Server zeigt alle vier Kacheln,
+                      // sobald das Backend Multiview beherrscht.
+                      final serverMultiview = isSelfHost &&
+                          SelfHostService.lastCapabilities
+                              .contains('multiview');
+                      final showAllViews = (!isStability &&
+                              !isFal &&
+                              !isSelfHost &&
+                              !isReplicate) ||
+                          serverMultiview;
                       return Wrap(
                         spacing: 10,
                         runSpacing: 8,
@@ -2561,10 +2588,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   _promptHelp(theme, mode: 'images'),
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
-                    final showAllViews = !isStability &&
-                        !isFal &&
-                        !isSelfHost &&
-                        !isReplicate;
+                    final serverMultiview = isSelfHost &&
+                        SelfHostService.lastCapabilities
+                            .contains('multiview');
+                    final showAllViews = (!isStability &&
+                            !isFal &&
+                            !isSelfHost &&
+                            !isReplicate) ||
+                        serverMultiview;
                     return Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -2784,15 +2815,176 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ),
                         const SizedBox(height: 12),
                       ] else if (isSelfHost) ...[
-                        Text(
-                          'Das 3D-Modell bestimmt dein Server beim '
-                          'Start (--backend triposr oder trellis). '
-                          'Adresse: '
-                          '${settings.selfHostUrl.trim().isEmpty ? 'noch nicht eingetragen' : settings.selfHostUrl} '
-                          '– änderbar in den Einstellungen '
-                          '(dort auch „Speichern & testen“).',
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        Builder(builder: (context) {
+                          final backend = SelfHostService.lastBackend;
+                          final can = SelfHostService.lastCapabilities;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                backend.isEmpty
+                                    ? 'Das Modell bestimmt dein Server '
+                                        'beim Start. Adresse: '
+                                        '${settings.selfHostUrl.trim().isEmpty ? 'noch nicht eingetragen' : settings.selfHostUrl} '
+                                        '– in den Einstellungen auf '
+                                        '„Speichern & testen“ tippen, '
+                                        'dann erscheinen hier die '
+                                        'passenden Optionen.'
+                                    : 'Läuft: $backend auf '
+                                        '${settings.selfHostUrl}. Die '
+                                        'folgenden Optionen meldet '
+                                        'dieses Modell selbst.',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                              if (can.contains('multiview')) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Dieses Modell wertet mehrere '
+                                  'Ansichten gemeinsam aus – die '
+                                  'Kacheln für links/rechts/hinten '
+                                  'sind deshalb oben freigeschaltet.',
+                                  style: theme.textTheme.bodySmall
+                                      ?.copyWith(
+                                          color:
+                                              theme.colorScheme.primary),
+                                ),
+                              ],
+                              if (can.contains('texture_resolution')) ...[
+                                const SizedBox(height: 12),
+                                DropdownMenu<int>(
+                                  key: ValueKey(
+                                      'srvtex-$_serverTextureRes'),
+                                  enabled: !_running,
+                                  initialSelection: _serverTextureRes,
+                                  label: const Text('Textur-Auflösung'),
+                                  expandedInsets: EdgeInsets.zero,
+                                  dropdownMenuEntries: const [
+                                    DropdownMenuEntry(
+                                        value: 512, label: '512 px'),
+                                    DropdownMenuEntry(
+                                        value: 1024,
+                                        label: '1024 px (Standard)'),
+                                    DropdownMenuEntry(
+                                        value: 2048,
+                                        label: '2048 px (am schärfsten)'),
+                                  ],
+                                  onSelected: (value) {
+                                    if (value != null) {
+                                      setState(() =>
+                                          _serverTextureRes = value);
+                                    }
+                                  },
+                                ),
+                              ],
+                              if (can.contains('remesh')) ...[
+                                const SizedBox(height: 12),
+                                DropdownMenu<String>(
+                                  key:
+                                      ValueKey('srvremesh-$_serverRemesh'),
+                                  enabled: !_running,
+                                  initialSelection: _serverRemesh,
+                                  label: const Text('Polygonform'),
+                                  expandedInsets: EdgeInsets.zero,
+                                  dropdownMenuEntries: const [
+                                    DropdownMenuEntry(
+                                        value: 'none',
+                                        label: 'Original (Standard)'),
+                                    DropdownMenuEntry(
+                                        value: 'quad',
+                                        label: 'Vierecke (Quads)'),
+                                    DropdownMenuEntry(
+                                        value: 'triangle',
+                                        label: 'Dreiecke, neu vernetzt'),
+                                  ],
+                                  onSelected: (value) {
+                                    if (value != null) {
+                                      setState(
+                                          () => _serverRemesh = value);
+                                    }
+                                  },
+                                ),
+                              ],
+                              if (can.contains('target_count')) ...[
+                                const SizedBox(height: 12),
+                                DropdownMenu<int>(
+                                  key: ValueKey(
+                                      'srvpoly-$_serverTargetCount'),
+                                  enabled: !_running,
+                                  initialSelection: _serverTargetCount,
+                                  label: const Text('Polygonzahl'),
+                                  expandedInsets: EdgeInsets.zero,
+                                  dropdownMenuEntries: const [
+                                    DropdownMenuEntry(
+                                        value: 0,
+                                        label: 'Maximum (Standard)'),
+                                    DropdownMenuEntry(
+                                        value: 30000,
+                                        label: '≈ 30.000 (hoch)'),
+                                    DropdownMenuEntry(
+                                        value: 10000,
+                                        label: '≈ 10.000 (Spiele/AR)'),
+                                    DropdownMenuEntry(
+                                        value: 4000,
+                                        label: '≈ 4.000 (sehr schlank)'),
+                                  ],
+                                  onSelected: (value) {
+                                    if (value != null) {
+                                      setState(() =>
+                                          _serverTargetCount = value);
+                                    }
+                                  },
+                                ),
+                              ],
+                              if (can.contains('resolution')) ...[
+                                const SizedBox(height: 12),
+                                DropdownMenu<int>(
+                                  key:
+                                      ValueKey('srvres-$_serverResolution'),
+                                  enabled: !_running,
+                                  initialSelection: _serverResolution,
+                                  label: const Text(
+                                      'Detailgrad (Schnitz-Raster)'),
+                                  expandedInsets: EdgeInsets.zero,
+                                  dropdownMenuEntries: const [
+                                    DropdownMenuEntry(
+                                        value: 256,
+                                        label: '256 (Standard)'),
+                                    DropdownMenuEntry(
+                                        value: 320,
+                                        label: '320 (feiner)'),
+                                    DropdownMenuEntry(
+                                        value: 384,
+                                        label:
+                                            '384 (am feinsten, langsamer)'),
+                                  ],
+                                  onSelected: (value) {
+                                    if (value != null) {
+                                      setState(() =>
+                                          _serverResolution = value);
+                                    }
+                                  },
+                                ),
+                              ],
+                              if (can.contains('bake_texture'))
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text(
+                                      'Textur backen statt Vertex-Farben'),
+                                  subtitle: const Text(
+                                      'Erzeugt eine echte UV-Textur – die '
+                                      'Farbschärfe hängt dann nicht mehr '
+                                      'an der Netzdichte. Braucht die '
+                                      'Pakete xatlas und moderngl im '
+                                      'Server.'),
+                                  value: _serverBakeTexture,
+                                  onChanged: _running
+                                      ? null
+                                      : (v) => setState(
+                                          () => _serverBakeTexture = v),
+                                ),
+                            ],
+                          );
+                        }),
                         const SizedBox(height: 12),
                       ] else if (isFal) ...[
                         DropdownMenu<String>(

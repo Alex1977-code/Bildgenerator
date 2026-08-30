@@ -13,14 +13,89 @@ const _rawBase = 'https://raw.githubusercontent.com/Alex1977-code/'
 const serverScriptUrl = '$_rawBase/local3d_server.py';
 const shimUrl = '$_rawBase/shim/torchmcubes.py';
 const requirementsUrl = '$_rawBase/requirements-triposr.txt';
+const sf3dRequirementsUrl = '$_rawBase/requirements-sf3d.txt';
+
+/// Wählbare Backends für den Assistenten. [minVramGb] ist der grob
+/// nötige Grafikspeicher – der Assistent gleicht ihn mit der erkannten
+/// Karte ab. [nativeOnWindows] ist false, wenn das Projekt nur unter
+/// Linux/WSL2 sauber baut.
+class SetupBackend {
+  const SetupBackend({
+    required this.id,
+    required this.name,
+    required this.repoUrl,
+    required this.description,
+    required this.vramLabel,
+    required this.minVramGb,
+    this.nativeOnWindows = true,
+  });
+
+  final String id;
+  final String name;
+  final String repoUrl;
+  final String description;
+  final String vramLabel;
+  final double minVramGb;
+  final bool nativeOnWindows;
+}
+
+/// Von sparsam nach anspruchsvoll sortiert – so findet jeder Rechner
+/// sein passendes Modell.
+const setupBackends = <SetupBackend>[
+  SetupBackend(
+    id: 'triposr',
+    name: 'TripoSR – am schnellsten',
+    repoUrl: 'https://github.com/VAST-AI-Research/TripoSR.git',
+    description: 'Ergebnisse in Sekunden, gröber und mit Vertex-Farben. '
+        'Gut zum schnellen Prüfen von Silhouette und Ansicht. '
+        'MIT-Lizenz.',
+    vramLabel: 'ca. 4–6 GB',
+    minVramGb: 4,
+  ),
+  SetupBackend(
+    id: 'sf3d',
+    name: 'SF3D – Stable Fast 3D (empfohlen)',
+    repoUrl: 'https://github.com/Stability-AI/stable-fast-3d.git',
+    description: 'Echte UV-Textur statt Vertex-Farben – dasselbe '
+        'Modell, das Stability über die API kostenpflichtig anbietet. '
+        'Deutlich schärfer als TripoSR. Community-Lizenz: frei bis '
+        '1 Mio. US-\$ Jahresumsatz; die Gewichte brauchen einmalig '
+        'eine Freigabe auf Hugging Face.',
+    vramLabel: 'ca. 6 GB',
+    minVramGb: 6,
+  ),
+  SetupBackend(
+    id: 'spar3d',
+    name: 'SPAR3D – Stable Point Aware 3D',
+    repoUrl: 'https://github.com/Stability-AI/stable-point-aware-3d.git',
+    description: 'Die stärkste Stability-Variante: rekonstruiert '
+        'Rückseite und Hohlräume am besten, mit UV-Textur. Gleiche '
+        'Community-Lizenz und Hugging-Face-Freigabe wie SF3D.',
+    vramLabel: 'ca. 7–10,5 GB',
+    minVramGb: 7,
+  ),
+  SetupBackend(
+    id: 'trellis',
+    name: 'TRELLIS – beste Qualität, mit Multiview',
+    repoUrl: 'https://github.com/microsoft/TRELLIS.git',
+    description: 'Microsofts Spitzenmodell (MIT): die schärfsten '
+        'Texturen und als einziges hier fähig, mehrere Ansichten '
+        'desselben Objekts gemeinsam auszuwerten. Aufwendige '
+        'Installation – unter Windows nur über WSL2 (Ubuntu), weil '
+        'das Projekt ein Bash-Setup mit CUDA-Bausteinen nutzt.',
+    vramLabel: 'ca. 12–16 GB',
+    minVramGb: 12,
+    nativeOnWindows: false,
+  ),
+];
 
 /// Die Schritte, die der Assistent ausführt – für die Übersicht vor
 /// dem Start: (Titel, Beschreibung, ungefähre Größe).
 const setupSteps = <(String, String, String)>[
   (
-    'TripoSR laden',
-    'Quellcode des Open-Source-Modells von GitHub (MIT-Lizenz)',
-    '37 MB'
+    'Modell-Quellcode laden',
+    'Repository des gewählten Modells von GitHub',
+    '~40 MB'
   ),
   (
     'Python-Umgebung anlegen',
@@ -28,27 +103,19 @@ const setupSteps = <(String, String, String)>[
         'unberührt',
     '—'
   ),
-  (
-    'PyTorch mit CUDA',
-    'Rechen-Bibliothek für die NVIDIA-GPU',
-    '2,4 GB'
-  ),
+  ('PyTorch mit CUDA', 'Rechen-Bibliothek für die NVIDIA-GPU', '2,4 GB'),
   (
     'Hilfsdateien',
-    'Server-Skript und CPU-Ersatz für torchmcubes (spart das '
-        'CUDA-Toolkit)',
+    'Server-Skript, Paketliste und (bei TripoSR) der CPU-Ersatz für '
+        'torchmcubes, der das CUDA-Toolkit erspart',
     '< 1 MB'
   ),
   (
     'Restliche Pakete',
-    'transformers, trimesh, rembg, scikit-image …',
+    'Abhängigkeiten des Modells (transformers, trimesh, rembg …)',
     '≈ 1 GB'
   ),
-  (
-    'Prüfen',
-    'Kontrolle, dass wirklich alles installiert ist',
-    '—'
-  ),
+  ('Prüfen', 'Kontrolle, dass wirklich alles installiert ist', '—'),
 ];
 
 bool get setupSupported => impl.setupSupported;
@@ -68,14 +135,26 @@ Future<List<String>> pythonCandidates() => impl.pythonCandidates();
 Stream<String> installServer({
   required String targetDir,
   required String pythonExe,
+  String backend = 'sf3d',
 }) =>
     impl.installServer(
       targetDir: targetDir,
       serverScriptUrl: serverScriptUrl,
       shimUrl: shimUrl,
-      requirementsUrl: requirementsUrl,
+      requirementsUrl:
+          backend == 'triposr' ? requirementsUrl : sf3dRequirementsUrl,
       pythonExe: pythonExe,
+      backend: backend,
+      repoUrl: setupBackends
+          .firstWhere((b) => b.id == backend,
+              orElse: () => setupBackends.first)
+          .repoUrl,
     );
 
-Future<String> startServer({required String targetDir, int port = 8765}) =>
-    impl.startServer(targetDir: targetDir, port: port);
+Future<String> startServer({
+  required String targetDir,
+  int port = 8765,
+  String backend = 'sf3d',
+}) =>
+    impl.startServer(
+        targetDir: targetDir, port: port, backend: backend);

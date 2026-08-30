@@ -47,6 +47,16 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     etwas fehlt), zeigt vorab jeden Schritt samt Downloadgröße, führt
     die komplette Installation mit Live-Protokoll aus und startet den
     Server anschließend – die Adresse trägt sich selbst ein
+  - **Vier lokale Modelle zur Auswahl** – der Assistent gleicht den
+    VRAM-Bedarf mit der erkannten Grafikkarte ab: **TripoSR**
+    (~4–6 GB, Sekunden), **SF3D** (~6 GB, echte UV-Textur – dasselbe
+    Modell wie Stabilitys kostenpflichtige „Fast 3D"-API),
+    **SPAR3D** (~7–10,5 GB, beste Rückseiten-Rekonstruktion) und
+    **TRELLIS** (~12–16 GB, Spitzenqualität mit **Multiview**).
+    Der Server meldet unter `/health`, was er kann – die App blendet
+    genau die passenden Bedienelemente ein: bei Multiview die Kacheln
+    für links/rechts/hinten, sonst Textur-Auflösung, Polygonform,
+    Polygonzahl, Detailgrad oder Textur-Backen
   - **Eigener 3D-Server** als Provider „Server“: Bild→3D komplett auf
     dem eigenen PC mit NVIDIA-GPU – kostenlos, ohne Cloud, alle Daten
     bleiben lokal. Mitgelieferter Python-Server
