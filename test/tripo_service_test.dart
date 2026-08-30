@@ -20,6 +20,63 @@ void main() {
     });
   });
 
+  group('Längengrenzen der Textfelder', () {
+    // Tripo lehnt die ganze Anfrage mit 400 ab, sobald ein Feld zu
+    // lang ist: „negative_prompt exceeds maximum length 255
+    // characters".
+    test('Die Grenzen stehen fest', () {
+      expect(TripoService.maxPromptChars, 1024);
+      expect(TripoService.maxNegativePromptChars, 255);
+    });
+
+    test('Kurze Texte bleiben unverändert', () {
+      expect(TripoService.clipToLimit('low poly, blobby', 255),
+          'low poly, blobby');
+      expect(TripoService.clipToLimit('  Rand  ', 255), 'Rand');
+    });
+
+    test('Eine Stichwortliste wird am letzten Komma gekürzt', () {
+      // 30 Einträge à 8 Zeichen = 240, mit dem 31. über die Grenze.
+      final list = List.generate(40, (i) => 'begriff$i').join(', ');
+      final clipped = TripoService.clipToLimit(list, 255);
+      expect(clipped.length, lessThanOrEqualTo(255));
+      // Kein abgeschnittenes Wort am Ende, und kein Komma.
+      expect(clipped.endsWith(','), isFalse);
+      expect(list.startsWith(clipped), isTrue);
+      // Der letzte Eintrag ist vollständig.
+      final last = clipped.split(', ').last;
+      expect(list.split(', '), contains(last));
+    });
+
+    test('Ein Text ohne Kommas wird am Leerzeichen getrennt', () {
+      final words = List.filled(80, 'wort').join(' ');
+      final clipped = TripoService.clipToLimit(words, 255);
+      expect(clipped.length, lessThanOrEqualTo(255));
+      expect(clipped.endsWith('wort'), isTrue);
+    });
+
+    test('Ein einziges überlanges Wort wird hart geschnitten', () {
+      final clipped = TripoService.clipToLimit('a' * 400, 255);
+      expect(clipped.length, 255);
+    });
+
+    test('Der gemeldete Fall bleibt unter der Grenze', () {
+      // Genau die Liste aus dem 400er-Fehler.
+      const real = 'human, person, character, weapon, minion animal, '
+          'holes, open mesh, frayed edges, spread fingers, arms down, '
+          'dynamic pose, cluttered details, text, watermark, low '
+          'quality, blurry, extra limbs, deformed, floating parts, '
+          'base, pedestal, multiple objects, background scenery, '
+          'sharp thin spikes, transparent surfaces';
+      expect(real.length, greaterThan(255));
+      expect(
+          TripoService.clipToLimit(
+                  real, TripoService.maxNegativePromptChars)
+              .length,
+          lessThanOrEqualTo(255));
+    });
+  });
+
   group('Ergebnis-URLs aus der Task-Antwort', () {
     test('V3 nennt model_url, V2 nannte pbr_model', () {
       expect(

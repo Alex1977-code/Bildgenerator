@@ -196,6 +196,27 @@ class TripoService {
   /// zwingend – „Standard" bedeutet dort die bewährte 2.5er-Fassung.
   static const String defaultModelVersion = 'v2.5-20250123';
 
+  /// Längengrenzen der Textfelder laut Tripo. Wird eine überschritten,
+  /// lehnt die API die ganze Anfrage mit 400 ab – deshalb kürzt der
+  /// Dienst selbst, statt den Lauf scheitern zu lassen.
+  static const int maxPromptChars = 1024;
+  static const int maxNegativePromptChars = 255;
+
+  /// Kürzt einen Text auf [max] Zeichen, und zwar an der letzten
+  /// Kommastelle davor. Bei einer Stichwortliste bleibt so eine
+  /// vollständige Liste übrig statt eines abgeschnittenen Worts.
+  static String clipToLimit(String text, int max) {
+    final trimmed = text.trim();
+    if (trimmed.length <= max) return trimmed;
+    final cut = trimmed.substring(0, max);
+    final comma = cut.lastIndexOf(',');
+    // Nur an einem Komma trennen, wenn dabei nicht die halbe Liste
+    // wegfällt.
+    if (comma > max * 0.6) return cut.substring(0, comma).trim();
+    final space = cut.lastIndexOf(' ');
+    return (space > max * 0.6 ? cut.substring(0, space) : cut).trim();
+  }
+
   /// Qualitäts-Optionen, die alle Modell-Endpunkte verstehen.
   Map<String, dynamic> _qualityFields({
     required bool texture,
@@ -231,11 +252,12 @@ class TripoService {
     String? negativePrompt,
   }) =>
       _createTask('/generation/text-to-model', 'text_to_model', {
-        'prompt': prompt,
+        'prompt': clipToLimit(prompt, maxPromptChars),
         'texture': texture,
         'pbr': texture,
-        if (negativePrompt != null && negativePrompt.isNotEmpty)
-          'negative_prompt': negativePrompt,
+        if (negativePrompt != null && negativePrompt.trim().isNotEmpty)
+          'negative_prompt':
+              clipToLimit(negativePrompt, maxNegativePromptChars),
         ..._qualityFields(
           texture: texture,
           modelVersion: modelVersion,

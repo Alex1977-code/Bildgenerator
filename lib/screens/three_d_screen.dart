@@ -3,7 +3,8 @@ import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, MaxLengthEnforcement;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -2487,6 +2488,28 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         ),
       );
 
+  /// Ob der Negativ-Prompt Tripos 255-Zeichen-Grenze reißt.
+  bool get _tripoNegativeTooLong =>
+      _negative3dCtrl.text.trim().length >
+      TripoService.maxNegativePromptChars;
+
+  /// Hinweis unter dem Negativ-Prompt bei Tripo. Zeigt vor dem Start,
+  /// was tatsächlich ankommt – die API lehnt sonst die ganze Anfrage
+  /// mit 400 ab.
+  String _tripoNegativeHint() {
+    if (!_tripoNegativeTooLong) {
+      return 'Was das Modell vermeiden soll. Tripo nimmt höchstens '
+          '${TripoService.maxNegativePromptChars} Zeichen.';
+    }
+    final kept = TripoService.clipToLimit(
+        _negative3dCtrl.text, TripoService.maxNegativePromptChars);
+    final dropped = _negative3dCtrl.text.trim().length - kept.length;
+    return 'Zu lang für Tripo (höchstens '
+        '${TripoService.maxNegativePromptChars} Zeichen). Die App kürzt '
+        'am letzten Komma davor – $dropped Zeichen fallen weg. Das '
+        'Wichtigste nach vorn stellen.';
+  }
+
   /// Baut das Roblox-Paket: Knochen auf R15 umbenennen, dazu die
   /// beiden Skripte, die den Rest abnehmen.
   ///
@@ -3157,15 +3180,29 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: _negative3dCtrl,
-                      decoration: const InputDecoration(
+                      // Tripo lehnt die ganze Anfrage mit 400 ab,
+                      // sobald der Negativ-Prompt über 255 Zeichen
+                      // geht – deshalb hier mitzählen.
+                      onChanged: (_) {
+                        if (isTripo) setState(() {});
+                      },
+                      maxLength: isTripo
+                          ? TripoService.maxNegativePromptChars
+                          : null,
+                      maxLengthEnforcement: MaxLengthEnforcement.none,
+                      decoration: InputDecoration(
                         labelText: 'Negativ-Prompt (optional)',
                         hintText: 'z. B. „low poly, blobby, floating '
                             'parts, base, pedestal“',
-                        helperText:
-                            'Was das Modell vermeiden soll – geht '
-                            'direkt an Meshy/Tripo.',
-                        helperMaxLines: 2,
-                        border: OutlineInputBorder(),
+                        helperText: isTripo
+                            ? _tripoNegativeHint()
+                            : 'Was das Modell vermeiden soll – geht '
+                                'direkt an Meshy/Tripo.',
+                        helperMaxLines: 3,
+                        helperStyle: isTripo && _tripoNegativeTooLong
+                            ? TextStyle(color: Colors.orange.shade800)
+                            : null,
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ],

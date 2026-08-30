@@ -859,6 +859,15 @@ Fehlgeschlagene Aufträge liest die App jetzt genauer aus: V3 liefert
 im Klartext da – **2008** ist eine Ablehnung durch die Inhaltsprüfung,
 **2018** ein in der Warteschlange abgelaufener Auftrag.
 
+**Längengrenzen.** Tripo lehnt die ganze Anfrage mit `400` ab, sobald
+ein Textfeld zu lang ist: der Prompt fasst **1024**, der
+Negativ-Prompt nur **255 Zeichen**. Die App kürzt deshalb selbst, und
+zwar am letzten Komma vor der Grenze – aus einer Stichwortliste bleibt
+so eine vollständige Liste übrig statt eines abgeschnittenen Worts.
+Beim Negativ-Prompt zählt das Feld im 3D-Tab live mit und sagt vorher,
+wie viele Zeichen wegfallen würden. Das Wichtigste gehört deshalb nach
+vorn.
+
 > **Hinweis zur Quelle.** Die offizielle Tripo-Dokumentation war aus der
 > Entwicklungsumgebung nicht erreichbar (Netzwerksperre). Die
 > Feldnamen stammen deshalb aus einem öffentlich gepflegten
