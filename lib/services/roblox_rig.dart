@@ -771,6 +771,9 @@ class RobloxPrepareReport {
     required this.flattenedRotations,
     required this.flattenedScales,
     required this.unweightedVertices,
+    required this.scale,
+    required this.heightStuds,
+    required this.hipStuds,
     required this.shift,
     required this.turnedDegrees,
     required this.notes,
@@ -790,6 +793,18 @@ class RobloxPrepareReport {
   /// Wie viele Vertices dem Wurzelknochen abgenommen wurden.
   final int unweightedVertices;
 
+  /// Mit welchem Faktor das Modell auf Roblox-Maß gebracht wurde
+  /// (1 = unverändert).
+  final double scale;
+
+  /// Höhe der fertigen Figur in Studs – der Importer liest eine
+  /// Datei-Einheit als einen Stud.
+  final double heightStuds;
+
+  /// Höhe des Hüftgelenks in Studs. Daraus ergibt sich der Startwert
+  /// für die Hip Height im Studio-Skript.
+  final double hipStuds;
+
   /// Um wie viel das ganze Modell verschoben wurde, damit der
   /// Wurzelknochen im Ursprung sitzt.
   final List<double> shift;
@@ -805,6 +820,7 @@ class RobloxPrepareReport {
       flattenedRotations > 0 ||
       flattenedScales > 0 ||
       unweightedVertices > 0 ||
+      (scale - 1).abs() > 1e-6 ||
       moved ||
       turnedDegrees != 0 ||
       rig.renamed.isNotEmpty ||
@@ -828,6 +844,7 @@ RobloxPrepareResult prepareRigForRoblox(
   bool rootToOrigin = true,
   bool faceFront = true,
   bool unweightRoot = true,
+  double targetStuds = 0,
 }) {
   final named = renameBonesToR15(glb);
   final parts = splitGlb(named.glb);
@@ -897,9 +914,22 @@ RobloxPrepareResult prepareRigForRoblox(
         _ => v,
       };
 
+  // Maßstab. Der Roblox-Importer rechnet die Datei zunächst in Meter
+  // um (das erledigt die Scale-Unit-Einstellung) und setzt dann einen
+  // Meter gleich einem Stud. Eine Figur von 1,20 glTF-Einheiten kommt
+  // also 1,2 Studs hoch an – kniehoch neben einem Standard-Charakter
+  // von 5 Studs. Statt das im Importer zu verstellen, bekommt die
+  // Datei gleich die richtige Zahl: Höhe in Einheiten = Höhe in Studs.
+  var scale = 1.0;
+  final heightBefore = _modelHeight(json, bin);
+  if (targetStuds > 0 && heightBefore > 1e-6) {
+    scale = targetStuds / heightBefore;
+  }
+
   // Die Gelenke in ihrer neuen Weltlage.
   final placed = <int, List<double>>{
-    for (final j in joints) j: turn(worldPos(j)),
+    for (final j in joints)
+      j: [for (final v in turn(worldPos(j))) v * scale],
   };
 
   // Verschiebung, damit der Wurzelknochen im Ursprung sitzt.
@@ -930,8 +960,8 @@ RobloxPrepareResult prepareRigForRoblox(
     entry.value[2] += shift[2];
   }
 
-  // Netzdaten mitdrehen und mitverschieben.
-  if (turned != 0 || shift.any((v) => v != 0)) {
+  // Netzdaten mitdrehen, mitskalieren und mitverschieben.
+  if (turned != 0 || scale != 1 || shift.any((v) => v != 0)) {
     final done = <int>{};
     for (final meshRaw in (json['meshes'] as List? ?? const [])) {
       final mesh = meshRaw as Map<String, dynamic>;
@@ -949,7 +979,15 @@ RobloxPrepareResult prepareRigForRoblox(
             // Verschoben wird nur die Lage, nicht die Richtung – und
             // Morph-Ziele sind ohnehin Differenzen.
             final move = key == 'POSITION' && attributes == targets.first;
-            if (!_turnAccessor(json, bin, replace, index, turn,
+            // Normalen und Tangenten bleiben Einheitsvektoren: Eine
+            // gleichmäßige Skalierung ändert ihre Richtung nicht.
+            if (!_turnAccessor(
+                json,
+                bin,
+                replace,
+                index,
+                turn,
+                key == 'POSITION' ? scale : 1.0,
                 move ? shift : const [0.0, 0.0, 0.0])) {
               notes.add('$key liegt in einem Format, das die App nicht '
                   'umschreibt – Drehung und Verschiebung bleiben aus.');
@@ -1033,6 +1071,9 @@ RobloxPrepareResult prepareRigForRoblox(
       flattenedRotations: flattenBones ? rotations : 0,
       flattenedScales: flattenBones ? scales : 0,
       unweightedVertices: unweighted,
+      scale: scale,
+      heightStuds: heightBefore * scale,
+      hipStuds: _hipHeight(nodes, joints, placed),
       shift: shift,
       turnedDegrees: turned,
       notes: [...notes, ...(structure?.notes ?? const [])],
@@ -1078,6 +1119,7 @@ bool _turnAccessor(
   Map<int, Uint8List> replace,
   int index,
   List<double> Function(List<double>) turn,
+  double scale,
   List<double> shift,
 ) {
   final acc = (json['accessors'] as List)[index] as Map<String, dynamic>;
@@ -1092,9 +1134,9 @@ bool _turnAccessor(
   for (var i = 0; i < count; i++) {
     final at = i * components;
     final v = turn([values[at], values[at + 1], values[at + 2]]);
-    out[at] = v[0] + shift[0];
-    out[at + 1] = v[1] + shift[1];
-    out[at + 2] = v[2] + shift[2];
+    out[at] = v[0] * scale + shift[0];
+    out[at + 1] = v[1] * scale + shift[1];
+    out[at + 2] = v[2] * scale + shift[2];
     // Das w einer Tangente ist ein Vorzeichen, keine Koordinate.
     if (components == 4) out[at + 3] = values[at + 3];
     for (var c = 0; c < components; c++) {
@@ -1467,6 +1509,12 @@ List<String> robloxPrepareSummary(RobloxPrepareReport report) {
         'genommen – ihr Anteil ging an die übrigen Knochen desselben '
         'Vertex.');
   }
+  if ((report.scale - 1).abs() > 1e-6) {
+    out.add('Auf ${report.heightStuds.toStringAsFixed(1)} Studs '
+        'gebracht (Faktor ${report.scale.toStringAsFixed(2)}). Der '
+        'Importer liest eine Datei-Einheit als einen Stud – ohne das '
+        'stünde die Figur kniehoch neben einem Standard-Charakter.');
+  }
   if (report.moved) {
     final mm = report.shift.map((v) => (v * 1000).abs().round()).toList();
     out.add('Modell um ${mm.join('/')} mm verschoben, damit der '
@@ -1485,4 +1533,54 @@ List<String> robloxPrepareSummary(RobloxPrepareReport report) {
   }
   out.addAll(report.notes);
   return out;
+}
+
+/// Höhe des Modells in glTF-Einheiten, aus den POSITION-Grenzen.
+double _modelHeight(Map<String, dynamic> json, Uint8List bin) {
+  var min = double.infinity;
+  var max = -double.infinity;
+  for (final meshRaw in (json['meshes'] as List? ?? const [])) {
+    for (final primRaw in
+        ((meshRaw as Map<String, dynamic>)['primitives'] as List? ??
+            const [])) {
+      final index = (((primRaw as Map<String, dynamic>)['attributes']
+              as Map<String, dynamic>?)?['POSITION'] as num?)
+          ?.toInt();
+      if (index == null) continue;
+      final acc = (json['accessors'] as List)[index] as Map<String, dynamic>;
+      final low = acc['min'] as List?;
+      final high = acc['max'] as List?;
+      if (low != null && high != null && low.length > 1) {
+        min = math.min(min, (low[1] as num).toDouble());
+        max = math.max(max, (high[1] as num).toDouble());
+        continue;
+      }
+      final values = readGltfFloats(json, bin, index);
+      for (var i = 1; i < values.length; i += 3) {
+        min = math.min(min, values[i]);
+        max = math.max(max, values[i]);
+      }
+    }
+  }
+  return min > max ? 0 : max - min;
+}
+
+/// Höhe des Hüftgelenks über dem Boden, in Studs. Der Humanoid hält
+/// den HumanoidRootPart genau so weit über dem Boden – daraus wird der
+/// Startwert für die Hip Height.
+double _hipHeight(List<Map<String, dynamic>> nodes, List<int> joints,
+    Map<int, List<double>> placed) {
+  var best = 0.0;
+  var low = double.infinity;
+  for (final j in joints) {
+    final name = nodes[j]['name'] as String? ?? '';
+    final p = placed[j];
+    if (p == null) continue;
+    low = math.min(low, p[1]);
+    if (name == 'LeftUpperLeg' || name == 'RightUpperLeg') {
+      best = best == 0 ? p[1] : math.min(best, p[1]);
+    }
+  }
+  if (best == 0 || low == double.infinity) return 0;
+  return best - low;
 }

@@ -64,8 +64,9 @@ const int robloxMaxTexture = 1024;
 /// Höchstzahl der Bones, die einen Vertex beeinflussen dürfen.
 const int robloxMaxInfluences = 4;
 
-/// Ein Stud in Metern. glTF rechnet laut Spezifikation in Metern –
-/// daraus ergibt sich, welche Scale Unit im Importer stimmt.
+/// Ein Stud in Metern – das physikalische Maß, mit dem Roblox seine
+/// Welt beschreibt. Achtung: Der 3D-Importer rechnet **nicht** damit
+/// um, er setzt schlicht einen Meter gleich einem Stud.
 const double robloxStudMeters = 0.28;
 
 /// Höhe eines Standard-Charakters in Studs (Vergleichsmaßstab).
@@ -239,8 +240,12 @@ class RobloxFacts {
   /// Höhe in glTF-Einheiten (y-Achse).
   double get height => size.length > 1 ? size[1] : 0;
 
-  /// Höhe in Studs, wenn der Importer die Datei als Meter liest.
-  double get studsAsMeters => height / robloxStudMeters;
+  /// Höhe in Studs. Der Importer rechnet die Datei über die
+  /// Scale-Unit-Einstellung in Meter um und setzt dann einen Meter
+  /// gleich einem Stud – die Höhe in Einheiten ist also die Höhe in
+  /// Studs. (Physikalisch misst ein Stud 0,28 m, siehe
+  /// [robloxStudMeters]; danach richtet sich der Importer aber nicht.)
+  double get studs => height;
 }
 
 String _n(int value) {
@@ -470,28 +475,35 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     findings.add(const RobloxFinding(RobloxLevel.hint, 'Größe unbekannt',
         'Die Höhe ließ sich nicht bestimmen.'));
   } else {
-    final studs = facts.studsAsMeters;
-    final asStud = height;
+    // Gemessen an einem echten Import: Der Importer rechnet die Datei
+    // über die Scale-Unit-Einstellung in Meter um und setzt dann einen
+    // Meter gleich einem Stud. Die Höhe in Einheiten ist damit die
+    // Höhe in Studs – eine 1,20-Einheiten-Figur kam kniehoch an.
+    final studs = height;
+    final ziel = target == RobloxTarget.accessory
+        ? 'Ein Accessoire richtet sich nach dem Körperteil, an dem es '
+            'sitzt – ein Hut misst etwa einen Stud.'
+        : 'Ein Standard-Charakter ist etwa '
+            '${robloxCharacterStuds.toStringAsFixed(0)} Studs hoch.';
     final detail = 'Das Modell ist ${height.toStringAsFixed(2)} '
-        'glTF-Einheiten hoch. glTF rechnet laut Spezifikation in '
-        'Metern, also im Importer die Scale Unit auf „Meter" stellen – '
-        'daraus werden ${studs.toStringAsFixed(1)} Studs (ein '
-        'Standard-Charakter ist etwa '
-        '${robloxCharacterStuds.toStringAsFixed(0)} Studs hoch). Die '
-        'Vorgabe „Stud" ergäbe nur ${asStud.toStringAsFixed(2)} Studs '
-        'und damit etwas Kniehohes.';
-    // Nur wenn beide Deutungen weit von einer brauchbaren Größe weg
-    // sind, ist wirklich etwas faul.
-    final plausible = studs > 0.3 && studs < 60;
+        'glTF-Einheiten hoch, und genau so viele Studs werden daraus: '
+        'Der Importer rechnet die Datei in Meter um und setzt einen '
+        'Meter gleich einem Stud. $ziel Der Knopf „Für Roblox '
+        'vorbereiten" bringt eine Figur von sich aus auf '
+        '${robloxCharacterStuds.toStringAsFixed(0)} Studs; von Hand '
+        'geht es in Blender (Objekt skalieren, Transformation '
+        'einfrieren).';
+    final plausible = target == RobloxTarget.accessory
+        ? studs > 0.2 && studs < 8
+        : studs > robloxCharacterStuds * 0.5 &&
+            studs < robloxCharacterStuds * 2;
     findings.add(RobloxFinding(
-        plausible ? RobloxLevel.hint : RobloxLevel.warning,
-        'Größe: ${height.toStringAsFixed(2)} Einheiten '
-            '(≈ ${studs.toStringAsFixed(1)} Studs als Meter)',
+        plausible ? RobloxLevel.ok : RobloxLevel.warning,
+        'Größe: ${studs.toStringAsFixed(2)} Studs',
         plausible
             ? detail
-            : '$detail Beide Deutungen liegen weit neben einer '
-                'brauchbaren Größe – das Modell vor dem Import in '
-                'Blender auf ein sinnvolles Maß skalieren.'));
+            : '$detail So wie sie ist, kommt sie in der falschen Größe '
+                'an.'));
   }
 
   // 6. Skelett. Ein Accessoire ist ein starres Teil – dort ist ein

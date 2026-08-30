@@ -28,7 +28,7 @@ RobloxFacts _good({
   bool rootWeighted = false,
   List<int>? meshTriangles,
   int maxPrimitivesPerMesh = 1,
-  List<double> size = const [0.4, 1.4, 0.3],
+  List<double> size = const [1.4, 5.0, 1.1],
   int reversedEdges = 0,
   double signedVolume = 0.05,
   double volumeRatio = 0.02,
@@ -289,7 +289,7 @@ void main() {
 
     test('Nullstärke: eine Platte wird erkannt', () {
       final sheet = checkRobloxFacts(
-          _good(size: const [1.0, 1.4, 0.002], volumeRatio: 0.00001),
+          _good(size: const [3.5, 5.0, 0.007], volumeRatio: 0.00001),
           RobloxTarget.character);
       expect(_text(sheet), contains('Solidify'));
       expect(_text(sheet), contains('ohne Dicke'));
@@ -305,21 +305,31 @@ void main() {
           contains('Degenerate Dissolve'));
     });
 
-    test('Skalierung: Höhe wird in Studs umgerechnet', () {
-      // 1,4 m ÷ 0,28 m = 5 Studs, also Charaktergröße.
+    test('Größe: eine Einheit ist ein Stud', () {
+      // Gemessen an einem echten Import: Der Importer rechnet die
+      // Datei in Meter um und setzt einen Meter gleich einem Stud.
+      // Die Höhe in Einheiten ist damit die Höhe in Studs.
       final findings = checkRobloxFacts(
-          _good(size: const [0.4, 1.4, 0.3]), RobloxTarget.character);
+          _good(size: const [1.4, 5.0, 1.1]), RobloxTarget.character);
       final scale =
           findings.firstWhere((f) => f.title.startsWith('Größe:'));
-      expect(scale.title, contains('5.0 Studs'));
-      expect(scale.detail, contains('Scale Unit'));
-      expect(scale.level, RobloxLevel.hint);
+      expect(scale.title, contains('5.00 Studs'));
+      expect(scale.level, RobloxLevel.ok);
 
-      // Ein winziges Modell ist eine Warnung.
-      final tiny = checkRobloxFacts(
-          _good(size: const [0.01, 0.02, 0.01]), RobloxTarget.character);
-      expect(tiny.firstWhere((f) => f.title.startsWith('Größe:')).level,
-          RobloxLevel.warning);
+      // Genau der Fall, der beim ersten Import danebenging: 1,2
+      // Einheiten kamen kniehoch an.
+      final klein = checkRobloxFacts(
+          _good(size: const [1.5, 1.2, 0.6]), RobloxTarget.character);
+      final zuKlein =
+          klein.firstWhere((f) => f.title.startsWith('Größe:'));
+      expect(zuKlein.level, RobloxLevel.warning);
+      expect(zuKlein.detail, contains('Für Roblox vorbereiten'));
+
+      // Ein Hut misst rund einen Stud – als Accessoire in Ordnung.
+      final hut = checkRobloxFacts(
+          _good(size: const [1.0, 1.0, 1.0]), RobloxTarget.accessory);
+      expect(hut.firstWhere((f) => f.title.startsWith('Größe:')).level,
+          RobloxLevel.ok);
     });
 
     test('Quad- und FBX-Grenzen der Prüfung stehen in der Liste', () {

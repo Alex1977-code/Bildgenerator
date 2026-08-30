@@ -2925,7 +2925,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         repairs.add('Textur von ${change.fromWidth} auf ${change.toWidth} '
             'px verkleinert (Roblox nimmt höchstens 1024).');
       }
-      rig = prepareRigForRoblox(small.glb);
+      rig = prepareRigForRoblox(
+        small.glb,
+        // Accessoires richten sich nach dem Körperteil, an dem sie
+        // sitzen – die bleiben, wie sie sind.
+        targetStuds: _robloxTarget == RobloxTarget.character
+            ? robloxCharacterStuds
+            : 0,
+      );
       repairs.addAll(robloxPrepareSummary(rig.report));
     } catch (e) {
       if (mounted) _showSnack('$e');
@@ -2936,7 +2943,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (!mounted) return;
 
     var asStarter = true;
-    var hipHeight = 2.0;
+    // Der Humanoid hält den Wurzelknochen genau so weit über dem
+    // Boden. Der Wurzelknochen sitzt bei diesen Modellen auf Fußhöhe,
+    // die Hüfte ist der Bezugspunkt – deshalb deren Höhe, nicht die
+    // pauschalen 2,0 eines Standard-Rigs.
+    var hipHeight = rig.report.hipStuds > 0.2
+        ? double.parse(rig.report.hipStuds.toStringAsFixed(1))
+        : 2.0;
     final saved = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
