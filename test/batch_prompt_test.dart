@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/models/models.dart';
 import 'package:bildgenerator/services/batch_prompt.dart';
+import 'package:bildgenerator/services/prompt_briefing.dart';
 import 'package:bildgenerator/services/history/history_store_memory.dart';
 import 'package:bildgenerator/services/history_service.dart';
 
@@ -96,10 +97,162 @@ void main() {
       expect(sanitizeBatchName('a' * 90).length, 60);
     });
 
-    test('Das Beispiel im Programm ist gültig', () {
-      final plan = parseBatchPrompt(batchPromptExample);
-      expect(plan.isValid, isTrue, reason: plan.issues.join('; '));
-      expect(plan.items.length, 3);
+    test('Das Beispiel im Programm ist für jedes Modell gültig', () {
+      for (final profile in [
+        promptProfileFor(GenProvider.openai, 'gpt-image-1'),
+        promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        promptProfileFor(GenProvider.selfhost, 'sdxl-turbo'),
+      ]) {
+        final plan = parseBatchPrompt(batchPromptExample(profile));
+        expect(plan.isValid, isTrue, reason: plan.issues.join('; '));
+        expect(plan.items.length, 2);
+      }
+    });
+  });
+
+  group('Massenprompt gegen das gewählte Modell prüfen', () {
+    const long = 'NAME: lang\nPROMPT: '
+        'a b c d e f g h i j k l m n o p q r s t u v w x y z '
+        'a b c d e f g h i j k l m n o p q r s t u v w x y z\n'
+        'NEGATIV: text\n';
+
+    test('Zu lange Beschreibung ist ein Hinweis, kein Fehler', () {
+      final plan = parseBatchPrompt(long,
+          profile: promptProfileFor(GenProvider.selfhost, 'sdxl-turbo'));
+      expect(plan.isValid, isTrue);
+      expect(plan.warnings.map((w) => w.message).join(' '),
+          contains('40 Wörter'));
+    });
+
+    test('SDXL Turbo verwirft den Negativ-Prompt – die Prüfung sagt es',
+        () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: castle\nNEGATIV: people, text\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl-turbo'),
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('wirkungslos'));
+    });
+
+    test('Gemini bekommt den Negativ-Prompt in den Prompt geschrieben', () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: A castle at night\nNEGATIV: people\n',
+        profile:
+            promptProfileFor(GenProvider.gemini, 'gemini-2.5-flash-image'),
+      );
+      expect(plan.warnings.map((w) => w.message).join(' '),
+          contains('Do not include in the image'));
+    });
+
+    test('Stable Diffusion: Verneinungen und Überschriften werden gerügt',
+        () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: a castle, no people, no text\n'
+        'NEGATIV: blurry\n'
+        '---\n'
+        'NAME: b\nMOTIV: eine Burg\nPROMPT: STIL: comic, warm\n'
+        'NEGATIV: blurry\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('Verneinungen'));
+      expect(text, contains('Briefing mit Überschriften'));
+    });
+
+    test('Fehlt der Negativ-Prompt ganz, gibt es bei SDXL einen Hinweis',
+        () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: a castle at night\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+      );
+      expect(plan.warnings.map((w) => w.message).join(' '),
+          contains('NEGATIV'));
+    });
+
+    test('Spielgrafik: Bodenplatte, zweites Gebäude und Kamerawinkel', () {
+      final plan = parseBatchPrompt(
+        'NAME: haus\n'
+        'PROMPT: A thatched cottage and a tower on a paved terrace with '
+        'a low wall\n'
+        'NEGATIV: text\n',
+        profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('Bodenplatte'));
+      expect(text, contains('zweites Gebäude'));
+      expect(text, contains('35°'));
+      expect(plan.isValid, isTrue);
+    });
+
+    test('Die empfohlenen Sätze selbst lösen keine Asset-Hinweise aus',
+        () {
+      // Der zweite Satz nennt „no terrace, no paving, no low wall …",
+      // um sie auszuschließen – die Prüfung darf ihn nicht als
+      // Bodenplatte lesen.
+      final plan = parseBatchPrompt(
+        'NAME: haus\nPROMPT: ${gameAssetSentences.join(' ')}\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, isNot(contains('Spielgrafik')), reason: text);
+    });
+
+    test('Auch die Stichwort-Fassung bleibt ohne Asset-Hinweise', () {
+      final plan = parseBatchPrompt(
+        'NAME: haus\nPROMPT: thatched cottage, $gameAssetKeywords\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, isNot(contains('Spielgrafik')), reason: text);
+    });
+  });
+
+  group('Vorlage für die Prompt-KI', () {
+    test('Die Vorlage nennt Modell, Länge und Negativ-Regel', () {
+      final profile = promptProfileFor(GenProvider.selfhost, 'sdxl');
+      final text = batchPromptBriefing(profile,
+          references: ['burg.png']);
+      expect(text, contains('SDXL'));
+      expect(text, contains('100 Wörter'));
+      expect(text, contains('Stichwortkette'));
+      expect(text, contains('burg.png'));
+    });
+
+    test('Bei FLUX steht in der Vorlage, dass NEGATIV nichts bringt', () {
+      final text = batchPromptBriefing(
+          promptProfileFor(GenProvider.selfhost, 'flux-schnell'));
+      expect(text, contains('wertet sie nicht aus'));
+    });
+
+    test('Bei Gemini verlangt die Vorlage ganze Sätze', () {
+      final text = batchPromptBriefing(
+          promptProfileFor(GenProvider.gemini, 'gemini-2.5-flash-image'));
+      expect(text, contains('ganzen Sätzen'));
+      expect(text, contains('Do not include in the image'));
+    });
+
+    test('Spielgrafik-Regeln stehen wörtlich in der Vorlage', () {
+      final text = batchPromptBriefing(
+          promptProfileFor(GenProvider.openai, 'gpt-image-1'),
+          gameAssets: true);
+      for (final sentence in gameAssetSentences) {
+        expect(text, contains(sentence));
+      }
+      expect(text, contains('ROWH 32 auf TILE 52'));
+    });
+
+    test('Für Stable Diffusion werden die Regeln zu Stichworten', () {
+      final text = batchPromptBriefing(
+          promptProfileFor(GenProvider.selfhost, 'sdxl'),
+          gameAssets: true);
+      expect(text, contains(gameAssetKeywords));
+      expect(text, contains(gameAssetNegativeTerms));
+      expect(text, isNot(contains(gameAssetSentences.first)));
     });
   });
 

@@ -46,6 +46,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
 
   final _promptCtrl = TextEditingController();
   final _negativeCtrl = TextEditingController();
+
+  /// Regeln für Gebäude-Assets: genau ein Gebäude, keine Bodenplatte,
+  /// 35° von oben, grobes Mauerwerk. Sie stehen in der Vorlage für die
+  /// Prompt-KI und werden beim Prüfen mitkontrolliert.
+  bool _gameAssets = false;
   final _seedCtrl = TextEditingController(text: '0');
   final _picker = ImagePicker();
   final List<ReferenceImage> _references = [];
@@ -260,10 +265,19 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     required int count,
   }) {
     final isOpenAi = settings.provider == GenProvider.openai;
+    // GPT-Image und Gemini kennen kein Negativ-Feld, verstehen aber
+    // Verneinungen. Damit eine Zeile „NEGATIV:" aus dem Massenprompt
+    // auch dort wirkt, wandert sie als Satz in den Prompt.
+    final withNegative = applyNegativePrompt(
+      prompt,
+      negativePrompt,
+      negativeHandlingFor(
+          settings.provider, settings.modelFor(settings.provider)),
+    );
     return GenerationRequest(
       provider: settings.provider,
-      prompt: prompt,
-      negativePrompt: negativePrompt,
+      prompt: withNegative.prompt,
+      negativePrompt: withNegative.negativePrompt,
       references:
           settings.provider.supportsReferences ? references : const [],
       openAiSize: settings.openAiSize,
@@ -368,54 +382,34 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   /// oder die Liste dessen, was noch nicht stimmt).
   void _checkBatch() {
     final settings = context.read<SettingsService>();
-    final plan = parseBatchPrompt(
-      _batchCtrl.text,
-      availableReferences: [for (final ref in _references) ref.name],
-      supportsReferences: settings.provider.supportsReferences,
-    );
     setState(() {
-      _batchPlan = plan;
+      _batchPlan = _parseBatch(settings);
       _error = null;
     });
   }
 
+  /// Prüft den Massenprompt gegen das gerade gewählte Bild-Modell:
+  /// Höchstlänge, Prompt-Art und der Umgang mit dem Negativ-Prompt
+  /// hängen daran.
+  BatchPlan _parseBatch(SettingsService settings) => parseBatchPrompt(
+        _batchCtrl.text,
+        availableReferences: [for (final ref in _references) ref.name],
+        supportsReferences: settings.provider.supportsReferences,
+        profile: _profile(settings),
+        gameAssets: _gameAssets,
+      );
+
   /// Vorlage für die Prompt-KI – mit den Namen der aktuell geladenen
-  /// Referenzbilder und den Regeln des gewählten Bild-Modells, damit
-  /// die einzelnen PROMPT-Zeilen gleich richtig geschrieben sind.
-  String _batchBriefing(SettingsService settings) {
-    final names = [for (final ref in _references) ref.name].join(', ');
-    final profile = _profile(settings);
-    final base = batchPromptBriefing.replaceFirst(
-        '[HIER DATEINAMEN ODER „keine"]', names.isEmpty ? 'keine' : names);
-    return '$base\n\n'
-        'So muss jede PROMPT-Zeile geschrieben sein – das Bild wird mit '
-        '${profile.modelLabel} erzeugt:\n'
-        '${profile.style == PromptStyle.keywords ? _batchKeywordRules(profile) : _batchBriefingRules()}';
-  }
-
-  String _batchKeywordRules(PromptProfile profile) =>
-      '- Der Text hinter „PROMPT:" ist eine dichte Stichwortkette auf '
-      'Englisch, durch Kommas getrennt – keine Sätze, keine '
-      'Überschriften.\n'
-      '- Reihenfolge ist Gewichtung: Motiv und Bauform zuerst, dann '
-      'Material und Farben, zuletzt Kamera, Licht und Hintergrund.\n'
-      '- Keine Verneinungen im PROMPT („no text" wirkt wie „text"). '
-      '${profile.wantsNegativePrompt ? 'Unerwünschtes gehört in die '
-          'Zeile „NEGATIV:".' : 'Dieses Modell kennt keinen '
-          'Negativ-Prompt – Unerwünschtes durch positive '
-          'Formulierungen ersetzen.'}\n'
-      '- Höchstens etwa ${profile.maxWords} Wörter je PROMPT.';
-
-  String _batchBriefingRules() =>
-      '- Der Text hinter „PROMPT:" ist ein zusammenhängender Auftrag in '
-      'ganzen Sätzen; das Modell versteht Sprache.\n'
-      '- Verneinungen sind erlaubt und wirken („kein Text im Bild").\n'
-      '- Maße, Proportionen und Farben so genau wie möglich nennen.\n'
-      '- Englisch bringt meist etwas bessere Ergebnisse.';
+  /// Referenzbilder und den Schreibregeln des gewählten Bild-Modells,
+  /// damit die einzelnen PROMPT-Zeilen gleich richtig geschrieben sind.
+  String _batchBriefing(SettingsService settings) => batchPromptBriefing(
+        _profile(settings),
+        references: [for (final ref in _references) ref.name],
+        gameAssets: _gameAssets,
+      );
 
   Future<void> _copyBatchBriefing(SettingsService settings) async {
-    await Clipboard.setData(
-        ClipboardData(text: _batchBriefing(settings)));
+    await Clipboard.setData(ClipboardData(text: _batchBriefing(settings)));
     if (mounted) {
       _showSnack('Vorlage für ${_profile(settings).modelLabel} kopiert – '
           'in die Prompt-KI einfügen, Vorgaben ausfüllen und das '
@@ -423,16 +417,60 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     }
   }
 
+  /// Zeigt die Massenprompt-Vorlage zum Lesen, mit Kopier-Knopf.
+  Future<void> _showBatchBriefing(SettingsService settings) async {
+    final profile = _profile(settings);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Vorlage für den Massenprompt'),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(profile.modelLabel,
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(profile.negativeNote,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline)),
+                const SizedBox(height: 12),
+                SelectableText(
+                  _batchBriefing(settings),
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Schließen'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _copyBatchBriefing(settings);
+            },
+            icon: const Icon(Icons.copy_all_outlined, size: 18),
+            label: const Text('Kopieren'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Erzeugt alle Bilder des Massenprompts nacheinander.
   Future<void> _generateBatch() async {
     final settings = context.read<SettingsService>();
     final history = context.read<HistoryService>();
 
-    final plan = parseBatchPrompt(
-      _batchCtrl.text,
-      availableReferences: [for (final ref in _references) ref.name],
-      supportsReferences: settings.provider.supportsReferences,
-    );
+    final plan = _parseBatch(settings);
     if (!plan.isValid) {
       setState(() {
         _batchPlan = plan;
@@ -845,8 +883,16 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 TextButton.icon(
                   onPressed: _generating
                       ? null
+                      : () => _showBatchBriefing(settings),
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('Vorlage ansehen'),
+                ),
+                TextButton.icon(
+                  onPressed: _generating
+                      ? null
                       : () {
-                          _batchCtrl.text = batchPromptExample;
+                          _batchCtrl.text =
+                              batchPromptExample(_profile(settings));
                           _checkBatch();
                         },
                   icon: const Icon(Icons.lightbulb_outline, size: 18),
@@ -856,17 +902,51 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Die Vorlage enthält die Schreibregeln für '
-              '${_profile(settings).modelLabel}.',
+              'Die Vorlage ist auf ${_profile(settings).modelLabel} '
+              'zugeschnitten: ${_profile(settings).summary} '
+              '${_profile(settings).negativeNote}',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
+            _buildGameAssetSwitch(settings),
             if (plan != null) ...[
               const SizedBox(height: 12),
               _buildBatchResult(plan),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Schalter für die Spielgrafik-Regeln. Sie stehen dann in der
+  /// Vorlage für die Prompt-KI und werden beim Prüfen mitkontrolliert.
+  Widget _buildGameAssetSwitch(SettingsService settings) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _gameAssets,
+            onChanged: _generating
+                ? null
+                : (value) {
+                    setState(() => _gameAssets = value);
+                    if (_batchPlan != null) _checkBatch();
+                  },
+            title: const Text('Spielgrafik-Regeln (Gebäude-Assets)'),
+            subtitle: Text(
+              'Genau ein Gebäude, keine Bodenplatte, Kamera 35° von '
+              'oben, grobes Mauerwerk – kommt in die Vorlage und wird '
+              'beim Prüfen kontrolliert.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1156,6 +1236,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
+            _buildGameAssetSwitch(settings),
             const SizedBox(height: 10),
             Text('Stil-Vorlagen',
                 style: Theme.of(context).textTheme.labelMedium),
@@ -1571,26 +1652,24 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.outline),
             ),
-            // Negativ-Prompt und Seed gibt es bei Stability und beim
-            // eigenen Server; Style-Presets nur bei Stability Core.
-            if (isStability || provider.isLocal) ...[
-              const SectionLabel('Profi-Optionen'),
-              TextField(
-                controller: _negativeCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Negativ-Prompt',
-                  hintText: 'Was im Bild vermieden werden soll …',
-                  border: const OutlineInputBorder(),
-                  helperText: provider.isLocal &&
-                          settings.selfHostImageModel.contains('turbo')
-                      ? 'SDXL Turbo wertet den Negativ-Prompt nicht aus '
-                          '(arbeitet ohne Guidance).'
-                      : null,
-                  helperMaxLines: 2,
-                ),
+            // Den Negativ-Prompt gibt es überall, wo das Modell etwas
+            // damit anfängt – bei GPT-Image und Gemini wandert er als
+            // Satz in den Prompt. Seed und Style-Presets bleiben bei
+            // Stability und dem eigenen Server.
+            const SectionLabel('Profi-Optionen'),
+            TextField(
+              controller: _negativeCtrl,
+              decoration: InputDecoration(
+                labelText: 'Negativ-Prompt',
+                hintText: 'Was im Bild vermieden werden soll …',
+                border: const OutlineInputBorder(),
+                helperText: _profile(settings).negativeNote,
+                helperMaxLines: 3,
               ),
+            ),
+            const SizedBox(height: 12),
+            if (isStability || provider.isLocal) ...[
               if (isStability && settings.stabilityModel == 'core') ...[
-                const SizedBox(height: 12),
                 DropdownMenu<String>(
                   initialSelection: settings.stylePreset,
                   label: const Text('Style-Preset'),
@@ -1668,6 +1747,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         settings.provider,
         settings.modelFor(settings.provider),
         referenceCount: _references.length,
+        gameAssets: _gameAssets,
       );
 
   Future<void> _copyPromptBriefing(SettingsService settings) async {

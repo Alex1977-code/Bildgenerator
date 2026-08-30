@@ -27,6 +27,23 @@ enum PromptStyle {
   keywords,
 }
 
+/// Wie ein Modell mit dem Negativ-Prompt umgeht. Danach richtet sich,
+/// was mit einer Zeile „NEGATIV:" aus dem Massenprompt passiert.
+enum NegativeHandling {
+  /// Eigenes Feld in der Anfrage – Stability und die eigene GPU,
+  /// solange sie mit Guidance arbeiten.
+  separateField,
+
+  /// Kein eigenes Feld, aber das Modell versteht Sprache: Der
+  /// Negativ-Prompt wird als Satz an den Prompt gehängt und wirkt
+  /// dadurch trotzdem (GPT-Image, Gemini).
+  inPrompt,
+
+  /// Wird gar nicht ausgewertet: SDXL Turbo und FLUX schnell arbeiten
+  /// ohne Guidance, ein Negativ-Prompt verpufft dort.
+  ignored,
+}
+
 /// Alles, was die Oberfläche über die Prompt-Art eines Modells
 /// wissen muss.
 class PromptProfile {
@@ -35,11 +52,16 @@ class PromptProfile {
     required this.modelLabel,
     required this.briefing,
     required this.summary,
+    required this.negativeHandling,
     this.negativeExample = '',
     this.maxWords = 0,
   });
 
   final PromptStyle style;
+
+  /// Was mit einem Negativ-Prompt geschieht – eigenes Feld, in den
+  /// Prompt eingewoben oder verworfen.
+  final NegativeHandling negativeHandling;
 
   /// Anbieter und Modell im Klartext, z. B. „Google Gemini · Nano
   /// Banana Pro".
@@ -58,7 +80,48 @@ class PromptProfile {
   /// Empfohlene Höchstlänge in Wörtern (0 = keine sinnvolle Grenze).
   final int maxWords;
 
-  bool get wantsNegativePrompt => negativeExample.isNotEmpty;
+  /// Ob es sich überhaupt lohnt, einen Negativ-Prompt anzugeben.
+  bool get wantsNegativePrompt =>
+      negativeHandling != NegativeHandling.ignored;
+
+  /// Ein Satz für die Oberfläche und die Vorlagen: was mit „NEGATIV:"
+  /// bei diesem Modell geschieht.
+  String get negativeNote => switch (negativeHandling) {
+        NegativeHandling.separateField =>
+          'Der Negativ-Prompt geht als eigenes Feld an das Modell und '
+              'wirkt unmittelbar.',
+        NegativeHandling.inPrompt =>
+          'Dieses Modell hat kein Negativ-Feld, versteht aber Sprache: '
+              'Der Negativ-Prompt wird als Satz „Do not include in the '
+              'image: …" an den Prompt gehängt und wirkt dadurch.',
+        NegativeHandling.ignored =>
+          'Dieses Modell arbeitet ohne Guidance und wertet den '
+              'Negativ-Prompt nicht aus – Unerwünschtes muss positiv '
+              'formuliert im Prompt stehen.',
+      };
+}
+
+/// Setzt den Negativ-Prompt so ein, wie das gewählte Modell ihn
+/// versteht. Ergebnis ist der fertige Prompt und der Wert für das
+/// Negativ-Feld der Anfrage.
+///
+/// Damit wirkt eine Zeile „NEGATIV:" aus dem Massenprompt auch bei
+/// GPT-Image und Gemini, die gar kein Negativ-Feld kennen.
+({String prompt, String negativePrompt}) applyNegativePrompt(
+  String prompt,
+  String negative,
+  NegativeHandling handling,
+) {
+  final cleaned = negative.trim().replaceAll(RegExp(r'[.,;\s]+$'), '');
+  if (cleaned.isEmpty) return (prompt: prompt, negativePrompt: '');
+  if (handling != NegativeHandling.inPrompt) {
+    return (prompt: prompt, negativePrompt: cleaned);
+  }
+  return (
+    prompt: '${prompt.trimRight()}\n\n'
+        'Do not include in the image: $cleaned.',
+    negativePrompt: cleaned,
+  );
 }
 
 const _briefingRules = '''
@@ -183,24 +246,44 @@ int _maxWords(GenProvider provider, String model) {
   };
 }
 
-/// Passt ein Modell Verneinungen im Negativ-Prompt aus?
-bool _hasNegative(GenProvider provider, String model) {
+/// Wie das Modell mit einem Negativ-Prompt umgeht.
+NegativeHandling negativeHandlingFor(GenProvider provider, String model) {
   final id = model.toLowerCase();
-  if (provider == GenProvider.stability) return true;
-  if (provider == GenProvider.selfhost) {
-    return id != 'sdxl-turbo' && id != 'flux-schnell';
+  if (provider == GenProvider.stability) {
+    return NegativeHandling.separateField;
   }
-  return false;
+  if (provider == GenProvider.selfhost) {
+    // Turbo und FLUX schnell laufen mit Guidance 1 – dabei bleibt das
+    // Negativ-Feld ohne Wirkung.
+    return id == 'sdxl-turbo' || id == 'flux-schnell'
+        ? NegativeHandling.ignored
+        : NegativeHandling.separateField;
+  }
+  // GPT-Image und Gemini kennen kein Negativ-Feld, verstehen aber
+  // Verneinungen im Text.
+  return NegativeHandling.inPrompt;
 }
 
 /// Der Auftrag für die Prompt-KI, passend zum gewählten Modell.
 PromptProfile promptProfileFor(GenProvider provider, String model,
-    {int referenceCount = 0}) {
+    {int referenceCount = 0, bool gameAssets = false}) {
   final keywords =
       provider == GenProvider.stability || provider == GenProvider.selfhost;
   final label = _label(provider, model);
   final limit = _maxWords(provider, model);
-  final negative = _hasNegative(provider, model);
+  final handling = negativeHandlingFor(provider, model);
+  final negative = handling == NegativeHandling.separateField;
+
+  final negativeNote = switch (handling) {
+    NegativeHandling.separateField =>
+      'Alles Unerwünschte gehört in einen eigenen NEGATIV-Block.',
+    NegativeHandling.inPrompt =>
+      'Dieses Modell hat kein Negativ-Feld. Schreibe Unerwünschtes '
+          'als Satz in den Prompt („Do not include in the image: …") – '
+          'so wirkt es.',
+    NegativeHandling.ignored =>
+      'Dieses Modell wertet einen Negativ-Prompt nicht aus.',
+  };
 
   final references = referenceCount > 0
       ? '\n- Es liegen $referenceCount Referenzbild(er) vor. '
@@ -208,6 +291,10 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
               'übernommen werden soll.' : 'Dieses Modell wertet '
               'Referenzbilder allerdings nicht aus – beschreibe die '
               'Vorlage stattdessen in Worten.'}'
+      : '';
+
+  final assets = gameAssets
+      ? '\n\n${gameAssetBriefing(keywords ? PromptStyle.keywords : PromptStyle.briefing)}'
       : '';
 
   final briefing = keywords
@@ -220,7 +307,7 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
           '${negative ? '' : '\n- Dieses Modell wertet den NEGATIV-Block '
               'nicht aus. Gib ihn trotzdem aus, aber formuliere das '
               'Wichtige positiv im PROMPT-Block.'}'
-          '$references\n\n'
+          '$references$assets\n\n'
           'Meine Vorgaben:\n'
           '- Motiv: [HIER BESCHREIBEN]\n'
           '- Stil: [HIER STIL]\n'
@@ -230,8 +317,9 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
           'Das Modell versteht Sprache und befolgt Anweisungen. '
           'Halte dich an diese Regeln:\n'
           '$_briefingRules\n'
-          '${_modelRules(provider, model)}'
-          '$references\n\n'
+          '${_modelRules(provider, model)}\n'
+          '- Negativ-Prompt: $negativeNote'
+          '$references$assets\n\n'
           'Gib ausschließlich den fertigen Prompt aus – keine '
           'Erklärungen, keine Code-Blöcke.\n\n'
           'Meine Vorgaben:\n'
@@ -254,9 +342,84 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
     modelLabel: label,
     briefing: briefing,
     summary: summary,
-    negativeExample:
-        negative ? 'text, watermark, logo, ui, labels, blurry, extra '
-            'limbs, deformed, low quality' : '',
+    negativeHandling: handling,
+    negativeExample: handling == NegativeHandling.ignored
+        ? ''
+        : 'text, watermark, logo, ui, labels, blurry, extra limbs, '
+            'deformed, low quality',
     maxWords: limit,
   );
+}
+
+// ----------------------------------------------------------------
+// Spielgrafik: Gebäude-Assets für eine Karte
+// ----------------------------------------------------------------
+
+/// Warum die Spielgrafik-Regeln nötig sind – dieselbe Begründung, die
+/// auch in der Vorlage für die Prompt-KI steht.
+const String gameAssetReason =
+    'Diese Bilder werden als Spiel-Asset verwendet: Jedes Bild ist '
+    'genau ein Gebäude, das auf einen Karten-Knoten gesetzt wird. Der '
+    'Renderer malt den festgetretenen Erdsaum selbst um das Gebäude – '
+    'eine mitgemalte Bodenplatte läge darüber. Die Bodenebene ist auf '
+    '0,62 verkürzt (ROWH 32 auf TILE 52), das entspricht einem Blick '
+    'von etwa 35° von oben. Und das Bild wird rund 13-fach verkleinert '
+    '(eine Bäckerei ist im Spiel nur etwa 78 Weltpixel hoch), deshalb '
+    'zerfällt kleinteiliges Mauerwerk zu Rauschen.';
+
+/// Die vier Sätze, die genau so in jeden Prompt eines
+/// sprachverstehenden Modells gehören.
+const List<String> gameAssetSentences = [
+  'Exactly one single building in the image, nothing else beside it.',
+  'The building stands directly on flat ground — no terrace, no '
+      'paving, no low wall, no fence, no steps, no platform of any '
+      'kind under it.',
+  'Camera elevation 35 degrees above the horizon, clearly looking '
+      'down onto the roof, not at the facade.',
+  'Coarse masonry: at most about 15 courses of rounded boulders over '
+      'the height of a wall, each stone large and softly rounded — no '
+      'fine stone mosaic, the image is downscaled about 13 times in '
+      'the game.',
+];
+
+/// Dieselben Vorgaben als Stichworte – für Diffusions-Modelle, die
+/// Verneinungen nicht verstehen.
+const String gameAssetKeywords =
+    'exactly one single building, isolated building standing directly '
+    'on flat bare ground, camera elevation 35 degrees looking down '
+    'onto the roof, coarse masonry of large softly rounded boulders, '
+    'at most 15 stone courses over the wall height, warm matte '
+    'materials, soft light, rounded roof edges and beams';
+
+/// Was bei Spielgrafiken in den Negativ-Prompt gehört.
+const String gameAssetNegativeTerms =
+    'second building, tower beside it, group of houses, terrace, '
+    'paving, cobblestones, base plate, platform, pedestal, low wall, '
+    'fence, steps, stairs, fine stone mosaic, small bricks, '
+    'blue-grey slate, glossy materials, harsh shadows, low camera '
+    'angle, front view, eye level';
+
+/// Was an der Farbwelt schon stimmt und erhalten bleiben soll.
+const String gameAssetKeep =
+    'Beibehalten: warme Farbwelt, kein blaugrauer Schiefer, matte '
+    'Materialien, weiches Licht, gerundete Dachkanten und Balken.';
+
+/// Der Spielgrafik-Abschnitt für die Vorlage der Prompt-KI, passend
+/// zur Prompt-Art des Modells.
+String gameAssetBriefing(PromptStyle style) {
+  if (style == PromptStyle.keywords) {
+    return 'Spielgrafik (Gebäude-Asset):\n'
+        '$gameAssetReason\n'
+        '- Diese Stichworte gehören in jeden PROMPT (Verneinungen '
+        'gehen bei diesem Modell nicht):\n'
+        '  $gameAssetKeywords\n'
+        '- Diese Stichworte gehören in jede Zeile „NEGATIV:":\n'
+        '  $gameAssetNegativeTerms\n'
+        '- $gameAssetKeep';
+  }
+  return 'Spielgrafik (Gebäude-Asset):\n'
+      '$gameAssetReason\n'
+      '- Nimm diese vier Sätze wörtlich in jeden PROMPT auf:\n'
+      '${gameAssetSentences.map((s) => '  $s').join('\n')}\n'
+      '- $gameAssetKeep';
 }

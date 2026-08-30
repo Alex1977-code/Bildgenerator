@@ -29,9 +29,13 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     bei Stability und der eigenen GPU zählt der Seed pro Bild hoch
   - **Massenprompt**: ein Text mit den Beschreibungen vieler Bilder,
     die nacheinander erzeugt, unter ihrem Namen gespeichert und in der
-    Galerie über die Suche wiedergefunden werden (siehe unten)
-  - Negativ-Prompt, Seed (reproduzierbare Bilder) und 16 Style-Presets
-    (Stability AI)
+    Galerie über die Suche wiedergefunden werden; Vorlage und Prüfung
+    richten sich nach dem gewählten Bild-Modell, und jedes Bild bekommt
+    seinen eigenen Negativ-Prompt (siehe unten)
+  - Negativ-Prompt für **jedes** Modell – bei GPT-Image und Gemini
+    hängt die App ihn als Satz an den Prompt, weil diese Modelle kein
+    Negativ-Feld haben
+  - Seed (reproduzierbare Bilder) und 16 Style-Presets (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
   - **Prompt-Vorlage für das gewählte Modell**: ein fertiger Auftrag zum
     Kopieren, mit dem eine Prompt-KI genau in der Schreibweise
@@ -315,6 +319,48 @@ ankommt. Im Massenprompt-Modus gibt es dieselbe Vorlage – dort um das
 Blockformat mit `NAME:`/`PROMPT:` ergänzt, sodass die Prompt-KI gleich
 die ganze Liste in der richtigen Form ausgibt.
 
+### Der Negativ-Prompt bei jedem Modell
+
+Was mit dem Negativ-Prompt geschieht, hängt am Modell. Die App sagt es
+unter dem Feld und in der Vorlage, und sie sorgt selbst dafür, dass er
+ankommt:
+
+- **Stability und eigene GPU** (außer die beiden unten) haben ein
+  eigenes Negativ-Feld. Der Text geht unverändert dorthin.
+- **GPT-Image und Gemini** kennen kein Negativ-Feld, verstehen aber
+  Sprache. Die App hängt den Negativ-Prompt deshalb als Satz an die
+  Beschreibung: `Do not include in the image: …`. Damit wirkt er.
+- **SDXL Turbo und FLUX schnell** arbeiten ohne Guidance und werten
+  einen Negativ-Prompt gar nicht aus. Hier muss das Unerwünschte
+  positiv formuliert im Prompt stehen („empty grey background" statt
+  „no props").
+
+### Spielgrafik-Regeln (Gebäude-Assets)
+
+Der Schalter **„Spielgrafik-Regeln (Gebäude-Assets)"** unter der
+Vorlage ist für Bilder gedacht, die später als Asset auf einen
+Karten-Knoten gesetzt werden. Er nimmt vier Vorgaben in die Vorlage auf
+und prüft sie beim Massenprompt mit:
+
+- **Genau ein Gebäude je Bild** – sonst lässt sich das Asset nicht auf
+  einen Knoten setzen.
+- **Keine Bodenplatte**: keine Terrasse, kein Pflaster, kein Mäuerchen,
+  kein Zaun, keine Treppe, kein Sockel. Der Renderer malt den
+  festgetretenen Erdsaum selbst um jedes Gebäude; eine mitgemalte
+  Platte läge darüber.
+- **Kamera rund 35° von oben**, deutlich auf das Dach schauend, nicht
+  auf die Fassade. Die Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf
+  TILE 52); flach gesehene Gebäude kippen neben dem Gelände.
+- **Grobes Mauerwerk**: höchstens etwa 15 Steinlagen über die
+  Wandhöhe, große, weich gerundete Findlinge. Das Bild wird im Spiel
+  rund 13-fach verkleinert (eine Bäckerei ist nur etwa 78 Weltpixel
+  hoch) – ein feines Mosaik zerfällt dabei zu Rauschen.
+
+Bei GPT-Image und Gemini stehen die vier Sätze wörtlich in der Vorlage,
+bei Stable Diffusion als Stichwortkette samt passendem Negativ-Prompt
+(`terrace, paving, base plate, platform, low wall, fence, steps …`),
+weil diese Modelle Verneinungen nicht verstehen.
+
 ## Massenprompt: viele Bilder in einem Lauf
 
 Im Tab **Bild** oben auf **Massenprompt** umschalten. Statt einer
@@ -345,22 +391,43 @@ PROMPT: The same castle at noon, clear blue sky, warm sunlight
   dieses Bild (mehrere durch Komma). Die Bilder müssen unter
   „Referenzbilder" geladen sein; Groß-/Kleinschreibung und Dateiendung
   sind egal.
-- `NEGATIV:` – optional, was das Bild nicht enthalten soll.
+- `NEGATIV:` – optional, was **dieses eine** Bild nicht enthalten
+  soll. Ist die Zeile leer, gilt der Negativ-Prompt aus dem Formular.
+  Wie er beim gewählten Modell ankommt, steht oben unter
+  [„Der Negativ-Prompt bei jedem Modell"](#der-negativ-prompt-bei-jedem-modell)
+  – bei GPT-Image und Gemini wird er an genau diesen Prompt gehängt,
+  nicht an alle.
 
 **Den Massenprompt von der KI schreiben lassen.** Der Knopf **„Vorlage
 für Prompt-KI kopieren"** legt ein fertiges Briefing in die
 Zwischenablage – inklusive der Namen der gerade geladenen
-Referenzbilder. Das in ChatGPT, Gemini o. Ä. einfügen, die Vorgaben
-(Anzahl, Thema, Stil, Variation) ausfüllen und das Ergebnis hier wieder
-einfügen. **„Beispiel einfügen"** füllt zum Ausprobieren drei Blöcke ein.
+Referenzbilder. Die Vorlage ist immer auf das oben gewählte Bild-Modell
+zugeschnitten: Sie nennt das Modell, verlangt für GPT-Image und Gemini
+ganze Sätze und für Stable Diffusion eine Stichwortkette, gibt die
+Höchstlänge in Wörtern vor und sagt, was mit `NEGATIV:` geschieht. Auch
+das eingefügte Beispiel wechselt mit dem Modell. Wird oben ein anderes
+Modell gewählt, ändert sich die Vorlage sofort mit – **„Vorlage
+ansehen"** zeigt sie, ohne sie zu kopieren.
 
 **Prüfen vor dem Start.** **„Prüfen"** liest den Text und meldet mit
 grünem Haken, wie viele Bilder erkannt wurden und wie viele davon ein
 Referenzbild nutzen. Blockierend sind doppelte Namen, fehlende
 Beschreibungen und genannte, aber nicht geladene Referenzbilder –
-jeweils mit Zeilennummer. Hinweise (z. B. ein ersetzter Name) halten den
-Lauf nicht auf. Erst nach dem grünen Haken lässt sich der Lauf starten;
-jede Änderung am Text macht die Prüfung wieder ungültig.
+jeweils mit Zeilennummer. Dazu kommen Hinweise, die den Lauf nicht
+aufhalten, aber die Ergebnisse deutlich verbessern:
+
+- Beschreibungen, die länger sind als für das gewählte Modell sinnvoll
+  (mit der längsten Wortzahl und den betroffenen Namen).
+- Verneinungen im `PROMPT:` und gegliederte Briefings mit
+  Überschriften, wenn das Modell eine Stichwortkette braucht.
+- `NEGATIV:`-Zeilen, die das Modell verwirft (SDXL Turbo, FLUX) – oder
+  umgekehrt der Hinweis, dass kein einziger Block eine hat, obwohl das
+  Modell sie auswertet.
+- Bei eingeschalteten Spielgrafik-Regeln: Bodenplatten, ein möglicher
+  zweiter Baukörper und ein fehlender Kamerawinkel.
+
+Erst nach dem grünen Haken lässt sich der Lauf starten; jede Änderung
+am Text macht die Prüfung wieder ungültig.
 
 **Während des Laufs** zeigt das Statusfenster rechts, welches Bild
 gerade entsteht, wie viele fertig sind, die vergangene Zeit, den

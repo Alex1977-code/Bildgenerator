@@ -12,7 +12,10 @@ void main() {
       expect(profile.style, PromptStyle.briefing);
       expect(profile.briefing, contains('MOTIV'));
       expect(profile.briefing, contains('Verneinungen sind erlaubt'));
-      expect(profile.wantsNegativePrompt, isFalse);
+      // Kein Negativ-Feld, aber Verneinungen wirken – deshalb lohnt
+      // sich ein Negativ-Prompt trotzdem.
+      expect(profile.negativeHandling, NegativeHandling.inPrompt);
+      expect(profile.wantsNegativePrompt, isTrue);
     });
 
     test('Gemini nennt die Referenzbild-Stärke', () {
@@ -35,6 +38,7 @@ void main() {
     test('SDXL Turbo warnt vor fehlendem Negativ-Prompt und ist kurz', () {
       final profile =
           promptProfileFor(GenProvider.selfhost, 'sdxl-turbo');
+      expect(profile.negativeHandling, NegativeHandling.ignored);
       expect(profile.wantsNegativePrompt, isFalse);
       expect(profile.maxWords, 40);
       expect(profile.briefing, contains('nicht aus'));
@@ -44,8 +48,42 @@ void main() {
     test('FLUX kennt keinen Negativ-Prompt', () {
       final profile =
           promptProfileFor(GenProvider.selfhost, 'flux-schnell');
+      expect(profile.negativeHandling, NegativeHandling.ignored);
       expect(profile.wantsNegativePrompt, isFalse);
       expect(profile.briefing, contains('positive Formulierungen'));
+    });
+
+    test('Negativ-Prompt landet dort, wo das Modell ihn versteht', () {
+      // Stability hat ein eigenes Feld – der Prompt bleibt unberührt.
+      final field = applyNegativePrompt(
+          'a castle', 'people, text', NegativeHandling.separateField);
+      expect(field.prompt, 'a castle');
+      expect(field.negativePrompt, 'people, text');
+
+      // GPT-Image und Gemini haben keines – der Satz wandert hinein.
+      final inPrompt = applyNegativePrompt(
+          'a castle', 'people, text.', NegativeHandling.inPrompt);
+      expect(inPrompt.prompt,
+          'a castle\n\nDo not include in the image: people, text.');
+      expect(inPrompt.negativePrompt, 'people, text');
+
+      // Ohne Angabe bleibt alles, wie es war.
+      final empty = applyNegativePrompt(
+          'a castle', '   ', NegativeHandling.inPrompt);
+      expect(empty.prompt, 'a castle');
+      expect(empty.negativePrompt, isEmpty);
+    });
+
+    test('Spielgrafik-Regeln kommen in die Vorlage', () {
+      final briefing = promptProfileFor(GenProvider.openai, 'gpt-image-1',
+              gameAssets: true)
+          .briefing;
+      expect(briefing, contains(gameAssetSentences[2]));
+      final keywords =
+          promptProfileFor(GenProvider.selfhost, 'sdxl', gameAssets: true)
+              .briefing;
+      expect(keywords, contains(gameAssetKeywords));
+      expect(keywords, contains(gameAssetNegativeTerms));
     });
 
     test('Stability Core bleibt kurz, Ultra darf länger', () {
