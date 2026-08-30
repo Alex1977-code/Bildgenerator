@@ -136,6 +136,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Schlüssel erstellen auf platform.tripo3d.ai (Startguthaben)',
           onHelp: () => _openUrl('https://platform.tripo3d.ai/api-keys'),
         ),
+        const SizedBox(height: 8),
+        _TripoVersionCard(settings: settings),
         const SizedBox(height: 12),
         _ApiKeyCard(
           title: 'fal.ai-API-Schlüssel (3D-Bereich)',
@@ -1311,6 +1313,106 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   }
 }
 
+/// Fassung der Tripo3D-API. Tripo stellt V2 ab: ab 1. Oktober 2026
+/// ohne Neuerungen und Support, ab 1. November 2026 nehmen die
+/// V2-Endpunkte keine Anfragen mehr an. V3 ist deshalb der Standard;
+/// V2 bleibt bis dahin als Rückfallweg wählbar.
+class _TripoVersionCard extends StatelessWidget {
+  const _TripoVersionCard({required this.settings});
+
+  final SettingsService settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final onV2 = settings.tripoApiVersion == 'v2';
+    final now = DateTime.now().toUtc();
+    final gone = now.isAfter(tripoV2Shutdown);
+    final frozen = now.isAfter(tripoV2FeatureFreeze);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.api_outlined, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Tripo3D-API-Fassung',
+                      style: theme.textTheme.titleSmall),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'v3', label: Text('V3 (aktuell)')),
+                ButtonSegment(value: 'v2', label: Text('V2 (Auslauf)')),
+              ],
+              selected: {settings.tripoApiVersion},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) =>
+                  settings.setTripoApiVersion(selection.first),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tripo stellt die alte V2-Schnittstelle ab: seit dem '
+              '1. Oktober 2026 ohne Neuerungen und Support, seit dem '
+              '1. November 2026 nehmen die V2-Endpunkte keine Anfragen '
+              'mehr an. Die App spricht deshalb standardmäßig V3.',
+              style: theme.textTheme.bodySmall,
+            ),
+            if (onV2) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                      gone
+                          ? Icons.error_outline
+                          : Icons.warning_amber_outlined,
+                      size: 16,
+                      color: gone
+                          ? theme.colorScheme.error
+                          : Colors.orange.shade800),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      gone
+                          ? 'V2 ist abgeschaltet – Tripo-Aufträge '
+                              'schlagen fehl, bis hier V3 gewählt ist.'
+                          : frozen
+                              ? 'V2 bekommt keine Neuerungen und keinen '
+                                  'Support mehr und endet am '
+                                  '1. November 2026.'
+                              : 'V2 läuft am 1. November 2026 aus – nur '
+                                  'als Rückfallweg gedacht.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                          color: gone
+                              ? theme.colorScheme.error
+                              : Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              'Auf V2 zurückschalten hilft nur, wenn ein V3-Aufruf '
+              'unerwartet scheitert – etwa weil ein Konto noch nicht '
+              'freigeschaltet ist. Sonst V3 lassen.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ApiKeyCard extends StatefulWidget {
   const _ApiKeyCard({
     required this.title,
@@ -1622,7 +1724,9 @@ class _UsageCardState extends State<_UsageCard> {
       _tripoBalance = null;
     });
     try {
-      final credits = await TripoService(apiKey).fetchBalance();
+      final credits = await TripoService(apiKey,
+              version: TripoApiVersion.fromName(settings.tripoApiVersion))
+          .fetchBalance();
       if (!mounted) return;
       setState(() {
         _tripoBalance = credits == null

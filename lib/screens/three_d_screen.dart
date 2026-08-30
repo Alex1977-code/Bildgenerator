@@ -1261,7 +1261,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             label: label);
       } else if (isTripo) {
         await _runTripo(
-            TripoService(apiKey!.trim()), prompt, cancelled, progress,
+            TripoService(apiKey!.trim(),
+                version: TripoApiVersion.fromName(settings.tripoApiVersion)),
+            prompt,
+            cancelled,
+            progress,
             useImages: useImages, label: label);
       } else {
         await _runMeshy(
@@ -3510,6 +3514,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           expandedInsets: EdgeInsets.zero,
                           dropdownMenuEntries: isTripo
                               ? const [
+                                  // Die V3-API verlangt eine
+                                  // Modellangabe; „Standard" schickt
+                                  // deshalb ausdrücklich v2.5.
                                   DropdownMenuEntry(
                                       value: '',
                                       label:
@@ -3521,6 +3528,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                       value: 'v3.1-20260211',
                                       label:
                                           'Neueste (H3.1, beste Qualität)'),
+                                  DropdownMenuEntry(
+                                      value: 'P1-20260311',
+                                      label:
+                                          'P1 (Low-Poly, Face-Limit)'),
                                 ]
                               : const [
                                   DropdownMenuEntry(

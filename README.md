@@ -659,7 +659,8 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
 - **Meshy AI** (3D-Bereich, API-Zugang ab Pro-Plan):
   <https://www.meshy.ai/api>
 - **Tripo3D** (3D-Bereich, Bezahlung nach Verbrauch, Startguthaben):
-  <https://platform.tripo3d.ai>
+  <https://platform.tripo3d.ai> – die App spricht die **V3-API**;
+  siehe unten „Tripo3D: Umstellung auf die V3-API".
 - **fal.ai** (3D-Bereich, Pay per Use, Startguthaben):
   <https://fal.ai/dashboard/keys>
 - **Rodin / Hyper3D** (3D-Bereich, Bezahlung nach Verbrauch):
@@ -669,6 +670,50 @@ API-Schlüssel benötigt (nutzungsbasierte Kosten beim Anbieter, grob
 
 Den Schlüssel in der App unter **Einstellungen** eintragen – er bleibt
 ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.
+
+## Tripo3D: Umstellung auf die V3-API
+
+Tripo stellt die alte V2-Schnittstelle ab:
+
+- **1. Oktober 2026** (30.09.2026, 16:00 UTC): keine Neuerungen und kein
+  technischer Support mehr für V2.
+- **1. November 2026** (31.10.2026, 16:00 UTC): die V2-Endpunkte nehmen
+  **keine Anfragen mehr an**.
+
+Die App spricht deshalb standardmäßig **V3**. Unter *Einstellungen →
+Tripo3D-API-Fassung* lässt sich vorübergehend auf V2 zurückschalten,
+falls ein V3-Aufruf unerwartet scheitert; nach dem Stichtag hilft das
+nicht mehr, und die App sagt das in der Karte auch.
+
+Was sich technisch geändert hat:
+
+| | V2 | V3 |
+| --- | --- | --- |
+| Basis | `api.tripo3d.ai/v2/openapi` | `openapi.tripo3d.ai/v3` |
+| Task anlegen | ein `POST /task` mit Feld `type` | eigener Endpunkt je Art (`/generation/text-to-model`, `/animations/rig` …), kein `type` |
+| Modellwahl | `model_version`, optional | `model`, **Pflicht** |
+| Upload | `POST /upload` | `POST /files` |
+| Status | `GET /task/{id}` | `GET /tasks/{id}` |
+| Guthaben | `GET /user/balance` | `GET /account/balance` |
+| Ergebnis | `pbr_model` / `model` | `model_url` / `model_urls` |
+| Vorschaubild | `rendered_image` | `rendered_image_url` |
+
+Weil `model` unter V3 Pflicht ist, schickt die Auswahl **„Standard"**
+jetzt ausdrücklich `v2.5-20250123` mit. Neu in der Liste ist
+**P1-20260311** – die Fassung mit hand-gearbeiteter Low-Poly-Topologie,
+die gut zum Face-Limit und damit zum Roblox-Weg passt.
+
+Fehlgeschlagene Aufträge liest die App jetzt genauer aus: V3 liefert
+`error_code` und `error_message`, und die beiden häufigen Fälle stehen
+im Klartext da – **2008** ist eine Ablehnung durch die Inhaltsprüfung,
+**2018** ein in der Warteschlange abgelaufener Auftrag.
+
+> **Hinweis zur Quelle.** Die offizielle Tripo-Dokumentation war aus der
+> Entwicklungsumgebung nicht erreichbar (Netzwerksperre). Die
+> Feldnamen stammen deshalb aus einem öffentlich gepflegten
+> OpenAPI-Abbild der V3-API. Der erste echte Lauf mit einem Tripo-
+> Schlüssel ist die eigentliche Probe; schlägt er fehl, steht in der
+> Fehlermeldung der Weg zurück auf V2.
 
 ## Feste Download-Links (immer neueste Version)
 

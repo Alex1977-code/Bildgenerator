@@ -116,6 +116,17 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Fassung der Tripo3D-API. V3 ist der Standard; V2 nimmt nur noch
+  /// bis zum 1. November 2026 Anfragen an und bleibt bis dahin als
+  /// Rückfallweg wählbar.
+  String tripoApiVersion = 'v3';
+
+  void setTripoApiVersion(String v) {
+    tripoApiVersion = v == 'v2' ? 'v2' : 'v3';
+    _persistString('tripoApiVersion', tripoApiVersion);
+    notifyListeners();
+  }
+
   /// Eingerichtete lokale 3D-Server, je Eintrag „backend|port|Ordner"
   /// (siehe InstalledServer in services/server_setup.dart). Damit
   /// lässt sich der Server in den Einstellungen auswählen und starten.
@@ -268,6 +279,8 @@ class SettingsService extends ChangeNotifier {
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
       selfHostUrl = prefs.getString('selfHostUrl') ?? selfHostUrl;
+      tripoApiVersion =
+          prefs.getString('tripoApiVersion') ?? tripoApiVersion;
       localServers = prefs.getStringList('localServers') ?? localServers;
       selfHostImageUrl =
           prefs.getString('selfHostImageUrl') ?? selfHostImageUrl;
