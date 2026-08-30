@@ -220,6 +220,19 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 
 ## Fehlersuche
 
+- **SF3D/SPAR3D: `Getting requirements to build wheel did not run
+  successfully`** → Beide Projekte bauen eigene C++-Erweiterungen
+  (`texture_baker`, `uv_unwrapper`), die PyTorch schon beim Bauen
+  brauchen. pip kapselt den Bauvorgang aber ab, dort fehlt torch. Der
+  Assistent installiert deshalb mit `--no-build-isolation`; von Hand:
+
+  ```powershell
+  pip install -U pip setuptools wheel
+  pip install -r requirements.txt --no-build-isolation
+  ```
+
+  Zusätzlich nötig: die Visual Studio Build Tools mit
+  „Desktopentwicklung mit C++".
 - **`No module named 'PIL'`** (oder ein anderes Paket) beim Generieren
   → `pip install -r requirements.txt` ist nicht vollständig
   durchgelaufen. In der aktiven Umgebung wiederholen und dabei auf die

@@ -101,11 +101,24 @@ Stream<String> _run(
 
   pipe(process.stdout);
   pipe(process.stderr);
-  yield* lines.stream;
+  // Die letzten Zeilen merken: Sie stehen in der Fehlermeldung, damit
+  // die eigentliche Ursache nicht im langen Protokoll untergeht.
+  final tail = <String>[];
+  await for (final line in lines.stream) {
+    // Zeilen mit dem eigentlichen Grund bevorzugt behalten.
+    if (line.trimLeft().startsWith('ERROR') ||
+        line.contains('error:') ||
+        line.contains('Fehler')) {
+      tail.add(line.trim());
+      if (tail.length > 4) tail.removeAt(0);
+    }
+    yield line;
+  }
   final code = await process.exitCode;
   if (code != 0) {
-    throw Exception('„$executable ${arguments.join(' ')}" endete mit '
-        'Fehlercode $code.');
+    final reason = tail.isEmpty ? '' : '\n${tail.join('\n')}';
+    throw Exception('„${arguments.join(' ')}" endete mit Fehlercode '
+        '$code.$reason');
   }
 }
 
@@ -211,11 +224,32 @@ Stream<String> installServer({
 
   yield '# 5/6 Restliche Pakete werden installiert (~1 GB)';
   if (backend != 'triposr') {
-    // SF3D und SPAR3D bringen eine eigene Liste mit.
+    // SF3D und SPAR3D bringen eine eigene Liste mit. Sie enthält zwei
+    // eigene C++-Erweiterungen (texture_baker, uv_unwrapper), die
+    // PyTorch bereits beim Bauen brauchen. pip kapselt den Bauvorgang
+    // normalerweise ab – dort fehlt torch, und der Lauf bricht mit
+    // „Getting requirements to build wheel did not run successfully"
+    // ab. Deshalb: Bau-Werkzeuge sicherstellen und die Abkapselung
+    // abschalten, damit das eben installierte torch sichtbar ist.
     if (File('$targetDir${sep}requirements.txt').existsSync()) {
+      yield '# Bau-Werkzeuge werden vorbereitet';
       yield* _run(
         venvPython,
-        ['-m', 'pip', 'install', '-r', 'requirements.txt'],
+        ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel'],
+        workingDirectory: targetDir,
+      );
+      yield '# Modell-Abhängigkeiten (ohne Bau-Abkapselung, damit die '
+          'C++-Erweiterungen PyTorch finden)';
+      yield* _run(
+        venvPython,
+        [
+          '-m',
+          'pip',
+          'install',
+          '-r',
+          'requirements.txt',
+          '--no-build-isolation',
+        ],
         workingDirectory: targetDir,
       );
     }
