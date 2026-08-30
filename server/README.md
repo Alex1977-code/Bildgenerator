@@ -244,6 +244,30 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 
   Zusätzlich nötig: die Visual Studio Build Tools mit
   „Desktopentwicklung mit C++".
+- **SF3D/SPAR3D unter Windows: `Failed building wheel for
+  uv_unwrapper` / `texture_baker`** → zwei Ursachen, beide behebt der
+  Assistent inzwischen selbst:
+  1. MSVC übersetzt ohne Angabe nach C++14, die PyTorch-Header
+     verlangen aber C++17. Ergebnis sind unverständliche
+     Vorlagen-Fehler wie „Fehler beim Spezialisieren der
+     Funktionsvorlage `std::make_tuple`". Von Hand vor dem Bauen:
+
+     ```powershell
+     $env:CL = "/std:c++17"
+     pip install -r requirements.txt --no-build-isolation
+     ```
+
+  2. `uv_unwrapper/uv_unwrapper/csrc/bvh.cpp` nutzt `std::make_tuple`
+     und `std::exchange`, ohne `<tuple>` und `<utility>` einzubinden.
+     GCC zieht sie nebenbei mit herein, MSVC nicht – die beiden
+     `#include`-Zeilen oben in der Datei ergänzen
+     (Stability-AI/stable-fast-3d, Issue 45).
+
+  Bleibt es dabei, fehlt meist der Compiler selbst: Visual Studio
+  Build Tools mit „Desktopentwicklung mit C++" nachinstallieren und
+  erneut auf „Installieren" tippen – bereits geladene Teile werden
+  übersprungen. Wer sich das sparen will, nimmt **TripoSR**: Das
+  Modell kommt ohne eigene C++-Bauteile aus.
 - **`No module named 'PIL'`** (oder ein anderes Paket) beim Generieren
   → `pip install -r requirements.txt` ist nicht vollständig
   durchgelaufen. In der aktiven Umgebung wiederholen und dabei auf die

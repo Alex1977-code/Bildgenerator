@@ -78,3 +78,25 @@ Future<List<String>> fetchAvailableModels(
     throw GenerationException('Modell-Liste nicht abrufbar: $e');
   }
 }
+
+/// Alle Bild-Modelle aller Anbieter in einer Liste. Damit lässt sich
+/// der Anbieter direkt über das Modell wählen – ohne ihn vorher in den
+/// Einstellungen umzustellen. [fetchedModels] liefert die vom Anbieter
+/// abgerufenen IDs, damit auch brandneue Modelle auftauchen.
+List<ImageModelChoice> allImageModels(
+    List<String> Function(GenProvider provider) fetchedModels) {
+  final all = <ImageModelChoice>[];
+  for (final provider in GenProvider.values) {
+    final statics = staticModelOptions(provider);
+    for (final option in statics) {
+      all.add(ImageModelChoice(
+          provider: provider, id: option.$1, label: option.$2));
+    }
+    for (final id in fetchedModels(provider)) {
+      if (!statics.any((option) => option.$1 == id)) {
+        all.add(ImageModelChoice(provider: provider, id: id, label: id));
+      }
+    }
+  }
+  return all;
+}

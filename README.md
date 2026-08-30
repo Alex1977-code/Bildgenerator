@@ -207,7 +207,11 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     durch die **gespiegelte bessere Hälfte ersetzt** (Symmetrisierung
     für Fahrzeuge und symmetrische Motive)
   - **Modellwahl mit Kosten-/Qualitätsanzeige**: Das KI-Modell wird
-    direkt im Generator- und im 3D-Tab gewählt; eine grafische Anzeige
+    direkt im Bild- und im 3D-Tab gewählt – **eine Liste über alle
+    Anbieter hinweg** (OpenAI, Stability, Gemini). Die Auswahl setzt
+    Anbieter und Modell in einem Schritt; ein Schlüssel-Symbol zeigt,
+    wo noch kein API-Schlüssel hinterlegt ist. In den Einstellungen
+    stehen deshalb nur noch die Schlüssel. Eine grafische Anzeige
     daneben zeigt die Qualitätsstufe (5er-Skala) und die geschätzten
     Gesamtkosten pro Lauf (alle Bild-KI-Schritte plus 3D-Dienst,
     aufgeschlüsselt; Schätzwerte laut Preisliste)

@@ -82,26 +82,39 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
 
   bool _refreshingModels = false;
 
-  /// Holt die aktuell verfügbaren Modelle direkt vom Anbieter.
+  /// Holt die aktuell verfügbaren Modelle bei allen Anbietern, für die
+  /// ein Schlüssel hinterlegt ist – die Liste enthält ja alle.
   Future<void> _refreshModels() async {
     final settings = context.read<SettingsService>();
-    final provider = settings.provider;
-    final apiKey = settings.apiKeyFor(provider)?.trim() ?? '';
-    if (provider != GenProvider.stability && apiKey.isEmpty) {
-      _showSnack('Für die Modell-Liste wird der API-Schlüssel von '
-          '${provider.label} benötigt (Einstellungen).');
-      return;
-    }
     setState(() => _refreshingModels = true);
+    var loaded = 0;
+    final skipped = <String>[];
+    final failed = <String>[];
     try {
-      final models = await fetchAvailableModels(provider, apiKey);
-      await settings.setFetchedModels(provider, models);
-      if (mounted) {
-        _showSnack('${models.length} Modelle geladen – Liste ist auf '
-            'dem neuesten Stand.');
+      for (final provider in GenProvider.values) {
+        final apiKey = settings.apiKeyFor(provider)?.trim() ?? '';
+        // Stability hat feste Engines und braucht dafür keinen
+        // Schlüssel; die anderen schon.
+        if (provider != GenProvider.stability && apiKey.isEmpty) {
+          skipped.add(provider.shortLabel);
+          continue;
+        }
+        try {
+          final models = await fetchAvailableModels(provider, apiKey);
+          await settings.setFetchedModels(provider, models);
+          loaded += models.length;
+        } on GenerationException {
+          failed.add(provider.shortLabel);
+        }
       }
-    } on GenerationException catch (e) {
-      if (mounted) _showSnack(e.message);
+      if (mounted) {
+        final extra = [
+          if (skipped.isNotEmpty) 'ohne Schlüssel: ${skipped.join(', ')}',
+          if (failed.isNotEmpty) 'Fehler bei: ${failed.join(', ')}',
+        ];
+        _showSnack('$loaded Modelle geladen'
+            '${extra.isEmpty ? '.' : ' (${extra.join('; ')}).'}');
+      }
     } finally {
       if (mounted) setState(() => _refreshingModels = false);
     }
@@ -426,18 +439,21 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         ),
       ),
       const SizedBox(height: 8),
+      // Anbieter und Modell stehen oben in der Auswahlliste; hier bleibt
+      // nur der kurze Weg zum Schlüssel, falls einer fehlt.
       Row(
         children: [
           Expanded(
             child: Text(
-              'Provider: ${settings.provider.label}',
+              '${settings.provider.label} · '
+              '${settings.modelFor(settings.provider)}',
               style: Theme.of(context).textTheme.bodySmall,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           TextButton(
             onPressed: widget.onOpenSettings,
-            child: const Text('Ändern'),
+            child: const Text('API-Schlüssel'),
           ),
         ],
       ),
@@ -550,9 +566,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             ),
             if (!supportsReferences)
               Text(
-                'Referenzbilder werden von den Providern OpenAI und '
-                'Google Gemini unterstützt. Provider in den Einstellungen '
-                'wechseln, um sie zu nutzen.',
+                'Referenzbilder unterstützen OpenAI und Google Gemini – '
+                'oben bei „KI-Modell" ein Modell dieser Anbieter wählen, '
+                'um sie zu nutzen.',
                 style: Theme.of(context).textTheme.bodySmall,
               )
             else if (_references.isEmpty)
@@ -626,19 +642,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       GenProvider.stability => settings.stabilityAspect,
       GenProvider.gemini => settings.geminiAspect,
     };
-    final staticModels = switch (provider) {
-      GenProvider.openai => openAiModelOptions,
-      GenProvider.stability => stabilityModelOptions,
-      GenProvider.gemini => geminiModelOptions,
-    };
-    // Vom Anbieter abgerufene Modelle ergänzen die eingebaute Liste –
-    // so bleiben neue Modelle ohne App-Update wählbar.
-    final knownModels = [
-      ...staticModels,
-      for (final id in settings.fetchedModelsFor(provider))
-        if (!staticModels.any((option) => option.$1 == id)) (id, id),
-    ];
+    // Alle Modelle aller Anbieter in einer Liste: Der Anbieter wird
+    // über das Modell gewählt, nicht mehr getrennt in den
+    // Einstellungen. Abgerufene Modelle sind mit dabei, damit neue
+    // Modelle ohne App-Update wählbar bleiben.
+    final allModels = allImageModels(settings.fetchedModelsFor);
     final currentModel = settings.modelFor(provider);
+    final currentKey = '${provider.name}/$currentModel';
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -646,6 +656,8 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SectionLabel('KI-Modell'),
+            // Die Liste enthält die Modelle aller Anbieter – der
+            // Anbieter ergibt sich aus dem gewählten Modell.
             // Modellwahl mit seitlicher Qualitäts-/Kostenanzeige: auf
             // breiten Layouts rechts daneben, auf schmalen darunter.
             LayoutBuilder(builder: (context, constraints) {
@@ -659,32 +671,47 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                     children: [
                       Expanded(
                         child: DropdownMenu<String>(
-                          key: ValueKey(
-                              'model-${provider.name}-$currentModel'
-                              '-${knownModels.length}'),
-                          initialSelection: currentModel,
-                          label: const Text('Modell'),
+                          key: ValueKey('model-$currentKey'
+                              '-${allModels.length}'),
+                          initialSelection: currentKey,
+                          label: const Text('KI-Modell'),
                           expandedInsets: EdgeInsets.zero,
                           dropdownMenuEntries: [
-                            for (final option in knownModels)
+                            for (final choice in allModels)
                               DropdownMenuEntry(
-                                  value: option.$1, label: option.$2),
-                            if (!knownModels
-                                .any((o) => o.$1 == currentModel))
+                                value: choice.key,
+                                label: choice.fullLabel,
+                                // Fehlt der Schlüssel, ist das Modell
+                                // trotzdem wählbar – die App fragt beim
+                                // Generieren danach.
+                                trailingIcon:
+                                    settings.hasApiKeyFor(choice.provider)
+                                        ? null
+                                        : const Icon(Icons.key_off,
+                                            size: 16),
+                              ),
+                            if (!allModels
+                                .any((choice) => choice.key == currentKey))
                               DropdownMenuEntry(
-                                value: currentModel,
-                                label: '$currentModel (eigene ID)',
+                                value: currentKey,
+                                label: '${provider.shortLabel} · '
+                                    '$currentModel (eigene ID)',
                               ),
                           ],
                           onSelected: (value) {
-                            if (value != null) {
-                              settings.setModelFor(provider, value);
-                            }
+                            if (value == null) return;
+                            final parsed =
+                                ImageModelChoice.parseKey(value);
+                            if (parsed == null) return;
+                            // Ein Klick setzt Anbieter und Modell.
+                            settings.setProvider(parsed.$1);
+                            settings.setModelFor(parsed.$1, parsed.$2);
                           },
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Aktuelle Modelle vom Anbieter laden',
+                        tooltip: 'Aktuelle Modelle bei allen Anbietern '
+                            'laden',
                         icon: _refreshingModels
                             ? const SizedBox(
                                 width: 18,

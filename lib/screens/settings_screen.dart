@@ -61,87 +61,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Anbieter und Modell werden im Bild- bzw. 3D-Tab direkt bei
+        // „KI-Modell" gewählt – hier stehen nur noch die Schlüssel.
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Bild-Provider', style: theme.textTheme.titleMedium),
+                Text('API-Schlüssel', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
-                  'Der Provider erzeugt die Bilder. Dafür wird ein eigener '
-                  'API-Schlüssel benötigt (nutzungsbasierte Kosten beim '
-                  'jeweiligen Anbieter).',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: SegmentedButton<GenProvider>(
-                    segments: const [
-                      ButtonSegment(
-                        value: GenProvider.openai,
-                        label: Text('OpenAI'),
-                      ),
-                      ButtonSegment(
-                        value: GenProvider.stability,
-                        label: Text('Stability AI'),
-                      ),
-                      ButtonSegment(
-                        value: GenProvider.gemini,
-                        label: Text('Gemini'),
-                      ),
-                    ],
-                    selected: {settings.provider},
-                    onSelectionChanged: (selection) =>
-                        settings.setProvider(selection.first),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  switch (settings.provider) {
-                    GenProvider.openai =>
-                      'OpenAI GPT Image: Referenzbilder, Qualitätsstufen, '
-                          'transparenter Hintergrund, PNG/JPEG/WebP.',
-                    GenProvider.stability =>
-                      'Stability AI Stable Image: Seitenverhältnisse, '
-                          'Negativ-Prompt, Seed und Style-Presets.',
-                    GenProvider.gemini =>
-                      'Google Gemini („Nano Banana“): Referenzbilder, '
-                          'Seitenverhältnisse, bis 4K (Pro). API-Schlüssel '
-                          'mit kostenlosem Kontingent.',
-                  },
+                  'Das KI-Modell wird direkt im Bild- und im 3D-Tab '
+                  'gewählt; die Liste dort enthält die Modelle aller '
+                  'Anbieter. Hier wird nur hinterlegt, womit sich die '
+                  'App beim jeweiligen Anbieter anmeldet. Die Schlüssel '
+                  'liegen verschlüsselt auf diesem Gerät und gehen nur '
+                  'an den Anbieter, dessen Modell gerade läuft.',
                   style: theme.textTheme.bodySmall,
                 ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        _ModelCard(
-          key: ValueKey('model-${settings.provider.name}'),
-          provider: settings.provider,
-          currentModel: settings.modelFor(settings.provider),
-          knownModels: [
-            ...switch (settings.provider) {
-              GenProvider.openai => openAiModelOptions,
-              GenProvider.stability => stabilityModelOptions,
-              GenProvider.gemini => geminiModelOptions,
-            },
-            // Vom Anbieter abgerufene Modelle (Aktualisieren-Knopf im
-            // Generator-Tab) ergänzen die eingebaute Liste.
-            for (final id in settings.fetchedModelsFor(settings.provider))
-              if (!switch (settings.provider) {
-                GenProvider.openai => openAiModelOptions,
-                GenProvider.stability => stabilityModelOptions,
-                GenProvider.gemini => geminiModelOptions,
-              }.any((option) => option.$1 == id))
-                (id, id),
-          ],
-          onChanged: (value) =>
-              settings.setModelFor(settings.provider, value),
         ),
         const SizedBox(height: 12),
         _ApiKeyCard(
@@ -779,6 +720,16 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
     }
   }
 
+  /// Erkennt am Fehlertext, ob das Übersetzen der C++-Erweiterungen
+  /// gescheitert ist – dann fehlt fast immer der C++-Compiler.
+  bool get _buildToolsMissing {
+    final text = (_error ?? '').toLowerCase();
+    return text.contains('wheel') ||
+        text.contains('cl.exe') ||
+        text.contains('texture_baker') ||
+        text.contains('uv_unwrapper');
+  }
+
   Future<void> _startAndClose() async {
     try {
       final message = await setup.startServer(
@@ -1079,10 +1030,48 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                   margin: EdgeInsets.zero,
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                          color: theme.colorScheme.onErrorContainer),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                              color: theme.colorScheme.onErrorContainer),
+                        ),
+                        // Scheitert das Übersetzen der C++-Teile, hilft
+                        // meist der fehlende Compiler – oder gleich das
+                        // Modell ohne solche Bauteile.
+                        if (_buildToolsMissing) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Das betrifft die C++-Erweiterungen von SF3D '
+                            'bzw. SPAR3D. Dafür werden die „Visual Studio '
+                            'Build Tools" mit der Arbeitslast '
+                            '„Desktopentwicklung mit C++" gebraucht – '
+                            'danach hier erneut auf „Installieren" '
+                            'tippen; bereits geladene Teile werden '
+                            'übersprungen. Wer sich das sparen möchte, '
+                            'wählt oben TripoSR: Das kommt ohne eigene '
+                            'C++-Bauteile aus.',
+                            style: TextStyle(
+                                color: theme.colorScheme.onErrorContainer),
+                          ),
+                          const SizedBox(height: 4),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 32),
+                              tapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () => launchUrl(
+                                Uri.parse('https://visualstudio.microsoft'
+                                    '.com/de/visual-cpp-build-tools/'),
+                                mode: LaunchMode.externalApplication),
+                            child: const Text('Build Tools herunterladen'),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -1382,94 +1371,6 @@ class _ApiKeyCardState extends State<_ApiKeyCard> {
 
 /// Karte zur Modell-Auswahl des aktiven Providers – inklusive freier
 /// Eingabe einer Modell-ID, damit neue Modelle ohne App-Update nutzbar sind.
-class _ModelCard extends StatefulWidget {
-  const _ModelCard({
-    super.key,
-    required this.provider,
-    required this.currentModel,
-    required this.knownModels,
-    required this.onChanged,
-  });
-
-  final GenProvider provider;
-  final String currentModel;
-  final List<Option> knownModels;
-  final ValueChanged<String> onChanged;
-
-  @override
-  State<_ModelCard> createState() => _ModelCardState();
-}
-
-class _ModelCardState extends State<_ModelCard> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.currentModel);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _apply(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty || trimmed == widget.currentModel) return;
-    widget.onChanged(trimmed);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Modell (${widget.provider.label})',
-                style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 0,
-              children: [
-                for (final option in widget.knownModels)
-                  ChoiceChip(
-                    label: Text(option.$2),
-                    visualDensity: VisualDensity.compact,
-                    selected: widget.currentModel == option.$1,
-                    onSelected: (_) {
-                      _controller.text = option.$1;
-                      widget.onChanged(option.$1);
-                    },
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _controller,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(
-                labelText: 'Modell-ID',
-                helperText:
-                    'Freie Eingabe möglich – neue Modelle des Anbieters '
-                    'lassen sich hier sofort nutzen, ohne App-Update.',
-                helperMaxLines: 3,
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: _apply,
-              onTapOutside: (_) => _apply(_controller.text),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Karte "Guthaben & Verbrauch": Stability-Guthaben live abfragen,
-/// für OpenAI/Google die Verbrauchs-Dashboards verlinken (diese Anbieter
-/// bieten keine Guthaben-Abfrage per API an).
 class _UsageCard extends StatefulWidget {
   const _UsageCard({
     required this.hasStabilityKey,

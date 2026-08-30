@@ -4,12 +4,15 @@ import 'dart:typed_data';
 
 /// Verfügbare Bild-Provider.
 enum GenProvider {
-  openai('OpenAI (GPT Image)'),
-  stability('Stability AI (Stable Image)'),
-  gemini('Google Gemini (Nano Banana)');
+  openai('OpenAI (GPT Image)', 'OpenAI'),
+  stability('Stability AI (Stable Image)', 'Stability'),
+  gemini('Google Gemini (Nano Banana)', 'Gemini');
 
-  const GenProvider(this.label);
+  const GenProvider(this.label, this.shortLabel);
   final String label;
+
+  /// Kurzform für die Modell-Liste, z. B. „OpenAI · gpt-image-2".
+  final String shortLabel;
 
   /// Unterstützt der Provider Referenzbilder?
   bool get supportsReferences => this != GenProvider.stability;
@@ -389,6 +392,48 @@ const List<Option> geminiModelOptions = [
   ('gemini-2.5-flash-image', 'Nano Banana (schnell)'),
   ('gemini-3-pro-image-preview', 'Nano Banana Pro (bis 4K)'),
 ];
+
+/// Eingebaute Modelle des Anbieters.
+List<Option> staticModelOptions(GenProvider provider) => switch (provider) {
+      GenProvider.openai => openAiModelOptions,
+      GenProvider.stability => stabilityModelOptions,
+      GenProvider.gemini => geminiModelOptions,
+    };
+
+/// Ein Bild-Modell samt Anbieter. Der Anbieter wird nicht mehr getrennt
+/// gewählt, sondern ergibt sich aus dem Modell – eine Liste, ein Klick.
+class ImageModelChoice {
+  const ImageModelChoice({
+    required this.provider,
+    required this.id,
+    required this.label,
+  });
+
+  final GenProvider provider;
+  final String id;
+
+  /// Beschriftung ohne Anbieter, z. B. „gpt-image-2 (neuestes Modell)".
+  final String label;
+
+  /// Eindeutiger Wert für die Auswahlliste: „openai/gpt-image-2".
+  String get key => '${provider.name}/$id';
+
+  /// Beschriftung mit Anbieter für die gemeinsame Liste.
+  String get fullLabel => '${provider.shortLabel} · $label';
+
+  /// Zerlegt einen [key] wieder in Anbieter und Modell-ID.
+  static (GenProvider, String)? parseKey(String key) {
+    final cut = key.indexOf('/');
+    if (cut <= 0) return null;
+    final name = key.substring(0, cut);
+    final id = key.substring(cut + 1);
+    if (id.isEmpty) return null;
+    for (final provider in GenProvider.values) {
+      if (provider.name == name) return (provider, id);
+    }
+    return null;
+  }
+}
 
 const List<Option> stylePresetOptions = [
   ('', 'Kein Style'),

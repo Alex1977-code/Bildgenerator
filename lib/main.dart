@@ -100,7 +100,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   static const _destinations = [
-    (icon: Icons.auto_awesome_outlined, selected: Icons.auto_awesome, label: 'Generator'),
+    (icon: Icons.auto_awesome_outlined, selected: Icons.auto_awesome, label: 'Bild'),
     (icon: Icons.view_in_ar_outlined, selected: Icons.view_in_ar, label: '3D'),
     (icon: Icons.collections_outlined, selected: Icons.collections, label: 'Galerie'),
     (icon: Icons.settings_outlined, selected: Icons.settings, label: 'Einstellungen'),

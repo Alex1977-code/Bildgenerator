@@ -21,7 +21,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('3DGenerator'), findsOneWidget);
-    expect(find.text('Generator'), findsWidgets);
+    expect(find.text('Bild'), findsWidgets);
     expect(find.text('Galerie'), findsWidgets);
     expect(find.text('Einstellungen'), findsWidgets);
     expect(find.byType(TextField), findsWidgets);

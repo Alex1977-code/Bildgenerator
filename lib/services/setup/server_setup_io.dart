@@ -80,12 +80,14 @@ Stream<String> _run(
   String executable,
   List<String> arguments, {
   String? workingDirectory,
+  Map<String, String> environment = const {},
 }) async* {
   yield '\$ $executable ${arguments.join(' ')}';
   final process = await Process.start(
     executable,
     arguments,
     workingDirectory: workingDirectory,
+    environment: environment.isEmpty ? null : environment,
     runInShell: false,
   );
   final lines = StreamController<String>();
@@ -120,6 +122,52 @@ Stream<String> _run(
     throw Exception('„${arguments.join(' ')}" endete mit Fehlercode '
         '$code.$reason');
   }
+}
+
+/// SF3D und SPAR3D bringen zwei C++-Erweiterungen mit
+/// (`texture_baker`, `uv_unwrapper`). Unter Windows scheitert
+/// `uv_unwrapper` daran, dass `bvh.cpp` `std::make_tuple` und
+/// `std::exchange` nutzt, ohne die zugehörigen Header einzubinden –
+/// GCC zieht sie nebenbei mit herein, MSVC nicht. Bekanntes Problem
+/// im Projekt (Stability-AI/stable-fast-3d, Issue 45); wir ergänzen
+/// die beiden Zeilen vor dem Bauen.
+Iterable<String> _patchNativeSources(String targetDir) sync* {
+  final sep = Platform.pathSeparator;
+  final file = File('$targetDir${sep}uv_unwrapper$sep'
+      'uv_unwrapper${sep}csrc${sep}bvh.cpp');
+  if (!file.existsSync()) return;
+  final code = file.readAsStringSync();
+  final missing = <String>[
+    if (!code.contains('#include <tuple>')) '#include <tuple>',
+    if (!code.contains('#include <utility>')) '#include <utility>',
+  ];
+  if (missing.isEmpty) {
+    yield 'bvh.cpp: Header sind bereits vorhanden.';
+    return;
+  }
+  final lines = code.split('\n');
+  var last = -1;
+  for (var i = 0; i < lines.length && i < 60; i++) {
+    if (lines[i].trimLeft().startsWith('#include')) last = i;
+  }
+  if (last < 0) return;
+  lines.insertAll(last + 1, missing);
+  file.writeAsStringSync(lines.join('\n'));
+  yield 'bvh.cpp ergänzt um ${missing.join(' und ')} '
+      '(MSVC braucht die Header ausdrücklich).';
+}
+
+/// Umgebung für das Bauen der C++-Erweiterungen. Unter Windows
+/// übersetzt MSVC sonst nach C++14, während die PyTorch-Header C++17
+/// verlangen – daraus werden unverständliche Vorlagen-Fehler. Über die
+/// Variable CL hängt cl.exe den Schalter an jeden Aufruf an.
+Map<String, String> _buildEnvironment() {
+  if (!Platform.isWindows) return const {};
+  final existing = Platform.environment['CL'] ?? '';
+  return {
+    ...Platform.environment,
+    'CL': existing.isEmpty ? '/std:c++17' : '$existing /std:c++17',
+  };
 }
 
 Future<void> _download(String url, File target) async {
@@ -238,6 +286,10 @@ Stream<String> installServer({
         ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel'],
         workingDirectory: targetDir,
       );
+      yield '# Quellcode der C++-Erweiterungen wird geprüft';
+      for (final line in _patchNativeSources(targetDir)) {
+        yield line;
+      }
       yield '# Modell-Abhängigkeiten (ohne Bau-Abkapselung, damit die '
           'C++-Erweiterungen PyTorch finden)';
       yield* _run(
@@ -251,6 +303,7 @@ Stream<String> installServer({
           '--no-build-isolation',
         ],
         workingDirectory: targetDir,
+        environment: _buildEnvironment(),
       );
     }
   }
