@@ -129,11 +129,15 @@ class TripoService {
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
+    int faceLimit = 0,
   }) =>
       {
         if (modelVersion != null && modelVersion.isNotEmpty)
           'model_version': modelVersion,
         if (quad) 'quad': true,
+        // Obergrenze der Flächen – deutlich weniger Ärger als
+        // nachträgliches Dezimieren, etwa für den Roblox-Import.
+        if (faceLimit > 0) 'face_limit': faceLimit,
         if (texture && detailedTexture) 'texture_quality': 'detailed',
       };
 
@@ -143,6 +147,7 @@ class TripoService {
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
+    int faceLimit = 0,
     String? negativePrompt,
   }) =>
       _createTask({
@@ -157,6 +162,7 @@ class TripoService {
           modelVersion: modelVersion,
           quad: quad,
           detailedTexture: detailedTexture,
+          faceLimit: faceLimit,
         ),
       });
 
@@ -167,6 +173,7 @@ class TripoService {
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
+    int faceLimit = 0,
   }) {
     final subtype = mimeType.split('/').last;
     return _createTask({
@@ -182,6 +189,7 @@ class TripoService {
         modelVersion: modelVersion,
         quad: quad,
         detailedTexture: detailedTexture,
+        faceLimit: faceLimit,
       ),
     });
   }
@@ -194,6 +202,7 @@ class TripoService {
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
+    int faceLimit = 0,
   }) {
     Map<String, dynamic> fileEntry((String, String)? view) {
       if (view == null) return <String, dynamic>{};
@@ -215,6 +224,7 @@ class TripoService {
         modelVersion: modelVersion,
         quad: quad,
         detailedTexture: detailedTexture,
+        faceLimit: faceLimit,
       ),
     });
   }

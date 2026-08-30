@@ -92,14 +92,23 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     erprobte Kombination – „Fahrzeug (Game-Asset)“ und „Figur
     (Game-Asset)“ (Rodin Gen-2.5 High, Quad-Netz, passendes Rig),
     „Schnelltest“ (fal.ai TRELLIS für wenige Cent), „Eigene GPU“
-    (eigener Server), „Höchste Detailtreue“ (Meshy 7 Ultra) und
-    „3D-Druck“ (lokaler Generator, 128er-Raster, ohne Skelett);
-    danach bleibt jede Option einzeln änderbar. Dazu **5 frei
+    (eigener Server), „Höchste Detailtreue“ (Meshy 7 Ultra),
+    „3D-Druck“ (lokaler Generator, 128er-Raster, ohne Skelett) und
+    **„Roblox-Figur“** (alle Grenzen des Roblox-Importers auf einmal,
+    siehe unten); danach bleibt jede Option einzeln änderbar. Dazu **5 frei
     belegbare Plätze für eigene Vorlagen**: eine beliebige Kombination
     aus Anbieter, Modell, Qualitäts-Optionen, Rigging, Veredelung und
     Negativ-/Textur-Prompt unter eigenem Namen sichern, per Klick
     zurückholen und wieder löschen – bleibt auch nach einem Neustart
     erhalten
+  - **Roblox-Vorlage samt Plattform-Prüfung**: setzt Polygonziel,
+    1024er-Textur, T-Pose und Skelett auf die Grenzen des
+    Roblox-Importers, hängt die Roblox-Regeln an die Prompt-Vorlage an
+    und prüft das fertige Modell gegen alle harten Vorgaben –
+    Dreiecke (20.000/10.000/4.000), ein Material je Mesh, ein UV-Satz
+    in 0–1, Texturgröße, offene Kanten und die Rig-Regeln (Scale 1,
+    Rotation 0, Wurzel im Ursprung, höchstens 4 Bones je Vertex)
+    (siehe unten)
   - **Rodin (Hyper3D, Beta)** als 3D-Provider: Spitzenklasse für
     Game-Assets – Rodin Gen-2.5 liefert produktionsreife Meshes mit
     sauberer **Quad-Topologie**, PBR-Texturen und wählbarer
@@ -446,6 +455,102 @@ Pro Block entsteht genau ein Bild – die Einstellung „Anzahl Bilder"
 gilt im Massenlauf nicht, sonst passten Name und Ergebnis nicht mehr
 zusammen. Höchstens 200 Bilder pro Lauf. Kosten: Anzahl der Blöcke ×
 Preis des gewählten Modells; auf der eigenen GPU 0 $.
+
+## Roblox: Figuren, die der Importer annimmt
+
+Im Tab **3D** gibt es unter „Vorlagen" den Knopf **„Roblox-Figur"**. Er
+setzt Anbieter, Ziel-Polygonzahl, Textur-Größe, Skelett und T-Pose in
+einem Rutsch auf die Grenzen des Roblox-Importers, blendet die
+Plattformregeln ein und hängt sie an die Prompt-Vorlage an. Danach
+lässt sich weiterhin jede Option einzeln ändern.
+
+### Was Roblox annimmt
+
+Als Datei nimmt Roblox `.fbx`, `.gltf`/`.glb` und `.obj`. **FBX** ist
+der Standardfall, weil es Materialdaten, Rig und Bone-Transforms in
+einer Datei trägt. **glTF** bündelt die Texturen und wird von Studio
+direkt gelesen, hat dort aber eingeschränkte Rig-Unterstützung –
+`.glb` ist dabei kein eigenes Format, sondern dieselbe Spezifikation,
+nur binär geschrieben. **OBJ** passt nur für einfache statische Props.
+Die App exportiert GLB und OBJ; für eine gerigte Figur führt der Weg
+über Blender (GLB öffnen, als FBX ausgeben).
+
+### Die Grenzen, an denen KI-Assets scheitern
+
+| Regel | Grenze |
+| --- | --- |
+| Dreiecke je Mesh | höchstens **20.000**, Arbeitsziel unter **10.000** |
+| UGC-Accessoires | höchstens **4.000** Dreiecke je Mesh |
+| Material | genau **eines** je Mesh (sonst Texture-Atlas nötig) |
+| UVs | **ein** Satz, vollständig im **0–1**-Raum |
+| Texturen | PNG, JPG, TGA, BMP, höchstens **1024×1024** |
+| Geometrie | wasserdicht, keine offenen Löcher, keine Backfaces, keine Nullstärke, möglichst Quads statt N-Gons |
+
+Genau daran scheitern KI-Modelle zuverlässig: Meshes aus Meshy oder
+Tripo starten oft bei mehreren hunderttausend Dreiecken. Deshalb
+begrenzt die Vorlage die Polygonzahl **schon bei der Generierung** –
+das macht deutlich weniger Ärger als nachträgliches Dezimieren:
+
+- **Meshy**: `target_polycount` (in der App „Detailgrad (Polygone)")
+  bzw. der Low-Poly-Modus.
+- **Tripo**: `face_limit` – neu als Auswahl **„Face-Limit (Flächen)"**
+  mit den Stufen 20.000 / 10.000 / 4.000.
+- **Rodin**: `quality_override` (in der App „Polygonzahl").
+- **Stability und lokaler Generator**: Ziel-Polygonzahl bzw.
+  Ziel-Dreiecke.
+
+Reicht das nicht, hilft nur noch Blender: Modifier **Decimate**.
+
+### Bei gerigten Figuren zusätzlich
+
+- Jeder Bone braucht **Scale 1,1,1** und **Rotation 0,0,0**.
+- Der **Wurzelknochen** sitzt bei **0,0,0** und beeinflusst keine
+  Vertices.
+- Kein Vertex darf von mehr als **vier Bones** beeinflusst werden.
+- Das Modell muss in **T-Pose** stehen. Die Vorlage hängt dafür
+  `standing in T-pose, arms stretched out` an den Prompt.
+- Beim Import wählt man **R15**, **Custom** oder **No Rig**; Studio
+  versucht, den Typ aus der Datei zu erkennen. Ein vollwertiger
+  R15-Avatar braucht **15 einzeln benannte Körperteil-Meshes** – ein
+  einteiliges Modell importiert man als „Custom".
+
+### Prüfen vor dem Hochladen
+
+Am fertigen Modell führt das Export-Menü den Punkt **„Für Roblox
+prüfen …"**. Die App liest die GLB und legt eine Prüfliste vor:
+Dreiecke, Materialzahl, offene Kanten, UV-Sätze und UV-Spanne,
+Texturgrößen sowie – wenn ein Skelett vorhanden ist – Einflüsse je
+Vertex, Bone-Transformationen und der Wurzelknochen. Jeder Punkt sagt,
+was zu tun ist; erledigte Punkte stehen mit grünem Haken dabei, damit
+man sieht, was schon stimmt. Umschalten zwischen **Figur/Prop**
+(20.000 hart, 10.000 Ziel) und **UGC-Accessoire** (4.000) geht in der
+Roblox-Karte.
+
+Zwei Dinge kann die App nicht messen und listet sie deshalb als
+Hinweis: ob das Modell wirklich in T-Pose steht und welcher Rig-Typ
+beim Import zu wählen ist.
+
+### Was der Prompt beitragen kann
+
+Die Roblox-Vorlage hängt an die kopierbare Prompt-Vorlage einen Block
+mit genau den Punkten an, die ein Bild- oder 3D-Prompt beeinflusst:
+genau eine Figur ohne Sockel, T-Pose, geschlossene massive Formen mit
+sichtbarer Dicke (keine hauchdünnen Umhänge, Schleier, Netze oder
+Zäune), keine losen Kleinteile, eine kompakte Silhouette – bei 10.000
+Dreiecken gehen feine Rüschen ohnehin verloren – wenige klar
+getrennte Farbflächen für die eine 1024er-Textur und keine Schrift
+oder Markenbezüge.
+
+### Lizenz und Moderation
+
+Ein Roblox-Upload ist eine **Veröffentlichung auf fremder Plattform**.
+Dafür gilt: nur mit **bezahlten Credits** generieren, nicht mit
+Gratis-Kontingenten – deren Lizenzbedingungen decken eine
+Veröffentlichung in der Regel nicht ab. Wer eigene Meshes darüber
+hinaus als Accessoires im **Marketplace verkaufen** will, muss die
+zusätzlichen Kontovoraussetzungen von Roblox erfüllen. Und alles
+Hochgeladene – Meshes wie Texturen – geht durch die
+**Roblox-Moderation**.
 
 ## Voraussetzung: API-Schlüssel
 

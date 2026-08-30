@@ -485,7 +485,10 @@ Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex,
 }
 
 /// Parst ein GLB und liefert das Vorschau-Mesh (oder wirft bei Fehlern).
-Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
+/// Zerlegt eine GLB-Datei in ihren JSON- und ihren Binärteil. Wer nur
+/// einzelne Angaben braucht (Materialzahl, Bildgrößen, ein einzelnes
+/// Attribut), kommt damit aus, ohne die ganze Vorschau zu bauen.
+({Map<String, dynamic> json, Uint8List bin}) splitGlb(Uint8List glb) {
   final data = ByteData.sublistView(glb);
   if (glb.length < 20 || data.getUint32(0, Endian.little) != 0x46546C67) {
     throw Exception('Keine GLB-Datei.');
@@ -503,6 +506,29 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
     bin = Uint8List.sublistView(
         glb, binHeader + 8, binHeader + 8 + binLength);
   }
+  return (json: json, bin: bin);
+}
+
+/// Liest die Rohbytes eines bufferView (z. B. ein eingebettetes
+/// Texturbild) aus dem Binärteil.
+Uint8List gltfBufferViewBytes(
+    Map<String, dynamic> json, Uint8List bin, int index) {
+  final view = (json['bufferViews'] as List)[index] as Map<String, dynamic>;
+  final offset = (view['byteOffset'] as num?)?.toInt() ?? 0;
+  final length = (view['byteLength'] as num).toInt();
+  return Uint8List.sublistView(bin, offset, offset + length);
+}
+
+/// Liest einen Fließkomma-Accessor (POSITION, TEXCOORD_0, WEIGHTS_0 …)
+/// aus einer bereits zerlegten glTF-Datei.
+Float32List readGltfFloats(
+        Map<String, dynamic> json, Uint8List bin, int accessor) =>
+    _readFloats(_Gltf(json, bin), accessor);
+
+Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
+  final parts = splitGlb(glb);
+  final json = parts.json;
+  final bin = parts.bin;
   final gltf = _Gltf(json, bin);
 
   final allPositions = <double>[];

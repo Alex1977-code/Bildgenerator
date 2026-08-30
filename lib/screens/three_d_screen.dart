@@ -32,6 +32,7 @@ import '../services/rodin_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
+import '../services/roblox_check.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
@@ -193,6 +194,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// (2048/1024 px) oder kompakte Vertex-Farben.
   String _localTextureMode = 'atlas2048';
 
+  /// Roblox-Modus: Die Vorlage „Roblox-Figur" hat die Grenzen des
+  /// Roblox-Importers gesetzt. Dann zeigt die Oberfläche die
+  /// Plattformregeln, hängt sie an die Prompt-Vorlage an und bietet am
+  /// fertigen Modell „Für Roblox prüfen" an.
+  bool _robloxMode = false;
+
+  /// Wofür das Modell gedacht ist – Figur/Prop (20.000 Dreiecke hart,
+  /// Ziel unter 10.000) oder UGC-Accessoire (4.000).
+  RobloxTarget _robloxTarget = RobloxTarget.character;
+
+  /// Tripo: Obergrenze der Flächen (0 = Vorgabe des Anbieters).
+  int _tripoFaceLimit = 0;
+
   /// Zuletzt angewendete Vorlage als Anzeigetext (nur informativ –
   /// danach lassen sich alle Optionen weiterhin einzeln ändern).
   String? _lastPresetInfo;
@@ -248,6 +262,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       'local',
       'Lokaler Generator mit 128er-Raster und KI-Tiefenkarten, ohne '
           'Skelett – geschlossene Form für den Druck-Export'
+    ),
+    (
+      'roblox',
+      'Roblox-Figur',
+      Icons.videogame_asset_outlined,
+      'meshy',
+      'Meshy mit 10.000 Ziel-Polygonen, einer 1024er-Textur, T-Pose '
+          'und Zweibeiner-Skelett – auf die Grenzen des '
+          'Roblox-Importers eingestellt'
     ),
   ];
 
@@ -305,7 +328,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _localTargetTriangles = 0;
           _localDepthAi = true;
           _localSurface = 'matt';
+        case 'roblox':
+          // Alle Grenzen des Roblox-Importers auf einmal: unter 10.000
+          // Dreiecke, eine einzige 1024er-Textur, T-Pose fürs Rig.
+          _promptSubject = 'figure';
+          _robloxMode = true;
+          _robloxTarget = RobloxTarget.character;
+          _meshyAiModel = 'meshy-5';
+          _meshyUltra = false;
+          _meshyPolycount = robloxGoalTriangles;
+          _quadTopology = true;
+          _tripoFaceLimit = robloxGoalTriangles;
+          _rodinPolycount = robloxGoalTriangles;
+          _stabilityPolycount = robloxGoalTriangles;
+          _localTargetTriangles = robloxGoalTriangles;
+          _localTextureMode = 'atlas1024';
+          _rigging = true;
+          _rigType = 'biped';
+          _tPose = true;
+          _symmetryMode = 'auto';
       }
+      // Nur die Roblox-Vorlage schaltet den Modus ein – jede andere
+      // Vorlage schaltet ihn wieder aus, sonst blieben die Hinweise
+      // stehen, obwohl die Grenzen nicht mehr gesetzt sind.
+      if (id != 'roblox') _robloxMode = false;
       // Figur und Objekt brauchen unterschiedliche Ansichten – eine
       // automatisch erzeugte Kachel würde sonst still weiterverwendet.
       if (_promptSubject != previousSubject &&
@@ -350,6 +396,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'pbr': _pbr,
         'tripoVersion': _tripoVersion,
         'tripoDetailedTexture': _tripoDetailedTexture,
+        'tripoFaceLimit': _tripoFaceLimit,
+        'robloxMode': _robloxMode,
+        'robloxTarget': _robloxTarget.name,
         'falModel': _falModel,
         'falCustom': _falCustomCtrl.text,
         'replicateModel': _replicateModel,
@@ -406,6 +455,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _tripoVersion = pick('tripoVersion', _tripoVersion);
       _tripoDetailedTexture =
           pick('tripoDetailedTexture', _tripoDetailedTexture);
+      _tripoFaceLimit = pick('tripoFaceLimit', _tripoFaceLimit);
+      _robloxMode = pick('robloxMode', _robloxMode);
+      _robloxTarget = RobloxTarget.values.firstWhere(
+          (t) => t.name == pick('robloxTarget', _robloxTarget.name),
+          orElse: () => RobloxTarget.character);
       _falModel = pick('falModel', _falModel);
       _falCustomCtrl.text = pick('falCustom', _falCustomCtrl.text);
       _replicateModel = pick('replicateModel', _replicateModel);
@@ -748,6 +802,35 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     ),
   ];
 
+  /// Zusatz für die Prompt-Vorlage, wenn die Roblox-Vorlage aktiv ist.
+  /// Hier steht nur, was ein Bild- oder 3D-Prompt überhaupt
+  /// beeinflussen kann – Dreiecksgrenze, Materialzahl und Rig-Regeln
+  /// setzt die App selbst bzw. prüft sie am fertigen Modell.
+  static const _robloxPromptRules =
+      '\n\nZUSÄTZLICH – das Modell wird nach Roblox hochgeladen. Der '
+      'Prompt muss deshalb ein Motiv beschreiben, das der Importer '
+      'annimmt:\n\n'
+      '- GENAU EINE Figur, ein zusammenhängender Körper. Keine '
+      'zweite Person, kein Begleittier, kein Sockel, kein Podest.\n'
+      '- T-Pose: "standing in T-pose, arms stretched out '
+      'horizontally", Beine leicht auseinander, Blick nach vorn. Der '
+      'Roblox-Importer verlangt die T-Pose.\n'
+      '- Geschlossene, massive Formen mit sichtbarer Dicke. Keine '
+      'hauchdünnen Flächen (Umhänge, Schleier, Blätter, Netze, '
+      'Zäune) – die kommen als Flächen ohne Stärke heraus und '
+      'flackern im Spiel.\n'
+      '- Keine losen, freischwebenden Kleinteile (Schwebepartikel, '
+      'Ketten, einzelne Haarsträhnen) und keine feinen Durchbrüche.\n'
+      '- Einfache, kompakte Silhouette mit klaren Volumen: Das Modell '
+      'wird auf unter 10.000 Dreiecke reduziert, feine Rüschen und '
+      'Zierrat gehen dabei ohnehin verloren.\n'
+      '- Wenige, klar getrennte Farbflächen und ein einheitlicher '
+      'Materiallook – Roblox erlaubt nur ein Material je Mesh, alles '
+      'landet in einer einzigen 1024er-Textur.\n'
+      '- Keine Schrift, keine Logos, keine Marken- oder '
+      'Figurenbezüge: Alles Hochgeladene geht durch die '
+      'Roblox-Moderation.';
+
   Future<void> _copyTemplate(String title, String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
@@ -792,6 +875,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           '(Dreiviertelansicht – aus reiner Frontalansicht entsteht nur '
           'eine flache Platte): bei deiner Prompt-KI einfügen.';
     }
+    final fullText = _robloxMode ? '$text$_robloxPromptRules' : text;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -830,13 +914,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
             FilledButton.tonalIcon(
               icon: const Icon(Icons.copy, size: 18),
-              label: const Text('Prompt-Vorlage kopieren'),
-              onPressed: () => _copyTemplate(title, text),
+              label: Text(_robloxMode
+                  ? 'Prompt-Vorlage kopieren (mit Roblox-Regeln)'
+                  : 'Prompt-Vorlage kopieren'),
+              onPressed: () => _copyTemplate(title, fullText),
             ),
           ],
         ),
         const SizedBox(height: 4),
-        Text(hint, style: theme.textTheme.bodySmall),
+        Text(
+            _robloxMode
+                ? '$hint Die Roblox-Regeln (eine Figur, T-Pose, '
+                    'massive Formen, wenige Farbflächen, keine Schrift) '
+                    'hängen automatisch mit dran.'
+                : hint,
+            style: theme.textTheme.bodySmall),
       ],
     );
   }
@@ -1764,6 +1856,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           modelVersion: _tripoVersion,
           quad: _quadTopology,
           detailedTexture: _tripoDetailedTexture,
+          faceLimit: _tripoFaceLimit,
         );
       } else {
         progress('Bild wird hochgeladen …');
@@ -1776,6 +1869,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           modelVersion: _tripoVersion,
           quad: _quadTopology,
           detailedTexture: _tripoDetailedTexture,
+          faceLimit: _tripoFaceLimit,
         );
       }
     } else {
@@ -1789,6 +1883,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         modelVersion: _tripoVersion,
         quad: _quadTopology,
         detailedTexture: _tripoDetailedTexture,
+        faceLimit: _tripoFaceLimit,
         negativePrompt: _negative3dCtrl.text.trim(),
       );
     }
@@ -2120,9 +2215,205 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     }
                   : null,
             ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.videogame_asset_outlined),
+              title: const Text('Für Roblox prüfen …'),
+              subtitle: const Text(
+                  'Dreiecke, Material, Textur, UVs und Rig gegen die '
+                  'Grenzen des Importers'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _showRobloxCheck(result);
+              },
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Hinweiskarte, solange die Roblox-Vorlage aktiv ist: die Grenzen
+  /// der Plattform, die Zielwahl (Figur/Prop oder Accessoire) und der
+  /// Weg zur Prüfung am fertigen Modell.
+  Widget _robloxCard(ThemeData theme) => Card(
+        margin: const EdgeInsets.only(top: 12),
+        color: theme.colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.videogame_asset_outlined,
+                      size: 20, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Roblox-Vorlage aktiv',
+                        style: theme.textTheme.titleSmall),
+                  ),
+                  IconButton(
+                    tooltip: 'Roblox-Modus verlassen',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: _running
+                        ? null
+                        : () => setState(() => _robloxMode = false),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Ziel-Polygonzahl, Textur-Größe, T-Pose und Skelett '
+                'sind auf die Grenzen des Roblox-Importers gesetzt. '
+                'Alles lässt sich weiterhin einzeln ändern – die '
+                'Prüfung am fertigen Modell sagt dann, was noch '
+                'dagegen spricht.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 10),
+              SegmentedButton<RobloxTarget>(
+                segments: const [
+                  ButtonSegment(
+                      value: RobloxTarget.character,
+                      label: Text('Figur / Prop'),
+                      icon: Icon(Icons.person_outline)),
+                  ButtonSegment(
+                      value: RobloxTarget.accessory,
+                      label: Text('UGC-Accessoire'),
+                      icon: Icon(Icons.checkroom_outlined)),
+                ],
+                selected: {_robloxTarget},
+                showSelectedIcon: false,
+                onSelectionChanged: _running
+                    ? null
+                    : (selection) => setState(() {
+                          _robloxTarget = selection.first;
+                          final goal = _robloxTarget.goalTriangles;
+                          _meshyPolycount = goal;
+                          _tripoFaceLimit = goal;
+                          _rodinPolycount = goal;
+                          _stabilityPolycount =
+                              goal >= 5000 ? goal : 5000;
+                          _localTargetTriangles = goal;
+                        }),
+              ),
+              const SizedBox(height: 10),
+              Text(robloxRulesSummary(_robloxTarget),
+                  style: theme.textTheme.bodySmall),
+              const SizedBox(height: 8),
+              Text(
+                'Lizenz: Ein Roblox-Upload ist eine Veröffentlichung '
+                'auf fremder Plattform – dafür nur mit bezahlten '
+                'Credits generieren, nicht mit Gratis-Kontingenten. '
+                'Der Verkauf eigener Accessoires im Marketplace hängt '
+                'an weiteren Kontovoraussetzungen, und alles '
+                'Hochgeladene (Meshes wie Texturen) geht durch die '
+                'Roblox-Moderation.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  /// Prüft ein fertiges Modell gegen die Roblox-Regeln und zeigt die
+  /// Liste – erledigte Punkte inbegriffen, damit man sieht, was schon
+  /// stimmt.
+  Future<void> _showRobloxCheck(ThreeDResult result) async {
+    List<RobloxFinding> findings;
+    try {
+      final facts = await readRobloxFacts(result.glbBytes);
+      findings = checkRobloxFacts(facts, _robloxTarget);
+    } catch (e) {
+      if (mounted) _showSnack('Die Roblox-Prüfung schlug fehl: $e');
+      return;
+    }
+    if (!mounted) return;
+    final blockers =
+        findings.where((f) => f.level == RobloxLevel.blocker).length;
+    final warnings =
+        findings.where((f) => f.level == RobloxLevel.warning).length;
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Roblox-Prüfung'),
+          content: SizedBox(
+            width: 620,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    blockers > 0
+                        ? '$blockers Punkt(e) verhindern den Import.'
+                        : warnings > 0
+                            ? 'Der Import geht durch, $warnings Punkt(e) '
+                                'kosten aber Leistung oder Qualität.'
+                            : 'Alle harten Regeln eingehalten – das '
+                                'Modell kann hochgeladen werden.',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                        color: blockers > 0
+                            ? theme.colorScheme.error
+                            : Colors.green.shade700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Ziel: ${_robloxTarget.label}',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.outline)),
+                  const SizedBox(height: 12),
+                  for (final finding in findings) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          switch (finding.level) {
+                            RobloxLevel.blocker => Icons.cancel_outlined,
+                            RobloxLevel.warning => Icons.warning_amber_outlined,
+                            RobloxLevel.hint => Icons.info_outline,
+                            RobloxLevel.ok => Icons.check_circle_outline,
+                          },
+                          size: 18,
+                          color: switch (finding.level) {
+                            RobloxLevel.blocker => theme.colorScheme.error,
+                            RobloxLevel.warning => Colors.orange.shade800,
+                            RobloxLevel.hint => theme.colorScheme.outline,
+                            RobloxLevel.ok => Colors.green.shade700,
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(finding.title,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600)),
+                              Text(finding.detail,
+                                  style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Schließen'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -2272,6 +2563,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ),
                 const SizedBox(height: 10),
                 _customPresetBar(theme, settings),
+                if (_robloxMode) _robloxCard(theme),
                 if (_lastPresetInfo != null) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -3829,7 +4121,38 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               : (v) => setState(() => _pbr = v),
                         ),
                       ],
-                      if (isTripo)
+                      if (isTripo) ...[
+                        DropdownMenu<int>(
+                          key: ValueKey('tripoface-$_tripoFaceLimit'),
+                          enabled: !_running,
+                          initialSelection: _tripoFaceLimit,
+                          label: const Text('Face-Limit (Flächen)'),
+                          expandedInsets: EdgeInsets.zero,
+                          dropdownMenuEntries: const [
+                            DropdownMenuEntry(
+                                value: 0, label: 'Standard (API-Vorgabe)'),
+                            DropdownMenuEntry(
+                                value: 20000,
+                                label: '≈ 20.000 (Roblox-Obergrenze)'),
+                            DropdownMenuEntry(
+                                value: 10000,
+                                label: '≈ 10.000 (Spiele/Roblox-Ziel)'),
+                            DropdownMenuEntry(
+                                value: 4000,
+                                label: '≈ 4.000 (UGC-Accessoire)'),
+                          ],
+                          onSelected: (value) {
+                            if (value != null) {
+                              setState(() => _tripoFaceLimit = value);
+                            }
+                          },
+                        ),
+                        _optionInfo(
+                            'Obergrenze der Flächen direkt bei der '
+                            'Generierung (face_limit). Deutlich weniger '
+                            'Ärger als nachträgliches Dezimieren – '
+                            'wichtig für Engines mit harten Grenzen wie '
+                            'Roblox.'),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Textur-Qualität „detailliert“'),
@@ -3842,6 +4165,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               : (v) =>
                                   setState(() => _tripoDetailedTexture = v),
                         ),
+                      ],
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Quad-Topologie'),

@@ -14,6 +14,7 @@ import 'package:bildgenerator/services/mesh_check.dart';
 import 'package:bildgenerator/services/model_import.dart';
 import 'package:bildgenerator/services/model_refine.dart';
 import 'package:bildgenerator/services/obj_export.dart';
+import 'package:bildgenerator/services/roblox_check.dart';
 import 'package:bildgenerator/services/stl_export.dart';
 import 'package:bildgenerator/services/threemf_export.dart';
 import 'package:archive/archive.dart';
@@ -1482,5 +1483,35 @@ void main() {
     expect(preview.extent, greaterThan(0));
     // Vertex-Farben kommen aus COLOR_0, nicht aus dem Grau-Fallback.
     expect(preview.colors.toSet().length, greaterThan(1));
+    preview.dispose();
+  });
+
+  test('Roblox-Prüfung liest die Zahlen aus einer echten GLB', () async {
+    final mesh = buildVisualHullMesh(
+      front: _testImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 10,
+    );
+    final glb = buildGlb(mesh);
+
+    final facts = await readRobloxFacts(glb);
+    expect(facts.triangles, mesh.indices.length ~/ 3);
+    expect(facts.meshCount, 1);
+    expect(facts.primitiveCount, 1);
+    expect(facts.materialCount, lessThanOrEqualTo(1));
+    // Das Vertex-Farb-Netz trägt kein Skelett und keine Textur.
+    expect(facts.hasRig, isFalse);
+    expect(facts.textures, isEmpty);
+
+    final findings = checkRobloxFacts(facts, RobloxTarget.character);
+    // Ohne UVs kann Roblox keine Textur auflegen – das ist der
+    // erwartete Blocker für dieses schlichte Netz.
+    expect(
+        findings
+            .where((f) => f.level == RobloxLevel.blocker)
+            .map((f) => f.title)
+            .join(' '),
+        contains('UV'));
   });
 }
