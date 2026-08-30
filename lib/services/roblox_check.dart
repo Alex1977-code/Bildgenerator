@@ -18,6 +18,7 @@ import 'dart:typed_data';
 
 import 'glb_preview.dart';
 import 'mesh_check.dart';
+import 'roblox_rig.dart';
 
 /// Wofür das Modell gedacht ist – davon hängt die Dreiecksgrenze ab.
 enum RobloxTarget {
@@ -150,6 +151,7 @@ class RobloxFacts {
     this.rootAtOrigin = true,
     this.rootWeighted = false,
     this.rootName = '',
+    this.boneNames = const [],
   });
 
   /// Dreiecke über alle Meshes zusammen.
@@ -219,6 +221,12 @@ class RobloxFacts {
   final bool rootWeighted;
 
   final String rootName;
+
+  /// Namen der Skelett-Gelenke – daran hängt der R15-Import.
+  final List<String> boneNames;
+
+  /// Welche der 15 R15-Gelenke fehlen.
+  List<String> get missingR15 => missingR15Bones(boneNames);
 
   bool get hasRig => boneCount > 0;
   bool get hasUvs => uvSets > 0;
@@ -548,14 +556,45 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
           'Wurzelknochen im Ursprung, ohne Gewichte',
           'So erwartet es der Importer.'));
     }
+    // Die R15-Benennung ist der Schritt, an dem der Rig-Weg steht
+    // oder fällt – und sie ist aus der Datei ablesbar.
+    final missing = facts.missingR15;
+    if (missing.isEmpty) {
+      findings.add(const RobloxFinding(
+          RobloxLevel.ok,
+          'Knochen nach R15 benannt',
+          'Alle 15 Gelenke tragen die Namen, die der Importer '
+              'erwartet – die Figur taugt als StarterCharacter.'));
+    } else if (missing.length >= robloxR15Bones.length - 1) {
+      findings.add(RobloxFinding(
+          RobloxLevel.warning,
+          'Knochen nicht nach R15 benannt',
+          'Kein einziges der 15 R15-Gelenke ist zu finden (die Datei '
+              'nennt z. B. ${facts.boneNames.take(3).join(', ')}). Für '
+              'eine Spielfigur müssen die Knochen umbenannt werden – '
+              'das macht „Für Roblox vorbereiten" im Export-Menü. Ohne '
+              'Umbenennen bleibt nur der Import-Weg „Custom".'));
+    } else {
+      findings.add(RobloxFinding(
+          RobloxLevel.warning,
+          'R15: ${robloxR15Bones.length - missing.length} von '
+              '${robloxR15Bones.length} Gelenken',
+          'Es fehlen: ${missing.join(', ')}. Ohne sie lässt sich das '
+              'Modell nur mit der Import-Einstellung „Custom" nutzen; '
+              'als StarterCharacter braucht es alle 15.'));
+    }
+
     findings.add(const RobloxFinding(
         RobloxLevel.hint,
         'T-Pose und Rig-Typ von Hand prüfen',
         'Das Modell muss in T-Pose stehen (Arme waagerecht) – das '
             'kann die App nicht messen. Beim Import wählt man R15, '
-            'Custom oder No Rig; ein vollwertiger R15-Avatar braucht '
-            '15 einzeln benannte Körperteil-Meshes, ein einteiliges '
-            'Modell importiert man als „Custom".'));
+            'Rthro oder Custom: „Custom" ergibt ein Modell auf einem '
+            'einzelnen Mesh, das die Katalog-R15-Animationen abspielt; '
+            '„R15"/„Rthro" ergibt einen Humanoid-Rig, der als '
+            'StarterCharacter taugt. In 15 einzelne MeshParts '
+            'zerschneiden muss man nichts – es reicht, die Knochen '
+            'nach R15 zu benennen und auf ein Mesh zu skinnen.'));
   }
 
   // 7. Was nur für Accessoires gilt.
@@ -770,6 +809,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
       rootAtOrigin: rootAtOrigin,
       rootWeighted: rootWeighted,
       rootName: rootName,
+      boneNames: rig == null ? const [] : rig.jointNames,
     );
   } finally {
     mesh.dispose();

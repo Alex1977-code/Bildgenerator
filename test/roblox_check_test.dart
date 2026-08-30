@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/services/roblox_check.dart';
+import 'package:bildgenerator/services/roblox_rig.dart';
 
 /// Ein Modell, das alle Regeln einhält – Grundlage der Einzelfälle.
 RobloxFacts _good({
@@ -32,8 +33,11 @@ RobloxFacts _good({
   double signedVolume = 0.05,
   double volumeRatio = 0.02,
   int degenerateTriangles = 0,
+  List<String>? boneNames,
 }) =>
     RobloxFacts(
+      // Ein regelkonformes Modell trägt die R15-Namen.
+      boneNames: boneNames ?? robloxR15Bones,
       meshTriangles: meshTriangles ?? [triangles],
       maxPrimitivesPerMesh: maxPrimitivesPerMesh,
       size: size,
@@ -216,6 +220,46 @@ void main() {
           RobloxTarget.character);
       expect(_blockers(findings), isEmpty);
       expect(_text(findings), contains('No Rig'));
+    });
+
+    test('R15-Benennung: fehlende Gelenke werden aufgezählt', () {
+      // Ein Rig mit Mixamo-Namen kennt keines der 15 Gelenke.
+      final mixamo = checkRobloxFacts(
+          _good(boneNames: const [
+            'mixamorig:Hips',
+            'mixamorig:Spine',
+            'mixamorig:LeftArm'
+          ]),
+          RobloxTarget.character);
+      final text = _text(mixamo);
+      expect(text, contains('nicht nach R15 benannt'));
+      expect(text, contains('Für Roblox vorbereiten'));
+
+      // Teilweise benannt: die Fehlenden stehen namentlich da.
+      final partial = checkRobloxFacts(
+          _good(boneNames: const [
+            'HumanoidRootPart',
+            'LowerTorso',
+            'UpperTorso',
+            'Head',
+            'LeftUpperArm',
+            'LeftLowerArm',
+            'LeftHand',
+            'RightUpperArm',
+            'RightLowerArm',
+            'RightHand',
+          ]),
+          RobloxTarget.character);
+      expect(_text(partial), contains('LeftUpperLeg'));
+      expect(_text(partial), contains('10 von 16'));
+
+      // Vollständig benannt: grüner Haken, keine Warnung.
+      final full = checkRobloxFacts(_good(), RobloxTarget.character);
+      expect(
+          full
+              .firstWhere((f) => f.title == 'Knochen nach R15 benannt')
+              .level,
+          RobloxLevel.ok);
     });
 
     test('Die T-Pose- und Formathinweise stehen immer in der Liste', () {

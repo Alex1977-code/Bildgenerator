@@ -33,6 +33,9 @@ import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
 import '../services/roblox_check.dart';
+import '../services/roblox_export.dart';
+import '../services/roblox_install.dart';
+import '../services/roblox_rig.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
@@ -2255,6 +2258,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
             const Divider(height: 1),
             ListTile(
+              enabled: result.rigged,
+              leading: const Icon(Icons.sports_esports_outlined),
+              title: const Text('Für Roblox vorbereiten …'),
+              subtitle: Text(result.rigged
+                  ? 'Knochen auf R15 umbenennen, dazu Blender- und '
+                      'Studio-Skript'
+                  : 'Nur bei geriggten Figuren – Props gehen direkt '
+                      'als GLB'),
+              onTap: result.rigged
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _prepareForRoblox(result);
+                    }
+                  : null,
+            ),
+            ListTile(
               leading: const Icon(Icons.videogame_asset_outlined),
               title: const Text('Für Roblox prüfen …'),
               subtitle: const Text(
@@ -2467,6 +2486,248 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
         ),
       );
+
+  /// Baut das Roblox-Paket: Knochen auf R15 umbenennen, dazu die
+  /// beiden Skripte, die den Rest abnehmen.
+  ///
+  /// Was die App **nicht** kann und warum, steht im Dialog: FBX
+  /// schreiben (dafür das Blender-Skript) und die Figur in einen
+  /// Roblox-Platz setzen (dafür das Studio-Skript – ein Platz verweist
+  /// auf ein hochgeladenes MeshPart, und das Hochladen samt Moderation
+  /// passiert in Studio).
+  Future<void> _prepareForRoblox(ThreeDResult result) async {
+    RobloxRigResult rig;
+    try {
+      rig = renameBonesToR15(result.glbBytes);
+    } catch (e) {
+      if (mounted) _showSnack('$e');
+      return;
+    }
+    final install = await findRobloxStudio();
+    if (!mounted) return;
+
+    var asStarter = true;
+    var hipHeight = 2.0;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setLocal) {
+          final theme = Theme.of(context);
+          final report = rig.report;
+          return AlertDialog(
+            title: const Text('Für Roblox vorbereiten'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                            report.complete
+                                ? Icons.check_circle_outline
+                                : Icons.warning_amber_outlined,
+                            size: 20,
+                            color: report.complete
+                                ? Colors.green.shade700
+                                : Colors.orange.shade800),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            report.complete
+                                ? 'Alle 15 R15-Gelenke stehen – die '
+                                    'Figur taugt als Startfigur.'
+                                : '${report.found} von '
+                                    '${robloxR15Bones.length} '
+                                    'R15-Gelenken. Es fehlen: '
+                                    '${report.missing.join(', ')}. '
+                                    'Damit bleibt der Import-Weg '
+                                    '„Custom" (Katalog-Animationen '
+                                    'laufen, Startfigur nicht).',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (report.renamed.isNotEmpty) ...[
+                      Text('Umbenannt (${report.renamed.length}):',
+                          style: theme.textTheme.labelMedium),
+                      Text(
+                        report.renamed.entries
+                            .take(6)
+                            .map((e) => '${e.key} → ${e.value}')
+                            .join(', ') +
+                            (report.renamed.length > 6
+                                ? ' … (+${report.renamed.length - 6})'
+                                : ''),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    if (report.rootAdded)
+                      Text(
+                        'Ein HumanoidRootPart wurde über der Hüfte '
+                        'eingezogen: im Ursprung, ohne Gewichtung – '
+                        'genau so verlangt es der Importer.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    if (report.untouched.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Unverändert blieben Knochen ohne '
+                          'R15-Gegenstück: '
+                          '${report.untouched.take(6).join(', ')}'
+                          '${report.untouched.length > 6 ? ' …' : ''}. '
+                          'Das ist in Ordnung – R15 kennt nur die 15.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline),
+                        ),
+                      ),
+                    const Divider(height: 24),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      value: asStarter,
+                      onChanged: (v) => setLocal(() => asStarter = v),
+                      title: const Text('Als Startfigur einsetzen'),
+                      subtitle: const Text(
+                          'Das Studio-Skript sichert eine vorhandene '
+                          'Startfigur nach ServerStorage und setzt '
+                          'diese ein. Ohne den Schalter macht es nur '
+                          'die drei Korrekturen.'),
+                    ),
+                    Row(
+                      children: [
+                        const SizedBox(
+                            width: 120, child: Text('Hip Height')),
+                        Expanded(
+                          child: Slider(
+                            value: hipHeight,
+                            min: 0.5,
+                            max: 5,
+                            divisions: 45,
+                            label: hipHeight.toStringAsFixed(1),
+                            onChanged: (v) => setLocal(() => hipHeight = v),
+                          ),
+                        ),
+                        Text(hipHeight.toStringAsFixed(1)),
+                      ],
+                    ),
+                    Text(
+                      'Die automatische Skalierung wird abgeschaltet '
+                      'und dieser Wert eingetragen – sonst steht die '
+                      'Figur im Boden oder schwebt. 2,0 passt für eine '
+                      'Figur in Standardgröße; nachjustieren lässt es '
+                      'sich in Studio jederzeit.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.outline),
+                    ),
+                    const Divider(height: 24),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                            install.found
+                                ? Icons.check_circle_outline
+                                : Icons.info_outline,
+                            size: 18,
+                            color: install.found
+                                ? Colors.green.shade700
+                                : theme.colorScheme.outline),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            install.found
+                                ? 'Roblox Studio gefunden'
+                                    '${install.version.isEmpty ? '' : ' '
+                                        '(${install.version})'}: '
+                                    '${install.studioPath}'
+                                : install.note,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Gespeichert werden vier Dateien: das Modell mit '
+                      'R15-Namen, ein Blender-Skript (Roblox importiert '
+                      'Rigs nur als FBX), das Studio-Skript und eine '
+                      'Kurzanleitung – darin steht auch, wie sich der '
+                      'Platz mit Freunden teilen lässt.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Abbrechen'),
+              ),
+              if (install.found)
+                TextButton.icon(
+                  onPressed: () => openRobloxFolder(install.studioPath),
+                  icon: const Icon(Icons.folder_open, size: 18),
+                  label: const Text('Studio-Ordner'),
+                ),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.save_alt, size: 18),
+                label: const Text('Paket speichern'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (saved != true || !mounted) return;
+
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final base = 'roblox_figur_$ts';
+    final glbFile = '$base.glb';
+    final fbxFile = '$base.fbx';
+    final scriptFile = '${base}_blender_fbx.py';
+    final luaFile = '${base}_studio.lua';
+    try {
+      final texts = <String, String>{
+        scriptFile: blenderFbxScript(glbFile: glbFile, fbxFile: fbxFile),
+        luaFile: studioSetupLua(
+          modelName: base,
+          asStarterCharacter: asStarter,
+          hipHeight: double.parse(hipHeight.toStringAsFixed(1)),
+        ),
+        '${base}_ANLEITUNG.txt': robloxReadme(
+          glbFile: glbFile,
+          fbxFile: fbxFile,
+          scriptFile: scriptFile,
+          luaFile: luaFile,
+          missingBones: rig.report.missing,
+        ),
+      };
+      var message = await exportImageBytes(
+          rig.glb, glbFile, 'model/gltf-binary');
+      for (final entry in texts.entries) {
+        message = await exportImageBytes(
+                Uint8List.fromList(utf8.encode(entry.value)),
+                entry.key,
+                'text/plain') ??
+            message;
+      }
+      if (message != null && mounted) {
+        _showSnack('Roblox-Paket gespeichert (4 Dateien) – '
+            '$message');
+      }
+    } catch (e) {
+      if (mounted) _showSnack('Speichern fehlgeschlagen: $e');
+    }
+  }
 
   /// Prüft ein fertiges Modell gegen die Roblox-Regeln und zeigt die
   /// Liste – erledigte Punkte inbegriffen, damit man sieht, was schon

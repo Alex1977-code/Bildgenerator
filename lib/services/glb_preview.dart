@@ -509,6 +509,42 @@ Future<ui.Image?> _decodeTextureImage(_Gltf gltf, int imageIndex,
   return (json: json, bin: bin);
 }
 
+/// Setzt JSON- und Binärteil wieder zu einer GLB-Datei zusammen.
+/// Gegenstück zu [splitGlb], damit sich einzelne Angaben ändern lassen
+/// (z. B. Knochennamen), ohne die Geometrie anzufassen.
+Uint8List joinGlb(Map<String, dynamic> json, Uint8List bin) {
+  int pad4(int n) => (n + 3) & ~3;
+  final jsonBytes = utf8.encode(jsonEncode(json));
+  // Der JSON-Teil wird mit Leerzeichen aufgefüllt, der Binärteil mit
+  // Nullen – so schreibt es die glTF-Spezifikation vor.
+  final jsonPadded = Uint8List(pad4(jsonBytes.length))
+    ..fillRange(0, pad4(jsonBytes.length), 0x20)
+    ..setRange(0, jsonBytes.length, jsonBytes);
+  final binPadded = Uint8List(pad4(bin.length))..setRange(0, bin.length, bin);
+  final total = 12 + 8 + jsonPadded.length + (bin.isEmpty ? 0 : 8 + binPadded.length);
+  final out = ByteData(total);
+  final bytes = out.buffer.asUint8List();
+  var o = 0;
+  void u32(int value) {
+    out.setUint32(o, value, Endian.little);
+    o += 4;
+  }
+
+  u32(0x46546C67); // glTF
+  u32(2);
+  u32(total);
+  u32(jsonPadded.length);
+  u32(0x4E4F534A); // JSON
+  bytes.setRange(o, o + jsonPadded.length, jsonPadded);
+  o += jsonPadded.length;
+  if (bin.isNotEmpty) {
+    u32(binPadded.length);
+    u32(0x004E4942); // BIN
+    bytes.setRange(o, o + binPadded.length, binPadded);
+  }
+  return bytes;
+}
+
 /// Liest die Rohbytes eines bufferView (z. B. ein eingebettetes
 /// Texturbild) aus dem Binärteil.
 Uint8List gltfBufferViewBytes(

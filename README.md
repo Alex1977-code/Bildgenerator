@@ -674,6 +674,106 @@ Dreiecken gehen feine Rüschen ohnehin verloren – wenige klar
 getrennte Farbflächen für die eine 1024er-Textur und keine Schrift
 oder Markenbezüge.
 
+### Von der geriggten Figur zur Spielfigur
+
+Für eine **Figur** reicht die GLB nicht: Mesh- und Animationsimport
+läuft bei Roblox über **`.fbx`**. GLB direkt geht für Props, nicht für
+den Rig-Weg.
+
+**Der Schritt, an dem alles hängt, sind die Knochennamen.** Man muss
+die Figur *nicht* in 15 MeshParts zerschneiden — es reicht, die Knochen
+nach der R15-Konvention zu benennen und auf ein einzelnes Mesh zu
+skinnen. Der Wurzelknochen heißt dabei **`HumanoidRootPart`**, nicht
+„HumanoidRootNode":
+
+```
+HumanoidRootPart
+LowerTorso, UpperTorso, Head
+LeftUpperArm,  LeftLowerArm,  LeftHand
+RightUpperArm, RightLowerArm, RightHand
+LeftUpperLeg,  LeftLowerLeg,  LeftFoot
+RightUpperLeg, RightLowerLeg, RightFoot
+```
+
+Tripos Auto-Rig liefert mit `spec: "mixamo"` Namen wie
+`mixamorig:Hips`, der eigene Auto-Rigger `Hips`, `Chest`,
+`Shoulder_L`. **Das Umbenennen nimmt die App ab**: Export-Menü →
+**„Für Roblox vorbereiten …"**. Sie erkennt Mixamo-Namen, die eigenen
+und die geläufigen Schreibweisen, zieht einen `HumanoidRootPart` im
+Ursprung über der Hüfte ein (ohne Gewichtung, wie verlangt) und sagt,
+welche der 15 Gelenke danach noch fehlen. Knochen ohne R15-Gegenstück
+(Finger, ein zweiter Wirbel) behalten ihren Namen — das ist richtig so.
+
+Gespeichert werden vier Dateien:
+
+| Datei | Wofür |
+| --- | --- |
+| `…​.glb` | Das Modell, Knochen bereits auf R15 benannt |
+| `…​_blender_fbx.py` | Blender-Skript: macht daraus die FBX |
+| `…​_studio.lua` | Luau für die Befehlsleiste in Roblox Studio |
+| `…​_ANLEITUNG.txt` | Die Schritte, auch zum Teilen mit Freunden |
+
+**FBX erzeugen.** `blender --background --python …_blender_fbx.py`.
+Das Skript nimmt die drei Stellen ab, an denen es sonst schiefgeht:
+Transformationen einfrieren (Scale 1,1,1, Rotation 0,0,0 an jedem
+Knochen), höchstens vier Knochen je Vertex, keine leeren Endknochen.
+
+**Zwei Importwege, zwei Ergebnisse.** In Studio unter Avatar →
+3D-Importer:
+
+- **Custom** → ein Modell auf einem einzelnen Mesh, das die aktuellen
+  Katalog-R15-Animationen abspielt. Laufen, Springen, Emotes
+  funktionieren, ohne eine einzige Animation selbst zu bauen.
+- **R15 / Rthro / Rthro Slender** → ein Humanoid-Rig, der als
+  StarterCharacter taugt.
+
+**Die drei Korrekturen** für den zweiten Weg macht das Studio-Skript:
+
+1. `HumanoidRootPart` und das importierte MeshPart verschweißen.
+2. `Humanoid.AutomaticScalingEnabled` aus und die Hip Height von Hand
+   eintragen — sonst steht die Figur nicht sauber auf dem Boden. Der
+   Wert lässt sich im Dialog vorwählen.
+3. `CanCollide` am MeshPart aus, die Kollision übernimmt der
+   `HumanoidRootPart`. **Diese dritte wird gern vergessen** und ist die
+   Ursache dafür, dass Figuren an Kanten hängenbleiben.
+
+**Einsetzen.** Ist der Schalter „Als Startfigur einsetzen" an, sichert
+das Skript eine vorhandene Startfigur zuerst nach
+`ServerStorage.StarterCharacter_Sicherung_<Zeitstempel>`, benennt das
+Modell in `StarterCharacter` um und hängt es nach `StarterPlayer`.
+Alles unanchored, `PrimaryPart` zeigt auf `HumanoidRootPart`.
+Zurücknehmen geht über die Sicherung. Danach Playtest starten — ab dann
+spawnt man als die eigene Figur.
+
+**Mit Freunden teilen.** Datei → Auf Roblox veröffentlichen. Danach im
+Creator-Dashboard: das Erlebnis privat lassen und Freunde unter
+„Zugriff" als Tester hinzufügen, oder es auf „Öffentlich" stellen und
+den Link teilen. Gemeinsam bearbeiten geht über Team Create.
+
+**Rig-Hygiene** prüft die App mit: eingefrorene Transformationen
+(Scale 1,1,1, Rotation 0,0,0), Wurzelknochen bei 0,0,0 ohne Gewichtung,
+höchstens vier Bones je Vertex — und neu die R15-Benennung. Alles davon
+ist aus der Datei messbar; nur die T-Pose nicht, die bleibt ein
+Hinweis.
+
+**Was erfahrungsgemäß hakt** sind nicht der Import, sondern **eigene
+Animationen aus Blender**: Die brechen auch bei korrektem Rig oft,
+während der StarterCharacter einwandfrei läuft. Deshalb zuerst mit den
+Katalog-Animationen testen — laufen die, stimmen Rig und Benennung.
+
+**Was die App nicht kann, und warum:** Eine FBX schreiben (ein eigener
+FBX-Schreiber ließe sich hier nicht gegen Roblox testen — dafür das
+Blender-Skript) und die Figur selbst in einen Roblox-Platz setzen. Ein
+Platz verweist auf ein **hochgeladenes** MeshPart (`rbxassetid://…`);
+das Hochladen samt Moderation passiert in Studio. Deshalb das
+Studio-Skript statt eines halben Versprechens.
+
+**Roblox-Installation.** Der Dialog sucht Roblox Studio an den üblichen
+Stellen (`%LOCALAPPDATA%\Roblox\Versions`, Programme, unter macOS
+`/Applications`) und zeigt Pfad und Fassung an; ein Knopf öffnet den
+Ordner. Wird nichts gefunden, ändert das nichts am Paket — Studio ist
+kostenlos unter create.roblox.com.
+
 ### Lizenz und Moderation
 
 Ein Roblox-Upload ist eine **Veröffentlichung auf fremder Plattform**.
