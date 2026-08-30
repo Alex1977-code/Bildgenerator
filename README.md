@@ -106,6 +106,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     für Game-Assets wie Fahrzeuge und Gebäude. Rigging, Symmetrisieren
     und Textur-Schärfen übernimmt die eigene lokale
     Veredelungs-Pipeline
+  - **Direkt aus Text zum 3D-Modell** (ohne Bild-Zwischenschritt):
+    **Meshy**, **Tripo3D** und **Rodin** bauen aus der Beschreibung
+    unmittelbar ein Modell; bei fal.ai steht dafür **Rodin 2.5
+    (text-to-3d)** in der Modell-Liste. Bei Meshy/Tripo/Rodin lässt
+    sich der Weg über KI-Ansichten zuschalten, wenn er detailtreuer
+    ist – die Kostenanzeige rechnet beide Wege ehrlich durch. Lokal
+    entsteht Text→3D aus der Kette eigener Bild-Server → eigener
+    3D-Server (siehe nächster Punkt)
   - **Text→Bild auf der eigenen GPU** (kostenlos, ohne Cloud): Der
     mitgelieferte Bild-Server (`server/local_image_server.py`) stellt
     Stable Diffusion über die eigene NVIDIA-Karte bereit – wählbar sind

@@ -121,6 +121,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String _falModel = 'fal-ai/trellis';
   final _falCustomCtrl = TextEditingController();
 
+  /// True, wenn das gewählte fal.ai-Modell direkt aus Text arbeitet –
+  /// dann entfällt der Umweg über erzeugte Ansichten.
+  bool get _falIsTextToModel =>
+      falModelFor(_falModelEffective).textToModel;
+
   String get _falModelEffective {
     final custom = _falCustomCtrl.text.trim();
     return custom.isNotEmpty ? custom : _falModel;
@@ -1017,7 +1022,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final viewPipeline = !_imageMode &&
         (isLocal ||
             isStability ||
-            isFal ||
+            (isFal && !_falIsTextToModel) ||
             isSelfHost ||
             isReplicate ||
             _viewsFromText);
@@ -1113,7 +1118,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         await _runStability(Stability3dService(apiKey!.trim()), progress,
             label: label);
       } else if (isFal) {
-        await _runFal(FalService(apiKey!.trim()), cancelled, progress,
+        await _runFal(
+            FalService(apiKey!.trim()), prompt, cancelled, progress,
             label: label);
       } else if (isSelfHost) {
         await _runSelfHost(
@@ -1401,34 +1407,42 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   Future<void> _runFal(
     FalService service,
+    String prompt,
     bool Function() cancelled,
     void Function(String) progress, {
     required String label,
   }) async {
+    final modelId = _falModelEffective;
+    final textToModel = falModelFor(modelId).textToModel;
     final source = _front;
-    if (source == null) {
+    if (!textToModel && source == null) {
       throw GenerationException('Keine Vorderansicht vorhanden.');
     }
-    final modelId = _falModelEffective;
+    if (textToModel && prompt.trim().isEmpty) {
+      throw GenerationException(
+          'Dieses fal.ai-Modell arbeitet direkt aus Text – bitte eine '
+          'Beschreibung eingeben oder ein Bild→3D-Modell wählen.');
+    }
     progress('3D-Modell wird generiert ($modelId) …');
     var glb = await service.generateModel(
       modelId: modelId,
-      imageBytes: source.bytes,
-      mimeType: source.mimeType,
+      imageBytes: textToModel ? null : source!.bytes,
+      mimeType: textToModel ? 'image/png' : source!.mimeType,
+      prompt: prompt,
       onProgress: progress,
       isCancelled: cancelled,
     );
     // Die Ausrichtung der Marktplatz-Modelle variiert je nach Anbieter –
     // beim Rigging entscheidet daher die geometrische
     // Blickrichtungs-Schätzung statt Pipeline-Wissen.
-    glb = await _applyLocalRefinements(glb, source.bytes, progress);
+    glb = await _applyLocalRefinements(glb, source?.bytes, progress);
     final unrigged = glb;
     final rigged = _maybeInjectRig(() => glb, (v) => glb = v, progress);
     _addResult(
       glbBytes: glb,
       label: label,
       providerLabel: 'fal.ai',
-      thumbnail: source.bytes,
+      thumbnail: source?.bytes,
       rigged: rigged,
       textured: true,
       unriggedGlb: rigged ? unrigged : null,
@@ -2424,7 +2438,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   _promptHelp(theme,
                       mode: isLocal ||
                               isStability ||
-                              isFal ||
+                              (isFal && !_falIsTextToModel) ||
                               isSelfHost ||
                               isReplicate ||
                               _viewsFromText
@@ -2492,7 +2506,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           : (v) => setState(() => _tPose = v),
                     ),
                   const SizedBox(height: 4),
-                  if (isLocal ||
+                  if (isFal && _falIsTextToModel)
+                    Text(
+                      'Dieses fal.ai-Modell baut das 3D-Modell direkt '
+                      'aus deiner Beschreibung – ohne Bild-Zwischenschritt '
+                      'und ohne dessen Kosten. Direkt aus Text arbeiten '
+                      'außerdem Meshy, Tripo3D und Rodin.',
+                      style: theme.textTheme.bodySmall,
+                    )
+                  else if (isLocal ||
                       isStability ||
                       isFal ||
                       isSelfHost ||
@@ -2548,12 +2570,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? null
                           : (v) => setState(() => _viewsFromText = v),
                     ),
-                  if (isLocal ||
-                      isStability ||
-                      isFal ||
-                      isSelfHost ||
-                      isReplicate ||
-                      _viewsFromText) ...[
+                  if (!(isFal && _falIsTextToModel) &&
+                      (isLocal ||
+                          isStability ||
+                          isFal ||
+                          isSelfHost ||
+                          isReplicate ||
+                          _viewsFromText)) ...[
                     const SizedBox(height: 8),
                     Builder(builder: (context) {
                       // Der eigene Server zeigt alle vier Kacheln,
@@ -2667,7 +2690,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   final generatesViews = (!_imageMode &&
                           (isLocal ||
                               isStability ||
-                              isFal ||
+                              (isFal && !_falIsTextToModel) ||
                               isSelfHost ||
                               isReplicate ||
                               _viewsFromText)) ||

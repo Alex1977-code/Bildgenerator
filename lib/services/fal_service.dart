@@ -9,11 +9,20 @@ import 'generators.dart' show GenerationException;
 /// Anzeigename und Name des Bild-Eingabefelds – die Modelle stammen
 /// von unterschiedlichen Teams und benennen das Feld unterschiedlich.
 class FalModel {
-  const FalModel(this.id, this.label, {this.imageField = 'image_url'});
+  const FalModel(
+    this.id,
+    this.label, {
+    this.imageField = 'image_url',
+    this.textToModel = false,
+  });
 
   final String id;
   final String label;
   final String imageField;
+
+  /// True bei Modellen, die direkt aus Text ein 3D-Modell bauen –
+  /// ohne den Umweg über ein erzeugtes Bild.
+  final bool textToModel;
 }
 
 /// Eingebauter Katalog geprüfter fal.ai-Modelle (Bild→3D, GLB-Ausgabe).
@@ -25,7 +34,26 @@ const falModels = [
       imageField: 'input_image_url'),
   FalModel('fal-ai/hunyuan-3d/v3.1/pro/image-to-3d',
       'Hunyuan3D 3.1 Pro (Spitzenklasse)'),
+  FalModel('fal-ai/hyper3d/rodin/v2.5/text-to-3d',
+      'Rodin 2.5 – direkt aus Text (ohne Bild-Umweg)',
+      textToModel: true),
 ];
+
+/// Nachschlagen im Katalog; unbekannte (selbst eingetragene) IDs
+/// bekommen sinnvolle Vorgaben.
+FalModel falModelFor(String modelId) => falModels.firstWhere(
+      (m) => m.id == modelId,
+      // Eigene Modell-IDs: Hunyuan3D 2.x nennt das Feld
+      // input_image_url, praktisch alle anderen image_url.
+      orElse: () => FalModel(
+        modelId,
+        modelId,
+        imageField: modelId.contains('hunyuan3d/v2')
+            ? 'input_image_url'
+            : 'image_url',
+        textToModel: modelId.contains('text-to-3d'),
+      ),
+    );
 
 /// Anbindung an die fal.ai-Queue-API: ein Auftrag wird per POST an
 /// `queue.fal.run/<modell-id>` angelegt; Status- und Ergebnis-URL
@@ -121,34 +149,43 @@ class FalService {
     return found;
   }
 
-  /// Bild→3D: Auftrag anlegen, Queue pollen, GLB herunterladen.
+  /// Bild→3D bzw. Text→3D: Auftrag anlegen, Queue pollen, GLB
+  /// herunterladen. Bei Text→3D-Modellen entfällt [imageBytes] und es
+  /// zählt allein der [prompt].
   Future<Uint8List> generateModel({
     required String modelId,
-    required Uint8List imageBytes,
-    required String mimeType,
+    Uint8List? imageBytes,
+    String mimeType = 'image/png',
+    String prompt = '',
     required void Function(String stage) onProgress,
     required bool Function() isCancelled,
   }) async {
-    final imageField = falModels
-        .firstWhere(
-          (m) => m.id == modelId,
-          // Eigene Modell-IDs: Hunyuan3D 2.x nennt das Feld
-          // input_image_url, praktisch alle anderen image_url.
-          orElse: () => FalModel(modelId, modelId,
-              imageField: modelId.contains('hunyuan3d/v2')
-                  ? 'input_image_url'
-                  : 'image_url'),
-        )
-        .imageField;
+    final model = falModelFor(modelId);
+    if (model.textToModel && prompt.trim().isEmpty) {
+      throw GenerationException(
+          'Für „${model.label}" wird eine Beschreibung gebraucht.');
+    }
+    if (!model.textToModel && imageBytes == null) {
+      throw GenerationException(
+          'Für „${model.label}" wird ein Bild gebraucht.');
+    }
 
     http.Response submit;
     try {
       submit = await http.post(
         Uri.parse('$_queueBase/$modelId'),
         headers: {..._authHeader, 'Content-Type': 'application/json'},
-        body: jsonEncode({
-          imageField: 'data:$mimeType;base64,${base64Encode(imageBytes)}',
-        }),
+        body: jsonEncode(model.textToModel
+            ? {'prompt': prompt.trim()}
+            : {
+                model.imageField:
+                    'data:$mimeType;base64,${base64Encode(imageBytes!)}',
+                // Eine Beschreibung hilft manchen Modellen zusätzlich;
+                // Modelle ohne dieses Feld ignorieren es nicht, deshalb
+                // nur mitschicken, wenn eines vorliegt.
+                if (prompt.trim().isNotEmpty && model.id.contains('rodin'))
+                  'prompt': prompt.trim(),
+              }),
       );
     } catch (e) {
       _throwNetworkError(e);

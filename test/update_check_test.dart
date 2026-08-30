@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/models/models.dart';
+import 'package:bildgenerator/services/fal_service.dart';
 import 'package:bildgenerator/services/generators.dart';
 import 'package:bildgenerator/services/model_catalog.dart';
 import 'package:bildgenerator/services/server_setup.dart';
@@ -125,6 +126,24 @@ void main() {
       expect(backendsOfKind('image').single.id, 'sd-image');
       expect(defaultPort('image'), 8766);
       expect(defaultPort('3d'), 8765);
+    });
+  });
+
+  group('Direkte Text→3D-Modelle', () {
+    test('Der Katalog kennt mindestens ein Text→3D-Modell', () {
+      expect(falModels.any((m) => m.textToModel), isTrue);
+    });
+
+    test('Bild→3D-Modelle bleiben Bild→3D', () {
+      expect(falModelFor('fal-ai/trellis').textToModel, isFalse);
+      expect(falModelFor('fal-ai/trellis').imageField, 'image_url');
+      expect(falModelFor('fal-ai/hunyuan3d/v2').imageField,
+          'input_image_url');
+    });
+
+    test('Eigene IDs mit text-to-3d gelten als Text→3D', () {
+      expect(falModelFor('irgendwer/mein-text-to-3d').textToModel, isTrue);
+      expect(falModelFor('irgendwer/mein-modell').textToModel, isFalse);
     });
   });
 }
