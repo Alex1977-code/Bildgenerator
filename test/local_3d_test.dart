@@ -941,6 +941,26 @@ void main() {
     expect(() => rotateGlbQuarterTurns(rigged, 'x'), throwsException);
   });
 
+  test('Gelenke melden ihren Wirkungs-Radius für die Kugel-Anzeige',
+      () {
+    final glb = buildGlb(buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    ));
+    final joints = computeAutoRigJoints(glb, rigType: 'biped');
+    expect(joints, isNotEmpty);
+    for (final j in joints) {
+      expect(j.radius, greaterThan(0),
+          reason: 'jedes Gelenk braucht einen Radius für die Anzeige');
+    }
+    // Kopf und Rumpf greifen weiter als die schmalen Arme.
+    double radiusOf(String name) =>
+        joints.firstWhere((j) => j.name == name).radius;
+    expect(radiusOf('Head'), greaterThan(radiusOf('Elbow_L')));
+  });
+
   test('Gelenk-Anleitung erklärt jedes Gelenk verständlich', () {
     expect(jointGuide('Hips'), contains('Becken'));
     expect(jointGuide('Hand_L'), contains('linke Seite'));

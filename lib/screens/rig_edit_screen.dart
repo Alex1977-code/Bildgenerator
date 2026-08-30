@@ -361,6 +361,10 @@ class _RigEditScreenState extends State<RigEditScreen> {
                                   ],
                                   selected: _dragJoint,
                                   selectedJoints: _selected,
+                                  jointRadii: [
+                                    for (final j in _joints) j.radius,
+                                  ],
+                                  jointInfluence: _influence,
                                   rotX: _rotX,
                                   rotY: _rotY,
                                   zoom: _zoom,
@@ -461,38 +465,58 @@ class _RigEditScreenState extends State<RigEditScreen> {
                           ),
                         ),
                       ),
-                    if (_selected.isNotEmpty)
+                    // Immer sichtbar, damit die Einstellung auffindbar
+                    // ist – ohne Auswahl deaktiviert mit Hinweis.
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 150,
+                            child: Text(
+                              _selected.isEmpty
+                                  ? 'Einflussbereich'
+                                  : 'Einflussbereich '
+                                      '×${_selectedInfluence.toStringAsFixed(1)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: _selected.isEmpty
+                                    ? theme.colorScheme.outline
+                                    : null,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Slider(
+                              value: _selectedInfluence
+                                  .clamp(0.4, 2.5)
+                                  .toDouble(),
+                              min: 0.4,
+                              max: 2.5,
+                              divisions: 21,
+                              label:
+                                  '×${_selectedInfluence.toStringAsFixed(1)}',
+                              onChanged: _selected.isEmpty
+                                  ? null
+                                  : (v) => setState(() {
+                                        for (final j in _selected) {
+                                          _influence[j] = v;
+                                        }
+                                      }),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_selected.isEmpty)
                       Padding(
                         padding:
-                            const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 140,
-                              child: Text(
-                                'Einflussbereich '
-                                '×${_selectedInfluence.toStringAsFixed(1)}',
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ),
-                            Expanded(
-                              child: Slider(
-                                value: _selectedInfluence
-                                    .clamp(0.4, 2.5)
-                                    .toDouble(),
-                                min: 0.4,
-                                max: 2.5,
-                                divisions: 21,
-                                label:
-                                    '×${_selectedInfluence.toStringAsFixed(1)}',
-                                onChanged: (v) => setState(() {
-                                  for (final j in _selected) {
-                                    _influence[j] = v;
-                                  }
-                                }),
-                              ),
-                            ),
-                          ],
+                            const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                        child: Text(
+                          'Zum Einstellen zuerst ein Gelenk antippen – '
+                          'die blaue Kugel zeigt dann, wie weit es '
+                          'greift.',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.outline),
                         ),
                       ),
                     Padding(
@@ -500,8 +524,8 @@ class _RigEditScreenState extends State<RigEditScreen> {
                       child: Text(
                         'Antippen = Gelenk auswählen (mehrere möglich), '
                         'Ziehen = verschieben – eine Auswahl bewegt sich '
-                        'gemeinsam. „Einflussbereich“ skaliert die '
-                        'unsichtbaren Wirkungs-Radien der ausgewählten '
+                        'gemeinsam. „Einflussbereich“ skaliert die als '
+                        'blaue Kugel gezeigten Wirkungs-Radien der '
                         'Gelenke: kleiner = schärfere Abgrenzung (z. B. '
                         'Arm nimmt weniger Anzug mit), größer = weichere, '
                         'weitere Verformung. Beim Übernehmen werden '
@@ -575,6 +599,8 @@ class _RigEditPainter extends CustomPainter {
     required this.jointParents,
     required this.selected,
     required this.selectedJoints,
+    required this.jointRadii,
+    required this.jointInfluence,
     required this.rotX,
     required this.rotY,
     required this.zoom,
@@ -586,6 +612,12 @@ class _RigEditPainter extends CustomPainter {
   final List<int> jointParents;
   final int? selected;
   final Set<int> selectedJoints;
+
+  /// Wirkungs-Radius je Gelenk (Faktor der Gewichtung) und die
+  /// manuelle Skalierung aus dem Regler – zusammen ergeben sie die
+  /// gezeichnete Kugel.
+  final List<double> jointRadii;
+  final Map<int, double> jointInfluence;
   final double rotX;
   final double rotY;
   final double zoom;
@@ -692,6 +724,26 @@ class _RigEditPainter extends CustomPainter {
       if (parent < 0) continue;
       canvas.drawLine(Offset(jx[parent], jy[parent]),
           Offset(jx[j], jy[j]), bonePaint);
+    }
+    // Wirkungsbereich der ausgewählten Gelenke als Kugel: zeigt, wie
+    // weit ein Gelenk umliegende Geometrie mitnimmt. Der Regler
+    // skaliert genau diesen Radius.
+    final influenceFill = Paint()
+      ..color = const Color(0x222962FF)
+      ..style = PaintingStyle.fill;
+    final influenceRing = Paint()
+      ..color = const Color(0x882962FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    for (final j in selectedJoints) {
+      if (j >= jointPositions.length) continue;
+      final factor = jointInfluence[j] ?? 1.0;
+      final base = j < jointRadii.length ? jointRadii[j] : 1.0;
+      // 9 % der Modellgröße als Bezug – dieselbe Größenordnung wie die
+      // Abstände, mit denen die Gewichtung rechnet.
+      final r = 0.09 * mesh.extent * base * factor * scale;
+      canvas.drawCircle(Offset(jx[j], jy[j]), r, influenceFill);
+      canvas.drawCircle(Offset(jx[j], jy[j]), r, influenceRing);
     }
     final jointBorder = Paint()..color = const Color(0xFFFFFFFF);
     final jointPaint = Paint()..color = const Color(0xFFE65100);

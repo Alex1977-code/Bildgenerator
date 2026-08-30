@@ -126,6 +126,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Dateien aus Blender oder CAD, die meist z-up statt y-up stehen und
     dadurch auf der Seite liegen; bei geriggten Modellen wird die
     ungeriggte Fassung gedreht und das Skelett neu eingebaut
+  - **Wirkungsbereich sichtbar**: Ein ausgewähltes Gelenk zeigt seinen
+    Wirkungs-Radius als blaue Kugel – so ist zu sehen, wie viel
+    Geometrie es mitnimmt; der Regler „Einflussbereich" skaliert genau
+    diese Kugel und ist jetzt dauerhaft eingeblendet (ohne Auswahl
+    deaktiviert mit Hinweis). Damit lassen sich etwa Daumen und Finger
+    von Fäustlingen gezielt an die Hand binden
   - **Gelenk-Anleitung im Rig-Editor**: Ein angetipptes Gelenk erklärt
     sich selbst – wo der Punkt sitzen soll (z. B. „Handwurzel, wo die
     Hand am Unterarm ansetzt; bei Fäustlingen den Punkt in die

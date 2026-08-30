@@ -91,10 +91,14 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
     clips.add(ProceduralClip('Winken', 1 / 2.5, (t) {
       final a = 0.5 * math.sin(t * 2 * math.pi * 2.5);
       final pose = <int, Float32List>{};
-      // Arm moderat heben – das Winken kommt aus dem Ellbogen, so
-      // bleibt die Schulterpartie des Anzugs ruhig.
-      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.72));
-      put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.55 + a * 0.6));
+      // Das Heben übernimmt die Schulter, der Ellbogen steuert nur
+      // noch die Schwingung bei. Grund: Beim linearen Skinning
+      // (glTF-Vorgabe) wandern Vertices zwischen zwei Knochen auf der
+      // Sehne statt auf dem Bogen – ein großer Knick an EINEM Gelenk
+      // lässt das Netz einfallen, der Arm wirkt kurz. Die Gesamtpose
+      // bleibt gleich, der größte Einzelwinkel halbiert sich.
+      put(pose, 'Shoulder_R', _axisAngle(0, 0, 1, 0.95 + a * 0.25));
+      put(pose, 'Elbow_R', _axisAngle(0, 0, 1, 0.30 + a * 0.35));
       put(pose, 'Head', _axisAngle(0, 0, 1, a * 0.1));
       return pose;
     }));
@@ -104,10 +108,12 @@ List<ProceduralClip> proceduralClipsFor(PreviewRig rig) {
       final crouch = phase < 0 ? -phase : 0.0;
       final stretch = phase > 0 ? phase : 0.0;
       final pose = <int, Float32List>{};
-      put(pose, 'UpperLeg_L', _axisAngle(1, 0, 0, -0.6 * crouch));
-      put(pose, 'UpperLeg_R', _axisAngle(1, 0, 0, -0.6 * crouch));
-      put(pose, 'Knee_L', _axisAngle(1, 0, 0, 0.9 * crouch));
-      put(pose, 'Knee_R', _axisAngle(1, 0, 0, 0.9 * crouch));
+      // Hüfte und Knie teilen sich die Hocke (statt 0,6 / 0,9) –
+      // siehe Winken: kleinere Einzelwinkel, weniger Einfallen.
+      put(pose, 'UpperLeg_L', _axisAngle(1, 0, 0, -0.75 * crouch));
+      put(pose, 'UpperLeg_R', _axisAngle(1, 0, 0, -0.75 * crouch));
+      put(pose, 'Knee_L', _axisAngle(1, 0, 0, 0.75 * crouch));
+      put(pose, 'Knee_R', _axisAngle(1, 0, 0, 0.75 * crouch));
       put(pose, 'Spine', _axisAngle(1, 0, 0, 0.3 * crouch));
       put(pose, 'Shoulder_L', _axisAngle(1, 0, 0, -1.2 * stretch));
       put(pose, 'Shoulder_R', _axisAngle(1, 0, 0, -1.2 * stretch));

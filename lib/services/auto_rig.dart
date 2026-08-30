@@ -974,11 +974,17 @@ String jointGuide(String jointName) {
 }
 
 class RigJointInfo {
-  const RigJointInfo(this.name, this.parent, this.x, this.y, this.z);
+  const RigJointInfo(this.name, this.parent, this.x, this.y, this.z,
+      {this.radius = 1.0});
 
   final String name;
   final int parent; // -1 = Wurzel
   final double x, y, z;
+
+  /// Wirkungs-Radius der Knochen dieses Gelenks (Faktor der
+  /// Abstands-Gewichtung, 1,0 = Standard). Der Rig-Editor zeichnet ihn
+  /// als Kugel, damit sichtbar wird, wie weit das Gelenk greift.
+  final double radius;
 }
 
 /// Berechnet die Gelenkpositionen, die [injectAutoRig] für diese GLB
@@ -986,12 +992,22 @@ class RigJointInfo {
 /// Rig-Editor.
 List<RigJointInfo> computeAutoRigJoints(Uint8List glb,
     {String rigType = 'biped', int? knownFrontSign}) {
-  final (joints, _, _) = _skeletonForGlb(_analyzeGlb(glb), rigType,
+  final (joints, bones, _) = _skeletonForGlb(_analyzeGlb(glb), rigType,
       knownFrontSign: knownFrontSign);
+  // Größter Knochen-Radius je Gelenk – das ist der Wert, den der
+  // Einflussregler im Editor skaliert.
+  final radii = List<double>.filled(joints.length, 1.0);
+  for (final bone in bones) {
+    if (bone.joint >= 0 && bone.joint < radii.length) {
+      final current = radii[bone.joint];
+      if (bone.radius > current) radii[bone.joint] = bone.radius;
+    }
+  }
   return [
-    for (final j in joints)
-      RigJointInfo(j.name, j.parent, j.position.x, j.position.y,
-          j.position.z),
+    for (var j = 0; j < joints.length; j++)
+      RigJointInfo(joints[j].name, joints[j].parent, joints[j].position.x,
+          joints[j].position.y, joints[j].position.z,
+          radius: radii[j]),
   ];
 }
 
