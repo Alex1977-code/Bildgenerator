@@ -472,6 +472,8 @@ Stream<String> installServer({
   required String pythonExe,
   String backend = 'sf3d',
   String repoUrl = 'https://github.com/Stability-AI/stable-fast-3d.git',
+  String hfToken = '',
+  String modelPage = '',
 }) async* {
   final dir = Directory(targetDir);
   final parent = dir.parent;
@@ -651,16 +653,13 @@ Stream<String> installServer({
     ],
     workingDirectory: targetDir,
   );
-  if (isImage) {
-    yield '# Hinweis: SD 1.5, SDXL und SDXL Turbo laufen ohne Anmeldung. '
-        'SD 3.5 und FLUX verlangen einmalig eine Lizenz-Zustimmung auf '
-        'huggingface.co und ein "huggingface-cli login" in dieser '
-        'Umgebung.';
-  } else if (backend != 'triposr') {
-    yield '# Hinweis: Die Modellgewichte sind auf Hugging Face '
-        'freigabepflichtig. Einmalig die Lizenz auf der Modellseite '
-        'bestätigen und in dieser Umgebung "huggingface-cli login" '
-        'ausführen, sonst schlägt der erste Lauf fehl.';
+  // Die Freigabe gleich hier prüfen statt beim ersten Lauf. Sonst
+  // steht am Ende einer viertelstündigen Installation „fertig", und
+  // der Abbruch kommt erst beim ersten Modell – mit einer Meldung, die
+  // nach einem Netzwerkfehler aussieht.
+  if (modelPage.isNotEmpty) {
+    yield '# Zugang zu den Modellgewichten wird geprüft';
+    yield await checkHuggingFaceAccess(modelPage: modelPage, token: hfToken);
   }
   yield '# Fertig. Der Server kann jetzt gestartet werden.';
 }
@@ -673,6 +672,7 @@ Future<String> startServer({
   required int port,
   String backend = 'sf3d',
   String imageModel = '',
+  String hfToken = '',
 }) async {
   final venvPython = _venvPython(targetDir);
   if (!File(venvPython).existsSync()) {
@@ -680,6 +680,17 @@ Future<String> startServer({
         'Python-Umgebung gefunden. Bitte zuerst installieren.');
   }
   final isImage = backend == 'sd-image';
+  // Der Token geht als Umgebungsvariable an den Serverprozess, nicht
+  // in eine Datei: huggingface_hub liest HF_TOKEN von sich aus. Damit
+  // entfällt „huggingface-cli login", und der Token steht nirgends im
+  // Zielordner herum.
+  final environment = hfToken.trim().isEmpty
+      ? null
+      : <String, String>{
+          ...Platform.environment,
+          'HF_TOKEN': hfToken.trim(),
+          'HUGGING_FACE_HUB_TOKEN': hfToken.trim(),
+        };
   await Process.start(
     venvPython,
     isImage
@@ -695,6 +706,7 @@ Future<String> startServer({
         : ['local3d_server.py', '--backend', backend, '--port', '$port'],
     workingDirectory: targetDir,
     mode: ProcessStartMode.detached,
+    environment: environment,
   );
   return 'Server gestartet auf http://127.0.0.1:$port'
       '${isImage && imageModel.isNotEmpty ? ' mit $imageModel' : ''} – '
@@ -753,5 +765,76 @@ Future<String?> saveSetupLog(String targetDir, List<String> lines) async {
     return file.path;
   } catch (_) {
     return null;
+  }
+}
+
+
+/// Prüft, ob die freigabepflichtigen Gewichte mit diesem Token
+/// erreichbar sind – dieselbe Datei, die der Server als Erstes holt.
+///
+/// Die drei Fälle, die Hugging Face unterscheidet, sind aus der
+/// Fehlermeldung allein schwer auseinanderzuhalten; deshalb hier
+/// beantwortet: kein Token, Token ungültig, oder Lizenz nicht
+/// bestätigt.
+Future<String> checkHuggingFaceAccess({
+  required String modelPage,
+  required String token,
+}) async {
+  final repo = Uri.parse(modelPage).path
+      .split('/')
+      .where((p) => p.isNotEmpty)
+      .join('/');
+  final trimmed = token.trim();
+  if (trimmed.isEmpty) {
+    return 'Kein Token hinterlegt. Ohne ihn kann der Server die '
+        'Gewichte nicht laden – im Feld darüber eintragen.';
+  }
+  // `.gitattributes` legt Hugging Face in jeder Ablage selbst an –
+  // eine Datei, die es sicher gibt. Bei gesperrten Ablagen antwortet
+  // der Dienst ohnehin vor dem Nachsehen, ob die Datei existiert.
+  final url = Uri.parse(
+      'https://huggingface.co/$repo/resolve/main/.gitattributes');
+  final client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 15);
+  try {
+    final request = await client.headUrl(url);
+    request.followRedirects = false;
+    request.headers.set('Authorization', 'Bearer $trimmed');
+    final response = await request.close();
+    await response.drain<void>();
+    final code = response.statusCode;
+    // 302 ist der Normalfall: Die Datei liegt auf einem CDN, und
+    // Hugging Face leitet dorthin weiter.
+    if (code == 200 || code == 302 || code == 307) {
+      return 'Zugang steht: Lizenz bestätigt und Token gültig.';
+    }
+    if (code == 401) {
+      return 'Der Token wird nicht angenommen (401). Er ist abgelaufen '
+          'oder falsch kopiert – auf huggingface.co/settings/tokens '
+          'einen neuen mit Leserecht erzeugen.';
+    }
+    if (code == 403) {
+      return 'Token gültig, aber die Lizenz fehlt (403). Auf '
+          '$modelPage einmalig „Agree and access repository" drücken.';
+    }
+    if (code == 404) {
+      // Zweideutig: entweder verbirgt Hugging Face die Ablage vor
+      // einem Zugang ohne Freigabe, oder die Datei fehlt wirklich.
+      // Ersteres ist bei einem frisch eingerichteten Modell die
+      // wahrscheinlichere Erklärung.
+      return 'Nicht gefunden (404). Wahrscheinlich fehlt die '
+          'Lizenz-Zustimmung: auf $modelPage „Agree and access '
+          'repository" drücken. Steht dort schon „Gated model – '
+          'access granted", dann liegt es nicht daran und der Server '
+          'lässt sich trotzdem starten.';
+    }
+    return 'Unerwartete Antwort von huggingface.co ($code). Der Server '
+        'lässt sich trotzdem starten – bricht der erste Lauf ab, hier '
+        'ansetzen.';
+  } catch (e) {
+    return 'Die Prüfung war nicht möglich ($e). Das sagt nichts über '
+        'den Token – der Server lässt sich starten.';
+  } finally {
+    client.close(force: true);
   }
 }

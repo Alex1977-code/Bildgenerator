@@ -553,6 +553,11 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
           targetDir: entry.dir,
           backend: entry.backend,
           port: entry.port,
+          // Ohne den Token kommt der Server bei freigabepflichtigen
+          // Gewichten nicht an die Dateien – auch beim Start aus der
+          // Liste heraus, nicht nur direkt nach der Installation.
+          hfToken:
+              context.read<SettingsService>().huggingFaceToken ?? '',
           // Beim Bild-Server gleich das Modell vorwählen, das im
           // Bild-Tab eingestellt ist – sonst lädt er erst seine
           // Vorgabe und beim ersten Bild ein zweites Mal.
@@ -940,6 +945,8 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
       _backends.isEmpty ? 'sf3d' : _backends.first.id;
   late final TextEditingController _dirCtrl =
       TextEditingController(text: setup.targetDirFor(_backend));
+  final _tokenCtrl = TextEditingController();
+  bool _tokenVisible = false;
   final _logCtrl = ScrollController();
   final List<String> _log = [];
 
@@ -968,15 +975,26 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   @override
   void initState() {
     super.initState();
+    _tokenCtrl.text =
+        context.read<SettingsService>().huggingFaceToken ?? '';
     _check();
   }
 
   @override
   void dispose() {
     _dirCtrl.dispose();
+    _tokenCtrl.dispose();
     _logCtrl.dispose();
     super.dispose();
   }
+
+  /// Die Modellseite des gewählten Backends – leer, wenn dessen
+  /// Gewichte frei herunterladbar sind (TripoSR, TRELLIS).
+  String get _modelPage =>
+      setup.setupBackends
+          .firstWhere((b) => b.id == _backend,
+              orElse: () => setup.setupBackends.first)
+          .modelPage;
 
   Future<void> _check() async {
     setState(() => _checking = true);
@@ -1012,6 +1030,7 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
         targetDir: _dirCtrl.text.trim(),
         pythonExe: pythonExe,
         backend: _backend,
+        hfToken: _tokenCtrl.text.trim(),
       )) {
         if (!mounted) return;
         _append(line);
@@ -1103,6 +1122,7 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
           targetDir: _dirCtrl.text.trim(),
           backend: _backend,
           port: _port,
+          hfToken: _tokenCtrl.text.trim(),
           imageModel: _backend == 'sd-image'
               ? context.read<SettingsService>().selfHostImageModel
               : '');
@@ -1290,6 +1310,78 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (_modelPage.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _tokenCtrl,
+                  enabled: !_installing,
+                  obscureText: !_tokenVisible,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  onChanged: (value) => context
+                      .read<SettingsService>()
+                      .setHuggingFaceToken(value),
+                  decoration: InputDecoration(
+                    labelText: 'Hugging-Face-Token',
+                    hintText: 'hf_…',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      tooltip: _tokenVisible ? 'Verbergen' : 'Anzeigen',
+                      icon: Icon(_tokenVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined),
+                      onPressed: () =>
+                          setState(() => _tokenVisible = !_tokenVisible),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Die Gewichte dieses Modells liegen öffentlich, der '
+                  'Download verlangt aber zweierlei: eine bestätigte '
+                  'Lizenz und einen angemeldeten Zugang. Beides ist '
+                  'einmalig und kostenlos.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '1. „Freigabe holen" öffnet die Modellseite – dort '
+                  'oben „Agree and access repository" drücken.\n'
+                  '2. „Token erzeugen" öffnet die Token-Seite – „New '
+                  'token", Typ „Read", erzeugen und hier einfügen. Der '
+                  'Token beginnt mit „hf_".',
+                  style: theme.textTheme.bodySmall,
+                ),
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => launchUrl(Uri.parse(_modelPage),
+                          mode: LaunchMode.externalApplication),
+                      icon: const Icon(Icons.verified_user_outlined,
+                          size: 18),
+                      label: const Text('Freigabe holen'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => launchUrl(
+                          Uri.parse(setup.huggingFaceTokenPage),
+                          mode: LaunchMode.externalApplication),
+                      icon: const Icon(Icons.key_outlined, size: 18),
+                      label: const Text('Token erzeugen'),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Der Token wird verschlüsselt auf diesem PC abgelegt '
+                  'und nur an den Server hier weitergereicht – als '
+                  'Umgebungsvariable beim Start, nicht in eine Datei. '
+                  'Damit entfällt „huggingface-cli login". Die '
+                  'Installation prüft am Ende, ob der Zugang wirklich '
+                  'steht.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 children: [

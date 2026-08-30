@@ -1,8 +1,43 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/services/server_setup.dart';
+import 'package:bildgenerator/services/setup/server_setup_io.dart'
+    show checkHuggingFaceAccess;
 
 void main() {
+  group('Freigabepflichtige Modellgewichte', () {
+    test('Nur die Stability-Modelle brauchen eine Freigabe', () {
+      Map<String, bool> gated = {
+        for (final b in setupBackends) b.id: b.gated,
+      };
+      // MIT-Lizenz, frei herunterladbar.
+      expect(gated['triposr'], isFalse);
+      expect(gated['trellis'], isFalse);
+      // Community-Lizenz mit Zustimmungsformular auf Hugging Face.
+      expect(gated['sf3d'], isTrue);
+      expect(gated['spar3d'], isTrue);
+      // Beim Bild-Server hängt es am Modell (SD 3.5, FLUX) – der
+      // Token wird deshalb auch dort angeboten.
+      expect(gated['sd-image'], isTrue);
+    });
+
+    test('Die Modellseite zeigt auf die Ablage, die der Server holt', () {
+      final sf3d = setupBackends.firstWhere((b) => b.id == 'sf3d');
+      expect(sf3d.modelPage,
+          'https://huggingface.co/stabilityai/stable-fast-3d');
+      expect(huggingFaceTokenPage,
+          'https://huggingface.co/settings/tokens');
+    });
+
+    test('Ohne Token wird gar nicht erst gefragt', () async {
+      // Kein Netzzugriff: Der leere Token ist vorher entschieden.
+      final answer = await checkHuggingFaceAccess(
+          modelPage: 'https://huggingface.co/stabilityai/stable-fast-3d',
+          token: '   ');
+      expect(answer, contains('Kein Token'));
+    });
+  });
+
   group('Server-Eintrag: Port je Art', () {
     test('Ohne Portangabe zählt der übliche Port der Art', () {
       // Vorher stand hier fest 8765 – ein gefundener Bild-Server

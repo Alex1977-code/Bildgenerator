@@ -32,6 +32,7 @@ class SetupBackend {
     required this.minVramGb,
     this.nativeOnWindows = true,
     this.kind = '3d',
+    this.modelPage = '',
   });
 
   final String id;
@@ -46,7 +47,22 @@ class SetupBackend {
 
   /// '3d' = Bild→3D, 'image' = Text→Bild.
   final String kind;
+
+  /// Seite des Modells auf Hugging Face, falls die Gewichte dort
+  /// freigabepflichtig sind. Leer = frei herunterladbar.
+  ///
+  /// Freigabepflichtig heißt: Die Datei liegt öffentlich, aber der
+  /// Download verlangt ein bestätigtes Lizenzformular **und** einen
+  /// angemeldeten Zugang. Ohne beides bricht erst der erste Lauf ab –
+  /// mit einer Meldung, die nach einem Netzwerkfehler aussieht.
+  final String modelPage;
+
+  bool get gated => modelPage.isNotEmpty;
 }
+
+/// Wo der Zugangs-Token erzeugt wird. „Read" genügt.
+const String huggingFaceTokenPage =
+    'https://huggingface.co/settings/tokens';
 
 /// Von sparsam nach anspruchsvoll sortiert – so findet jeder Rechner
 /// sein passendes Modell.
@@ -72,6 +88,7 @@ const setupBackends = <SetupBackend>[
         'eine Freigabe auf Hugging Face.',
     vramLabel: 'ca. 6 GB',
     minVramGb: 6,
+    modelPage: 'https://huggingface.co/stabilityai/stable-fast-3d',
   ),
   SetupBackend(
     id: 'spar3d',
@@ -82,6 +99,7 @@ const setupBackends = <SetupBackend>[
         'Community-Lizenz und Hugging-Face-Freigabe wie SF3D.',
     vramLabel: 'ca. 7–10,5 GB',
     minVramGb: 7,
+    modelPage: 'https://huggingface.co/stabilityai/spar3d',
   ),
   SetupBackend(
     id: 'trellis',
@@ -110,6 +128,10 @@ const setupBackends = <SetupBackend>[
         'Installation braucht keinen C++-Compiler.',
     vramLabel: 'ab ca. 4 GB',
     minVramGb: 4,
+    // Gilt nur für die neueren Modelle: SD 3.5 und FLUX sind
+    // freigabepflichtig, SD 1.5 und SDXL nicht.
+    modelPage:
+        'https://huggingface.co/stabilityai/stable-diffusion-3.5-medium',
   ),
 ];
 
@@ -290,6 +312,7 @@ Stream<String> installServer({
   required String targetDir,
   required String pythonExe,
   String backend = 'sf3d',
+  String hfToken = '',
 }) {
   final entry = setupBackends.firstWhere((b) => b.id == backend,
       orElse: () => setupBackends.first);
@@ -306,6 +329,8 @@ Stream<String> installServer({
     pythonExe: pythonExe,
     backend: backend,
     repoUrl: entry.repoUrl,
+    hfToken: hfToken,
+    modelPage: entry.modelPage,
   );
 }
 
@@ -377,9 +402,11 @@ Future<String> startServer({
   int port = 8765,
   String backend = 'sf3d',
   String imageModel = '',
+  String hfToken = '',
 }) =>
     impl.startServer(
         targetDir: targetDir,
         port: port,
         backend: backend,
-        imageModel: imageModel);
+        imageModel: imageModel,
+        hfToken: hfToken);

@@ -87,6 +87,7 @@ class SettingsService extends ChangeNotifier {
   String? _falKey;
   String? _rodinKey;
   String? _replicateKey;
+  String? _hfToken;
 
   /// Gewählter 3D-Provider: 'local', 'stability', 'meshy', 'tripo',
   /// 'fal', 'rodin', 'replicate' oder 'selfhost' (eigener 3D-Server,
@@ -173,6 +174,11 @@ class SettingsService extends ChangeNotifier {
   /// API-Token für Replicate.
   String? get replicateApiKey => _replicateKey;
 
+  /// Zugangs-Token für Hugging Face. Kein Anbieter-Schlüssel im
+  /// üblichen Sinn: Er geht nur an den eigenen Server auf diesem PC,
+  /// damit der die freigabepflichtigen Modellgewichte laden darf.
+  String? get huggingFaceToken => _hfToken;
+
   Future<void> setMeshyApiKey(String value) async {
     final trimmed = value.trim();
     _meshyKey = trimmed.isEmpty ? null : trimmed;
@@ -224,6 +230,17 @@ class SettingsService extends ChangeNotifier {
       await _secure.delete('replicate_api_key');
     } else {
       await _secure.write('replicate_api_key', trimmed);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setHuggingFaceToken(String value) async {
+    final trimmed = value.trim();
+    _hfToken = trimmed.isEmpty ? null : trimmed;
+    if (trimmed.isEmpty) {
+      await _secure.delete('huggingface_token');
+    } else {
+      await _secure.write('huggingface_token', trimmed);
     }
     notifyListeners();
   }
@@ -333,6 +350,9 @@ class SettingsService extends ChangeNotifier {
           .timeout(const Duration(seconds: 5));
       _replicateKey = await _secure
           .read('replicate_api_key')
+          .timeout(const Duration(seconds: 5));
+      _hfToken = await _secure
+          .read('huggingface_token')
           .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Secure Storage nicht verfügbar – Schlüssel müssen erneut
