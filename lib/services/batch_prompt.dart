@@ -147,13 +147,29 @@ BatchPlan parseBatchPrompt(
   final blocks = <(int, List<String>)>[];
   var current = <String>[];
   var start = 1;
+  var currentHasName = false;
+  final namePattern = RegExp(r'^\s*name\s*:', caseSensitive: false);
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
     if (RegExp(r'^\s*-{3,}\s*$').hasMatch(line)) {
       blocks.add((start, current));
       current = [];
       start = i + 2;
+      currentHasName = false;
       continue;
+    }
+    // Ein zweites „NAME:" beginnt einen neuen Block, auch ohne
+    // Trennlinie. Vorher trennte nur „---": Zwei Blöcke mit bloß
+    // einer Leerzeile dazwischen verschmolzen zu einem – der zweite
+    // Name überschrieb den ersten, und beide Beschreibungen landeten
+    // in einem einzigen Bild.
+    if (namePattern.hasMatch(line)) {
+      if (currentHasName) {
+        blocks.add((start, current));
+        current = [];
+        start = i + 1;
+      }
+      currentHasName = true;
     }
     current.add(line);
   }

@@ -465,4 +465,38 @@ void main() {
       expect(back.fileName, 'burg-01.png');
     });
   });
+
+  group('Blockgrenzen', () {
+    test('Ein zweites NAME beginnt einen neuen Block', () {
+      // Vorher trennte nur „---". Zwei Bloecke mit einer Leerzeile
+      // dazwischen wurden zu einem: Der zweite Name ueberschrieb den
+      // ersten, und beide Beschreibungen landeten in einem Bild.
+      final plan = parseBatchPrompt(
+        'NAME: haus-a\nPROMPT: ein rotes haus\n\n'
+        'NAME: haus-b\nPROMPT: eine blaue huette\n',
+      );
+      expect(plan.items.length, 2);
+      expect(plan.items[0].name, 'haus-a');
+      expect(plan.items[0].prompt, 'ein rotes haus');
+      expect(plan.items[1].name, 'haus-b');
+      expect(plan.items[1].prompt, 'eine blaue huette');
+    });
+
+    test('Die Trennlinie funktioniert weiter', () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: eins\n---\nNAME: b\nPROMPT: zwei\n',
+      );
+      expect(plan.items.map((i) => i.name).toList(), ['a', 'b']);
+    });
+
+    test('Mehrzeilige Beschreibungen bleiben zusammen', () {
+      final plan = parseBatchPrompt(
+        'NAME: a\nPROMPT: erste zeile\nzweite zeile\n\n'
+        'NAME: b\nPROMPT: zwei\n',
+      );
+      expect(plan.items.length, 2);
+      expect(plan.items[0].prompt, contains('erste zeile'));
+      expect(plan.items[0].prompt, contains('zweite zeile'));
+    });
+  });
 }

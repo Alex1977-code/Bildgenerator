@@ -571,6 +571,47 @@ aufhalten, aber die Ergebnisse deutlich verbessern:
   das Wort `boulders` und `diorama` – sowie Stil-Angaben, die schon in
   den ersten 20 Wörtern stehen und damit das Motiv verdrängen.
 
+**Grün heißt nicht „richtig".** Blockierende Funde sind rot, aber ein
+Lauf, der startklar ist und trotzdem fünf Hinweise gegen sich hat,
+bekommt jetzt eine **orange** Meldung: „N Bilder erkannt – der Lauf
+ist möglich, aber M Punkt(e) sprechen gegen das Ergebnis". Vorher
+stand über denselben fünf Hinweisen ein grüner Haken mit „ist in
+Ordnung" – das war eine Falschmeldung.
+
+**„Für dieses Modell umschreiben"** macht aus einem Briefing eine
+Stichwortkette – bei Stable Diffusion und der eigenen GPU, wo ein
+Briefing nicht funktioniert. Der Anlass war ein Massenprompt mit
+351 Wörtern auf SDXL Base: ganze Sätze, Verneinungen, Gradzahlen,
+Erklärungen zum Spiel. Herausgekommen ist ein Gebäude in
+Frontalansicht auf einem Erdboden – also genau das, was der Text
+ausschließen wollte. Die Prüfung hatte jeden Punkt genannt, aber
+Hinweise lesen und 43 Blöcke von Hand umschreiben sind zwei
+verschiedene Dinge. Der Knopf
+
+- stellt das **Motiv voran**, ohne Artikel und Füllwörter, und
+  behält dabei die Nebensätze als eigene Stichworte (aus „a smith's
+  workshop **with an open forge and anvil**" wird „smith's workshop,
+  open forge and anvil" – das Merkmal geht nicht verloren),
+- wirft **Verneinungssätze** raus und schreibt ihre Begriffe in die
+  `NEGATIV:`-Zeile, wo sie wirken,
+- wirft **Erklärungen zum Spiel** raus („the image is downscaled
+  about 13 times") – das Modell kann sie nicht befolgen, sieht aber
+  die Substantive darin,
+- wirft **Grad- und Mengenangaben** raus und setzt die erprobte
+  Kamera-Kette dafür ein,
+- kürzt auf die Wortgrenze des Modells.
+
+Aus den 351 Wörtern werden so 54, und der umgeschriebene Text besteht
+dieselbe Prüfung, die den ursprünglichen bemängelt hat – das hält
+`test/prompt_rewrite_test.dart` fest. Vorher wird gezeigt, was
+passiert; der alte Text wird ersetzt.
+
+**Blockgrenzen:** Ein zweites `NAME:` beginnt einen neuen Block, auch
+ohne `---` dazwischen. Vorher trennte nur die Trennlinie – zwei Blöcke
+mit bloß einer Leerzeile dazwischen verschmolzen zu einem, der zweite
+Name überschrieb den ersten, und beide Beschreibungen landeten in
+einem einzigen Bild.
+
 Erst nach dem grünen Haken lässt sich der Lauf starten; jede Änderung
 am Text macht die Prüfung wieder ungültig.
 

@@ -10,6 +10,7 @@ import '../models/models.dart';
 import '../services/batch_prompt.dart';
 import '../services/exporter.dart';
 import '../services/prompt_briefing.dart';
+import '../services/prompt_rewrite.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/model_catalog.dart';
@@ -459,6 +460,89 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       _batchPlan = _parseBatch(settings);
       _error = null;
     });
+  }
+
+  /// Schreibt den Massenprompt auf die Schreibweise des gewählten
+  /// Modells um.
+  ///
+  /// Der Anlass: ein Briefing mit 351 Wörtern auf SDXL Base – ganze
+  /// Sätze, Verneinungen, Gradzahlen. Die Prüfung hat jeden Punkt
+  /// genannt, aber Hinweise lesen und einen 43-Block-Prompt von Hand
+  /// umschreiben sind zwei verschiedene Dinge.
+  Future<void> _rewriteBatch(SettingsService settings) async {
+    final profile = _profile(settings);
+    if (profile.style != PromptStyle.keywords) {
+      _showSnack('${profile.modelLabel} liest ganze Sätze – da gibt es '
+          'nichts umzuschreiben.');
+      return;
+    }
+    final plan = _parseBatch(settings);
+    if (plan.items.isEmpty) {
+      _showSnack('Kein Block erkannt – erst „Prüfen" drücken.');
+      return;
+    }
+    final result = rewriteBatchText(plan,
+        profile: profile, gameAssets: _gameAssets);
+    if (result.changedItems == 0) {
+      _showSnack('Der Massenprompt passt schon zu '
+          '${profile.modelLabel}.');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Für dieses Modell umschreiben'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('${result.changedItems} von ${plan.items.length} '
+                    'Block/Blöcken werden umgeschrieben. Der alte Text '
+                    'wird dabei ersetzt – vorher kopieren, wenn er noch '
+                    'gebraucht wird.'),
+                const SizedBox(height: 10),
+                for (final note in result.notes)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text('• $note'),
+                  ),
+                const SizedBox(height: 6),
+                Text('So sieht der erste Block danach aus:',
+                    style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                SelectableText(
+                  result.text.split('\n\n').first,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Umschreiben'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _batchCtrl.text = result.text;
+      _batchPlan = _parseBatch(settings);
+    });
+    _showSnack('${result.changedItems} Block/Blöcke umgeschrieben und '
+        'neu geprüft.');
   }
 
   /// Prüft den Massenprompt gegen das gerade gewählte Bild-Modell:
@@ -977,6 +1061,18 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   icon: const Icon(Icons.fact_check_outlined, size: 18),
                   label: const Text('Prüfen'),
                 ),
+                // Nur bei Stichwort-Modellen: Bei GPT-Image und Gemini
+                // ist ein Briefing genau richtig, da gäbe es nichts zu
+                // verbessern.
+                if (_profile(settings).style == PromptStyle.keywords)
+                  OutlinedButton.icon(
+                    onPressed: _generating
+                        ? null
+                        : () => _rewriteBatch(settings),
+                    icon: const Icon(Icons.auto_fix_high_outlined,
+                        size: 18),
+                    label: const Text('Für dieses Modell umschreiben'),
+                  ),
                 OutlinedButton.icon(
                   onPressed: _generating
                       ? null
@@ -1061,16 +1157,24 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   Widget _buildBatchResult(BatchPlan plan) {
     final theme = Theme.of(context);
     final good = plan.isValid;
-    final color = good
-        ? Colors.green.shade700
-        : theme.colorScheme.error;
+    // Ein grüner Haken über fünf Hinweisen, die genau erklären, warum
+    // das Bild danebengeht, ist eine Falschmeldung. Startklar und
+    // richtig sind zwei verschiedene Dinge.
+    final doubtful = good && plan.warnings.isNotEmpty;
+    final color = !good
+        ? theme.colorScheme.error
+        : doubtful
+            ? Colors.orange.shade800
+            : Colors.green.shade700;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: good
-            ? Colors.green.withValues(alpha: 0.08)
-            : theme.colorScheme.errorContainer,
+        color: !good
+            ? theme.colorScheme.errorContainer
+            : doubtful
+                ? Colors.orange.withValues(alpha: 0.08)
+                : Colors.green.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
@@ -1080,17 +1184,29 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(good ? Icons.check_circle : Icons.error_outline,
-                  color: color, size: 22),
+              Icon(
+                  !good
+                      ? Icons.error_outline
+                      : doubtful
+                          ? Icons.warning_amber_outlined
+                          : Icons.check_circle,
+                  color: color,
+                  size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  good
-                      ? '${plan.items.length} Bilder erkannt'
-                          '${plan.withReferences > 0 ? ', davon '
-                              '${plan.withReferences} mit Referenzbild' : ''}'
-                          ' – der Massenprompt ist in Ordnung.'
-                      : 'Der Massenprompt ist noch nicht startklar:',
+                  !good
+                      ? 'Der Massenprompt ist noch nicht startklar:'
+                      : doubtful
+                          ? '${plan.items.length} Bilder erkannt – der '
+                              'Lauf ist möglich, aber '
+                              '${plan.warnings.length} Punkt(e) '
+                              'sprechen gegen das Ergebnis:'
+                          : '${plan.items.length} Bilder erkannt'
+                              '${plan.withReferences > 0 ? ', davon '
+                                  '${plan.withReferences} mit '
+                                  'Referenzbild' : ''}'
+                              ' – der Massenprompt ist in Ordnung.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                       color: good ? color : theme.colorScheme.onErrorContainer,
                       fontWeight: FontWeight.w600),
@@ -1112,12 +1228,17 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(Icons.info_outline,
-                      size: 14, color: theme.colorScheme.outline),
+                      size: 14,
+                      color: doubtful
+                          ? Colors.orange.shade800
+                          : theme.colorScheme.outline),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text('$warning',
                         style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline)),
+                            color: doubtful
+                                ? Colors.orange.shade900
+                                : theme.colorScheme.outline)),
                   ),
                 ],
               ),

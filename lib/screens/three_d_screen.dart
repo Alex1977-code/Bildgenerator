@@ -4828,64 +4828,6 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     children: [
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('PBR-Material'),
-                        subtitle: Text(
-                          'Drei Bilder statt einem: Basecolor, Normal '
-                          'und Metallic-Roughness. '
-                          '${_robloxMode ? 'Für Roblox aus – dort '
-                              'zählt je Mesh ein Material, die beiden '
-                              'zusätzlichen Bilder kosten nur '
-                              'Texturgrenze und Ladezeit.' : 'An für '
-                              'realistischere Oberflächen, aus für '
-                              'eine einzelne, schlanke Textur.'}',
-                        ),
-                        value: _pbr,
-                        onChanged: _running || !_texture
-                            ? null
-                            : (v) => setState(() => _pbr = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Maßstab setzen (auto_size)'),
-                        subtitle: Text(
-                          'Tripo bringt das Modell auf eine plausible '
-                          'Weltgröße, statt einen beliebigen Maßstab '
-                          'zu liefern. '
-                          '${_robloxMode ? 'Der Roblox-Importer '
-                              'rechnet glTF-Einheiten als Meter – ohne '
-                              'das kam die Figur mit 0,98 Einheiten '
-                              'und damit 3,5 Studs statt der üblichen '
-                              '5.' : 'Nützlich, wenn die Größe in der '
-                              'Engine stimmen soll.'}',
-                        ),
-                        value: _tripoAutoSize,
-                        onChanged: _running
-                            ? null
-                            : (v) => setState(() => _tripoAutoSize = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Smart Low-Poly'),
-                        subtitle: Text(
-                          'Tripo baut ein spielefertiges Netz, statt '
-                          'das volle nur zu beschneiden. Gemessen an '
-                          'einem Lauf: Mit „face_limit" = 10.000 kamen '
-                          '101.298 Dreiecke zurück – die Grenze allein '
-                          'hat dort nicht gegriffen. '
-                          '${_robloxMode ? 'Für Roblox ist das der '
-                              'entscheidende Schalter – dort zählt '
-                              'genau diese Zahl.' : 'Sinnvoll für '
-                              'Engines mit harten Grenzen; für reine '
-                              'Standbilder kostet es Detail.'}',
-                        ),
-                        value: _tripoSmartLowPoly,
-                        onChanged: _running
-                            ? null
-                            : (v) =>
-                                setState(() => _tripoSmartLowPoly = v),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
                         title: const Text('Quad-Topologie'),
                         subtitle: const Text(
                             'Sauberes Vierecks-Netz (Rodins '
@@ -5224,6 +5166,66 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               : (v) =>
                                   setState(() => _tripoDetailedTexture = v),
                         ),
+                      ],
+                      if (isTripo) ...[
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('PBR-Material'),
+                        subtitle: Text(
+                          'Drei Bilder statt einem: Basecolor, Normal '
+                          'und Metallic-Roughness. '
+                          '${_robloxMode ? 'Für Roblox aus – dort '
+                              'zählt je Mesh ein Material, die beiden '
+                              'zusätzlichen Bilder kosten nur '
+                              'Texturgrenze und Ladezeit.' : 'An für '
+                              'realistischere Oberflächen, aus für '
+                              'eine einzelne, schlanke Textur.'}',
+                        ),
+                        value: _pbr,
+                        onChanged: _running || !_texture
+                            ? null
+                            : (v) => setState(() => _pbr = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Maßstab setzen (auto_size)'),
+                        subtitle: Text(
+                          'Tripo bringt das Modell auf eine plausible '
+                          'Weltgröße, statt einen beliebigen Maßstab '
+                          'zu liefern. '
+                          '${_robloxMode ? 'Der Roblox-Importer '
+                              'rechnet glTF-Einheiten als Meter – ohne '
+                              'das kam die Figur mit 0,98 Einheiten '
+                              'und damit 3,5 Studs statt der üblichen '
+                              '5.' : 'Nützlich, wenn die Größe in der '
+                              'Engine stimmen soll.'}',
+                        ),
+                        value: _tripoAutoSize,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _tripoAutoSize = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Smart Low-Poly'),
+                        subtitle: Text(
+                          'Tripo baut ein spielefertiges Netz, statt '
+                          'das volle nur zu beschneiden. Gemessen an '
+                          'einem Lauf: Mit „face_limit" = 10.000 kamen '
+                          '101.298 Dreiecke zurück – die Grenze allein '
+                          'hat dort nicht gegriffen. '
+                          '${_robloxMode ? 'Für Roblox ist das der '
+                              'entscheidende Schalter – dort zählt '
+                              'genau diese Zahl.' : 'Sinnvoll für '
+                              'Engines mit harten Grenzen; für reine '
+                              'Standbilder kostet es Detail.'}',
+                        ),
+                        value: _tripoSmartLowPoly,
+                        onChanged: _running
+                            ? null
+                            : (v) =>
+                                setState(() => _tripoSmartLowPoly = v),
+                      ),
                       ],
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
