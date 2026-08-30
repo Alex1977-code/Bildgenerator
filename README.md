@@ -635,6 +635,9 @@ Preis des gewählten Modells; auf der eigenen GPU 0 $.
 
 ## Roblox: Figuren, die der Importer annimmt
 
+> Kurzfassung samt offener Punkte für eine neue Sitzung:
+> [`docs/roblox-uebergabe.md`](docs/roblox-uebergabe.md).
+
 Im Tab **3D** gibt es unter „Vorlagen" den Knopf **„Roblox-Figur"**. Er
 setzt Anbieter, Ziel-Polygonzahl, Textur-Größe, Skelett und T-Pose in
 einem Rutsch auf die Grenzen des Roblox-Importers, blendet die
@@ -1051,12 +1054,21 @@ RightUpperLeg, RightLowerLeg, RightFoot
 
 Tripos Auto-Rig liefert mit `spec: "mixamo"` Namen wie
 `mixamorig:Hips`, der eigene Auto-Rigger `Hips`, `Chest`,
-`Shoulder_L`. **Das Umbenennen nimmt die App ab**: Export-Menü →
-**„Für Roblox vorbereiten …"**. Sie erkennt Mixamo-Namen, die eigenen
-und die geläufigen Schreibweisen, zieht einen `HumanoidRootPart` im
-Ursprung über der Hüfte ein (ohne Gewichtung, wie verlangt) und sagt,
-welche der 15 Gelenke danach noch fehlen. Knochen ohne R15-Gegenstück
-(Finger, ein zweiter Wirbel) behalten ihren Namen — das ist richtig so.
+`Shoulder_L`. Tripos V3-Rig liefert dagegen `tripo::0_Left_Limb_2` und
+`bone_6` — daraus liest kein Namensvergleich eine Rolle heraus.
+
+**Das nimmt die App ab**: Export-Menü → **„Für Roblox vorbereiten …"**.
+Zuerst über die Namen (Mixamo, eigener Rigger, geläufige
+Schreibweisen), und wenn die nichts hergeben, über die **Form des
+Skeletts**: Arme sind die beiden seitlich äußersten Äste ab der ersten
+gemeinsamen Gabelung, Beine die tiefsten, Rumpf und Kopf ergeben sich
+aus dem Weg dazwischen. Links und rechts kommen dabei aus der
+Geometrie, nicht aus den Namen — die Blickrichtung liest sich am
+Schritt vom Fuß zum Zeh ab. Das ist kein Übereifer: Tripo hat die
+Seiten bei der Testfigur **vertauscht** benannt.
+
+Knochen ohne R15-Gegenstück (Finger, ein zweiter Wirbel) behalten ihren
+Namen — das ist richtig so.
 
 Gespeichert werden vier Dateien:
 
@@ -1105,10 +1117,50 @@ Creator-Dashboard: das Erlebnis privat lassen und Freunde unter
 den Link teilen. Gemeinsam bearbeiten geht über Team Create.
 
 **Rig-Hygiene** prüft die App mit: eingefrorene Transformationen
-(Scale 1,1,1, Rotation 0,0,0), Wurzelknochen bei 0,0,0 ohne Gewichtung,
-höchstens vier Bones je Vertex — und neu die R15-Benennung. Alles davon
-ist aus der Datei messbar; nur die T-Pose nicht, die bleibt ein
-Hinweis.
+(Scale 1,1,1, Rotation 0,0,0), Wurzelknochen und LowerTorso bei 0,0,0,
+Wurzelknochen ohne Gewichtung, höchstens vier Bones je Vertex, Größe in
+Studs — und die R15-Benennung. Alles davon ist aus der Datei messbar;
+nur die T-Pose nicht, die bleibt ein Hinweis.
+
+#### Drei Regeln, die man nicht aus Plausibilität ableiten kann
+
+Beim ersten echten Import ging jede einzelne davon daneben, weil sie
+sich anders verhält, als man erwartet. Alle drei sind jetzt in der App
+umgesetzt und in der Prüfliste hinterlegt.
+
+**1. Eine Datei-Einheit ist ein Stud, nicht ein Meter.** Der Importer
+rechnet die Datei über die Scale-Unit-Einstellung in Meter um und setzt
+dann einen Meter gleich einem Stud. Eine Figur von 1,20 glTF-Einheiten
+kommt also 1,2 Studs hoch an und steht kniehoch neben einem
+Standard-Charakter — die 4,3 Studs, die sich aus 0,28 m je Stud
+ergäben, sieht man nie. „Für Roblox vorbereiten" skaliert eine Figur
+deshalb auf 5 Einheiten.
+
+**2. Der Nullpunkt liegt an der Hüfte, nicht am Boden.** Roblox'
+Spezifikation für Charakterkörper verlangt beides zugleich: *„The
+LowerTorso and Root bone or joint position must be set to 0, 0, 0."*
+Die Füße stehen damit im Minus. Legt man den Wurzelknochen stattdessen
+auf Fußhöhe, landet der `HumanoidRootPart` zwischen den Füßen; die
+Figur schwebt im Spiel um die Hip Height nach oben und kippt beim
+ersten Schritt um. Bei einer 5-Studs-Figur ergibt sich daraus eine Hip
+Height von rund 2,0 — genau der Wert eines Standard-R15-Rigs; die App
+rechnet sie aus und trägt sie ins Studio-Skript ein.
+
+**3. „Bones ohne Einfluss behalten" muss im Importer an sein.** Der
+Wurzelknochen darf keine Vertices bewegen (*„Do not apply influences to
+the Root bone or joint"*) — genau dadurch ist er ein Knochen ohne
+Einfluss, und der Importer wirft solche Knochen ohne diesen Haken weg.
+
+Die übrigen Einstellungen im 3D-Importer: Rig-Typ **R15**, Scale Unit
+**Zentimeter** (Blender schreibt die FBX in cm), „Drehpunkt auf
+Szenenursprung setzen" an, „Verankert" aus.
+
+**Eine stehende Figur im Workspace kippt um, wenn man sie anrempelt.**
+Das ist kein Fehler an der Datei, sondern normale Roblox-Physik: Ein
+freistehendes Humanoid-Modell hat niemanden, der es steuert. Soll sie
+als Deko oder NPC stehen bleiben, in der Befehlsleiste
+`workspace.<Name>.HumanoidRootPart.Anchored = true` setzen. Als
+Startfigur stellt sich die Frage nicht — die steuert der Spieler.
 
 **Was erfahrungsgemäß hakt** sind nicht der Import, sondern **eigene
 Animationen aus Blender**: Die brechen auch bei korrektem Rig oft,
