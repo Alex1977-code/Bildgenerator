@@ -103,6 +103,28 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Eingerichtete lokale 3D-Server, je Eintrag „backend|port|Ordner"
+  /// (siehe InstalledServer in services/server_setup.dart). Damit
+  /// lässt sich der Server in den Einstellungen auswählen und starten.
+  List<String> localServers = const [];
+
+  void rememberLocalServer(String entry) {
+    if (entry.trim().isEmpty || localServers.contains(entry)) return;
+    localServers = [...localServers, entry];
+    _prefs?.setStringList('localServers', localServers);
+    notifyListeners();
+  }
+
+  void forgetLocalServer(String entry) {
+    if (!localServers.contains(entry)) return;
+    localServers = [
+      for (final e in localServers)
+        if (e != entry) e,
+    ];
+    _prefs?.setStringList('localServers', localServers);
+    notifyListeners();
+  }
+
   /// Ersteller-Name für Erstellungsnachweise (PDF).
   String creatorName = '';
 
@@ -233,6 +255,7 @@ class SettingsService extends ChangeNotifier {
       watermarkOpacity = prefs.getInt('watermarkOpacity') ?? watermarkOpacity;
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
       selfHostUrl = prefs.getString('selfHostUrl') ?? selfHostUrl;
+      localServers = prefs.getStringList('localServers') ?? localServers;
       final storedPresets = prefs.getStringList('customPresets');
       if (storedPresets != null) {
         customPresets = [

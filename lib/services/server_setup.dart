@@ -118,6 +118,77 @@ const setupSteps = <(String, String, String)>[
   ('Prüfen', 'Kontrolle, dass wirklich alles installiert ist', '—'),
 ];
 
+/// Ein auf diesem Rechner eingerichteter 3D-Server. Die App merkt
+/// sich die Einträge, damit man den Server später oben in der
+/// Auswahlliste anklicken und mit einem Knopfdruck starten kann.
+class InstalledServer {
+  const InstalledServer({
+    required this.backend,
+    required this.dir,
+    this.port = 8765,
+  });
+
+  /// Backend-Kennung: triposr, sf3d, spar3d, trellis.
+  final String backend;
+
+  /// Ordner der Installation (enthält .venv und local3d_server.py).
+  final String dir;
+
+  final int port;
+
+  /// Kurzer Anzeigename, z. B. „SF3D".
+  String get label => backendLabel(backend);
+
+  String get url => 'http://127.0.0.1:$port';
+
+  /// Ablageform in den Einstellungen: „backend|port|Ordner".
+  String encode() => '$backend|$port|$dir';
+
+  /// Gegenstück zu [encode]; null bei kaputten Einträgen.
+  static InstalledServer? decode(String raw) {
+    final parts = raw.split('|');
+    if (parts.length < 3) return null;
+    final backend = parts[0].trim();
+    // Der Ordner darf theoretisch selbst ein | enthalten.
+    final dir = parts.sublist(2).join('|').trim();
+    if (backend.isEmpty || dir.isEmpty) return null;
+    return InstalledServer(
+      backend: backend,
+      dir: dir,
+      port: int.tryParse(parts[1]) ?? 8765,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is InstalledServer &&
+      other.backend == backend &&
+      other.dir == dir &&
+      other.port == port;
+
+  @override
+  int get hashCode => Object.hash(backend, dir, port);
+}
+
+/// Kurzname eines Backends ohne den erklärenden Zusatz.
+String backendLabel(String id) {
+  for (final backend in setupBackends) {
+    if (backend.id == id) return backend.name.split(' – ').first;
+  }
+  return id.toUpperCase();
+}
+
+/// Sucht neben dem Standard-Zielordner nach fertigen Installationen –
+/// so taucht auch ein von Hand eingerichteter Server in der Liste auf.
+Future<List<InstalledServer>> detectInstalledServers() async {
+  final found = await impl.detectInstalledServers(
+      [for (final backend in setupBackends) backend.id]);
+  return [
+    for (final (backend, dir) in found)
+      InstalledServer(backend: backend, dir: dir),
+  ];
+}
+
 bool get setupSupported => impl.setupSupported;
 
 /// Vorschlag für den Zielordner der Installation.

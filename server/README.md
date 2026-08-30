@@ -36,7 +36,8 @@ Bedienelemente ein.
 Die Windows-, Linux- und macOS-App bringt die Einrichtung fertig mit:
 **Einstellungen → Eigener 3D-Server → „Einrichtungs-Assistent"**. Er
 prüft Python 3.11, Git und die GPU, zeigt vorab, was installiert wird,
-erledigt alle Schritte mit Live-Protokoll und startet den Server. Die
+erledigt alle Schritte mit Live-Protokoll und startet den Server; die
+Adresse trägt sich selbst in die Einstellungen ein.
 Er lässt auch das Modell wählen (TripoSR, SF3D, SPAR3D, TRELLIS) und
 gleicht den VRAM-Bedarf mit der erkannten Karte ab. Die Anleitung unten
 ist der Weg von Hand – nötig nur für TRELLIS unter Windows oder wenn
@@ -203,11 +204,21 @@ nach demselben Muster anbinden, sobald gewünscht.)
 
 ## In der App verbinden
 
-1. App öffnen → **Einstellungen** → Karte **„Eigener 3D-Server“** →
-   Adresse eintragen: `http://127.0.0.1:8765` → **Speichern & testen**
-   (zeigt Backend und GPU an).
-2. 3D-Tab → Provider **„Server“** wählen → wie gewohnt aus Text oder
+1. App öffnen → **Einstellungen** → Karte **„Eigener 3D-Server“**.
+   In der Auswahlliste steht oben **„Keiner“**, darunter jeder auf
+   diesem PC eingerichtete Server. Einen auswählen →
+   **„Server starten“**: Die App startet ihn im Hintergrund, trägt die
+   Adresse ein und meldet, sobald er antwortet (beim ersten Start lädt
+   er die Modellgewichte – das dauert).
+2. Alternativ von Hand: Adresse `http://127.0.0.1:8765` eintragen →
+   **Speichern & testen** (zeigt Backend und GPU an).
+3. 3D-Tab → Provider **„Server“** wählen → wie gewohnt aus Text oder
    Bild generieren.
+
+Die Liste zeigt sowohl die vom Assistenten angelegten Installationen
+als auch solche, die neben dem Standardordner (z. B. `C:\KI\SF3D`)
+von Hand eingerichtet wurden. „Aus der Liste nehmen“ entfernt nur den
+Eintrag, nicht die Installation.
 
 **Anderer PC im Netzwerk** (z. B. App auf dem Handy, Server auf dem
 Gaming-PC): Als Adresse `http://<IP-des-PCs>:8765` eintragen und den

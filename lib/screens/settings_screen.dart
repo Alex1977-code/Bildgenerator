@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform,
-    TargetPlatform;
+    kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,6 +14,7 @@ import '../services/self_host_service.dart';
 import '../services/server_setup.dart' as setup;
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
+import '../services/update_check.dart' as update;
 import '../services/watermark.dart';
 import '../widgets/common.dart';
 
@@ -288,6 +289,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 12),
+        const _UpdateCard(),
+        const SizedBox(height: 12),
         // Versions-Kennung aus der CI: Commit und Build-Datum – zum
         // schnellen Prüfen, ob nach einem Update wirklich die neue
         // Version läuft (der Web-Cache liefert sonst gern noch einmal
@@ -317,19 +320,70 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   late final TextEditingController _ctrl;
   String? _status;
   bool _ok = false;
+  /// Reine Info (kein Fehler) – dann grau statt rot anzeigen.
+  bool _neutral = false;
   bool _checking = false;
+  bool _starting = false;
+
+  /// Auf diesem Rechner eingerichtete Server – gemerkte Einträge plus
+  /// gefundene Installationen.
+  List<setup.InstalledServer> _servers = const [];
+
+  /// Aktuell gewählter Eintrag in seiner Ablageform; leer = „Keiner".
+  String _selected = '';
+
+  setup.InstalledServer? get _current {
+    for (final entry in _servers) {
+      if (entry.encode() == _selected) return entry;
+    }
+    return null;
+  }
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(
         text: context.read<SettingsService>().selfHostUrl);
+    _loadServers();
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  /// Liste der Server aufbauen: erst die gemerkten Einträge, dann per
+  /// Suche gefundene Installationen (z. B. von Hand eingerichtete).
+  Future<void> _loadServers() async {
+    final settings = context.read<SettingsService>();
+    final list = <setup.InstalledServer>[];
+    for (final raw in settings.localServers) {
+      final entry = setup.InstalledServer.decode(raw);
+      if (entry != null && !list.contains(entry)) list.add(entry);
+    }
+    if (setup.setupSupported) {
+      try {
+        for (final found in await setup.detectInstalledServers()) {
+          if (!list.contains(found)) list.add(found);
+        }
+      } catch (_) {
+        // Ohne Fundliste weiterarbeiten – die Adresse geht immer.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _servers = list;
+      // Vorauswahl: der Server, dessen Adresse gerade eingetragen ist.
+      final url = _ctrl.text.trim();
+      _selected = '';
+      for (final entry in list) {
+        if (entry.url == url) {
+          _selected = entry.encode();
+          break;
+        }
+      }
+    });
   }
 
   Future<void> _saveAndTest() async {
@@ -340,12 +394,14 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
       setState(() {
         _status = 'Adresse entfernt.';
         _ok = false;
+        _neutral = true;
       });
       return;
     }
     setState(() {
       _checking = true;
       _status = null;
+      _neutral = false;
     });
     try {
       final info = await SelfHostService(url).health();
@@ -367,9 +423,91 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     }
   }
 
+  /// Auswahl in der Liste: „Keiner" nimmt die Adresse heraus, ein
+  /// Server trägt seine Adresse ein (gestartet wird per Knopf).
+  void _selectServer(String? value) {
+    setState(() {
+      _selected = value ?? '';
+      _status = null;
+      _ok = false;
+      _neutral = false;
+    });
+    final entry = _current;
+    if (entry == null) {
+      _ctrl.text = '';
+      context.read<SettingsService>().setSelfHostUrl('');
+      setState(() {
+        _status = 'Kein Server ausgewählt.';
+        _neutral = true;
+      });
+    } else {
+      _ctrl.text = entry.url;
+    }
+  }
+
+  /// Startet den gewählten Server und wartet, bis er antwortet.
+  Future<void> _startSelected() async {
+    final entry = _current;
+    if (entry == null) return;
+    setState(() {
+      _starting = true;
+      _ok = false;
+      _neutral = true;
+      _status = '${entry.label} wird gestartet …';
+    });
+    try {
+      await setup.startServer(
+          targetDir: entry.dir, backend: entry.backend, port: entry.port);
+      if (!mounted) return;
+      _ctrl.text = entry.url;
+      context.read<SettingsService>().setSelfHostUrl(entry.url);
+      // Der erste Start lädt das Modell – deshalb geduldig nachfragen,
+      // statt sofort „nicht erreichbar" zu melden.
+      for (var attempt = 0; attempt < 30; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        try {
+          final info = await SelfHostService(entry.url).health();
+          if (!mounted) return;
+          setState(() {
+            _status = 'Verbunden – $info.';
+            _ok = true;
+            _neutral = false;
+          });
+          return;
+        } catch (_) {
+          if (mounted) {
+            setState(() => _status = '${entry.label} startet – '
+                'Modell wird geladen (${(attempt + 1) * 2} s) …');
+          }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _status = 'Der Server meldet sich noch nicht. Beim ersten '
+              'Start lädt er die Modellgewichte – gleich noch einmal '
+              'auf „Speichern & testen" tippen.';
+          _ok = false;
+          _neutral = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = e.toString().replaceFirst('Exception: ', '');
+          _ok = false;
+          _neutral = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final busy = _checking || _starting;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -381,11 +519,53 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
             const SizedBox(height: 4),
             Text(
               'Bild→3D auf dem eigenen PC mit NVIDIA-GPU – kostenlos '
-              'und komplett lokal (Open-Source-Modelle TripoSR/TRELLIS, '
-              'MIT-Lizenz). Einrichtung: Ordner „server“ im Projekt, '
-              'Anleitung in server/README.md.',
+              'und komplett lokal (Open-Source-Modelle TripoSR, SF3D, '
+              'SPAR3D, TRELLIS). Der Einrichtungs-Assistent installiert '
+              'alles; danach steht der Server hier in der Liste und '
+              'lässt sich mit einem Knopfdruck starten.',
               style: theme.textTheme.bodySmall,
             ),
+            const SizedBox(height: 12),
+            // Auswahlliste: oben „Keiner", darunter alles, was auf
+            // diesem Rechner eingerichtet ist.
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: '3D-Server',
+                border: OutlineInputBorder(),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selected,
+                  isExpanded: true,
+                  onChanged: busy ? null : _selectServer,
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('Keiner'),
+                    ),
+                    for (final entry in _servers)
+                      DropdownMenuItem(
+                        value: entry.encode(),
+                        child: Text(
+                          '${entry.label} · ${entry.dir}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (_servers.isEmpty && setup.setupSupported) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Noch kein Server eingerichtet – der '
+                'Einrichtungs-Assistent legt einen an.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: _ctrl,
@@ -400,8 +580,21 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (_current != null)
+                  FilledButton.icon(
+                    onPressed: busy ? null : _startSelected,
+                    icon: _starting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.play_arrow, size: 18),
+                    label: Text(
+                        _starting ? 'Startet …' : 'Server starten'),
+                  ),
                 FilledButton.tonalIcon(
-                  onPressed: _checking ? null : _saveAndTest,
+                  onPressed: busy ? null : _saveAndTest,
                   icon: _checking
                       ? const SizedBox(
                           width: 16,
@@ -415,8 +608,8 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                 // nur auf dem Desktop, wo Python und GPU vorhanden
                 // sein können.
                 if (setup.setupSupported)
-                  FilledButton.icon(
-                    onPressed: _checking
+                  FilledButton.tonalIcon(
+                    onPressed: busy
                         ? null
                         : () async {
                             final url = await showDialog<String>(
@@ -425,6 +618,8 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                               builder: (context) =>
                                   const _ServerSetupDialog(),
                             );
+                            if (!mounted) return;
+                            await _loadServers();
                             if (url != null && mounted) {
                               _ctrl.text = url;
                               await _saveAndTest();
@@ -432,6 +627,27 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                           },
                     icon: const Icon(Icons.auto_fix_high, size: 18),
                     label: const Text('Einrichtungs-Assistent'),
+                  ),
+                if (_current != null)
+                  TextButton.icon(
+                    onPressed: busy
+                        ? null
+                        : () {
+                            final entry = _current!;
+                            context
+                                .read<SettingsService>()
+                                .forgetLocalServer(entry.encode());
+                            setState(() {
+                              _servers = [
+                                for (final e in _servers)
+                                  if (e != entry) e,
+                              ];
+                              _selected = '';
+                            });
+                          },
+                    icon: const Icon(Icons.remove_circle_outline,
+                        size: 18),
+                    label: const Text('Aus der Liste nehmen'),
                   ),
               ],
             ),
@@ -442,7 +658,9 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: _ok
                       ? Colors.green.shade700
-                      : theme.colorScheme.error,
+                      : (_neutral
+                          ? theme.colorScheme.outline
+                          : theme.colorScheme.error),
                 ),
               ),
             ],
@@ -540,7 +758,17 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
         if (!mounted) return;
         _append(line);
       }
-      if (mounted) setState(() => _installed = true);
+      if (mounted) {
+        setState(() => _installed = true);
+        // Merken, damit der Server später in der Auswahlliste steht.
+        context.read<SettingsService>().rememberLocalServer(
+              setup.InstalledServer(
+                backend: _backend,
+                dir: _dirCtrl.text.trim(),
+                port: _port,
+              ).encode(),
+            );
+      }
     } catch (e) {
       if (mounted) {
         setState(() =>
@@ -554,8 +782,17 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   Future<void> _startAndClose() async {
     try {
       final message = await setup.startServer(
-          targetDir: _dirCtrl.text.trim(), backend: _backend);
+          targetDir: _dirCtrl.text.trim(),
+          backend: _backend,
+          port: _port);
       if (!mounted) return;
+      context.read<SettingsService>().rememberLocalServer(
+            setup.InstalledServer(
+              backend: _backend,
+              dir: _dirCtrl.text.trim(),
+              port: _port,
+            ).encode(),
+          );
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
       Navigator.of(context).pop('http://127.0.0.1:$_port');
@@ -1525,6 +1762,179 @@ class _WatermarkCard extends StatelessWidget {
                   ),
                   Text('${settings.watermarkOpacity} %'),
                 ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Prüft, ob eine neuere Fassung veröffentlicht wurde, lädt sie auf
+/// Knopfdruck und startet sie – damit niemand von Hand bei GitHub
+/// nachsehen muss.
+class _UpdateCard extends StatefulWidget {
+  const _UpdateCard();
+
+  @override
+  State<_UpdateCard> createState() => _UpdateCardState();
+}
+
+class _UpdateCardState extends State<_UpdateCard> {
+  bool _busy = false;
+  bool _error = false;
+  String? _status;
+  update.UpdateInfo? _info;
+
+  bool get _updateAvailable =>
+      _info != null && update.isNewer(_info!);
+
+  void _set(String text, {bool error = false}) {
+    if (!mounted) return;
+    setState(() {
+      _status = text;
+      _error = error;
+    });
+  }
+
+  Future<void> _check() async {
+    setState(() {
+      _busy = true;
+      _error = false;
+      _status = 'Es wird nach einer neuen Fassung gesucht …';
+    });
+    try {
+      final info = await update.fetchLatestRelease();
+      if (!mounted) return;
+      setState(() => _info = info);
+      if (info == null) {
+        _set(kIsWeb
+            ? 'Die Web-Version lädt immer die neueste Fassung – ein '
+                'Neuladen mit Strg+F5 genügt.'
+            : 'Für diese Plattform wird keine fertige Datei '
+                'veröffentlicht.');
+      } else if (update.runningBuildSha.isEmpty) {
+        _set('Diese Fassung trägt keine Build-Kennung (Eigenbau). '
+            'Neueste Veröffentlichung: ${info.shortSha}.');
+      } else if (!update.isNewer(info)) {
+        _set('Alles aktuell – ${update.runningBuildSha} ist die '
+            'neueste Fassung.');
+      } else {
+        _set('Neue Fassung ${info.shortSha} verfügbar '
+            '(${info.sizeLabel}).');
+      }
+    } on GenerationException catch (e) {
+      _set(e.message, error: true);
+    } catch (e) {
+      _set('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _downloadAndRun() async {
+    final info = _info;
+    if (info == null) return;
+    // Android & Co.: Der System-Installer übernimmt, die App darf
+    // sich nicht selbst ersetzen.
+    if (!update.canInstall) {
+      await launchUrl(Uri.parse(info.downloadUrl),
+          mode: LaunchMode.externalApplication);
+      _set('Download geöffnet – die Datei danach im Browser bzw. in '
+          'den Downloads antippen, um sie zu installieren.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = false;
+    });
+    try {
+      final bytes = await update.downloadUpdate(info, _set);
+      final program = await update.installUpdate(bytes, info, _set);
+      _set('Neue Fassung wird gestartet …');
+      await update.launchInstalled(program);
+      // Kurz warten, damit das neue Fenster oben liegt, dann die alte
+      // Fassung schließen.
+      await Future<void>.delayed(const Duration(seconds: 2));
+      await update.quitApp();
+    } on GenerationException catch (e) {
+      _set(e.message, error: true);
+    } catch (e) {
+      _set(e.toString().replaceFirst('Exception: ', ''), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Version & Update', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Diese Fassung: $buildInfo',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              kIsWeb
+                  ? 'Im Browser genügt ein Neuladen mit Strg+F5.'
+                  : (update.canInstall
+                      ? 'Die neue Fassung wird in einen eigenen Ordner '
+                          'neben die aktuelle gelegt und gestartet; '
+                          'Einstellungen, Schlüssel und Galerie bleiben '
+                          'erhalten.'
+                      : 'Der Download öffnet die Installationsdatei – '
+                          'den Rest erledigt das System.'),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _check,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.system_update_alt, size: 18),
+                  label: const Text('Nach Updates suchen'),
+                ),
+                if (_updateAvailable)
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _downloadAndRun,
+                    icon: const Icon(Icons.download, size: 18),
+                    label: Text(update.canInstall
+                        ? 'Herunterladen & starten '
+                            '(${_info!.sizeLabel})'
+                        : 'Download öffnen (${_info!.sizeLabel})'),
+                  ),
+              ],
+            ),
+            if (_status != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _status!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: _error
+                      ? theme.colorScheme.error
+                      : (_updateAvailable
+                          ? Colors.green.shade700
+                          : theme.colorScheme.outline),
+                ),
               ),
             ],
           ],

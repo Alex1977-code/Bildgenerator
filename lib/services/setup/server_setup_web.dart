@@ -26,3 +26,7 @@ Future<String> startServer({
     throw UnsupportedError('Nur in der Desktop-App verfügbar.');
 
 Future<List<String>> pythonCandidates() async => const [];
+
+Future<List<(String, String)>> detectInstalledServers(
+        List<String> backends) async =>
+    const [];

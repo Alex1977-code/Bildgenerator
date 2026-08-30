@@ -112,6 +112,9 @@ jobs:
           body: |
             Automatisch aktualisierter Build des neuesten Stands.
 
+            Build-Kennung: `${{ github.sha }}`
+            (Die App vergleicht damit, ob sie noch aktuell ist.)
+
             - **bildgenerator-windows.zip** – Windows: entpacken und `bildgenerator.exe` starten
             - **bildgenerator-android.apk** – Android: herunterladen und installieren
             - **bildgenerator-web.zip** – Web-Version zum Selbst-Hosten

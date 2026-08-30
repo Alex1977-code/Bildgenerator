@@ -47,6 +47,13 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     etwas fehlt), zeigt vorab jeden Schritt samt Downloadgröße, führt
     die komplette Installation mit Live-Protokoll aus und startet den
     Server anschließend – die Adresse trägt sich selbst ein
+  - **Server-Auswahlliste mit Startknopf**: In den Einstellungen steht
+    oben „Keiner“, darunter jeder auf diesem PC eingerichtete Server
+    (samt Ordner). Ein Klick auf **„Server starten"** startet ihn im
+    Hintergrund, trägt die Adresse ein und wartet, bis er antwortet –
+    kein PowerShell-Fenster mehr nötig. Die Liste enthält sowohl die
+    vom Assistenten angelegten als auch von Hand eingerichtete
+    Installationen, die neben dem Standardordner gefunden werden
   - **Vier lokale Modelle zur Auswahl** – der Assistent gleicht den
     VRAM-Bedarf mit der erkannten Grafikkarte ab: **TripoSR**
     (~4–6 GB, Sekunden), **SF3D** (~6 GB, echte UV-Textur – dasselbe
@@ -280,6 +287,23 @@ ausschließlich auf dem Gerät und wird nur an den gewählten Provider gesendet.
 - Übersicht: [Release „Aktuelle Version“](https://github.com/Alex1977-code/Bildgenerator/releases/latest)
 
 Diese Links zeigen automatisch auf den jeweils neuesten erfolgreichen Build.
+
+### Update direkt in der App
+
+Einstellungen → **Version & Update** → „Nach Updates suchen“. Die App
+vergleicht ihre eigene Build-Kennung mit der des neuesten Releases:
+
+- **Windows/Linux/macOS**: „Herunterladen & starten“ lädt das ZIP,
+  entpackt es in einen **eigenen Ordner neben** der laufenden Fassung
+  (`3DGenerator-<Kennung>`), startet die neue Version und schließt die
+  alte. Einstellungen, API-Schlüssel und Galerie liegen im
+  Benutzerprofil und gelten damit sofort auch in der neuen Fassung.
+  Absichtlich kein Überschreiben: Eine laufende `.exe` lässt sich unter
+  Windows nicht ersetzen, und die alte Fassung bleibt als Rückfall
+  erhalten.
+- **Android**: Der Knopf öffnet den APK-Download; die Installation
+  übernimmt das System.
+- **Web**: Ein Neuladen mit `Strg`+`F5` genügt.
 
 ## So testest du die App
 

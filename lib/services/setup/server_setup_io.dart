@@ -307,3 +307,37 @@ Future<String> startServer({
   return 'Server gestartet auf http://127.0.0.1:$port – der erste Lauf '
       'lädt einmalig die Modellgewichte (~1,7 GB).';
 }
+
+/// Übliche Ordnernamen je Backend – der Assistent legt sie so an.
+const _folderNames = <String, List<String>>{
+  'triposr': ['TripoSR', 'TRIPOSR', 'triposr'],
+  'sf3d': ['SF3D', 'sf3d', 'stable-fast-3d'],
+  'spar3d': ['SPAR3D', 'spar3d', 'stable-point-aware-3d'],
+  'trellis': ['TRELLIS', 'trellis'],
+};
+
+/// Ein Ordner gilt als eingerichtet, wenn dort eine Python-Umgebung
+/// und das Server-Skript liegen.
+bool _looksInstalled(String dir) =>
+    File(_venvPython(dir)).existsSync() &&
+    File('$dir${Platform.pathSeparator}local3d_server.py').existsSync();
+
+/// Sucht neben dem Standard-Zielordner nach fertigen Installationen.
+Future<List<(String, String)>> detectInstalledServers(
+    List<String> backends) async {
+  final base = defaultTargetDir();
+  final cut = base.lastIndexOf(RegExp(r'[\\/]'));
+  if (cut < 0) return const [];
+  final parent = base.substring(0, cut + 1);
+  final found = <(String, String)>[];
+  for (final id in backends) {
+    for (final folder in _folderNames[id] ?? [id]) {
+      final dir = '$parent$folder';
+      if (_looksInstalled(dir)) {
+        found.add((id, dir));
+        break;
+      }
+    }
+  }
+  return found;
+}
