@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import '../models/models.dart';
+import 'server_ports.dart';
 
 /// Fehler bei der Bildgenerierung mit verständlicher Meldung.
 class GenerationException implements Exception {
@@ -519,8 +520,16 @@ class SelfHostImageGenerator implements ImageGenerator {
           // Der erste Lauf lädt die Modellgewichte (mehrere GB).
           .timeout(const Duration(minutes: 20));
     } catch (e) {
+      // Der häufigste Grund ist keine kaputte Installation, sondern
+      // die falsche Portnummer: 8765 gehört dem 3D-Server. Zwei
+      // Prozesse können denselben Port nicht belegen.
+      final onThreeDPort = url.contains(':$threeDDefaultPort');
       throw GenerationException(
         'Der eigene Bild-Server ist nicht erreichbar: $e\n'
+        '${onThreeDPort ? 'Die Adresse endet auf :$threeDDefaultPort – '
+            'das ist der Port des 3D-Servers. Der Bild-Server braucht '
+            'einen eigenen, üblich ist '
+            'http://127.0.0.1:$imageDefaultPort.\n' : ''}'
         'Läuft er (Einstellungen → Eigener Bild-Server → „Server '
         'starten") und stimmt die Adresse?',
       );

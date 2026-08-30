@@ -3,6 +3,7 @@
 /// startet den Server. Auf der Web-Version ist alles abgeschaltet.
 library;
 
+import 'server_ports.dart';
 import 'setup/server_setup_web.dart'
     if (dart.library.io) 'setup/server_setup_io.dart' as impl;
 
@@ -317,7 +318,8 @@ Future<List<String>> refreshServerFiles({
 }
 
 /// Übliche Portnummer je Art: 8765 für Bild→3D, 8766 für Text→Bild.
-int defaultPort(String kind) => kind == 'image' ? 8766 : 8765;
+int defaultPort(String kind) =>
+    kind == 'image' ? imageDefaultPort : threeDDefaultPort;
 
 /// Schreibt das Protokoll der Einrichtung in den Zielordner (Desktop)
 /// und liefert den Pfad – null, wenn das nicht ging.

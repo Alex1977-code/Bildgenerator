@@ -234,7 +234,10 @@ class TripoService {
       if (_v3) 'model': model else if (modelVersion != null &&
           modelVersion.isNotEmpty)
         'model_version': modelVersion,
-      if (quad) 'quad': true,
+      // Die API verlangt bei Quad-Netzen ausdrücklich FBX; ohne die
+      // Angabe lehnt sie den Auftrag ab oder liefert stillschweigend
+      // FBX. Siehe [quadForcesFbx].
+      if (quad) ...{'quad': true, 'out_format': 'fbx'},
       // Obergrenze der Flächen – deutlich weniger Ärger als
       // nachträgliches Dezimieren, etwa für den Roblox-Import.
       if (faceLimit > 0) 'face_limit': faceLimit,
@@ -329,6 +332,16 @@ class TripoService {
       ),
     });
   }
+
+  /// **Quad-Netze kommen bei Tripo ausschließlich als FBX zurück.**
+  ///
+  /// glTF/GLB kennt nur Dreiecke; ein Viereck lässt sich darin nicht
+  /// ablegen. Die API erzwingt deshalb bei `quad: true` das
+  /// FBX-Format – unabhängig davon, was sonst angefragt wird. Für
+  /// alles, was diese App danach rechnet (Anzeige, Roblox-Prüfung,
+  /// Rigging, STL/OBJ), ist das eine Sackgasse: Die Datei ist dann
+  /// keine GLB mehr.
+  static const bool quadForcesFbx = true;
 
   /// Prüft, ob das Modell riggbar ist (Figur erkannt).
   Future<String> createPrerigCheck(String modelTaskId) =>

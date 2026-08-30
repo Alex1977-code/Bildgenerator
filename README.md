@@ -620,10 +620,30 @@ zählen Polygone. Bei eingeschalteter Quad-Topologie wird aus jedem
 Viereck beim Export ein Paar Dreiecke – ein „10.000er"-Quad-Netz landet
 also bei 20.000 Dreiecken, genau auf der harten Grenze. Die App rechnet
 das um: Das Ziel ist immer in **Dreiecken** angegeben, und der Anbieter
-bekommt bei Quad-Topologie die halbe Zahl. Die Roblox-Karte schreibt
-aus, was gerade tatsächlich gesetzt ist, z. B. „Ziel: 10.000 Dreiecke
-(Budget 5.000 Polygone). Aktuell eingestellt: Meshy „target_polycount"
-= 5.000".
+bekommt bei Quad-Topologie die halbe Zahl. Halbiert wird nur dort, wo
+wirklich Vierecke angefragt werden – Tripo und Rodin haben eigene
+Topologie-Schalter. Die Roblox-Karte schreibt aus, was gerade
+tatsächlich gesetzt ist, z. B. „Ziel: 10.000 Dreiecke (Budget 5.000
+Polygone). Aktuell eingestellt: Meshy „target_polycount" = 5.000".
+
+**Bei Tripo schließen sich Quad-Topologie und Rigging aus.** glTF
+kennt keine Vierecke, nur Dreiecke – Tripo liefert Quad-Netze deshalb
+**ausschließlich als FBX**. Alles, was diese App danach rechnet
+(Ansicht, Roblox-Prüfung, R15-Umbenennung, STL/OBJ/3MF), liest GLB.
+Deshalb hat das Skelett Vorrang: Ist Rigging an, geht `quad` nicht mit
+an Tripo, und der Schalter sagt das auch. Ohne Rigging bleibt die Wahl
+frei; das Ergebnis ist dann eine FBX-Datei, die in der Ergebnisliste
+als solche steht und sich nur herunterladen lässt. Für Roblox ist das
+kein Verlust: Der Importer trianguliert ohnehin und zählt Dreiecke.
+
+**Die App prüft, was wirklich in der Datei steht, nicht den
+Dateinamen.** Anlass war ein Lauf, der als `modell.glb` in der Galerie
+lag und sich weder anzeigen noch prüfen noch riggen ließ – drin war
+ein binäres FBX aus einem Quad-Lauf. Jetzt wird die Dateiart nach dem
+Download am Inhalt erkannt (`glTF`-Kopf, `Kaydara FBX Binary`, OBJ,
+PLY, STL, ZIP), sie steht in der Ergebniskarte, der Export bekommt die
+richtige Endung, und die GLB-Funktionen sind grau statt kaputt. Dieselbe
+Prüfung greift bei per Drag & Drop abgelegten Dateien.
 
 **Die Einheiten der Anbieter meinen nicht dasselbe.** `face_limit` bei
 Tripo, `target_polycount` bei Meshy und `quality_override` bei Rodin

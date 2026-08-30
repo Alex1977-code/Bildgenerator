@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import '../services/model_format.dart';
 
 /// Verfügbare Bild-Provider.
 enum GenProvider {
@@ -295,6 +296,7 @@ class ThreeDResult {
     this.textured = false,
     this.unriggedGlb,
     this.rigTypeUsed,
+    this.format = ModelFormat.glb,
   });
 
   Uint8List glbBytes;
@@ -303,6 +305,14 @@ class ThreeDResult {
   final Uint8List? thumbnailBytes;
   final bool rigged;
   final bool textured;
+
+  /// Was wirklich in [glbBytes] steht. Nicht jeder Anbieter liefert
+  /// GLB: Tripo gibt Quad-Netze ausschließlich als FBX zurück, weil
+  /// glTF keine Vierecke kennt. Erkannt wird das am Inhalt.
+  final ModelFormat format;
+
+  /// Ob die App mit dieser Datei mehr kann als sie herunterzuladen.
+  bool get usableInApp => modelIsUsableInApp(format);
 
   /// Das Modell VOR dem eigenen Auto-Rigging plus verwendeter
   /// Figurtyp – Grundlage für den Rig-Editor (Gelenke manuell

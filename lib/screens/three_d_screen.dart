@@ -26,6 +26,7 @@ import '../services/meshy_service.dart';
 import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
 import '../services/model_refine.dart';
+import '../services/model_format.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/provenance.dart';
@@ -120,6 +121,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   int _meshyPolycount = 0;
   String _symmetryMode = 'auto';
   bool _quadTopology = false; // Meshy topology=quad bzw. Tripo quad=true
+
+  /// Ob bei Tripo wirklich ein Quad-Netz angefordert wird.
+  ///
+  /// Tripo liefert Quad-Netze **ausschließlich als FBX** – glTF kennt
+  /// keine Vierecke. Mit Rigging geht das nicht zusammen: Das Skelett
+  /// kommt als GLB, und alles, was die App danach rechnet (Ansicht,
+  /// Roblox-Prüfung, R15-Umbenennung, STL/OBJ), liest GLB. Deshalb
+  /// hat das Skelett Vorrang; ohne Rigging bleibt die Wahl beim
+  /// Benutzer, und das Ergebnis wird dann als FBX gekennzeichnet.
+  bool get _tripoQuad => _quadTopology && !_rigging;
   bool _pbr = true;
   String _tripoVersion = '';
   bool _tripoDetailedTexture = false;
@@ -1082,6 +1093,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       }
       try {
         final bytes = await file.readAsBytes();
+        // Der Name sagt nicht, was drin ist: Eine als .glb abgelegte
+        // FBX-Datei gab es schon.
+        final format = detectModelFormat(bytes);
+        if (name.endsWith('.glb') && format != ModelFormat.glb) {
+          _showSnack('„${file.name}" heißt .glb, ist aber '
+              '${modelFormatLabel(format)}. '
+              '${modelFormatLimitation(format)}');
+          continue;
+        }
         final glb = importModelToGlb(bytes, file.name);
         if (!mounted) return;
         Navigator.of(context).push(MaterialPageRoute<void>(
@@ -1403,6 +1423,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     required bool textured,
     Uint8List? unriggedGlb,
     String? rigTypeUsed,
+    ModelFormat format = ModelFormat.glb,
   }) {
     if (!mounted) return;
     setState(() {
@@ -1417,6 +1438,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           textured: textured,
           unriggedGlb: unriggedGlb,
           rigTypeUsed: rigTypeUsed,
+          format: format,
         ),
       );
     });
@@ -1429,6 +1451,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       params: {
         'Texturiert': textured ? 'ja' : 'nein',
         'Rigging': rigged ? 'ja' : 'nein',
+        if (format != ModelFormat.glb) 'Format': modelFormatLabel(format),
       },
     );
   }
@@ -1986,7 +2009,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ],
           texture: _texture,
           modelVersion: _tripoVersion,
-          quad: _quadTopology,
+          quad: _tripoQuad,
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
         );
@@ -1999,7 +2022,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           source.mimeType,
           texture: _texture,
           modelVersion: _tripoVersion,
-          quad: _quadTopology,
+          quad: _tripoQuad,
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
         );
@@ -2012,11 +2035,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         effectivePrompt,
         texture: _texture,
         modelVersion: _tripoVersion,
-        quad: _quadTopology,
+        quad: _tripoQuad,
         detailedTexture: _tripoDetailedTexture,
         faceLimit: _tripoFaceLimit,
         negativePrompt: _negative3dCtrl.text.trim(),
       );
+    }
+    if (_quadTopology && !_tripoQuad) {
+      // Lieber vorher sagen als hinterher erklären, warum das Netz
+      // aus Dreiecken besteht.
+      _showSnack('Quad-Topologie bleibt bei diesem Lauf aus: Tripo '
+          'liefert Quad-Netze nur als FBX, das Skelett braucht aber '
+          'GLB. Ohne Rigging lässt sich Quad wieder einschalten.');
     }
     final modelData = await service.waitForTask(
       modelTaskId,
@@ -2063,8 +2093,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       throw GenerationException(
           'Tripo3D hat keine GLB-Datei zurückgegeben.');
     }
-    progress('GLB wird heruntergeladen …');
+    progress('Modell wird heruntergeladen …');
     final glbBytes = await service.downloadFile(glbUrl);
+    // Was Tripo schickt, steht in der Datei – nicht im Dateinamen.
+    // Bei Quad-Topologie ist es ein FBX, und das muss dranstehen,
+    // statt später an jeder GLB-Funktion zu scheitern.
+    final format = detectModelFormat(glbBytes);
+    if (format != ModelFormat.glb) {
+      _showSnack('Tripo3D hat ${modelFormatLabel(format)} geliefert, '
+          'keine GLB. ${modelFormatLimitation(format)}');
+    }
 
     Uint8List? thumbnail;
     final thumbnailUrl = TripoService.findThumbnailUrl(modelData);
@@ -2081,6 +2119,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       thumbnail: thumbnail,
       rigged: rigged,
       textured: _texture,
+      format: format,
     );
   }
 
@@ -2273,11 +2312,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   Future<void> _exportGlb(ThreeDResult result) async {
-    final fileName =
-        'modell_${DateTime.now().millisecondsSinceEpoch}.glb';
+    // Die Endung richtet sich nach dem Inhalt: Ein FBX als .glb zu
+    // speichern hat genau den Ärger gemacht, den diese Zeile behebt.
+    final fileName = 'modell_${DateTime.now().millisecondsSinceEpoch}'
+        '${modelExtension(result.format)}';
     try {
       final message = await exportImageBytes(
-          result.glbBytes, fileName, 'model/gltf-binary');
+          result.glbBytes, fileName, modelMimeType(result.format));
       if (message != null && mounted) _showSnack(message);
     } catch (e) {
       if (mounted) _showSnack('Export fehlgeschlagen: $e');
@@ -2295,7 +2336,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.view_in_ar),
-              title: const Text('GLB exportieren'),
+              // Die Datei geht unverändert raus – der Name richtet
+              // sich nach dem, was wirklich drinsteht.
+              title: Text('${modelFormatLabel(result.format)} '
+                  'exportieren'),
               subtitle:
                   const Text('Original mit Textur und ggf. Rigging'),
               onTap: () {
@@ -2303,43 +2347,58 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 _exportGlb(result);
               },
             ),
+            // Alle Umwandlungen rechnen auf der GLB-Geometrie. Bei
+            // einer FBX-Datei gibt es dafür keine Grundlage.
             ListTile(
+              enabled: result.usableInApp,
               leading: const Icon(Icons.polyline_outlined),
               title: const Text('OBJ exportieren (mit Vertexfarben)'),
-              subtitle: const Text('Für Blender, MeshLab & Co.'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _exportResultAs(result, 'obj');
-              },
+              subtitle: Text(result.usableInApp
+                  ? 'Für Blender, MeshLab & Co.'
+                  : 'Umwandlungen brauchen GLB'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _exportResultAs(result, 'obj');
+                    }
+                  : null,
             ),
             ListTile(
+              enabled: result.usableInApp,
               leading: const Icon(Icons.print_outlined),
               title: const Text('STL für 3D-Druck …'),
-              subtitle: const Text(
-                  'Nur Form – aufs Druckbett gedreht, Größe in mm'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _exportResultAs(result, 'stl');
-              },
+              subtitle: Text(result.usableInApp
+                  ? 'Nur Form – aufs Druckbett gedreht, Größe in mm'
+                  : 'Umwandlungen brauchen GLB'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _exportResultAs(result, 'stl');
+                    }
+                  : null,
             ),
             ListTile(
+              enabled: result.usableInApp,
               leading: const Icon(Icons.palette_outlined),
               title: const Text('3MF mit Farben …'),
-              subtitle:
-                  const Text('Für Farb-3D-Druck und Druckdienste'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _exportResultAs(result, '3mf');
-              },
+              subtitle: Text(result.usableInApp
+                  ? 'Für Farb-3D-Druck und Druckdienste'
+                  : 'Umwandlungen brauchen GLB'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _exportResultAs(result, '3mf');
+                    }
+                  : null,
             ),
             ListTile(
-              enabled: result.rigged,
+              enabled: result.rigged && result.usableInApp,
               leading: const Icon(Icons.movie_outlined),
               title: const Text('GLB mit Testanimationen'),
               subtitle: Text(result.rigged
                   ? 'Bettet die Testanimationen als loopbare Clips ein'
                   : 'Nur bei geriggten Modellen verfügbar'),
-              onTap: result.rigged
+              onTap: result.rigged && result.usableInApp
                   ? () {
                       Navigator.of(sheetContext).pop();
                       _exportResultAs(result, 'glb_anim');
@@ -2348,15 +2407,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              enabled: result.rigged,
+              enabled: result.rigged && result.usableInApp,
               leading: const Icon(Icons.sports_esports_outlined),
               title: const Text('Für Roblox vorbereiten …'),
-              subtitle: Text(result.rigged
-                  ? 'Knochen auf R15 umbenennen, dazu Blender- und '
-                      'Studio-Skript'
-                  : 'Nur bei geriggten Figuren – Props gehen direkt '
-                      'als GLB'),
-              onTap: result.rigged
+              subtitle: Text(!result.usableInApp
+                  ? 'Liest GLB – diese Datei ist '
+                      '${modelFormatLabel(result.format)}'
+                  : result.rigged
+                      ? 'Knochen auf R15 umbenennen, dazu Blender- und '
+                          'Studio-Skript'
+                      : 'Nur bei geriggten Figuren – Props gehen direkt '
+                          'als GLB'),
+              onTap: result.rigged && result.usableInApp
                   ? () {
                       Navigator.of(sheetContext).pop();
                       _prepareForRoblox(result);
@@ -2364,15 +2426,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   : null,
             ),
             ListTile(
+              enabled: result.usableInApp,
               leading: const Icon(Icons.videogame_asset_outlined),
               title: const Text('Für Roblox prüfen …'),
-              subtitle: const Text(
-                  'Dreiecke, Material, Textur, UVs und Rig gegen die '
-                  'Grenzen des Importers'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _showRobloxCheck(result);
-              },
+              subtitle: Text(result.usableInApp
+                  ? 'Dreiecke, Material, Textur, UVs und Rig gegen die '
+                      'Grenzen des Importers'
+                  : 'Die Prüfung liest GLB – diese Datei ist '
+                      '${modelFormatLabel(result.format)}'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _showRobloxCheck(result);
+                    }
+                  : null,
             ),
           ],
         ),
@@ -2388,19 +2455,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final previousSubject = _promptSubject;
     setState(() {
       _robloxTarget = target;
-      // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
-      // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
-      // Dreiecke, das Ziel muss dort also halbiert werden.
-      final goal = target.goalTriangles;
-      final budget = robloxPolygonBudget(goal, quad: _quadTopology);
-      _meshyPolycount = budget;
-      _tripoFaceLimit = budget;
-      _rodinPolycount = budget;
-      // Die Stability-Auswahl kennt nur feste Stufen – es zählt die
-      // größte, die unter dem Budget bleibt.
-      _stabilityPolycount = _stabilityStepUnder(budget);
-      // Der lokale Generator liefert direkt Dreiecke.
-      _localTargetTriangles = goal;
+      // Erst die Pose- und Skelett-Frage klären: Ob Tripo überhaupt
+      // ein Quad-Netz bekommt, hängt am Rigging – und davon wiederum
+      // hängt das Polygonbudget ab.
       if (target == RobloxTarget.accessory) {
         _promptSubject = 'object';
         _rigging = false;
@@ -2411,6 +2468,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _rigType = 'biped';
         _tPose = true;
       }
+      // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
+      // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
+      // Dreiecke, das Ziel muss dort also halbiert werden.
+      final goal = target.goalTriangles;
+      final budget = robloxPolygonBudget(goal, quad: _quadTopology);
+      _meshyPolycount = budget;
+      // Tripo und Rodin haben eigene Topologie-Schalter – halbiert
+      // werden darf nur, wo wirklich Vierecke angefragt werden.
+      _tripoFaceLimit = robloxPolygonBudget(goal, quad: _tripoQuad);
+      _rodinPolycount = robloxPolygonBudget(goal, quad: _rodinQuad);
+      // Die Stability-Auswahl kennt nur feste Stufen – es zählt die
+      // größte, die unter dem Budget bleibt.
+      _stabilityPolycount = _stabilityStepUnder(budget);
+      // Der lokale Generator liefert direkt Dreiecke.
+      _localTargetTriangles = goal;
       // Figur (Vorderansicht) und Objekt (Dreiviertelansicht) brauchen
       // verschiedene Ansichten – eine automatisch erzeugte Kachel würde
       // sonst still weiterverwendet.
@@ -2426,12 +2498,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// ausgeschrieben da.
   String _robloxBudgetNote(SettingsService settings) {
     final goal = _robloxTarget.goalTriangles;
-    final budget = robloxPolygonBudget(goal, quad: _quadTopology);
-    final quadNote = _quadTopology
+    // Halbiert wird nur, wo der gewählte Anbieter wirklich Vierecke
+    // bekommt – Tripo und Rodin haben eigene Schalter.
+    final quadHere = switch (settings.threeDProvider) {
+      'tripo' => _tripoQuad,
+      'rodin' => _rodinQuad,
+      'meshy' => _quadTopology,
+      _ => false,
+    };
+    final budget = robloxPolygonBudget(goal, quad: quadHere);
+    final quadNote = quadHere
         ? ' Weil Quad-Topologie eingeschaltet ist, bekommt der '
             'Anbieter die halbe Zahl – jedes Viereck wird beim Export '
             'zu zwei Dreiecken.'
-        : '';
+        : _quadTopology && settings.threeDProvider == 'tripo'
+            ? ' Quad-Topologie bleibt hier aus: Tripo liefert '
+                'Quad-Netze nur als FBX, das Skelett braucht GLB.'
+            : '';
     final provider = switch (settings.threeDProvider) {
       'meshy' => 'Meshy „target_polycount" = ${_n(_meshyPolycount)}',
       'tripo' => 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}',
@@ -4756,15 +4839,28 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Quad-Topologie'),
-                        subtitle: Text(_robloxMode
-                            ? 'Viereck-Netz statt Dreiecke – sauberer '
-                                'für Blender und Animation. Jedes '
-                                'Viereck wird beim Export zu zwei '
-                                'Dreiecken; das Anbieter-Ziel wird '
-                                'deshalb halbiert.'
-                            : 'Viereck-Netz statt Dreiecke – sauberer '
-                                'für Blender, Animation und '
-                                'Weiterbearbeitung'),
+                        subtitle: Text([
+                          _robloxMode
+                              ? 'Viereck-Netz statt Dreiecke – sauberer '
+                                  'für Blender und Animation. Jedes '
+                                  'Viereck wird beim Export zu zwei '
+                                  'Dreiecken; das Anbieter-Ziel wird '
+                                  'deshalb halbiert.'
+                              : 'Viereck-Netz statt Dreiecke – sauberer '
+                                  'für Blender, Animation und '
+                                  'Weiterbearbeitung',
+                          // Die Einschränkung gehört an den Schalter,
+                          // nicht in eine Fehlermeldung nach dem Lauf.
+                          if (isTripo && _rigging)
+                            'Bei Tripo mit Rigging bleibt sie aus: '
+                                'Quad-Netze kommen dort nur als FBX, '
+                                'ein Skelett braucht GLB.'
+                          else if (isTripo)
+                            'Achtung: Tripo liefert Quad-Netze nur als '
+                                'FBX. Anzeigen, prüfen und riggen kann '
+                                'die App damit nicht – nur '
+                                'herunterladen.',
+                        ].join(' ')),
                         value: _quadTopology,
                         onChanged: _running
                             ? null
@@ -5052,20 +5148,46 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     : const Icon(Icons.view_in_ar, size: 40),
                 title: Text(result.label,
                     maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text([
-                  result.providerLabel,
-                  '${(result.glbBytes.length / (1024 * 1024)).toStringAsFixed(1)} MB',
-                  result.textured ? 'mit Textur' : 'ohne Textur',
-                  if (result.rigged) 'geriggt',
-                ].join(' · ')),
-                onTap: () => _openModelPreview(result),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text([
+                      result.providerLabel,
+                      '${(result.glbBytes.length / (1024 * 1024)).toStringAsFixed(1)} MB',
+                      result.textured ? 'mit Textur' : 'ohne Textur',
+                      if (result.rigged) 'geriggt',
+                      if (!result.usableInApp)
+                        modelFormatLabel(result.format),
+                    ].join(' · ')),
+                    // Steht hier kein GLB, sagt die Karte das – und
+                    // warum die Knöpfe daneben grau sind.
+                    if (!result.usableInApp)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          modelFormatLimitation(result.format),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.orange.shade800),
+                        ),
+                      ),
+                  ],
+                ),
+                isThreeLine: !result.usableInApp,
+                onTap: result.usableInApp
+                    ? () => _openModelPreview(result)
+                    : null,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: '3D-Ansicht (frei drehbar)',
+                      tooltip: result.usableInApp
+                          ? '3D-Ansicht (frei drehbar)'
+                          : 'Die Ansicht liest GLB – '
+                              '${modelFormatLabel(result.format)} nicht',
                       icon: const Icon(Icons.threed_rotation),
-                      onPressed: () => _openModelPreview(result),
+                      onPressed: result.usableInApp
+                          ? () => _openModelPreview(result)
+                          : null,
                     ),
                     IconButton(
                       tooltip: 'Erstellungsnachweis (PDF)',
