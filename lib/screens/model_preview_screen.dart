@@ -37,6 +37,7 @@ class ModelPreviewScreen extends StatefulWidget {
     this.provenance,
     this.unriggedGlb,
     this.rigType,
+    this.rigInfluence,
     this.onGlbUpdated,
     this.showExport = true,
   });
@@ -53,6 +54,11 @@ class ModelPreviewScreen extends StatefulWidget {
   /// einbauen).
   final Uint8List? unriggedGlb;
   final String? rigType;
+
+  /// Im Rig-Editor gesetzte Einfluss-Faktoren (Gelenkname → Faktor).
+  /// Die Gelenkpositionen stecken im GLB, die Faktoren nur hier – ohne
+  /// sie stünde der Regler beim erneuten Öffnen wieder auf 1,0.
+  final Map<String, double>? rigInfluence;
 
   /// Wird nach dem Rig-Editor mit dem neuen GLB aufgerufen (damit das
   /// Ergebnis in der Liste den angepassten Stand exportiert).
@@ -465,9 +471,36 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         provenance: widget.provenance,
         unriggedGlb: rotatedUnrigged ?? widget.unriggedGlb,
         rigType: widget.rigType,
+        rigInfluence: widget.rigInfluence,
         onGlbUpdated: widget.onGlbUpdated,
       ),
     ));
+  }
+
+  /// Aktuelle Gelenkpositionen aus dem geriggten Modell lesen: Die
+  /// Skelett-Knoten tragen lokale Translationen, die Kette wird hier
+  /// zu absoluten Positionen aufaddiert. So startet der Editor mit dem
+  /// zuletzt angepassten Rig statt wieder mit der Automatik.
+  Map<String, (double, double, double)>? _currentJointPositions() {
+    final rig = _mesh?.rig;
+    if (rig == null) return null;
+    final world = <int, (double, double, double)>{};
+    for (final index in rig.nodeOrder) {
+      final node = rig.nodes[index];
+      final parent = node.parent >= 0 ? world[node.parent] : null;
+      world[index] = (
+        (parent?.$1 ?? 0) + node.translation[0],
+        (parent?.$2 ?? 0) + node.translation[1],
+        (parent?.$3 ?? 0) + node.translation[2],
+      );
+    }
+    final result = <String, (double, double, double)>{};
+    for (final nodeIndex in rig.joints) {
+      final name = rig.nodes[nodeIndex].name;
+      final position = world[nodeIndex];
+      if (name.isNotEmpty && position != null) result[name] = position;
+    }
+    return result.isEmpty ? null : result;
   }
 
   Future<void> _editRig() async {
@@ -475,7 +508,7 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     final rigType = widget.rigType;
     if (unrigged == null || rigType == null) return;
     final navigator = Navigator.of(context);
-    final edited = await navigator.push<Uint8List>(MaterialPageRoute(
+    final edited = await navigator.push<RigEditResult>(MaterialPageRoute(
       builder: (_) => RigEditScreen(
         unriggedGlb: unrigged,
         rigType: rigType,
@@ -483,17 +516,20 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         // Blickrichtung aus dem bestehenden Rig weitergeben, damit der
         // Editor dasselbe Skelett (inkl. Spiegelung) rekonstruiert.
         knownFrontSign: _mesh?.rig?.frontSign,
+        initialJointPositions: _currentJointPositions(),
+        initialInfluence: widget.rigInfluence,
       ),
     ));
     if (edited == null || !mounted) return;
-    widget.onGlbUpdated?.call(edited);
+    widget.onGlbUpdated?.call(edited.glb);
     navigator.pushReplacement(MaterialPageRoute<void>(
       builder: (_) => ModelPreviewScreen(
-        glbBytes: edited,
+        glbBytes: edited.glb,
         title: widget.title,
         provenance: widget.provenance,
         unriggedGlb: unrigged,
         rigType: rigType,
+        rigInfluence: edited.influence,
         onGlbUpdated: widget.onGlbUpdated,
       ),
     ));

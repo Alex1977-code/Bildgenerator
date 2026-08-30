@@ -126,6 +126,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Dateien aus Blender oder CAD, die meist z-up statt y-up stehen und
     dadurch auf der Seite liegen; bei geriggten Modellen wird die
     ungeriggte Fassung gedreht und das Skelett neu eingebaut
+  - **Rig-Anpassungen bleiben erhalten**: Beim erneuten Öffnen des
+    Editors werden die zuletzt verschobenen Gelenke aus dem geriggten
+    Modell zurückgelesen (statt das Standard-Skelett neu zu rechnen) –
+    Bewegungen prüfen und weiter feinjustieren ist damit ein
+    durchgängiger Ablauf. „Zurücksetzen" stellt weiterhin die
+    Automatik her
   - **Wirkungsbereich sichtbar**: Ein ausgewähltes Gelenk zeigt seinen
     Wirkungs-Radius als blaue Kugel – so ist zu sehen, wie viel
     Geometrie es mitnimmt; der Regler „Einflussbereich" skaliert genau

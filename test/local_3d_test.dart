@@ -1213,6 +1213,46 @@ void main() {
             e.toString().contains('Dreiviertelansicht'))));
   });
 
+  test('Rig-Editor: angepasste Gelenke lassen sich aus dem GLB '
+      'zurücklesen', () async {
+    // Kern des Fehlers "geändertes Rig ist beim erneuten Öffnen weg":
+    // Der Editor muss die verschobenen Gelenke aus dem geriggten
+    // Modell wiederfinden, statt die Automatik neu zu rechnen.
+    final glb = buildGlb(buildVisualHullMesh(
+      front: _solidImage(),
+      left: _solidImage(),
+      back: _solidImage(),
+      resolution: 12,
+    ));
+    final auto = computeAutoRigJoints(glb);
+    final head = auto.firstWhere((j) => j.name == 'Head');
+    final target = (head.x + 0.12, head.y + 0.07, head.z - 0.03);
+    final rigged = injectAutoRig(glb, jointPositions: {'Head': target});
+
+    // Wie im Viewer: lokale Translationen der Skelett-Kette aufaddieren.
+    final rig = (await parseGlbForPreview(rigged)).rig!;
+    final world = <int, List<double>>{};
+    for (final index in rig.nodeOrder) {
+      final node = rig.nodes[index];
+      final parent = node.parent >= 0 ? world[node.parent] : null;
+      world[index] = [
+        (parent?[0] ?? 0) + node.translation[0],
+        (parent?[1] ?? 0) + node.translation[1],
+        (parent?[2] ?? 0) + node.translation[2],
+      ];
+    }
+    List<double>? readBack;
+    for (final nodeIndex in rig.joints) {
+      if (rig.nodes[nodeIndex].name == 'Head') readBack = world[nodeIndex];
+    }
+    expect(readBack, isNotNull, reason: 'Head im Skelett gefunden');
+    expect(readBack![0], closeTo(target.$1, 1e-4));
+    expect(readBack[1], closeTo(target.$2, 1e-4));
+    expect(readBack[2], closeTo(target.$3, 1e-4));
+    // Und die zurückgelesene Position ist wirklich die verschobene.
+    expect(readBack[0], isNot(closeTo(head.x, 1e-3)));
+  });
+
   test('Rig-Editor: Gelenk-Overrides verschieben Skelett-Knoten', () {
     final mesh = buildVisualHullMesh(
       front: _solidImage(),

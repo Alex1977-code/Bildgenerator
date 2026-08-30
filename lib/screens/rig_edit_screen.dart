@@ -7,6 +7,17 @@ import 'package:flutter/material.dart';
 import '../services/auto_rig.dart';
 import '../services/glb_preview.dart';
 
+/// Ergebnis einer Rig-Bearbeitung: die neue GLB samt der
+/// Einfluss-Faktoren. Die Gelenkpositionen stecken bereits im GLB und
+/// werden beim nächsten Öffnen von dort gelesen; die Faktoren wirken
+/// dagegen nur auf die Gewichte und müssen mitgereicht werden.
+class RigEditResult {
+  const RigEditResult(this.glb, this.influence);
+
+  final Uint8List glb;
+  final Map<String, double> influence;
+}
+
 /// Rig-Editor: zeigt das (ungeriggte) Modell mit den automatisch
 /// bestimmten Gelenken und lässt sie per Ziehen verschieben. Beim
 /// Übernehmen wird das Skelett mit den angepassten Positionen neu ins
@@ -19,6 +30,8 @@ class RigEditScreen extends StatefulWidget {
     required this.rigType,
     required this.title,
     this.knownFrontSign,
+    this.initialJointPositions,
+    this.initialInfluence,
   });
 
   final Uint8List unriggedGlb;
@@ -28,6 +41,14 @@ class RigEditScreen extends StatefulWidget {
   /// Bekannte Blickrichtung des Modells (+1/-1) aus dem bestehenden
   /// Rig – hält den Editor konsistent zur ursprünglichen Erkennung.
   final int? knownFrontSign;
+
+  /// Bereits angepasste Gelenkpositionen (Name → x,y,z) aus einem
+  /// früheren Durchgang – ohne sie stünde beim erneuten Öffnen wieder
+  /// das automatische Standard-Skelett da.
+  final Map<String, (double, double, double)>? initialJointPositions;
+
+  /// Bereits gesetzte Einfluss-Faktoren (Gelenkname → Faktor).
+  final Map<String, double>? initialInfluence;
 
   @override
   State<RigEditScreen> createState() => _RigEditScreenState();
@@ -89,9 +110,23 @@ class _RigEditScreenState extends State<RigEditScreen> {
       setState(() {
         _mesh = mesh;
         _joints = joints;
+        // Vorhandene Anpassungen übernehmen, sonst die Automatik.
+        final saved = widget.initialJointPositions;
         _positions = [
-          for (final j in joints) [j.x, j.y, j.z],
+          for (final j in joints)
+            if (saved?[j.name] case final p?)
+              [p.$1, p.$2, p.$3]
+            else
+              [j.x, j.y, j.z],
         ];
+        _influence.clear();
+        final savedInfluence = widget.initialInfluence;
+        if (savedInfluence != null) {
+          for (var j = 0; j < joints.length; j++) {
+            final factor = savedInfluence[joints[j].name];
+            if (factor != null) _influence[j] = factor;
+          }
+        }
         _frontSign =
             widget.knownFrontSign ?? estimateFrontSign([mesh.positions]);
         _rotY = _frontSign < 0 ? math.pi : 0.0;
@@ -104,6 +139,8 @@ class _RigEditScreenState extends State<RigEditScreen> {
     }
   }
 
+  /// Setzt auf das automatisch berechnete Skelett zurück – verwirft
+  /// also auch übernommene Anpassungen aus früheren Durchgängen.
   void _reset() => setState(() {
         _positions = [
           for (final j in _joints) [j.x, j.y, j.z],
@@ -253,7 +290,12 @@ class _RigEditScreenState extends State<RigEditScreen> {
             if (entry.value != 1.0) _joints[entry.key].name: entry.value,
         },
       );
-      if (mounted) Navigator.of(context).pop(rigged);
+      if (mounted) {
+        Navigator.of(context).pop(RigEditResult(rigged, {
+          for (final entry in _influence.entries)
+            if (entry.value != 1.0) _joints[entry.key].name: entry.value,
+        }));
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _applying = false);
