@@ -243,33 +243,128 @@ Iterable<String> _patchNativeSources(String targetDir) sync* {
 ///    verlangen C++17.
 /// 3. **NVCC_PREPEND_FLAGS**: CUDA 12.x lehnt neuere MSVC-Fassungen
 ///    sonst rundheraus ab.
-Map<String, String> _buildEnvironment(String targetDir) {
+///
+/// Dazu kommt unter Windows die Umgebung der Build-Tools (siehe
+/// [_msvcEnvironment]), damit ninja `cl.exe` findet.
+Future<Map<String, String>> _buildEnvironment(String targetDir) async {
   final sep = Platform.pathSeparator;
   // Platform.environment ist unter Windows unabhängig von Groß- und
-  // Kleinschreibung, die Kopie ist es nicht: erst den alten Eintrag
-  // entfernen, sonst stehen „Path" und „PATH" nebeneinander.
+  // Kleinschreibung, die Kopie ist es nicht. Deshalb ersetzen wir
+  // Einträge immer über [_replace], sonst stehen am Ende „Path" und
+  // „PATH" nebeneinander und Windows nimmt den falschen.
   final env = <String, String>{...Platform.environment};
-  final oldPath = Platform.environment['PATH'] ?? '';
-  env.removeWhere((key, _) => key.toLowerCase() == 'path');
+  for (final entry in (await _msvcEnvironment()).entries) {
+    _replace(env, entry.key, entry.value);
+  }
   final scripts = Platform.isWindows
       ? '$targetDir$sep.venv${sep}Scripts'
       : '$targetDir$sep.venv${sep}bin';
   final listSep = Platform.isWindows ? ';' : ':';
-  env['PATH'] = oldPath.isEmpty ? scripts : '$scripts$listSep$oldPath';
+  final oldPath = _lookup(env, 'PATH') ?? '';
+  _replace(env, 'PATH',
+      oldPath.isEmpty ? scripts : '$scripts$listSep$oldPath');
   if (!Platform.isWindows) return env;
 
-  final existing = Platform.environment['CL'] ?? '';
   // /openmp schaltet die parallelen Schleifen des Quellcodes scharf
   // (MSVC bindet dann vcomp selbst ein). Die Modulkennung ist ein
   // Sicherheitsnetz: Setzt PyTorch sie selbst (ninja-Weg), gewinnt der
   // Wert von der Befehlszeile, weil CL davor eingefügt wird.
   const flags = '/std:c++17 /openmp /DTORCH_EXTENSION_NAME=_C';
-  env['CL'] = existing.isEmpty ? flags : '$existing $flags';
-  env['NVCC_PREPEND_FLAGS'] =
-      '${Platform.environment['NVCC_PREPEND_FLAGS'] ?? ''} '
+  final existing = _lookup(env, 'CL') ?? '';
+  _replace(env, 'CL', existing.isEmpty ? flags : '$existing $flags');
+  _replace(
+      env,
+      'NVCC_PREPEND_FLAGS',
+      '${_lookup(env, 'NVCC_PREPEND_FLAGS') ?? ''} '
               '-allow-unsupported-compiler'
-          .trim();
+          .trim());
   return env;
+}
+
+/// Wert einer Umgebungsvariablen, unabhängig von Groß- und
+/// Kleinschreibung.
+String? _lookup(Map<String, String> env, String name) {
+  final wanted = name.toLowerCase();
+  for (final entry in env.entries) {
+    if (entry.key.toLowerCase() == wanted) return entry.value;
+  }
+  return null;
+}
+
+/// Setzt eine Umgebungsvariable und entfernt vorher alle Schreibweisen
+/// desselben Namens.
+void _replace(Map<String, String> env, String name, String value) {
+  final wanted = name.toLowerCase();
+  env.removeWhere((key, _) => key.toLowerCase() == wanted);
+  env[name] = value;
+}
+
+/// Die Umgebung der Visual-Studio-Build-Tools (cl.exe, link.exe sowie
+/// INCLUDE und LIB). distutils sucht sich den Compiler selbst über
+/// vswhere; ninja dagegen ruft schlicht `cl` auf und braucht ihn
+/// deshalb im Suchpfad. Wir holen die Werte so, wie es die
+/// „Entwickler-Eingabeaufforderung" tut: vcvars64.bat aufrufen und
+/// anschließend `set` auslesen.
+///
+/// Findet sich nichts, bleibt die Umgebung unverändert – der Bau kann
+/// dann immer noch klappen, weil PyTorch dasselbe notfalls selbst
+/// versucht.
+Future<Map<String, String>> _msvcEnvironment() async {
+  if (!Platform.isWindows) return const {};
+  final programFiles = Platform.environment['ProgramFiles(x86)'] ??
+      r'C:\Program Files (x86)';
+  final vswhere = File('$programFiles\\Microsoft Visual Studio\\Installer'
+      '\\vswhere.exe');
+  if (!vswhere.existsSync()) return const {};
+  String install;
+  try {
+    final found = await Process.run(vswhere.path, const [
+      '-latest',
+      '-products',
+      '*',
+      '-requires',
+      'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+      '-property',
+      'installationPath',
+    ]);
+    install = (found.stdout as String).trim().split('\n').first.trim();
+  } catch (_) {
+    return const {};
+  }
+  if (install.isEmpty) return const {};
+  final vcvars = File('$install\\VC\\Auxiliary\\Build\\vcvars64.bat');
+  if (!vcvars.existsSync()) return const {};
+
+  // Umweg über eine Stapeldatei: „call … && set" direkt an cmd.exe zu
+  // übergeben scheitert sonst an den Anführungszeichen im Pfad.
+  final helper = File('${Directory.systemTemp.path}\\'
+      'kigenerator-vcvars-${pid.toString()}.bat');
+  try {
+    helper.writeAsStringSync(
+        '@echo off\r\ncall "${vcvars.path}" x64 >nul\r\nset\r\n');
+    final dump = await Process.run('cmd.exe', ['/c', helper.path]);
+    final text = dump.stdout is String ? dump.stdout as String : '';
+    final env = <String, String>{};
+    for (final line in text.split('\n')) {
+      final at = line.indexOf('=');
+      if (at <= 0) continue;
+      env[line.substring(0, at).trim()] = line.substring(at + 1).trimRight();
+    }
+    // Nur übernehmen, wenn die Ausgabe wirklich nach Build-Umgebung
+    // aussieht – sonst lieber gar nichts ändern.
+    final hasInclude = env.keys.any((k) => k.toLowerCase() == 'include');
+    final hasPath = env.keys.any((k) => k.toLowerCase() == 'path');
+    if (!hasInclude || !hasPath) return const {};
+    return env;
+  } catch (_) {
+    return const {};
+  } finally {
+    if (helper.existsSync()) {
+      try {
+        helper.deleteSync();
+      } catch (_) {}
+    }
+  }
 }
 
 /// Prüft, ob PyTorch in dieser Umgebung `ninja` findet. PyTorch sucht
@@ -455,7 +550,13 @@ Stream<String> installServer({
       // dort direkt auf, ohne die Umgebung zu aktivieren – deshalb muss
       // das Verzeichnis ausdrücklich in den PATH, sonst sucht PyTorch
       // vergeblich. Diese Prüfung sagt vor dem langen Bauen Bescheid.
-      final buildEnv = _buildEnvironment(targetDir);
+      final buildEnv = await _buildEnvironment(targetDir);
+      if (Platform.isWindows) {
+        yield _lookup(buildEnv, 'VSCMD_ARG_TGT_ARCH') != null
+            ? 'Build-Tools-Umgebung geladen – ninja findet cl.exe.'
+            : 'Hinweis: Die Build-Tools-Umgebung ließ sich nicht laden; '
+                'PyTorch versucht es notfalls selbst.';
+      }
       if (await _ninjaVisible(venvPython, targetDir, buildEnv)) {
         yield 'ninja ist für PyTorch sichtbar – CUDA-Dateien gehen an '
             'nvcc, und die Modulkennung stimmt.';

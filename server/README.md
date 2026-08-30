@@ -382,6 +382,14 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   Bauen „ninja ist für PyTorch sichtbar". Steht dort stattdessen eine
   Warnung, bricht der Bau später an einer der beiden Meldungen ab.
 
+  Mit ninja ruft PyTorch schlicht `cl` auf, statt den Compiler wie
+  distutils selbst zu suchen. Der Assistent lädt deshalb vorher die
+  Umgebung der Build-Tools (`vcvars64.bat`, gefunden über `vswhere`)
+  und meldet „Build-Tools-Umgebung geladen". Von Hand entspricht das
+  der „Entwickler-Eingabeaufforderung für VS 2022" – wer die statt der
+  normalen PowerShell nimmt, hat cl.exe, link.exe, INCLUDE und LIB
+  bereits gesetzt.
+
   Fehlt einer Erweiterung die Modul-Startfunktion wirklich (kein
   `PYBIND11_MODULE`, nur `TORCH_LIBRARY`), hängt der Assistent den
   Mini-Baustein aus der PyTorch-Anleitung zu eigenen Operatoren ans
