@@ -324,14 +324,24 @@ stellt es unter `GET /preview/<job>` bereit; die App fragt es im
 Sekundentakt ab, während sie auf `/generate` wartet. So sieht man das
 Motiv aus dem Rauschen auftauchen, statt einen Kreisel zu drehen.
 
-Die Kennung `job` schickt die App im Anfrage-Körper mit. Ohne sie
-entsteht keine Vorschau – und kein Aufschlag: Jedes Zwischenbild
-kostet einen VAE-Decoder-Durchlauf, bei 30 Schritten zusammen ein bis
-zwei Sekunden.
+Die Kennung `job` schickt die App im Anfrage-Körper mit; ohne sie
+entsteht keine Vorschau.
 
-Möglich ist das bei **SD 1.5 und SDXL**. SD 3.5 und FLUX packen ihre
-Latents anders; dort gibt es keine Vorschau – lieber keine als eine
-falsche. `/health` meldet das unter `preview`, `previewEvery` und
+**Gerechnet wird das Zwischenbild über eine 4×3-Matrix auf den
+Latents, nicht über den VAE.** Der erste Anlauf nahm den VAE – und
+lieferte auf der GPU ein komplett schwarzes Bild: Die Pipeline läuft
+dort in `float16`, und der SDXL-VAE kippt darin in NaN. Für das
+Endbild hebt diffusers ihn eigens nach `float32` an (`force_upcast`);
+im Rückruf fehlte das. Ihn jedes Mal hochzuziehen kostet VRAM und
+Zeit, die Matrix kostet praktisch nichts. Sie rechnet auf der
+Latent-Auflösung (ein Achtel), das Bild ist also grob – als Vorschau
+genau richtig, und es zeigt Form und Farben ab dem ersten
+Zwischenschritt.
+
+Möglich ist das bei **SD 1.5 und SDXL** – für beide sind die
+Matrix-Werte bekannt. SD 3.5 und FLUX packen ihre Latents anders;
+dort gibt es keine Vorschau – lieber keine als eine falsche.
+`/health` meldet das unter `preview`, `previewEvery` und
 `previewFamilies`.
 
 ### Wenn ein Bild mit „Generierung fehlgeschlagen" abbricht

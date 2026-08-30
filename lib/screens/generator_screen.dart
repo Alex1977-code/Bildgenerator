@@ -2073,8 +2073,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               ? 'Die Vorschau erscheint nach den ersten Schritten. '
                   'Bei SD 3.5 und FLUX gibt es keine – die packen ihre '
                   'Zwischenstände anders.'
-              : 'Zwischenstand vom eigenen Server, klein und weich – '
-                  'das fertige Bild kommt in voller Auflösung.'
+              : 'Grobe Vorschau aus den Latents – Form und Farben '
+                  'stimmen, Details noch nicht. Das fertige Bild kommt '
+                  'in voller Auflösung.'
           : '${settings.provider.label} liefert keine Zwischenstände; '
               'das Bild kommt am Stück. Je nach Qualität 10–60 Sekunden.',
     );

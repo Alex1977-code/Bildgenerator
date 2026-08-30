@@ -328,11 +328,24 @@ ausgesprochen statt kaschiert:
   auftaucht – mit Schrittzähler (`Schritt 15/30`). Möglich bei SD 1.5
   und SDXL; SD 3.5 und FLUX packen ihre Latents anders, dort steht das
   auch so da.
+
+  Gerechnet wird das Zwischenbild über eine **4×3-Matrix auf den
+  Latents**, nicht über den VAE. Der erste Anlauf nahm den VAE – und
+  lieferte auf der GPU ein **komplett schwarzes Bild**: Die Pipeline
+  läuft dort in `float16`, und der SDXL-VAE kippt darin in NaN. Für
+  das Endbild hebt diffusers ihn eigens nach `float32` an
+  (`force_upcast`), im Rückruf fehlte das. Die Matrix rechnet auf
+  Latent-Auflösung (ein Achtel) – grob, aber ab dem ersten
+  Zwischenschritt sind Form und Farben da, und sie kostet praktisch
+  keine Rechenzeit.
 - **OpenAI, Gemini, Stability und die 3D-Dienste** liefern keine
   Zwischenstände, sie antworten erst mit dem fertigen Ergebnis. Dort
-  läuft eine Aufbau-Grafik, die ausdrücklich als Wartezeichen
-  beschriftet ist – **kein** vorgetäuschter Fortschritt und kein
-  Fantasie-Motiv.
+  läuft ein **Drahtnetz, das sich Linie für Linie aufbaut** –
+  ausdrücklich als Wartezeichen beschriftet, **kein** vorgetäuschter
+  Fortschritt und kein Fantasie-Motiv. Die erste Fassung ließ Punkte
+  kreisen; das war unangenehm anzusehen, weil sich ständig die ganze
+  Fläche bewegte. Jetzt bleibt jede gezeichnete Linie stehen, nur die
+  vorderste Kante wandert weiter.
 - Im **3D-Tab** kommt der Prozentwert dazu, den Meshy und Tripo
   melden, plus die verstrichene Zeit.
 

@@ -54,7 +54,8 @@ class _GenerationProgressState extends State<GenerationProgress>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 3),
+    // Langsam: Der Aufbau soll ruhig wirken, nicht flimmern.
+    duration: const Duration(seconds: 6),
   )..repeat();
 
   @override
@@ -99,10 +100,10 @@ class _GenerationProgressState extends State<GenerationProgress>
                   AnimatedBuilder(
                     animation: _controller,
                     builder: (context, _) => CustomPaint(
-                      painter: _EmergingPainter(
+                      painter: _MeshPainter(
                         progress: _controller.value,
                         color: theme.colorScheme.primary,
-                        background: theme.colorScheme.surfaceContainerHighest,
+                        accent: theme.colorScheme.tertiary,
                       ),
                     ),
                   ),
@@ -159,51 +160,104 @@ class _GenerationProgressState extends State<GenerationProgress>
   }
 }
 
-/// Die Wartegrafik für Anbieter ohne Zwischenstände: Punkte, die sich
-/// aus dem Nichts zu einer Form verdichten und wieder auflösen.
+/// Die Wartegrafik für Anbieter ohne Zwischenstände: ein Drahtnetz,
+/// das sich Linie für Linie aufbaut.
 ///
-/// Sie zeigt bewusst **kein** Motiv und keinen Fortschritt – sonst
-/// verspräche sie etwas, das der Anbieter nicht liefert.
-class _EmergingPainter extends CustomPainter {
-  _EmergingPainter({
+/// Die erste Fassung ließ Punkte kreisen und sich verdichten. Das war
+/// unangenehm anzusehen – ständige Bewegung über die ganze Fläche,
+/// ohne Ruhepunkt. Jetzt bleibt jede gezeichnete Linie stehen, und
+/// nur die vorderste Kante wandert weiter: Man sieht, dass etwas
+/// entsteht, ohne dass sich das Bild bewegt.
+///
+/// Gezeichnet wird ein Gitter über einer Kugel – kein Motiv, denn der
+/// Anbieter liefert keines. Es verspricht damit nichts, was es nicht
+/// halten kann.
+class _MeshPainter extends CustomPainter {
+  _MeshPainter({
     required this.progress,
     required this.color,
-    required this.background,
+    required this.accent,
   });
 
+  /// 0 bis 1, läuft langsam durch und beginnt von vorn.
   final double progress;
   final Color color;
-  final Color background;
+  final Color accent;
+
+  /// Längengrade und Breitengrade des Netzes.
+  static const int _columns = 14;
+  static const int _rows = 9;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) * 0.32;
-    // Der Zyklus läuft zweimal je Umlauf: verdichten, auflösen.
-    final wave = (math.sin(progress * math.pi * 2) + 1) / 2;
-    final paint = Paint()..style = PaintingStyle.fill;
-    final random = math.Random(7);
-    // Feste Punktwolke, damit das Bild ruhig wirkt und nur die
-    // Verdichtung sich ändert.
-    for (var i = 0; i < 90; i++) {
-      final angle = random.nextDouble() * math.pi * 2;
-      final spread = 0.4 + random.nextDouble() * 1.6;
-      // Ziel: ein Ring; Start: weit verstreut.
-      final target = Offset(
-        center.dx + math.cos(angle) * radius,
-        center.dy + math.sin(angle) * radius * 0.85,
+    final radius = math.min(size.width, size.height) * 0.33;
+
+    // Ein Punkt auf der Kugel, leicht gekippt, in die Fläche
+    // projiziert. Fest berechnet – nichts dreht sich.
+    Offset point(double u, double v) {
+      final theta = u * math.pi * 2;
+      final phi = v * math.pi;
+      final x = math.sin(phi) * math.cos(theta);
+      final y = math.cos(phi);
+      final z = math.sin(phi) * math.sin(theta);
+      // Leichte Kippung um die x-Achse, damit das Netz nicht wie ein
+      // flacher Kreis wirkt.
+      const tilt = 0.35;
+      final ry = y * math.cos(tilt) - z * math.sin(tilt);
+      final rz = y * math.sin(tilt) + z * math.cos(tilt);
+      // Schwache Perspektive: hinten liegende Linien rücken zusammen.
+      final scale = 1 / (1.8 - rz * 0.4);
+      return Offset(
+        center.dx + x * radius * scale * 1.8,
+        center.dy + ry * radius * scale * 1.8,
       );
-      final scattered = Offset(
-        center.dx + math.cos(angle) * radius * spread,
-        center.dy + math.sin(angle) * radius * spread,
-      );
-      final point = Offset.lerp(scattered, target, wave)!;
-      paint.color = color.withValues(alpha: 0.10 + 0.45 * wave);
-      canvas.drawCircle(point, 1.6 + 1.4 * wave, paint);
+    }
+
+    // Tiefe für die Helligkeit: vorne hell, hinten blass.
+    double depth(double u, double v) {
+      final theta = u * math.pi * 2;
+      final phi = v * math.pi;
+      final y = math.cos(phi);
+      final z = math.sin(phi) * math.sin(theta);
+      const tilt = 0.35;
+      return (y * math.sin(tilt) + z * math.cos(tilt) + 1) / 2;
+    }
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round;
+
+    // Der Aufbau läuft von oben nach unten durch und beginnt von
+    // vorn; die Kante ist hell, alles davor bleibt ruhig stehen.
+    final edge = progress * (_rows + 2);
+    for (var row = 0; row <= _rows; row++) {
+      final v = row / _rows;
+      final age = edge - row;
+      if (age <= 0) continue;
+      // Frisch gezeichnete Reihen leuchten kurz auf.
+      final fresh = (1 - age).clamp(0.0, 1.0);
+      for (var col = 0; col < _columns; col++) {
+        final u0 = col / _columns;
+        final u1 = (col + 1) / _columns;
+        final near = depth(u0, v);
+        final alpha =
+            ((0.12 + 0.5 * near) * (0.45 + 0.55 * fresh)).clamp(0.0, 1.0);
+        paint.color =
+            Color.lerp(color, accent, fresh)!.withValues(alpha: alpha);
+        canvas.drawLine(point(u0, v), point(u1, v), paint);
+        // Die Längslinie zur nächsten Reihe – nur, wenn die schon da
+        // ist, sonst hinge sie in der Luft.
+        if (row < _rows && age > 1) {
+          paint.color = color.withValues(alpha: 0.10 + 0.35 * near);
+          canvas.drawLine(point(u0, v), point(u0, (row + 1) / _rows), paint);
+        }
+      }
     }
   }
 
   @override
-  bool shouldRepaint(_EmergingPainter old) =>
+  bool shouldRepaint(_MeshPainter old) =>
       old.progress != progress || old.color != color;
 }

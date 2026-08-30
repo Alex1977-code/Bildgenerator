@@ -93,9 +93,10 @@ _load_lock = threading.Lock()
 _previews: dict[str, dict] = {}
 _preview_lock = threading.Lock()
 
-# Alle wie viele Schritte ein Zwischenbild entsteht. Der VAE-Decoder
-# kostet je Aufruf ein paar Zehntelsekunden - bei 30 Schritten sind das
-# rund 6 Bilder und ein bis zwei Sekunden Aufschlag.
+# Alle wie viele Schritte ein Zwischenbild entsteht. Gerechnet wird
+# ueber eine 4x3-Matrix auf den Latents (siehe _LATENT_RGB), nicht
+# ueber den VAE - das kostet je Aufruf Bruchteile einer Millisekunde
+# und faellt neben einem Diffusionsschritt nicht ins Gewicht.
 PREVIEW_EVERY = 5
 
 # Kantenlaenge der Zwischenbilder. Klein halten: Sie gehen als Base64
@@ -392,19 +393,49 @@ def _cutout(image):
     return remove(image, session=_remover)
 
 
+# Naeherung Latent -> RGB. Damit laesst sich ein Zwischenstand ohne
+# den VAE anzeigen: eine 4x3-Matrix je Familie, angewandt auf die vier
+# Latent-Kanaele.
+#
+# Warum nicht der VAE? Auf der GPU laeuft die Pipeline in float16, und
+# der SDXL-VAE kippt darin in NaN - diffusers hebt ihn fuer das
+# Endbild eigens nach float32 an (force_upcast). Im Rueckruf fehlte
+# das: Die Vorschau kam deshalb komplett schwarz heraus. Den VAE
+# jedes Mal hochzuziehen kostet VRAM und Zeit; die Matrix kostet
+# nichts und zeigt Form und Farben ab dem ersten Zwischenschritt.
+# Sie rechnet auf der Latent-Aufloesung (ein Achtel), das Bild ist
+# also grob - als Vorschau genau richtig.
+_LATENT_RGB = {
+    "sd": [
+        [0.298, 0.207, 0.208],
+        [0.187, 0.286, 0.173],
+        [-0.158, 0.189, 0.264],
+        [-0.184, -0.271, -0.473],
+    ],
+    "sdxl": [
+        [0.3651, 0.4232, 0.4341],
+        [-0.2533, -0.0042, 0.1068],
+        [0.1076, 0.1111, -0.0362],
+        [-0.3165, -0.2492, -0.2188],
+    ],
+}
+
+
 def _preview_callback(pipe, family: str, job: str, steps: int):
     """Baut den Rueckruf, der die Zwischenbilder ablegt.
 
-    Der VAE-Decoder braucht die Latents in der Form, die die jeweilige
-    Familie liefert. Bei SD 1.5 und SDXL ist das geradeaus; SD 3.5 und
-    FLUX packen ihre Latents anders, dort gibt es deshalb keine
-    Vorschau - lieber keine als eine falsche.
+    Gerechnet wird ueber [_LATENT_RGB], nicht ueber den VAE. SD 3.5
+    und FLUX haben eine andere Latent-Form und stehen nicht in der
+    Tabelle - dort gibt es keine Vorschau, lieber keine als eine
+    falsche.
     """
-    if not job or family not in ("sd", "sdxl"):
+    if not job or family not in _LATENT_RGB:
         return None
 
     import torch
     from PIL import Image
+
+    weights = torch.tensor(_LATENT_RGB[family])
 
     def callback(pipeline, step, timestep, kwargs):
         # Nur jeden n-ten Schritt, und den letzten nie: Der fertige
@@ -416,14 +447,26 @@ def _preview_callback(pipe, family: str, job: str, steps: int):
             return kwargs
         try:
             with torch.no_grad():
-                scaled = latents / pipeline.vae.config.scaling_factor
-                decoded = pipeline.vae.decode(
-                    scaled.to(pipeline.vae.dtype), return_dict=False
-                )[0]
-            image = (decoded / 2 + 0.5).clamp(0, 1)[0]
-            array = (image.permute(1, 2, 0).float().cpu().numpy() * 255)
+                # (B, 4, H, W) -> (H, W, 3), in float32 gerechnet:
+                # float16 reicht fuer die Summe nicht zuverlaessig.
+                single = latents[0].float().cpu()
+                matrix = weights.to(single.dtype)
+                rgb = torch.einsum("chw,cr->hwr", single, matrix)
+            # Auf 0..1 normieren: Die Naeherung liefert keinen festen
+            # Wertebereich, ein starrer Faktor waere mal zu dunkel,
+            # mal ausgebrannt.
+            low = rgb.amin()
+            high = rgb.amax()
+            span = (high - low).clamp(min=1e-5)
+            image = ((rgb - low) / span).clamp(0, 1)
+            array = (image.numpy() * 255)
             preview = Image.fromarray(array.astype("uint8"))
-            preview.thumbnail((PREVIEW_SIZE, PREVIEW_SIZE))
+            # Die Latents sind ein Achtel gross - fuer die Anzeige
+            # wieder hochziehen, weich, damit es nicht nach Pixelbrei
+            # aussieht.
+            preview = preview.resize(
+                (PREVIEW_SIZE, PREVIEW_SIZE), Image.BICUBIC
+            )
             buffer = io.BytesIO()
             preview.save(buffer, format="JPEG", quality=70)
             with _preview_lock:
