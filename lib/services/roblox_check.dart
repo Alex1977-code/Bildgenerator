@@ -280,9 +280,15 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         'Über der Grenze von ${_n(hard)} je Mesh – der Importer weist '
             'es ab. Am besten schon bei der Generierung begrenzen '
             '(Meshy „target_polycount", Tripo „face_limit", Rodin '
-            '„quality_override"); nur wenn das nicht reicht, hinterher '
-            'in Blender mit „Decimate" nacharbeiten. Achtung bei '
-            'Quad-Netzen: Jedes Viereck wird zu zwei Dreiecken.$sum'));
+            '„quality_override"). Bei Tripo reicht die Zahl allein '
+            'nicht: Ein Lauf mit angefragten 10.000 Flächen lieferte '
+            '101.298 Dreiecke. Dort zusätzlich „Smart Low-Poly" '
+            'einschalten – damit baut Tripo ein spielefertiges Netz, '
+            'statt das volle nur zu beschneiden. Bleibt es zu groß, '
+            'hilft nur Blender („Decimate"): Die Dreiecke lassen sich '
+            'hier nicht reduzieren, ohne UVs und Textur zu zerstören. '
+            'Achtung bei Quad-Netzen: Jedes Viereck wird zu zwei '
+            'Dreiecken.\$sum'));
   } else if (largest > goal) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,
@@ -439,8 +445,11 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
           'Textur zu groß: $biggest px',
           'Roblox nimmt höchstens $robloxMaxTexture×$robloxMaxTexture. '
               '${tooLarge.length} von ${facts.textures.length} Bildern '
-              'liegen darüber – vor dem Hochladen verkleinern (in der '
-              'App den Textur-Modus „Atlas 1024" wählen).'));
+              'liegen darüber. Das lässt sich hier beheben: Der Knopf '
+              '„Texturen auf $robloxMaxTexture verkleinern" unten '
+              'rechnet sie herunter und packt die GLB neu. Beim '
+              'lokalen Generator gleich den Textur-Modus '
+              '„Atlas $robloxMaxTexture" wählen.'));
     } else {
       findings.add(RobloxFinding(
           RobloxLevel.ok,

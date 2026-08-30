@@ -148,6 +148,24 @@ class TripoService {
     } catch (e) {
       _throwNetworkError(e);
     }
+    // „smart_low_poly" kennt nicht jede Modellfassung. Weist Tripo
+    // das Feld zurück, wird der Auftrag ohne es wiederholt statt zu
+    // scheitern – die Alternative wäre ein Lauf, der gar nicht erst
+    // startet, nur weil eine Zusatzoption fehlt.
+    if (response.statusCode >= 400 &&
+        payload.containsKey('smart_low_poly') &&
+        response.body.contains('smart_low_poly')) {
+      final retry = {...payload}..remove('smart_low_poly');
+      try {
+        response = await http.post(
+          Uri.parse(url),
+          headers: _jsonHeaders,
+          body: jsonEncode(retry),
+        );
+      } catch (e) {
+        _throwNetworkError(e);
+      }
+    }
     final data = _unwrap(response);
     final id = data['task_id'] as String?;
     if (id == null || id.isEmpty) {
@@ -224,6 +242,7 @@ class TripoService {
     bool quad = false,
     bool detailedTexture = false,
     int faceLimit = 0,
+    bool smartLowPoly = false,
   }) {
     final model = (modelVersion == null || modelVersion.isEmpty)
         ? defaultModelVersion
@@ -240,7 +259,14 @@ class TripoService {
       if (quad) ...{'quad': true, 'out_format': 'fbx'},
       // Obergrenze der Flächen – deutlich weniger Ärger als
       // nachträgliches Dezimieren, etwa für den Roblox-Import.
+      //
+      // Achtung: Die Grenze ist ein Wunsch, keine Zusage. Ein Lauf mit
+      // face_limit = 10.000 lieferte 101.298 Dreiecke. Wer die Zahl
+      // wirklich braucht, schaltet [smartLowPoly] dazu – das ist der
+      // Weg, auf dem Tripo ein spielefertiges Netz baut, statt das
+      // volle nur zu beschneiden.
       if (faceLimit > 0) 'face_limit': faceLimit,
+      if (smartLowPoly) 'smart_low_poly': true,
       if (texture && detailedTexture) 'texture_quality': 'detailed',
     };
   }
@@ -252,6 +278,7 @@ class TripoService {
     bool quad = false,
     bool detailedTexture = false,
     int faceLimit = 0,
+    bool smartLowPoly = false,
     String? negativePrompt,
   }) =>
       _createTask('/generation/text-to-model', 'text_to_model', {
@@ -267,6 +294,7 @@ class TripoService {
           quad: quad,
           detailedTexture: detailedTexture,
           faceLimit: faceLimit,
+          smartLowPoly: smartLowPoly,
         ),
       });
 
@@ -278,6 +306,7 @@ class TripoService {
     bool quad = false,
     bool detailedTexture = false,
     int faceLimit = 0,
+    bool smartLowPoly = false,
   }) {
     final subtype = mimeType.split('/').last;
     return _createTask('/generation/image-to-model', 'image_to_model', {
@@ -293,6 +322,7 @@ class TripoService {
         quad: quad,
         detailedTexture: detailedTexture,
         faceLimit: faceLimit,
+        smartLowPoly: smartLowPoly,
       ),
     });
   }
@@ -307,6 +337,7 @@ class TripoService {
     bool quad = false,
     bool detailedTexture = false,
     int faceLimit = 0,
+    bool smartLowPoly = false,
   }) {
     Map<String, dynamic> fileEntry((String, String)? view) {
       if (view == null) return <String, dynamic>{};
@@ -329,6 +360,7 @@ class TripoService {
         quad: quad,
         detailedTexture: detailedTexture,
         faceLimit: faceLimit,
+        smartLowPoly: smartLowPoly,
       ),
     });
   }

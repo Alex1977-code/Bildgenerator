@@ -654,6 +654,37 @@ PLY, STL, ZIP), sie steht in der Ergebniskarte, der Export bekommt die
 richtige Endung, und die GLB-Funktionen sind grau statt kaputt. Dieselbe
 Prüfung greift bei per Drag & Drop abgelegten Dateien.
 
+**Bei Tripo ist `face_limit` ein Wunsch, keine Zusage.** Ein Lauf mit
+angefragten 10.000 Flächen lieferte 101.298 Dreiecke – gemessen an der
+gelieferten GLB, nicht geschätzt. Wer die Zahl wirklich braucht,
+schaltet **„Smart Low-Poly"** dazu: Damit baut Tripo ein
+spielefertiges Netz, statt das volle nur zu beschneiden. Die
+Roblox-Vorlage schaltet es ein. Kennt eine Modellfassung das Feld
+nicht, wiederholt die App den Auftrag ohne es, statt zu scheitern.
+
+Damit hinterher nicht offenbleibt, wer die Grenze übergangen hat,
+merkt sich jedes Ergebnis, **was angefordert war** („Tripo
+`face_limit` = 10.000, Smart Low-Poly: an") – die Zeile steht in der
+Roblox-Prüfung über der gemessenen Dreieckszahl und im
+Galerie-Eintrag.
+
+**Zu große Texturen behebt die App selbst.** Roblox nimmt höchstens
+1024×1024; Tripo liefert PBR-Texturen als 2048er JPEG. In der
+Roblox-Prüfung steht dafür der Knopf **„Texturen auf 1024
+verkleinern"**: Er rechnet alle eingebetteten Bilder herunter, packt
+den GLB-Puffer neu (die alten großen Bilddaten fallen weg) und prüft
+gleich noch einmal. Neu kodiert wird als PNG – Flutter kann nichts
+anderes schreiben –, deshalb kann die Datei trotz kleinerer Bilder
+wachsen; die Karte nennt die gemessene Größe vorher und nachher. Am
+Beispiel der 3,19-MB-Figur: drei Texturen 2048 → 1024, Geometrie
+unverändert, Datei 3,83 MB, Textur-Blocker weg.
+
+**Die Dreieckszahl kann die App nicht senken.** Ein Netz zu
+reduzieren, ohne UV-Nähte und damit die Textur zu zerstören, braucht
+ein Werkzeug, das UVs und Rig mitführt – dafür bleibt Blender
+(Modifier **Decimate**) der Weg. Die Prüfung sagt das so, statt einen
+Knopf anzubieten, der das Modell verunstaltet.
+
 **Die Einheiten der Anbieter meinen nicht dasselbe.** `face_limit` bei
 Tripo, `target_polycount` bei Meshy und `quality_override` bei Rodin
 sind drei verschiedene Größen; Rodin arbeitet zusätzlich mit

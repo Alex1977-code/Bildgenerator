@@ -26,6 +26,7 @@ import '../services/meshy_service.dart';
 import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
 import '../services/model_refine.dart';
+import '../services/glb_textures.dart';
 import '../services/model_format.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
@@ -131,6 +132,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// hat das Skelett Vorrang; ohne Rigging bleibt die Wahl beim
   /// Benutzer, und das Ergebnis wird dann als FBX gekennzeichnet.
   bool get _tripoQuad => _quadTopology && !_rigging;
+
+  /// Tripos „smart_low_poly": baut ein spielefertiges Netz, statt das
+  /// volle nur zu beschneiden.
+  ///
+  /// Der Anlass war ein Lauf mit `face_limit` = 10.000, der 101.298
+  /// Dreiecke lieferte – die Grenze allein ist offenbar ein Wunsch,
+  /// keine Zusage. Für Roblox zählt aber genau diese Zahl.
+  bool _tripoSmartLowPoly = false;
   bool _pbr = true;
   String _tripoVersion = '';
   bool _tripoDetailedTexture = false;
@@ -355,6 +364,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _meshyAiModel = 'meshy-5';
           _meshyUltra = false;
           _quadTopology = true;
+          // Ohne das liefert Tripo trotz face_limit sechsstellige
+          // Dreieckszahlen – gemessen: 101.298 bei angefragten 10.000.
+          _tripoSmartLowPoly = true;
           _localTextureMode = 'atlas1024';
           _symmetryMode = 'auto';
       }
@@ -407,6 +419,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'meshyPolycount': _meshyPolycount,
         'symmetryMode': _symmetryMode,
         'quadTopology': _quadTopology,
+        'tripoSmartLowPoly': _tripoSmartLowPoly,
         'pbr': _pbr,
         'tripoVersion': _tripoVersion,
         'tripoDetailedTexture': _tripoDetailedTexture,
@@ -465,6 +478,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _meshyPolycount = pick('meshyPolycount', _meshyPolycount);
       _symmetryMode = pick('symmetryMode', _symmetryMode);
       _quadTopology = pick('quadTopology', _quadTopology);
+      _tripoSmartLowPoly =
+          pick('tripoSmartLowPoly', _tripoSmartLowPoly);
       _pbr = pick('pbr', _pbr);
       _tripoVersion = pick('tripoVersion', _tripoVersion);
       _tripoDetailedTexture =
@@ -1424,6 +1439,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     Uint8List? unriggedGlb,
     String? rigTypeUsed,
     ModelFormat format = ModelFormat.glb,
+    String limitNote = '',
   }) {
     if (!mounted) return;
     setState(() {
@@ -1439,6 +1455,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           unriggedGlb: unriggedGlb,
           rigTypeUsed: rigTypeUsed,
           format: format,
+          limitNote: limitNote,
         ),
       );
     });
@@ -1452,6 +1469,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'Texturiert': textured ? 'ja' : 'nein',
         'Rigging': rigged ? 'ja' : 'nein',
         if (format != ModelFormat.glb) 'Format': modelFormatLabel(format),
+        if (limitNote.isNotEmpty) 'Angefordert': limitNote,
       },
     );
   }
@@ -2012,6 +2030,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           quad: _tripoQuad,
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
+          smartLowPoly: _tripoSmartLowPoly,
         );
       } else {
         progress('Bild wird hochgeladen …');
@@ -2025,6 +2044,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           quad: _tripoQuad,
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
+          smartLowPoly: _tripoSmartLowPoly,
         );
       }
     } else {
@@ -2038,6 +2058,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         quad: _tripoQuad,
         detailedTexture: _tripoDetailedTexture,
         faceLimit: _tripoFaceLimit,
+        smartLowPoly: _tripoSmartLowPoly,
         negativePrompt: _negative3dCtrl.text.trim(),
       );
     }
@@ -2120,6 +2141,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       rigged: rigged,
       textured: _texture,
       format: format,
+      limitNote: _tripoFaceLimit > 0
+          ? 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}'
+              '${_tripoQuad ? ' (Vierecke)' : ''}, Smart Low-Poly: '
+              '${_tripoSmartLowPoly ? 'an' : 'aus'}'
+          : 'Tripo ohne „face_limit", Smart Low-Poly: '
+              '${_tripoSmartLowPoly ? 'an' : 'aus'}',
     );
   }
 
@@ -2962,9 +2989,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// stimmt.
   Future<void> _showRobloxCheck(ThreeDResult result) async {
     List<RobloxFinding> findings;
+    bool texturesTooLarge;
     try {
       final facts = await readRobloxFacts(result.glbBytes);
       findings = checkRobloxFacts(facts, _robloxTarget);
+      texturesTooLarge = facts.textures.any((t) => t.tooLarge);
     } catch (e) {
       if (mounted) _showSnack('Die Roblox-Prüfung schlug fehl: $e');
       return;
@@ -3001,6 +3030,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             : Colors.green.shade700),
                   ),
                   const SizedBox(height: 4),
+                  if (result.limitNote.isNotEmpty)
+                    // Ohne diese Zeile bleibt offen, ob die App die
+                    // Grenze nicht mitgeschickt oder der Anbieter sie
+                    // übergangen hat.
+                    Text('Angefordert war: ${result.limitNote}',
+                        style: theme.textTheme.bodySmall),
                   Text('Ziel: ${_robloxTarget.label}',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.outline)),
@@ -3046,6 +3081,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
           ),
           actions: [
+            // Der einzige harte Punkt, den die App selbst beheben
+            // kann. Die Dreieckszahl braucht ein Werkzeug, das UVs
+            // und Rig mitführt – das kann sie nicht.
+            if (texturesTooLarge)
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _shrinkTexturesForRoblox(result);
+                },
+                child: const Text('Texturen auf '
+                    '$robloxMaxTexture verkleinern'),
+              ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Schließen'),
@@ -3054,6 +3101,38 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         );
       },
     );
+  }
+
+  /// Verkleinert die eingebetteten Texturen auf die Roblox-Grenze und
+  /// prüft gleich noch einmal.
+  Future<void> _shrinkTexturesForRoblox(ThreeDResult result) async {
+    _showSnack('Texturen werden verkleinert …');
+    GlbShrinkResult shrunk;
+    try {
+      shrunk = await shrinkGlbTextures(result.glbBytes,
+          maxSize: robloxMaxTexture);
+    } catch (e) {
+      if (mounted) _showSnack('Verkleinern fehlgeschlagen: $e');
+      return;
+    }
+    if (!mounted) return;
+    if (!shrunk.didSomething) {
+      _showSnack(shrunk.external > 0
+          ? '${shrunk.external} Bild(er) liegen nicht im GLB-Puffer – '
+              'die lassen sich hier nicht verkleinern.'
+          : 'Es war nichts zu verkleinern.');
+      return;
+    }
+    final first = shrunk.changed.first;
+    String mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
+    setState(() => result.glbBytes = shrunk.glb);
+    _showSnack('${shrunk.changed.length} Textur(en) verkleinert '
+        '(z. B. ${first.fromWidth}×${first.fromHeight} auf '
+        '${first.toWidth}×${first.toHeight}), Datei '
+        '${mb(shrunk.bytesBefore)} → ${mb(shrunk.bytesAfter)} MB.');
+    // Gleich das neue Ergebnis zeigen – sonst müsste man raten, ob es
+    // gereicht hat.
+    await _showRobloxCheck(result);
   }
 
   Future<void> _exportResultAs(ThreeDResult result, String format) async {
@@ -4550,6 +4629,27 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       style: theme.textTheme.bodySmall,
                     ),
                     children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Smart Low-Poly'),
+                        subtitle: Text(
+                          'Tripo baut ein spielefertiges Netz, statt '
+                          'das volle nur zu beschneiden. Ohne das '
+                          'bleibt „face_limit" ein Wunsch: Ein Lauf '
+                          'mit angefragten 10.000 Flächen lieferte '
+                          '101.298 Dreiecke. '
+                          '${_robloxMode ? 'Für Roblox ist das der '
+                              'entscheidende Schalter – dort zählt '
+                              'genau diese Zahl.' : 'Sinnvoll für '
+                              'Engines mit harten Grenzen; für reine '
+                              'Standbilder kostet es Detail.'}',
+                        ),
+                        value: _tripoSmartLowPoly,
+                        onChanged: _running
+                            ? null
+                            : (v) =>
+                                setState(() => _tripoSmartLowPoly = v),
+                      ),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Quad-Topologie'),

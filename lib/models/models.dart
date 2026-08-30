@@ -297,6 +297,7 @@ class ThreeDResult {
     this.unriggedGlb,
     this.rigTypeUsed,
     this.format = ModelFormat.glb,
+    this.limitNote = '',
   });
 
   Uint8List glbBytes;
@@ -313,6 +314,16 @@ class ThreeDResult {
 
   /// Ob die App mit dieser Datei mehr kann als sie herunterzuladen.
   bool get usableInApp => modelIsUsableInApp(format);
+
+  /// Was beim Anbieter als Obergrenze angefordert wurde, im Klartext
+  /// (z. B. „Tripo „face_limit" = 10.000, Smart Low-Poly: aus").
+  ///
+  /// Steht in der Roblox-Prüfung neben der gemessenen Dreieckszahl.
+  /// Ohne diese Zeile bleibt offen, ob die App die Grenze gar nicht
+  /// mitgeschickt oder der Anbieter sie übergangen hat – und genau
+  /// das war die Frage, als ein Lauf mit angefragten 10.000 Flächen
+  /// 101.298 Dreiecke lieferte.
+  final String limitNote;
 
   /// Das Modell VOR dem eigenen Auto-Rigging plus verwendeter
   /// Figurtyp – Grundlage für den Rig-Editor (Gelenke manuell
