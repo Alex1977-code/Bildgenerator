@@ -742,6 +742,23 @@ Nicht gesendet werden bewusst `generate_parts` (zerlegt das Modell in
 mehrere Meshes) und `compress` (gepackte GLB). `test/tripo_service_test.dart`
 hält das fest, damit die Prüfung nicht wieder zur Vermutung wird.
 
+**Tripo legt Modellfassungen unter neuem Datum neu auf und schaltet
+die alten ab.** Die Vorgabe `v2.5-20250123` wurde dabei ungültig; die
+API antwortet mit „invalid model 'v2.5-20250123', allowed values:
+v1.0-20240301, v2.5-20260210". Getroffen hat das ausgerechnet das
+**Rigging**: Der Rigging-Endpunkt verlangt eine eigene Modellangabe,
+und ohne sie greift bei Tripo genau die abgeschaltete Vorgabe – das
+Modell selbst war mit P1 sauber erzeugt, das Skelett scheiterte
+trotzdem. Zwei Änderungen:
+
+- Die App schickt beim Rigging und bei der Rigging-Vorprüfung die
+  Fassung **ausdrücklich** mit (`v2.5-20260210`), und die Vorgabe für
+  die Generierung ist dieselbe.
+- Nennt Tripo in einer Fehlermeldung die **gültigen Fassungen**, nimmt
+  die App die passende und versucht es einmal erneut – die aus
+  derselben Reihe (`v2.5` bleibt `v2.5`), sonst die letztgenannte.
+  Damit kostet die nächste Datumsumstellung keinen Lauf mehr.
+
 #### Figurtyp: Dropdown und Prompt-Vorlage
 
 Der **Figurtyp** steht jetzt bei jedem Anbieter unter dem

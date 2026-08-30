@@ -4315,8 +4315,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                   // deshalb ausdrücklich v2.5.
                                   DropdownMenuEntry(
                                       value: '',
-                                      label:
-                                          'Standard (v2.5, bewährt)'),
+                                      label: 'Standard (v2.5, bewährt) '
+                                          '– Allrounder, nicht low-poly'),
                                   DropdownMenuEntry(
                                       value: 'v3.0-20250812',
                                       label: 'v3.0 (H3)'),

@@ -168,6 +168,17 @@ class TripoService {
         ..removeWhere((key, _) => optional.contains(key));
       response = await post(retry);
     }
+    // Tripo legt Modellfassungen unter neuem Datum neu auf und
+    // schaltet die alten ab. Die Fehlermeldung nennt dann die
+    // gültigen – die nimmt die App und versucht es einmal erneut,
+    // statt den Lauf an einer Datumsangabe scheitern zu lassen.
+    if (response.statusCode >= 400) {
+      final better = pickAllowedModel(
+          payload['model']?.toString() ?? '', response.body);
+      if (better != null) {
+        response = await post({...payload, 'model': better});
+      }
+    }
     final data = _unwrap(response);
     final id = data['task_id'] as String?;
     if (id == null || id.isEmpty) {
@@ -214,7 +225,23 @@ class TripoService {
 
   /// Modellfassung, die an die API geht. V3 verlangt das Feld
   /// zwingend – „Standard" bedeutet dort die bewährte 2.5er-Fassung.
-  static const String defaultModelVersion = 'v2.5-20250123';
+  /// Vorgabe-Modell für die Generierung.
+  ///
+  /// Vorher stand hier `v2.5-20250123`. Tripo hat dieselbe Fassung
+  /// unter einem neuen Datum neu aufgelegt und die alte abgeschaltet;
+  /// die API antwortet auf die alte Kennung mit
+  /// „invalid model 'v2.5-20250123', allowed values: v1.0-20240301,
+  /// v2.5-20260210". Genau daran ist das Rigging gescheitert.
+  static const String defaultModelVersion = 'v2.5-20260210';
+
+  /// Das Modell, mit dem Tripo riggt.
+  ///
+  /// Der Rigging-Endpunkt verlangt eine eigene Modellangabe. Ohne sie
+  /// setzt Tripo seine eigene Vorgabe ein – und die war
+  /// `v2.5-20250123`, also die abgeschaltete. Die Folge: ein 400er
+  /// beim Rigging, obwohl das Modell selbst mit P1 sauber erzeugt
+  /// wurde. Deshalb schickt die App die Fassung ausdrücklich mit.
+  static const String defaultRigModel = 'v2.5-20260210';
 
   /// Längengrenzen der Textfelder laut Tripo. Wird eine überschritten,
   /// lehnt die API die ganze Anfrage mit 400 ab – deshalb kürzt der
@@ -457,10 +484,45 @@ class TripoService {
         if (packUv) 'pack_uv': true,
       });
 
+  /// Liest aus einer Tripo-Fehlermeldung die gültige Modellfassung.
+  ///
+  /// Die Meldung lautet etwa „invalid model 'v2.5-20250123', allowed
+  /// values: v1.0-20240301, v2.5-20260210". Genommen wird die Fassung
+  /// derselben Reihe wie die angefragte (`v2.5` bleibt `v2.5`), sonst
+  /// die letztgenannte – Tripo listet aufsteigend. Liefert null, wenn
+  /// die Meldung nichts hergibt oder die Wahl dieselbe wäre.
+  static String? pickAllowedModel(String requested, String body) {
+    final match = RegExp(
+      r'allowed values?\s*:\s*([^)\n"}]+)',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (match == null) return null;
+    final allowed = match
+        .group(1)!
+        // Hinter der Aufzählung steht bei Tripo noch ein Hinweis in
+        // Klammern („(Refer to the API documentation …)"). Ohne den
+        // Schnitt hängt er am letzten Eintrag und der fällt raus.
+        .split('(')
+        .first
+        .split(',')
+        .map((v) => v.trim().replaceAll(_quotePattern, ''))
+        .where((v) => v.isNotEmpty && !v.contains(' '))
+        .toList();
+    if (allowed.isEmpty) return null;
+    final family = requested.split('-').first;
+    final sameFamily = allowed.where((v) => v.startsWith('$family-'));
+    final pick = sameFamily.isNotEmpty ? sameFamily.last : allowed.last;
+    return pick == requested ? null : pick;
+  }
+
+  /// Anführungszeichen am Rand einer Aufzählung.
+  static final RegExp _quotePattern = RegExp('^[\'"]|[\'"]\$');
+
   /// Prüft, ob das Modell riggbar ist (Figur erkannt).
   Future<String> createPrerigCheck(String modelTaskId) =>
       _createTask('/animations/rig-check', 'animate_prerigcheck', {
         'original_model_task_id': modelTaskId,
+        if (_v3) 'model': defaultRigModel,
       });
 
   /// Figurtypen, die Tripos Rigging kennt – Schlüssel ist der Typ
@@ -482,6 +544,9 @@ class TripoService {
           {
             'original_model_task_id': modelTaskId,
             'out_format': 'glb',
+            // Siehe [defaultRigModel]: ohne diese Angabe greift bei
+            // Tripo eine abgeschaltete Vorgabe.
+            if (_v3) 'model': defaultRigModel,
             // Ohne Typangabe muss Tripo raten; bei einer Kapuzenfigur
             // ohne sichtbares Gesicht ist das eine unnötige Hürde.
             if (rigTypes[rigType] != null) 'rig_type': rigTypes[rigType],

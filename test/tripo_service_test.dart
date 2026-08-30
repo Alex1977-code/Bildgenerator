@@ -217,4 +217,42 @@ void main() {
       expect(TripoService.rigTypes['vehicle'], isNull);
     });
   });
+
+  group('Abgeschaltete Modellfassungen', () {
+    // Der gemeldete Fehler im Wortlaut.
+    const real = '{"code":2000,"message":"invalid model '
+        "'v2.5-20250123', allowed values: v1.0-20240301, "
+        'v2.5-20260210 (Refer to the API documentation for parameter '
+        'requirements)"}';
+
+    test('Die Vorgabe ist nicht mehr die abgeschaltete Fassung', () {
+      expect(TripoService.defaultModelVersion, isNot('v2.5-20250123'));
+      expect(TripoService.defaultModelVersion, 'v2.5-20260210');
+      // Rigging braucht eine eigene Angabe, sonst greift bei Tripo
+      // die abgeschaltete Vorgabe.
+      expect(TripoService.defaultRigModel, 'v2.5-20260210');
+    });
+
+    test('Aus der Meldung wird die Fassung derselben Reihe genommen', () {
+      expect(TripoService.pickAllowedModel('v2.5-20250123', real),
+          'v2.5-20260210');
+    });
+
+    test('Ohne passende Reihe die letztgenannte', () {
+      expect(TripoService.pickAllowedModel('P1-20260311', real),
+          'v2.5-20260210');
+    });
+
+    test('Steht die eigene Fassung schon in der Liste, kein Wechsel', () {
+      expect(TripoService.pickAllowedModel('v2.5-20260210', real), isNull);
+    });
+
+    test('Andere Fehler liefern keinen Vorschlag', () {
+      expect(
+          TripoService.pickAllowedModel(
+              'v2.5-20260210', '{"message":"prompt too long, max 1024"}'),
+          isNull);
+      expect(TripoService.pickAllowedModel('', ''), isNull);
+    });
+  });
 }
