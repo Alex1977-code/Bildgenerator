@@ -34,11 +34,22 @@ class HistoryService extends ChangeNotifier {
   }
 
   /// Speichert die Ergebnisse einer Generierung im Verlauf.
+  ///
+  /// [name] ist der im Massenprompt vergebene Name: Unter ihm liegt
+  /// die Datei auf der Platte und über ihn ist das Bild in der
+  /// Galerie zu finden. Entstehen mehrere Bilder auf einmal, bekommen
+  /// sie „-1", „-2" … angehängt.
   Future<void> addResults(
       GenerationRequest request, List<GeneratedImage> images,
-      {Map<String, String> extraParams = const {}}) async {
-    for (final image in images) {
+      {Map<String, String> extraParams = const {}, String name = ''}) async {
+    for (var index = 0; index < images.length; index++) {
+      final image = images[index];
       final id = const Uuid().v4();
+      final base = name.trim().isEmpty
+          ? id
+          : _freeFileBase(images.length == 1
+              ? name.trim()
+              : '${name.trim()}-${index + 1}');
       final entry = HistoryEntry(
         id: id,
         prompt: request.prompt,
@@ -46,7 +57,8 @@ class HistoryService extends ChangeNotifier {
         createdAt: DateTime.now(),
         params: {...request.describeParams(), ...extraParams},
         format: image.format,
-        fileName: '$id.${image.fileExtension}',
+        fileName: '$base.${image.fileExtension}',
+        name: name.trim().isEmpty ? '' : base,
       );
       try {
         await _store.writeImage(entry, image.bytes);
@@ -139,6 +151,21 @@ class HistoryService extends ChangeNotifier {
       await _store.saveIndex(_entries);
     } catch (_) {}
     notifyListeners();
+  }
+
+  /// Sorgt dafür, dass ein Name nicht zweimal vergeben wird – sonst
+  /// überschriebe ein späterer Lauf die Bilder eines früheren.
+  String _freeFileBase(String wish) {
+    final taken = {
+      for (final entry in _entries)
+        if (entry.name.isNotEmpty) entry.name.toLowerCase(),
+    };
+    if (!taken.contains(wish.toLowerCase())) return wish;
+    for (var suffix = 2; suffix < 1000; suffix++) {
+      final candidate = '$wish-$suffix';
+      if (!taken.contains(candidate.toLowerCase())) return candidate;
+    }
+    return '$wish-${DateTime.now().millisecondsSinceEpoch}';
   }
 
   void _rememberInCache(String id, Uint8List bytes) {

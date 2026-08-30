@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/batch_prompt.dart';
 import '../services/exporter.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
@@ -54,6 +57,42 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   String? _error;
   PromptRelay? _relay;
 
+  /// Massenprompt: ein Text mit den Beschreibungen vieler Bilder, die
+  /// nacheinander erzeugt und unter ihrem Namen abgelegt werden.
+  bool _batchMode = false;
+  final _batchCtrl = TextEditingController();
+
+  /// Ergebnis der letzten Prüfung – null, solange der Text seit der
+  /// letzten Änderung nicht geprüft wurde.
+  BatchPlan? _batchPlan;
+
+  bool _batchRunning = false;
+  bool _batchCancel = false;
+  int _batchDone = 0;
+  int _batchTotal = 0;
+  String _batchCurrent = '';
+  DateTime? _batchStart;
+
+  /// Dauer der bereits fertigen Bilder – daraus kommt der Schnitt und
+  /// die geschätzte Restzeit.
+  final List<Duration> _batchTimes = [];
+  final List<String> _batchFailures = [];
+
+  /// Lässt die Anzeige der vergangenen Zeit sekündlich weiterlaufen.
+  Timer? _batchTicker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Jede Änderung am Massenprompt macht das Prüfergebnis ungültig –
+    // der grüne Haken soll immer zum sichtbaren Text gehören.
+    _batchCtrl.addListener(() {
+      if (_batchPlan != null && !_batchRunning) {
+        setState(() => _batchPlan = null);
+      }
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -74,9 +113,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   @override
   void dispose() {
     _relay?.removeListener(_onPromptRelay);
+    _batchTicker?.cancel();
     _promptCtrl.dispose();
     _negativeCtrl.dispose();
     _seedCtrl.dispose();
+    _batchCtrl.dispose();
     super.dispose();
   }
 
@@ -207,6 +248,58 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
+  /// Baut die Anfrage aus den aktuellen Einstellungen. Prompt,
+  /// Negativ-Prompt, Referenzbilder und Anzahl kommen von außen –
+  /// beim Massenprompt sind sie für jedes Bild andere.
+  GenerationRequest _buildRequest(
+    SettingsService settings, {
+    required String prompt,
+    required String negativePrompt,
+    required List<ReferenceImage> references,
+    required int count,
+  }) {
+    final isOpenAi = settings.provider == GenProvider.openai;
+    return GenerationRequest(
+      provider: settings.provider,
+      prompt: prompt,
+      negativePrompt: negativePrompt,
+      references:
+          settings.provider.supportsReferences ? references : const [],
+      openAiSize: settings.openAiSize,
+      stabilityAspect: settings.stabilityAspect,
+      quality: settings.quality,
+      transparent: isOpenAi && settings.transparent,
+      outputFormat: settings.outputFormat,
+      compression: settings.compression,
+      count: count,
+      seed: int.tryParse(_seedCtrl.text.trim()) ?? 0,
+      stylePreset: settings.stylePreset,
+      model: settings.modelFor(settings.provider),
+      geminiAspect: settings.geminiAspect,
+      geminiImageSize: settings.geminiImageSize,
+    );
+  }
+
+  /// Legt – falls eingeschaltet – das Wasserzeichen auf die Bilder.
+  Future<List<GeneratedImage>> _watermarked(
+      SettingsService settings, List<GeneratedImage> images) async {
+    final logo = settings.watermarkLogo;
+    if (!settings.watermarkEnabled || logo == null) return images;
+    return [
+      for (final image in images)
+        GeneratedImage(
+          bytes: await applyWatermark(
+            image.bytes,
+            logo,
+            position: settings.watermarkPosition,
+            sizePercent: settings.watermarkSizePercent,
+            opacityPercent: settings.watermarkOpacity,
+          ),
+          format: 'png',
+        ),
+    ];
+  }
+
   Future<void> _generate() async {
     final settings = context.read<SettingsService>();
     final history = context.read<HistoryService>();
@@ -222,26 +315,12 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       return;
     }
 
-    final isOpenAi = settings.provider == GenProvider.openai;
-    final request = GenerationRequest(
-      provider: settings.provider,
+    final request = _buildRequest(
+      settings,
       prompt: prompt,
       negativePrompt: _negativeCtrl.text,
-      references: settings.provider.supportsReferences
-          ? List.of(_references)
-          : const [],
-      openAiSize: settings.openAiSize,
-      stabilityAspect: settings.stabilityAspect,
-      quality: settings.quality,
-      transparent: isOpenAi && settings.transparent,
-      outputFormat: settings.outputFormat,
-      compression: settings.compression,
+      references: List.of(_references),
       count: settings.count,
-      seed: int.tryParse(_seedCtrl.text.trim()) ?? 0,
-      stylePreset: settings.stylePreset,
-      model: settings.modelFor(settings.provider),
-      geminiAspect: settings.geminiAspect,
-      geminiImageSize: settings.geminiImageSize,
     );
 
     setState(() {
@@ -251,24 +330,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     try {
       final generator = ImageGenerator.forProvider(settings.provider);
       final result = await generator.generate(request, apiKey.trim());
-      var images = result.images;
-      final logo = settings.watermarkLogo;
-      final watermarked = settings.watermarkEnabled && logo != null;
-      if (watermarked) {
-        images = [
-          for (final image in images)
-            GeneratedImage(
-              bytes: await applyWatermark(
-                image.bytes,
-                logo,
-                position: settings.watermarkPosition,
-                sizePercent: settings.watermarkSizePercent,
-                opacityPercent: settings.watermarkOpacity,
-              ),
-              format: 'png',
-            ),
-        ];
-      }
+      final watermarkOn = settings.watermarkEnabled &&
+          settings.watermarkLogo != null;
+      final images = await _watermarked(settings, result.images);
       final usageParts = <String>[
         if (result.totalTokens != null)
           'Verbrauch: ${result.totalTokens} Tokens',
@@ -278,7 +342,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       ];
       await history.addResults(request, images, extraParams: {
         if (result.totalTokens != null) 'Tokens': '${result.totalTokens}',
-        if (watermarked) 'Wasserzeichen': 'ja',
+        if (watermarkOn) 'Wasserzeichen': 'ja',
       });
       if (!mounted) return;
       setState(() {
@@ -293,6 +357,166 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     } finally {
       if (mounted) setState(() => _generating = false);
     }
+  }
+
+  // --------------------------------------------------------------
+  // Massenprompt
+  // --------------------------------------------------------------
+
+  /// Prüft den Massenprompt und zeigt das Ergebnis an (grüner Haken
+  /// oder die Liste dessen, was noch nicht stimmt).
+  void _checkBatch() {
+    final settings = context.read<SettingsService>();
+    final plan = parseBatchPrompt(
+      _batchCtrl.text,
+      availableReferences: [for (final ref in _references) ref.name],
+      supportsReferences: settings.provider.supportsReferences,
+    );
+    setState(() {
+      _batchPlan = plan;
+      _error = null;
+    });
+  }
+
+  /// Vorlage für die Prompt-KI – mit den Namen der aktuell geladenen
+  /// Referenzbilder, damit die KI sie auch nennen kann.
+  String _batchBriefing() {
+    final names = [for (final ref in _references) ref.name].join(', ');
+    return batchPromptBriefing.replaceFirst(
+        '[HIER DATEINAMEN ODER „keine"]', names.isEmpty ? 'keine' : names);
+  }
+
+  Future<void> _copyBatchBriefing() async {
+    await Clipboard.setData(ClipboardData(text: _batchBriefing()));
+    if (mounted) {
+      _showSnack('Vorlage kopiert – in die Prompt-KI einfügen, Vorgaben '
+          'ausfüllen und das Ergebnis hier hereinkopieren.');
+    }
+  }
+
+  /// Erzeugt alle Bilder des Massenprompts nacheinander.
+  Future<void> _generateBatch() async {
+    final settings = context.read<SettingsService>();
+    final history = context.read<HistoryService>();
+
+    final plan = parseBatchPrompt(
+      _batchCtrl.text,
+      availableReferences: [for (final ref in _references) ref.name],
+      supportsReferences: settings.provider.supportsReferences,
+    );
+    if (!plan.isValid) {
+      setState(() {
+        _batchPlan = plan;
+        _error = 'Der Massenprompt hat noch offene Punkte – bitte oben '
+            'nachsehen.';
+      });
+      return;
+    }
+    final apiKey = settings.apiKeyFor(settings.provider);
+    if (apiKey == null || apiKey.trim().isEmpty) {
+      await _showMissingKeyDialog(settings.provider);
+      return;
+    }
+
+    setState(() {
+      _batchPlan = plan;
+      _batchRunning = true;
+      _generating = true;
+      _batchCancel = false;
+      _batchDone = 0;
+      _batchTotal = plan.items.length;
+      _batchCurrent = plan.items.first.name;
+      _batchStart = DateTime.now();
+      _batchTimes.clear();
+      _batchFailures.clear();
+      _results = [];
+      _usageInfo = null;
+      _error = null;
+    });
+    // Die vergangene Zeit soll auch zwischen zwei Bildern weiterlaufen.
+    _batchTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _batchRunning) setState(() {});
+    });
+
+    final produced = <GeneratedImage>[];
+    final generator = ImageGenerator.forProvider(settings.provider);
+    try {
+      for (final item in plan.items) {
+        if (_batchCancel) break;
+        if (mounted) setState(() => _batchCurrent = item.name);
+        final started = DateTime.now();
+        try {
+          final request = _buildRequest(
+            settings,
+            prompt: item.prompt,
+            negativePrompt: item.negativePrompt.isNotEmpty
+                ? item.negativePrompt
+                : _negativeCtrl.text,
+            references: [
+              for (final ref in _references)
+                if (item.references.contains(ref.name)) ref,
+            ],
+            // Im Massenlauf gehört zu jedem Block genau ein Bild –
+            // sonst passen Name und Ergebnis nicht mehr zusammen.
+            count: 1,
+          );
+          final result = await generator.generate(request, apiKey.trim());
+          final watermarkOn =
+              settings.watermarkEnabled && settings.watermarkLogo != null;
+          final images = await _watermarked(settings, result.images);
+          await history.addResults(request, images,
+              name: item.name,
+              extraParams: {
+                'Massenprompt': 'ja',
+                if (result.totalTokens != null)
+                  'Tokens': '${result.totalTokens}',
+                if (watermarkOn) 'Wasserzeichen': 'ja',
+              });
+          produced.addAll(images);
+          _lastRequest = request;
+        } on GenerationException catch (e) {
+          _batchFailures.add('${item.name}: ${e.message}');
+        } catch (e) {
+          _batchFailures.add('${item.name}: $e');
+        }
+        if (!mounted) return;
+        setState(() {
+          _batchTimes.add(DateTime.now().difference(started));
+          _batchDone++;
+          _results = List.of(produced);
+        });
+      }
+    } finally {
+      _batchTicker?.cancel();
+      _batchTicker = null;
+      if (mounted) {
+        setState(() {
+          _batchRunning = false;
+          _generating = false;
+          _batchCurrent = '';
+        });
+      }
+    }
+  }
+
+  /// Zeitangabe in lesbarer Form („45 s", „3:20 min", „1 h 05 min").
+  static String _formatDuration(Duration duration) {
+    final seconds = duration.inSeconds;
+    if (seconds < 60) return '$seconds s';
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) {
+      return '$minutes:${(seconds % 60).toString().padLeft(2, '0')} min';
+    }
+    return '${minutes ~/ 60} h ${(minutes % 60).toString().padLeft(2, '0')} '
+        'min';
+  }
+
+  /// Durchschnittsdauer der bisher fertigen Bilder.
+  Duration? get _batchAverage {
+    if (_batchTimes.isEmpty) return null;
+    final total = _batchTimes.fold<int>(
+        0, (sum, duration) => sum + duration.inMilliseconds);
+    return Duration(milliseconds: total ~/ _batchTimes.length);
   }
 
   Future<void> _exportResult(GeneratedImage image, int index) async {
@@ -418,30 +642,61 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   }
 
   List<Widget> _buildControls(SettingsService settings) {
+    final plan = _batchPlan;
+    final batchReady = plan != null && plan.isValid;
     return [
-      _buildPromptCard(),
+      // Einzelbild oder Massenprompt – beides nutzt dieselben
+      // Einstellungen darunter (Modell, Format, Referenzbilder).
+      SegmentedButton<bool>(
+        segments: const [
+          ButtonSegment(
+              value: false,
+              icon: Icon(Icons.image_outlined, size: 18),
+              label: Text('Einzelbild')),
+          ButtonSegment(
+              value: true,
+              icon: Icon(Icons.dynamic_feed, size: 18),
+              label: Text('Massenprompt')),
+        ],
+        selected: {_batchMode},
+        onSelectionChanged: _generating
+            ? null
+            : (selection) => setState(() => _batchMode = selection.first),
+      ),
+      const SizedBox(height: 12),
+      if (_batchMode) _buildBatchCard() else _buildPromptCard(),
       const SizedBox(height: 12),
       _buildReferenceCard(settings.provider.supportsReferences),
       const SizedBox(height: 12),
       _buildOptionsCard(settings),
       const SizedBox(height: 16),
       FilledButton.icon(
-        onPressed: _generating ? null : _generate,
+        onPressed: _generating
+            ? null
+            : _batchMode
+                ? (batchReady ? _generateBatch : null)
+                : _generate,
         icon: _generating
             ? const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.auto_awesome),
+            : Icon(_batchMode ? Icons.playlist_play : Icons.auto_awesome),
         label: Padding(
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Text(
             _generating
-                ? 'Wird generiert …'
-                : settings.count > 1
-                    ? '${settings.count} Bilder generieren'
-                    : 'Bild generieren',
+                ? _batchMode
+                    ? 'Massenlauf läuft …'
+                    : 'Wird generiert …'
+                : _batchMode
+                    ? batchReady
+                        ? '${plan.items.length} Bilder generieren'
+                        : 'Erst prüfen, dann generieren'
+                    : settings.count > 1
+                        ? '${settings.count} Bilder generieren'
+                        : 'Bild generieren',
             style: const TextStyle(fontSize: 16),
           ),
         ),
@@ -489,6 +744,278 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           ),
         ),
     ];
+  }
+
+  /// Eingabefeld und Prüfung für den Massenprompt.
+  Widget _buildBatchCard() {
+    final theme = Theme.of(context);
+    final plan = _batchPlan;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.dynamic_feed, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Massenprompt',
+                      style: theme.textTheme.titleSmall),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Ein Text mit den Beschreibungen vieler Bilder. Jeder '
+              'Block beginnt mit „NAME:" und „PROMPT:", getrennt durch '
+              'eine Zeile aus drei Bindestrichen. Die Bilder entstehen '
+              'nacheinander und liegen anschließend unter ihrem Namen '
+              'in der Galerie.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _batchCtrl,
+              minLines: 8,
+              maxLines: 18,
+              enabled: !_generating,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: 'Massenprompt',
+                hintText: 'NAME: burg-01\n'
+                    'PROMPT: A medieval castle at night …\n'
+                    '---\n'
+                    'NAME: burg-02\n'
+                    'PROMPT: The same castle at noon …',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _generating ? null : _checkBatch,
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: const Text('Prüfen'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _generating ? null : _copyBatchBriefing,
+                  icon: const Icon(Icons.copy_all_outlined, size: 18),
+                  label: const Text('Vorlage für Prompt-KI kopieren'),
+                ),
+                TextButton.icon(
+                  onPressed: _generating
+                      ? null
+                      : () {
+                          _batchCtrl.text = batchPromptExample;
+                          _checkBatch();
+                        },
+                  icon: const Icon(Icons.lightbulb_outline, size: 18),
+                  label: const Text('Beispiel einfügen'),
+                ),
+              ],
+            ),
+            if (plan != null) ...[
+              const SizedBox(height: 12),
+              _buildBatchResult(plan),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Ergebnis der Prüfung: grüner Haken samt Zahlen oder die Liste
+  /// dessen, was noch fehlt.
+  Widget _buildBatchResult(BatchPlan plan) {
+    final theme = Theme.of(context);
+    final good = plan.isValid;
+    final color = good
+        ? Colors.green.shade700
+        : theme.colorScheme.error;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: good
+            ? Colors.green.withValues(alpha: 0.08)
+            : theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(good ? Icons.check_circle : Icons.error_outline,
+                  color: color, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  good
+                      ? '${plan.items.length} Bilder erkannt'
+                          '${plan.withReferences > 0 ? ', davon '
+                              '${plan.withReferences} mit Referenzbild' : ''}'
+                          ' – der Massenprompt ist in Ordnung.'
+                      : 'Der Massenprompt ist noch nicht startklar:',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                      color: good ? color : theme.colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          for (final issue in plan.issues)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 30),
+              child: Text('• $issue',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer)),
+            ),
+          for (final warning in plan.warnings)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 30),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 14, color: theme.colorScheme.outline),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text('$warning',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline)),
+                  ),
+                ],
+              ),
+            ),
+          if (good && plan.items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 30),
+              child: Text(
+                'Namen: ${plan.items.take(6).map((i) => i.name).join(', ')}'
+                '${plan.items.length > 6 ? ' … (+'
+                    '${plan.items.length - 6})' : ''}',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Statusfenster des Massenlaufs: welches Bild gerade entsteht, wie
+  /// lange es schon läuft und wie lange es voraussichtlich noch dauert.
+  Widget _buildBatchStatus() {
+    final theme = Theme.of(context);
+    final done = _batchDone;
+    final total = _batchTotal;
+    final average = _batchAverage;
+    final elapsed = _batchStart == null
+        ? Duration.zero
+        : DateTime.now().difference(_batchStart!);
+    final remaining = average == null
+        ? null
+        : average * (total - done);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_batchRunning ? Icons.playlist_play : Icons.done_all,
+                    size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _batchRunning
+                        ? 'Bild ${done + 1} von $total wird erstellt'
+                        : _batchCancel
+                            ? 'Abgebrochen nach $done von $total Bildern'
+                            : '$done von $total Bildern fertig',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                if (_batchRunning)
+                  TextButton.icon(
+                    onPressed: _batchCancel
+                        ? null
+                        : () => setState(() => _batchCancel = true),
+                    icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                    label: Text(_batchCancel ? 'Bricht ab …' : 'Abbrechen'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: total == 0 ? null : done / total,
+            ),
+            const SizedBox(height: 8),
+            if (_batchRunning && _batchCurrent.isNotEmpty)
+              Text('Gerade in Arbeit: $_batchCurrent',
+                  style: theme.textTheme.bodyMedium),
+            const SizedBox(height: 4),
+            Text(
+              [
+                'Vergangen: ${_formatDuration(elapsed)}',
+                if (average != null)
+                  'Schnitt: ${_formatDuration(average)} je Bild',
+                if (_batchRunning && remaining != null && remaining
+                    > Duration.zero)
+                  'Rest: ca. ${_formatDuration(remaining)}',
+              ].join(' · '),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
+            if (average == null && _batchRunning)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Die Dauer je Bild steht nach dem ersten fertigen Bild '
+                  'fest – daraus wird dann die Restzeit geschätzt.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline),
+                ),
+              ),
+            if (_batchFailures.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Nicht geklappt (${_batchFailures.length}):',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(color: theme.colorScheme.error)),
+              for (final failure in _batchFailures.take(8))
+                Text('• $failure',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.error)),
+              if (_batchFailures.length > 8)
+                Text('… und ${_batchFailures.length - 8} weitere',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.error)),
+            ],
+            if (!_batchRunning && done > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Alle fertigen Bilder liegen unter ihrem Namen in der '
+                  'Galerie.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildPromptCard() {
@@ -883,8 +1410,23 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 ButtonSegment(value: 4, label: Text('4')),
               ],
               selected: {settings.count},
-              onSelectionChanged: (selection) =>
-                  settings.setCount(selection.first),
+              onSelectionChanged: _batchMode
+                  ? null
+                  : (selection) => settings.setCount(selection.first),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _batchMode
+                  ? 'Im Massenprompt entsteht zu jedem Block genau ein '
+                      'Bild – sonst passten Name und Ergebnis nicht mehr '
+                      'zusammen.'
+                  : 'Es sind immer verschiedene Varianten desselben '
+                      'Prompts, nie dasselbe Bild mehrfach: OpenAI und '
+                      'Gemini würfeln je Bild neu, bei Stability und der '
+                      'eigenen GPU zählt der Seed pro Bild hoch '
+                      '(Seed, Seed+1 …).',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline),
             ),
             if (isStability) ...[
               const SectionLabel('Profi-Optionen'),
@@ -918,8 +1460,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: const InputDecoration(
                   labelText: 'Seed (0 = zufällig)',
-                  helperText:
-                      'Gleicher Seed + gleicher Prompt = reproduzierbares Bild',
+                  helperText: 'Gleicher Seed + gleicher Prompt = '
+                      'reproduzierbares Bild; bei mehreren Bildern zählt '
+                      'er pro Bild hoch',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1013,7 +1556,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             ),
         ],
       ),
-      if (_generating) ...[
+      // Beim Massenlauf zeigt das Statusfenster, was gerade entsteht
+      // und wie lange es noch dauert; es bleibt danach als Bilanz
+      // stehen.
+      if (_batchTotal > 0) ...[
+        _buildBatchStatus(),
+        const SizedBox(height: 8),
+      ] else if (_generating) ...[
         const LinearProgressIndicator(),
         const SizedBox(height: 8),
         Text(

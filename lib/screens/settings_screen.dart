@@ -270,6 +270,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   bool _neutral = false;
   bool _checking = false;
   bool _starting = false;
+  bool _refreshing = false;
 
   /// Auf diesem Rechner eingerichtete Server – gemerkte Einträge plus
   /// gefundene Installationen.
@@ -345,6 +346,41 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
         }
       }
     });
+  }
+
+  /// Holt Server-Skript und Paketliste neu. Die Installation selbst
+  /// (Python-Umgebung, Modelle) bleibt unangetastet – nur die Dateien,
+  /// die zur App gehören, werden auf deren Stand gebracht.
+  Future<void> _refreshFiles() async {
+    final entry = _current;
+    if (entry == null) return;
+    setState(() {
+      _refreshing = true;
+      _status = 'Server-Dateien werden geholt …';
+      _ok = false;
+      _neutral = true;
+    });
+    try {
+      final files = await setup.refreshServerFiles(
+          targetDir: entry.dir, backend: entry.backend);
+      if (!mounted) return;
+      setState(() {
+        _status = 'Aktualisiert: ${files.join(', ')}. Läuft der Server '
+            'gerade, einmal beenden und neu starten.';
+        _ok = true;
+        _neutral = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = e.toString().replaceFirst('Exception: ', '');
+          _ok = false;
+          _neutral = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   Future<void> _saveAndTest() async {
@@ -468,7 +504,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final busy = _checking || _starting;
+    final busy = _checking || _starting || _refreshing;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -601,6 +637,21 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                           },
                     icon: const Icon(Icons.auto_fix_high, size: 18),
                     label: const Text('Einrichtungs-Assistent'),
+                  ),
+                // Die App entwickelt ihr Server-Skript weiter; eine
+                // ältere Installation holt es sich hiermit nach, ohne
+                // die ganze Einrichtung zu wiederholen.
+                if (_current != null && setup.setupSupported)
+                  TextButton.icon(
+                    onPressed: busy ? null : _refreshFiles,
+                    icon: _refreshing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.sync, size: 18),
+                    label: const Text('Server-Dateien auffrischen'),
                   ),
                 if (_current != null)
                   TextButton.icon(

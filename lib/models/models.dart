@@ -205,6 +205,7 @@ class HistoryEntry {
     this.fileName,
     this.kind = 'image',
     this.thumbFileName,
+    this.name = '',
   });
 
   final String id;
@@ -223,6 +224,14 @@ class HistoryEntry {
   /// Dateiname des Vorschaubilds (nur bei 3D-Modellen).
   final String? thumbFileName;
 
+  /// Selbst vergebener Name (aus dem Massenprompt). Unter ihm liegt
+  /// die Datei auf der Platte und über ihn ist das Bild in der
+  /// Galerie zu finden. Leer = ohne Namen erzeugt.
+  final String name;
+
+  /// Was in der Galerie über dem Bild steht.
+  String get title => name.isNotEmpty ? name : prompt;
+
   bool get isModel => kind == 'model';
 
   String get mimeType =>
@@ -240,6 +249,7 @@ class HistoryEntry {
         'fileName': fileName,
         'kind': kind,
         'thumbFileName': thumbFileName,
+        'name': name,
       };
 
   static HistoryEntry fromJson(Map<String, dynamic> json) => HistoryEntry(
@@ -255,6 +265,7 @@ class HistoryEntry {
         fileName: json['fileName'] as String?,
         kind: json['kind'] as String? ?? 'image',
         thumbFileName: json['thumbFileName'] as String?,
+        name: json['name'] as String? ?? '',
       );
 
   static String encodeList(List<HistoryEntry> entries) =>

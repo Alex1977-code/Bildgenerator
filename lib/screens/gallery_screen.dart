@@ -14,8 +14,25 @@ import 'image_detail_screen.dart';
 import 'model_preview_screen.dart';
 
 /// Galerie mit allen bisher generierten Bildern.
-class GalleryScreen extends StatelessWidget {
+class GalleryScreen extends StatefulWidget {
   const GalleryScreen({super.key});
+
+  @override
+  State<GalleryScreen> createState() => _GalleryScreenState();
+}
+
+class _GalleryScreenState extends State<GalleryScreen> {
+  final _searchCtrl = TextEditingController();
+
+  /// Suchbegriff – trifft auf Name und Beschreibung zu. Über den
+  /// Namen aus dem Massenprompt ist so jedes Bild wiederzufinden.
+  String _search = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   String _formatDate(DateTime dt) {
     String two(int v) => v.toString().padLeft(2, '0');
@@ -49,6 +66,7 @@ class GalleryScreen extends StatelessWidget {
         mimeType: entry.mimeType,
         prompt: entry.prompt,
         metadata: {
+          if (entry.name.isNotEmpty) 'Name': entry.name,
           ...entry.params,
           'Erstellt': _formatDate(entry.createdAt),
         },
@@ -61,9 +79,18 @@ class GalleryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final history = context.watch<HistoryService>();
-    final entries = history.entries;
+    final all = history.entries;
+    final needle = _search.trim().toLowerCase();
+    final entries = needle.isEmpty
+        ? all
+        : [
+            for (final entry in all)
+              if (entry.name.toLowerCase().contains(needle) ||
+                  entry.prompt.toLowerCase().contains(needle))
+                entry,
+          ];
 
-    if (entries.isEmpty) {
+    if (all.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -89,6 +116,41 @@ class GalleryScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.search),
+              labelText: 'Nach Name oder Beschreibung suchen',
+              hintText: 'z. B. burg-03',
+              border: const OutlineInputBorder(),
+              suffixIcon: _search.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Suche leeren',
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _search = '');
+                      },
+                    ),
+            ),
+            onChanged: (value) => setState(() => _search = value),
+          ),
+        ),
+        if (needle.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              entries.isEmpty
+                  ? 'Nichts gefunden – der Name muss so geschrieben sein '
+                      'wie im Massenprompt (z. B. „burg-03").'
+                  : '${entries.length} von ${all.length} Einträgen',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         if (!history.isPersistent)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -288,9 +350,18 @@ class _GalleryTile extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Bilder aus dem Massenprompt tragen ihren
+                            // Namen – darunter steht die Beschreibung.
+                            if (entry.name.isNotEmpty)
+                              Text(
+                                entry.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelLarge,
+                              ),
                             Text(
                               entry.prompt,
-                              maxLines: 2,
+                              maxLines: entry.name.isEmpty ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall,
                             ),

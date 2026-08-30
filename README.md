@@ -24,7 +24,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Eingabe beliebiger Modell-IDs – neue Modelle der Anbieter (z. B. ein
     künftiges gpt-image-2) lassen sich sofort ohne App-Update nutzen
   - Ausgabeformat PNG / JPEG / WebP inkl. Kompressionsgrad
-  - Batch-Generierung (1–4 Bilder pro Anfrage)
+  - Batch-Generierung (1–4 Bilder pro Anfrage) – immer verschiedene
+    Varianten desselben Prompts: OpenAI und Gemini würfeln je Bild neu,
+    bei Stability und der eigenen GPU zählt der Seed pro Bild hoch
+  - **Massenprompt**: ein Text mit den Beschreibungen vieler Bilder,
+    die nacheinander erzeugt, unter ihrem Namen gespeichert und in der
+    Galerie über die Suche wiedergefunden werden (siehe unten)
   - Negativ-Prompt, Seed (reproduzierbare Bilder) und 16 Style-Presets
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
@@ -277,6 +282,71 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   - API-Schlüssel werden **verschlüsselt lokal** gespeichert (Keychain /
     Keystore / DPAPI), dunkles & helles Design
 
+## Massenprompt: viele Bilder in einem Lauf
+
+Im Tab **Bild** oben auf **Massenprompt** umschalten. Statt einer
+einzelnen Beschreibung steht dort ein Text mit den Beschreibungen
+mehrerer Bilder; die App erzeugt sie nacheinander und legt jedes unter
+seinem Namen ab. So entstehen 40 Bilder in einem Rutsch, ohne dass man
+dabeisitzen muss.
+
+**Aufbau.** Jedes Bild ist ein Block, getrennt durch eine Zeile aus drei
+Bindestrichen:
+
+```
+NAME: burg-01
+PROMPT: A medieval castle on a cliff at night, full moon, cinematic lighting
+NEGATIV: people, text, watermark
+---
+NAME: burg-02
+REF: burg.png
+PROMPT: The same castle at noon, clear blue sky, warm sunlight
+```
+
+- `NAME:` – kurzer, eindeutiger Name. Unter ihm wird das Bild
+  gespeichert und in der Galerie gefunden. Leerzeichen und Umlaute
+  werden ersetzt (`Burg Nacht` → `Burg-Nacht`); fehlt der Name, heißt
+  das Bild `bild-01`, `bild-02` …
+- `PROMPT:` – die Bildbeschreibung, darf über mehrere Zeilen gehen.
+- `REF:` – optional, die Dateinamen der Referenzbilder für genau
+  dieses Bild (mehrere durch Komma). Die Bilder müssen unter
+  „Referenzbilder" geladen sein; Groß-/Kleinschreibung und Dateiendung
+  sind egal.
+- `NEGATIV:` – optional, was das Bild nicht enthalten soll.
+
+**Den Massenprompt von der KI schreiben lassen.** Der Knopf **„Vorlage
+für Prompt-KI kopieren"** legt ein fertiges Briefing in die
+Zwischenablage – inklusive der Namen der gerade geladenen
+Referenzbilder. Das in ChatGPT, Gemini o. Ä. einfügen, die Vorgaben
+(Anzahl, Thema, Stil, Variation) ausfüllen und das Ergebnis hier wieder
+einfügen. **„Beispiel einfügen"** füllt zum Ausprobieren drei Blöcke ein.
+
+**Prüfen vor dem Start.** **„Prüfen"** liest den Text und meldet mit
+grünem Haken, wie viele Bilder erkannt wurden und wie viele davon ein
+Referenzbild nutzen. Blockierend sind doppelte Namen, fehlende
+Beschreibungen und genannte, aber nicht geladene Referenzbilder –
+jeweils mit Zeilennummer. Hinweise (z. B. ein ersetzter Name) halten den
+Lauf nicht auf. Erst nach dem grünen Haken lässt sich der Lauf starten;
+jede Änderung am Text macht die Prüfung wieder ungültig.
+
+**Während des Laufs** zeigt das Statusfenster rechts, welches Bild
+gerade entsteht, wie viele fertig sind, die vergangene Zeit, den
+Schnitt je Bild und daraus die geschätzte Restzeit. **„Abbrechen"**
+stoppt nach dem laufenden Bild – alles bereits Erstellte bleibt
+erhalten. Fehlgeschlagene Bilder halten den Lauf nicht an, sie werden
+unten mit Grund aufgeführt.
+
+**Danach** liegen alle Bilder in der Galerie, mit ihrem Namen über der
+Beschreibung. Das Suchfeld oben in der Galerie findet sie über Name
+oder Beschreibung; heruntergeladen werden sie ebenfalls unter ihrem
+Namen. Gibt es einen Namen schon aus einem früheren Lauf, hängt die App
+`-2`, `-3` … an, statt das alte Bild zu überschreiben.
+
+Pro Block entsteht genau ein Bild – die Einstellung „Anzahl Bilder"
+gilt im Massenlauf nicht, sonst passten Name und Ergebnis nicht mehr
+zusammen. Höchstens 200 Bilder pro Lauf. Kosten: Anzahl der Blöcke ×
+Preis des gewählten Modells; auf der eigenen GPU 0 $.
+
 ## Voraussetzung: API-Schlüssel
 
 Die Bilder werden von einem KI-Provider erzeugt. Dafür wird ein eigener
@@ -329,6 +399,25 @@ vergleicht ihre eigene Build-Kennung mit der des neuesten Releases:
 - **Android**: Der Knopf öffnet den APK-Download; die Installation
   übernimmt das System.
 - **Web**: Ein Neuladen mit `Strg`+`F5` genügt.
+
+**Was ein Update nicht anfasst.** Alles, was die App sich merkt, liegt
+im Benutzerprofil und nicht im Programmordner: Einstellungen und die
+Server-Liste unter `%APPDATA%`, die API-Schlüssel im
+Windows-Anmeldeinformationsspeicher, die Galerie unter „Dokumente" →
+`bildgenerator`. Die eigenen Server liegen ebenfalls unabhängig davon
+(Vorgabe `C:\KI\…`) – ihre Pfade veralten durch ein App-Update also
+nicht, und der 3D-Server läuft nach dem Update unverändert weiter.
+
+Eine Sache kann mit der Zeit auseinanderlaufen: Das **Server-Skript**
+(`local3d_server.py` bzw. `local_image_server.py`) wurde bei der
+Einrichtung in den Server-Ordner kopiert und bleibt auf diesem Stand,
+während die App weiterentwickelt wird. Dafür gibt es in den
+Einstellungen beim jeweiligen Server den Knopf **„Server-Dateien
+auffrischen"**: Er holt Skript und Paketliste neu, ohne die
+Python-Umgebung oder die Modelle anzurühren (Sekunden statt Minuten).
+Danach den Server einmal beenden und neu starten. Nötig ist das nur,
+wenn der Server nach einem App-Update etwas nicht mehr kann, was die
+App erwartet.
 
 ## So testest du die App
 

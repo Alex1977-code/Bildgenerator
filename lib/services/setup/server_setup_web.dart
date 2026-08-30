@@ -18,6 +18,15 @@ Stream<String> installServer({
   throw UnsupportedError('Nur in der Desktop-App verfügbar.');
 }
 
+Future<List<String>> refreshServerFiles({
+  required String targetDir,
+  required String serverScriptUrl,
+  required String requirementsUrl,
+  String? shimUrl,
+  String backend = 'sf3d',
+}) async =>
+    throw UnsupportedError('Nur in der Desktop-App verfügbar.');
+
 Future<String> startServer({
   required String targetDir,
   required int port,

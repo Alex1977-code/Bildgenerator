@@ -292,6 +292,30 @@ Stream<String> installServer({
   );
 }
 
+/// Frischt die Server-Dateien einer bestehenden Installation auf –
+/// nur das Server-Skript und die Paketliste, keine Neuinstallation.
+/// Nötig, wenn die App aktualisiert wurde und ihr Server-Skript
+/// inzwischen weiter ist als das im Installationsordner.
+Future<List<String>> refreshServerFiles({
+  required String targetDir,
+  required String backend,
+}) {
+  final entry = setupBackends.firstWhere((b) => b.id == backend,
+      orElse: () => setupBackends.first);
+  final isImage = entry.kind == 'image';
+  return impl.refreshServerFiles(
+    targetDir: targetDir,
+    serverScriptUrl: isImage ? imageServerScriptUrl : serverScriptUrl,
+    requirementsUrl: switch (backend) {
+      'sd-image' => imageRequirementsUrl,
+      'triposr' => requirementsUrl,
+      _ => sf3dRequirementsUrl,
+    },
+    shimUrl: shimUrl,
+    backend: backend,
+  );
+}
+
 /// Übliche Portnummer je Art: 8765 für Bild→3D, 8766 für Text→Bild.
 int defaultPort(String kind) => kind == 'image' ? 8766 : 8765;
 

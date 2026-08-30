@@ -272,6 +272,39 @@ Future<void> _download(String url, File target) async {
   }
 }
 
+/// Holt nur die Server-Dateien neu (Skript, Paketliste, ggf. den
+/// CPU-Ersatz) – ohne Python-Umgebung, ohne pip. Damit passt ein schon
+/// eingerichteter Server wieder zur aktuellen App, wenn deren
+/// Server-Skript weiterentwickelt wurde. Liefert die Dateinamen.
+Future<List<String>> refreshServerFiles({
+  required String targetDir,
+  required String serverScriptUrl,
+  required String requirementsUrl,
+  String? shimUrl,
+  String backend = 'sf3d',
+}) async {
+  final dir = Directory(targetDir);
+  if (!dir.existsSync()) {
+    throw Exception('Der Ordner $targetDir existiert nicht mehr. Der '
+        'Server wurde wohl verschoben oder gelöscht – bitte den '
+        'Einrichtungs-Assistenten erneut starten.');
+  }
+  final sep = Platform.pathSeparator;
+  final written = <String>[];
+  final scriptName =
+      backend == 'sd-image' ? 'local_image_server.py' : 'local3d_server.py';
+  await _download(serverScriptUrl, File('$targetDir$sep$scriptName'));
+  written.add(scriptName);
+  const listName = 'requirements-server.txt';
+  await _download(requirementsUrl, File('$targetDir$sep$listName'));
+  written.add(listName);
+  if (backend == 'triposr' && shimUrl != null) {
+    await _download(shimUrl, File('$targetDir${sep}torchmcubes.py'));
+    written.add('torchmcubes.py');
+  }
+  return written;
+}
+
 /// Richtet TripoSR im Zielordner ein und meldet den Fortschritt
 /// zeilenweise. Bricht mit einer Ausnahme ab, sobald ein Schritt
 /// fehlschlägt.
