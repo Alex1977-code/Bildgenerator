@@ -325,9 +325,32 @@ final _secondBuildingPattern = RegExp(
     r'building|silo)\b',
     caseSensitive: false);
 
-/// Kamerawinkel: die Spielgrafik braucht rund 35° von oben.
+/// Kamerawinkel für sprachverstehende Modelle: rund 35° von oben.
 final _elevationPattern = RegExp(
     r'\b(3[0-9]|4[0-5])\s*(°|degrees?|grad)', caseSensitive: false);
+
+/// Kameraangabe, die ein Diffusions-Modell tatsächlich versteht.
+final _isometricPattern = RegExp(
+    r'\b(high angle|isometric|top.?down|bird.?s.?eye|three.quarter '
+    r'view from above)\b',
+    caseSensitive: false);
+
+/// Mengenangaben als Anweisung („at most 15 stone courses", „three
+/// windows"). Diffusions-Modelle zählen nicht – sie sehen nur das
+/// Substantiv und machen davon mehr.
+final _countPattern = RegExp(
+    r'\b(at most|no more than|exactly|up to|höchstens|genau)?\s*'
+    r'(\d+|one|two|three|four|five|six|zwei|drei|vier|fünf)\s+'
+    r'(\w+\s+){0,2}'
+    r'(courses|layers|rows|stones|bricks|windows|doors|floors|storeys|'
+    r'stories|planks|beams|steps|lagen|steinlagen|fenster|türen)\b',
+    caseSensitive: false);
+
+/// Formulierungen, die bei Diffusions-Modellen ins Gegenteil ziehen.
+/// „coarse masonry of large softly rounded boulders" hat aus Gebäuden
+/// runde Findlings-Kuppeln gemacht.
+final _boulderPattern = RegExp(
+    r'\b(boulders?|findlinge?|rundlinge?)\b', caseSensitive: false);
 
 /// Streicht verneinte Wortgruppen aus dem Text. Der empfohlene Satz
 /// „no terrace, no paving, no low wall …" nennt die Begriffe ja
@@ -338,6 +361,18 @@ final _negatedGroup = RegExp(
     caseSensitive: false);
 
 String _withoutNegations(String text) => text.replaceAll(_negatedGroup, ' ');
+
+/// Stil-Angaben, die nicht am Anfang eines Prompts stehen sollten –
+/// dort gehört das Motiv hin.
+final _styleOpenerPattern = RegExp(
+    r'\b(stylized|diorama|game asset|chunky|matte|isometric|high '
+    r'angle|golden hour|plain grey|low poly|render|octane|unreal|'
+    r'concept art)\b',
+    caseSensitive: false);
+
+/// Die ersten [count] Wörter eines Textes.
+String _firstWords(String text, int count) =>
+    text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(count).join(' ');
 
 /// Namen der ersten drei Treffer, danach nur noch die Anzahl.
 String _names(List<BatchItem> hits) {
@@ -459,16 +494,75 @@ List<BatchIssue> _modelWarnings(
         'zweites Gebäude. Jedes Asset ist genau ein Gebäude, sonst '
         'lässt es sich nicht auf einen Knoten setzen.'));
   }
+  // Der Kamerawinkel muss unterschiedlich formuliert sein: GPT-Image
+  // und Gemini verstehen „35 degrees", ein Diffusions-Modell nicht –
+  // dort zählt „high angle isometric view".
+  final keywordStyle = profile.style == PromptStyle.keywords;
   final flat = items
-      .where((item) => !_elevationPattern.hasMatch(item.prompt))
+      .where((item) => keywordStyle
+          ? !_isometricPattern.hasMatch(item.prompt)
+          : !_elevationPattern.hasMatch(item.prompt))
       .toList();
   if (flat.isNotEmpty) {
     warnings.add(issue(
         flat,
-        'Spielgrafik: ${flat.length} Beschreibung(en) nennen keinen '
-        'Kamerawinkel (${_names(flat)}). Das Spiel braucht rund 35° von '
+        'Spielgrafik: ${flat.length} Beschreibung(en) nennen keine '
+        'Aufsicht (${_names(flat)}). Das Spiel braucht rund 35° von '
         'oben – die Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf '
-        'TILE 52); flach gesehene Gebäude kippen neben dem Gelände.'));
+        'TILE 52). '
+        '${keywordStyle ? 'Bei diesem Modell gehört dafür „high angle '
+            'isometric view" in den Prompt.' : 'Bei diesem Modell wirkt '
+            'die Angabe „camera elevation 35 degrees above the '
+            'horizon".'}'));
+  }
+
+  if (keywordStyle) {
+    // Die drei Formulierungen, die den Bäckerei-Block gekippt haben.
+    final counts =
+        items.where((item) => _countPattern.hasMatch(item.prompt)).toList();
+    if (counts.isNotEmpty) {
+      warnings.add(issue(
+          counts,
+          'Spielgrafik: ${_names(counts)} enthalten Mengenangaben '
+          '(„at most 15 stone courses" o. Ä.). ${profile.modelLabel} '
+          'zählt nicht – es sieht nur das Substantiv und macht davon '
+          'mehr. Solche Vorgaben ersatzlos streichen.'));
+    }
+    final degrees = items
+        .where((item) => _elevationPattern.hasMatch(item.prompt))
+        .toList();
+    if (degrees.isNotEmpty) {
+      warnings.add(issue(
+          degrees,
+          'Spielgrafik: ${_names(degrees)} nennen eine Gradzahl. '
+          '${profile.modelLabel} kennt keine Winkel; „high angle '
+          'isometric view" bringt die Aufsicht, die Gradzahl nicht.'));
+    }
+    final boulders =
+        items.where((item) => _boulderPattern.hasMatch(item.prompt)).toList();
+    if (boulders.isNotEmpty) {
+      warnings.add(issue(
+          boulders,
+          'Spielgrafik: ${_names(boulders)} sprechen von „boulders". '
+          'Gemeint ist grobes Mauerwerk, an kommt „Gebäude aus '
+          'Findlingen" – runde Lehmkuppeln ohne Dach. Besser „chunky '
+          'rounded shapes" wie in der Vorlage.'));
+    }
+    // Motivanteil: Steht am Anfang schon der Stil, ist das Gebäude
+    // verloren.
+    final styleFirst = items
+        .where((item) => _styleOpenerPattern
+            .hasMatch(_firstWords(item.prompt, gameAssetLeadWords)))
+        .toList();
+    if (styleFirst.isNotEmpty) {
+      warnings.add(issue(
+          styleFirst,
+          'Spielgrafik: Bei ${_names(styleFirst)} stehen schon in den '
+          'ersten $gameAssetLeadWords Wörtern Stil-Angaben. Dorthin '
+          'gehört das Motiv (Gebäudeart, auffälligstes Merkmal, Wände, '
+          'Dach, ein bis zwei Requisiten); der Stil-Schwanz kommt '
+          'danach.'));
+    }
   }
   if (profile.negativeHandling == NegativeHandling.separateField) {
     final withoutTerms = items
@@ -531,8 +625,8 @@ String batchPromptBriefing(
       'sein:\n'
       '${keywords ? _keywordPromptRules(profile) : _briefingPromptRules(profile)}'
       '$assets\n\n'
-      'Beispiel für zwei Bilder:\n\n'
-      '${batchPromptExample(profile)}\n\n'
+      'Beispiel:\n\n'
+      '${batchPromptExample(profile, gameAssets: gameAssets)}\n\n'
       'Meine Vorgaben:\n'
       '- Anzahl der Bilder: [HIER ANZAHL]\n'
       '- Thema/Serie: [HIER BESCHREIBEN]\n'
@@ -586,7 +680,13 @@ String _briefingPromptRules(PromptProfile profile) =>
 
 /// Kleines, gültiges Beispiel zum Ausprobieren – in der Schreibweise
 /// des gewählten Modells.
-String batchPromptExample(PromptProfile profile) {
+String batchPromptExample(PromptProfile profile,
+    {bool gameAssets = false}) {
+  // Bei Spielgrafiken ist der erprobte Block die beste Vorlage: Er
+  // zeigt die Aufteilung 15 Wörter Motiv, dann der feste Stil-Schwanz.
+  if (gameAssets && profile.style == PromptStyle.keywords) {
+    return gameAssetExample;
+  }
   if (profile.style == PromptStyle.keywords) {
     final negative = profile.negativeHandling == NegativeHandling.ignored
         ? ''

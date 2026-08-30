@@ -200,14 +200,53 @@ void main() {
       expect(text, isNot(contains('Spielgrafik')), reason: text);
     });
 
-    test('Auch die Stichwort-Fassung bleibt ohne Asset-Hinweise', () {
+    test('Der erprobte Block löst keine Asset-Hinweise aus', () {
       final plan = parseBatchPrompt(
-        'NAME: haus\nPROMPT: thatched cottage, $gameAssetKeywords\n'
+        gameAssetExample,
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(plan.isValid, isTrue);
+      expect(text, isNot(contains('Spielgrafik')), reason: text);
+      // Und er bleibt unter der Wortgrenze von SDXL.
+      expect(text, isNot(contains('Wörter')), reason: text);
+    });
+
+    test('Die drei Stolpersteine des Bäckerei-Blocks werden gemeldet', () {
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: single isolated building, stylized diorama game asset, '
+        'medieval bakery, camera elevation 35 degrees looking down onto '
+        'the roof, coarse masonry of large softly rounded boulders, at '
+        'most 15 stone courses over the wall height\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
         gameAssets: true,
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
+      // Mengenangabe: das Modell zählt nicht.
+      expect(text, contains('Mengenangaben'));
+      // Gradzahl: kein Winkelbegriff für ein Diffusions-Modell.
+      expect(text, contains('Gradzahl'));
+      // „boulders" hat die Häuser zu Findlings-Kuppeln gemacht.
+      expect(text, contains('boulders'));
+      // Und der Stil steht vor dem Motiv.
+      expect(text, contains('ersten 15 Wörtern'));
+    });
+
+    test('Bei sprachverstehenden Modellen bleibt die Gradzahl richtig',
+        () {
+      final plan = parseBatchPrompt(
+        'NAME: haus\nPROMPT: ${gameAssetSentences.join(' ')}\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      // GPT-Image versteht „35 degrees" – kein Hinweis dazu.
+      expect(text, isNot(contains('Gradzahl')));
+      expect(text, isNot(contains('Mengenangaben')));
       expect(text, isNot(contains('Spielgrafik')), reason: text);
     });
   });
@@ -218,7 +257,7 @@ void main() {
       final text = batchPromptBriefing(profile,
           references: ['burg.png']);
       expect(text, contains('SDXL'));
-      expect(text, contains('100 Wörter'));
+      expect(text, contains('60 Wörter'));
       expect(text, contains('Stichwortkette'));
       expect(text, contains('burg.png'));
     });
@@ -253,6 +292,16 @@ void main() {
       expect(text, contains(gameAssetKeywords));
       expect(text, contains(gameAssetNegativeTerms));
       expect(text, isNot(contains(gameAssetSentences.first)));
+      // Das Beispiel in der Vorlage ist der erprobte Block.
+      expect(text, contains('bld-02-bakery'));
+    });
+
+    test('„Beispiel einfügen" liefert bei Spielgrafik den Block', () {
+      final profile = promptProfileFor(GenProvider.selfhost, 'sdxl');
+      expect(batchPromptExample(profile, gameAssets: true),
+          gameAssetExample);
+      // Ohne den Schalter bleibt es beim allgemeinen Beispiel.
+      expect(batchPromptExample(profile), isNot(gameAssetExample));
     });
   });
 

@@ -365,10 +365,55 @@ und prüft sie beim Massenprompt mit:
   rund 13-fach verkleinert (eine Bäckerei ist nur etwa 78 Weltpixel
   hoch) – ein feines Mosaik zerfällt dabei zu Rauschen.
 
-Bei GPT-Image und Gemini stehen die vier Sätze wörtlich in der Vorlage,
-bei Stable Diffusion als Stichwortkette samt passendem Negativ-Prompt
-(`terrace, paving, base plate, platform, low wall, fence, steps …`),
-weil diese Modelle Verneinungen nicht verstehen.
+Bei GPT-Image und Gemini stehen die vier Sätze wörtlich in der Vorlage.
+**Stable Diffusion bekommt etwas anderes**, und das aus Erfahrung: Die
+erste Fassung übersetzte die Sätze eins zu eins in eine Stichwortkette
+– 47 Wörter. Zusammen mit 12 Motivwörtern blieben dem Gebäude 20 % des
+Prompts, und aus einer Bäckerei mit Kuppelofen wurden runde
+Lehmkuppeln in Sandfarbe. Drei Formulierungen waren dabei aktiv
+schädlich:
+
+- **Mengenangaben** (`at most 15 stone courses over the wall height`).
+  Das Modell zählt nicht; es sieht `stone courses` und macht mehr
+  Stein.
+- **Gradzahlen** (`camera elevation 35 degrees`). Kein Winkelbegriff –
+  `high angle isometric view` schon.
+- **`rounded boulders`**. Gemeint war grobes Mauerwerk, angekommen ist
+  „Gebäude aus Findlingen".
+
+Die Kette ist deshalb auf **28 Wörter** eingedampft und enthält keine
+Zahlen mehr:
+
+```
+single isolated building centered on empty ground, stylized diorama game asset,
+chunky rounded shapes, warm matte colors, soft golden hour light,
+high angle isometric view, plain grey background
+```
+
+Davor gehören **rund 15 Wörter Motiv**: Gebäudeart, auffälligstes
+Merkmal, Wände, Dach, ein bis zwei Requisiten. Zusammen bleibt der
+Block unter 60 Wörtern – die Grenze, die für SDXL jetzt auch in der
+Prüfung steht (vorher 100). Die Vereinzelung steht bewusst **im
+positiven Prompt** (`single isolated building centered on empty
+ground`): Gegen einen szenisch klingenden Prompt kommt eine
+Negativliste nicht an.
+
+**„Beispiel einfügen"** setzt bei eingeschalteten Spielgrafik-Regeln
+genau diesen erprobten Block ein:
+
+```
+NAME: bld-02-bakery
+PROMPT: medieval bakery with a big domed stone oven, timber framed walls,
+thatched roof, flour sacks, single isolated building centered on empty ground,
+stylized diorama game asset, chunky rounded shapes, warm matte colors,
+soft golden hour light, high angle isometric view, plain grey background
+NEGATIV: village, many houses, group of huts, second building, mud hut, dome hut,
+street, path, trees, bushes, grass, baskets, terrace, paving, base plate, platform,
+pedestal, low wall, fence, steps, blue-grey slate, glossy, harsh shadows,
+front view, eye level, text, watermark, people, blurry, low quality
+```
+
+15 Wörter Motiv, 28 Wörter Stil, zusammen 43.
 
 ## Massenprompt: viele Bilder in einem Lauf
 
@@ -433,7 +478,13 @@ aufhalten, aber die Ergebnisse deutlich verbessern:
   umgekehrt der Hinweis, dass kein einziger Block eine hat, obwohl das
   Modell sie auswertet.
 - Bei eingeschalteten Spielgrafik-Regeln: Bodenplatten, ein möglicher
-  zweiter Baukörper und ein fehlender Kamerawinkel.
+  zweiter Baukörper und eine fehlende Aufsicht – für
+  Diffusions-Modelle wird dabei `high angle isometric view` verlangt,
+  für GPT-Image und Gemini die Gradangabe.
+- Ebenfalls nur bei Diffusions-Modellen: Mengenangaben, Gradzahlen und
+  das Wort `boulders` – die drei Formulierungen, die den ersten
+  Bäckerei-Block gekippt haben – sowie Stil-Angaben, die schon in den
+  ersten 15 Wörtern stehen und damit das Motiv verdrängen.
 
 Erst nach dem grünen Haken lässt sich der Lauf starten; jede Änderung
 am Text macht die Prüfung wieder ungültig.

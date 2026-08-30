@@ -32,7 +32,10 @@ void main() {
       expect(profile.briefing, contains('PROMPT:'));
       expect(profile.briefing, contains('NEGATIV:'));
       expect(profile.wantsNegativePrompt, isTrue);
-      expect(profile.maxWords, 100);
+      // Ein CLIP-Block fasst 75 Tokens, also rund 60 Wörter. Darüber
+      // verwässert das Motiv – 97 Wörter mit 12 Motivwörtern kamen als
+      // Lehmkuppel zurück statt als Bäckerei.
+      expect(profile.maxWords, 60);
     });
 
     test('SDXL Turbo warnt vor fehlendem Negativ-Prompt und ist kurz', () {
@@ -84,6 +87,38 @@ void main() {
               .briefing;
       expect(keywords, contains(gameAssetKeywords));
       expect(keywords, contains(gameAssetNegativeTerms));
+      expect(keywords, contains(gameAssetExample));
+    });
+
+    test('Der Stil-Schwanz bleibt kurz und ohne die drei Stolpersteine',
+        () {
+      int words(String t) =>
+          t.replaceAll(',', ' ').split(RegExp(r'\s+'))
+              .where((w) => w.isNotEmpty).length;
+      // Die erste Fassung war 47 Wörter lang und hat das Motiv
+      // ertränkt. Zusammen mit 15 Motivwörtern muss der Block unter
+      // die 60-Wörter-Grenze von SDXL passen.
+      expect(words(gameAssetKeywords), lessThanOrEqualTo(30));
+      expect(words(gameAssetKeywords) + gameAssetLeadWords,
+          lessThan(promptProfileFor(GenProvider.selfhost, 'sdxl').maxWords));
+
+      // Mengenangaben, Gradzahlen und „boulders" sind raus.
+      expect(gameAssetKeywords, isNot(contains('boulder')));
+      expect(gameAssetKeywords, isNot(matches(RegExp(r'\d'))));
+      expect(gameAssetKeywords, contains('high angle isometric view'));
+      // Die Vereinzelung steht positiv im Prompt, nicht nur im
+      // Negativ-Block.
+      expect(gameAssetKeywords, contains('single isolated building'));
+    });
+
+    test('Die Stichwort-Vorlage warnt vor den drei Stolpersteinen', () {
+      final text =
+          promptProfileFor(GenProvider.selfhost, 'sdxl', gameAssets: true)
+              .briefing;
+      expect(text, contains('Mengenangaben'));
+      expect(text, contains('Gradzahlen'));
+      expect(text, contains('boulders'));
+      expect(text, contains('$gameAssetLeadWords Wörtern'));
     });
 
     test('Stability Core bleibt kurz, Ultra darf länger', () {

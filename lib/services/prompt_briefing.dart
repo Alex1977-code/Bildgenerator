@@ -199,9 +199,10 @@ String _modelRules(GenProvider provider, String model) {
             '(höchstens 50 Wörter), einfache Motive, keine komplizierten '
             'Proportions- oder Posenangaben – die setzt es nicht um.',
         'sdxl' => '- SDXL Base folgt der Kette genau und wertet den '
-            'NEGATIV-Block aus. Bis etwa 100 Wörter sind sinnvoll; '
-            'Qualitätsworte am Ende („highly detailed, sharp focus, '
-            'studio lighting") helfen.',
+            'NEGATIV-Block aus. Unter 60 Wörter bleiben, und das Motiv '
+            'in die ersten 15: Das Modell gewichtet nach Position und '
+            'Menge, ein langer Stil-Teil überstimmt sonst das '
+            'Hauptmotiv.',
         'sd35-medium' => '- SD 3.5 Medium versteht auch kurze Wortgruppen '
             'in natürlicher Sprache und schreibt Text im Bild lesbar; '
             'gewünschte Wörter in Anführungszeichen setzen.',
@@ -235,10 +236,15 @@ int _maxWords(GenProvider provider, String model) {
         : id.contains('sd3')
             ? 90
             : 60,
+    // Die Grenzen sind Erfahrungswerte, keine harten Abbrüche: Ein
+    // CLIP-Block fasst 75 Tokens, also rund 60 Wörter. Der Server
+    // reicht zwar mehr durch, aber jenseits davon verwässert das
+    // Motiv – ein 97-Wörter-Prompt mit 12 Motivwörtern kam als
+    // Lehmkuppel zurück statt als Bäckerei.
     GenProvider.selfhost => switch (id) {
         'sdxl-turbo' => 40,
         'sd15' => 50,
-        'sdxl' => 100,
+        'sdxl' => 60,
         'sd35-medium' => 120,
         'flux-schnell' => 120,
         _ => 60,
@@ -382,27 +388,56 @@ const List<String> gameAssetSentences = [
       'the game.',
 ];
 
-/// Dieselben Vorgaben als Stichworte – für Diffusions-Modelle, die
-/// Verneinungen nicht verstehen.
+/// Der feste Stil-Schwanz für Diffusions-Modelle – bewusst **kurz**.
+///
+/// Die erste Fassung war 47 Wörter lang und hat das Motiv ertränkt:
+/// Bei 12 Motivwörtern blieben nur 20 % des Prompts für das Gebäude
+/// übrig, und heraus kamen runde Lehmkuppeln statt einer Bäckerei.
+/// SDXL gewichtet nach Position und Menge – der Stil darf das Motiv
+/// nicht überstimmen.
+///
+/// Drei Formulierungen sind dabei ausdrücklich **nicht** mehr dabei:
+///
+/// * Mengenangaben („at most 15 stone courses") – das Modell zählt
+///   nicht, es sieht „stone courses" und macht mehr Stein.
+/// * Gradzahlen („camera elevation 35 degrees") – kein Winkelbegriff;
+///   „high angle isometric view" versteht es.
+/// * „rounded boulders" – zog ins Gegenteil und machte aus dem groben
+///   Mauerwerk Gebäude aus Findlingen.
 const String gameAssetKeywords =
-    'exactly one single building, isolated building standing directly '
-    'on flat bare ground, camera elevation 35 degrees looking down '
-    'onto the roof, coarse masonry of large softly rounded boulders, '
-    'at most 15 stone courses over the wall height, warm matte '
-    'materials, soft light, rounded roof edges and beams';
+    'single isolated building centered on empty ground, stylized '
+    'diorama game asset, chunky rounded shapes, warm matte colors, '
+    'soft golden hour light, high angle isometric view, plain grey '
+    'background';
 
 /// Was bei Spielgrafiken in den Negativ-Prompt gehört.
+///
+/// Die Vereinzelung steht bewusst **auch** im positiven Teil: Gegen
+/// einen langen Stil-Schwanz, der nach Szene klingt, kommt eine
+/// Negativliste allein nicht an.
 const String gameAssetNegativeTerms =
-    'second building, tower beside it, group of houses, terrace, '
-    'paving, cobblestones, base plate, platform, pedestal, low wall, '
-    'fence, steps, stairs, fine stone mosaic, small bricks, '
-    'blue-grey slate, glossy materials, harsh shadows, low camera '
-    'angle, front view, eye level';
+    'village, many houses, group of huts, second building, mud hut, '
+    'dome hut, street, path, trees, bushes, grass, baskets, terrace, '
+    'paving, base plate, platform, pedestal, low wall, fence, steps, '
+    'blue-grey slate, glossy, harsh shadows, front view, eye level, '
+    'text, watermark, people, blurry, low quality';
+
+/// Ein erprobter Block, an dem sich die Aufteilung ablesen lässt:
+/// 15 Wörter Motiv voran, dann der feste Stil-Schwanz – zusammen 43
+/// Wörter.
+const String gameAssetExample =
+    'NAME: bld-02-bakery\n'
+    'PROMPT: medieval bakery with a big domed stone oven, timber '
+    'framed walls, thatched roof, flour sacks, $gameAssetKeywords\n'
+    'NEGATIV: $gameAssetNegativeTerms';
+
+/// Wie viele Wörter am Anfang dem Motiv gehören.
+const int gameAssetLeadWords = 15;
 
 /// Was an der Farbwelt schon stimmt und erhalten bleiben soll.
 const String gameAssetKeep =
     'Beibehalten: warme Farbwelt, kein blaugrauer Schiefer, matte '
-    'Materialien, weiches Licht, gerundete Dachkanten und Balken.';
+    'Materialien, weiches Licht, gerundete Kanten.';
 
 /// Der Spielgrafik-Abschnitt für die Vorlage der Prompt-KI, passend
 /// zur Prompt-Art des Modells.
@@ -410,12 +445,36 @@ String gameAssetBriefing(PromptStyle style) {
   if (style == PromptStyle.keywords) {
     return 'Spielgrafik (Gebäude-Asset):\n'
         '$gameAssetReason\n'
-        '- Diese Stichworte gehören in jeden PROMPT (Verneinungen '
-        'gehen bei diesem Modell nicht):\n'
+        '- Aufbau jedes PROMPT: erst das MOTIV in etwa '
+        '$gameAssetLeadWords Wörtern, dann wörtlich der feste '
+        'Stil-Schwanz. Zusammen unter 60 Wörter. Diffusions-Modelle '
+        'gewichten nach Position und Menge – ein langer Stil-Teil '
+        'überstimmt sonst das Gebäude.\n'
+        '- Das Motiv nennt: um was für ein Gebäude es sich handelt, '
+        'sein auffälligstes Merkmal (bei einer Bäckerei der '
+        'Kuppelofen), die Wände, das Dach und ein bis zwei '
+        'Requisiten. Nicht mehr.\n'
+        '- Danach immer genau diese Kette, unverändert:\n'
         '  $gameAssetKeywords\n'
-        '- Diese Stichworte gehören in jede Zeile „NEGATIV:":\n'
+        '- Und immer genau diese Zeile „NEGATIV:":\n'
         '  $gameAssetNegativeTerms\n'
-        '- $gameAssetKeep';
+        '- KEINE Mengenangaben („at most 15 stone courses", „three '
+        'windows"). Das Modell zählt nicht; es sieht nur „stone '
+        'courses" und macht mehr Stein.\n'
+        '- KEINE Gradzahlen („camera elevation 35 degrees"). Als '
+        'Winkel versteht es das nicht – „high angle isometric view" '
+        'schon, das steht bereits in der Kette.\n'
+        '- KEIN „boulders" oder „rounded boulders". Gemeint war grobes '
+        'Mauerwerk, angekommen ist „Gebäude aus Findlingen" – runde '
+        'Lehmkuppeln ohne Dach.\n'
+        '- Die Vereinzelung muss im PROMPT stehen („single isolated '
+        'building centered on empty ground"), nicht nur im '
+        'NEGATIV-Block. Gegen einen szenisch klingenden Prompt kommt '
+        'eine Negativliste nicht an.\n'
+        '- $gameAssetKeep\n\n'
+        'So sieht ein fertiger Block aus (15 Wörter Motiv, dann die '
+        'Kette – zusammen 43 Wörter):\n\n'
+        '$gameAssetExample';
   }
   return 'Spielgrafik (Gebäude-Asset):\n'
       '$gameAssetReason\n'

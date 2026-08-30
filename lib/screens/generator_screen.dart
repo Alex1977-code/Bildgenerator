@@ -926,8 +926,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   onPressed: _generating
                       ? null
                       : () {
-                          _batchCtrl.text =
-                              batchPromptExample(_profile(settings));
+                          _batchCtrl.text = batchPromptExample(
+                              _profile(settings),
+                              gameAssets: _gameAssets);
                           _checkBatch();
                         },
                   icon: const Icon(Icons.lightbulb_outline, size: 18),
