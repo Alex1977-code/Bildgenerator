@@ -33,6 +33,7 @@ import '../services/rodin_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
+import '../services/pose_prompt.dart';
 import '../services/roblox_check.dart';
 import '../services/roblox_export.dart';
 import '../services/roblox_install.dart';
@@ -791,8 +792,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'ignorieren sie oder werden schlechter.\n'
           '- Kurz halten: eine Zeile im Stichwort-Stil mit Kommas. '
           'Wird das Ergebnis matschig, kürzen statt ergänzen.\n'
-          '- Bei Figuren ergänzen: "standing in T-pose, arms '
-          'stretched out".\n'
+          '- KEINE T-Pose-Angabe schreiben. Die App hängt sie bei '
+          'eingeschaltetem Rigging selbst an ("full body character in '
+          'T-pose, arms stretched out horizontally, …"). Steht sie '
+          'doppelt drin, kostet das nur Platz und verschiebt die '
+          'Gewichtung – Text→3D-Modelle wichten frühe Begriffe '
+          'stärker.\n'
+          '- Höchstens etwa 850 Zeichen. Tripo nimmt 1024, davon '
+          'gehen rund 120 für den T-Pose-Zusatz drauf.\n'
           '- Erzeuge zusätzlich einen englischen Negativ-Prompt '
           '(z. B. "low poly, blobby, melted, floating parts, base, '
           'pedestal, text").\n\n'
@@ -811,9 +818,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       'annimmt:\n\n'
       '- GENAU EINE Figur, ein zusammenhängender Körper. Keine '
       'zweite Person, kein Begleittier, kein Sockel, kein Podest.\n'
-      '- T-Pose: "standing in T-pose, arms stretched out '
-      'horizontally", Beine leicht auseinander, Blick nach vorn. Der '
-      'Roblox-Importer verlangt die T-Pose.\n'
+      '- KEINE T-Pose in den Prompt schreiben. Der Roblox-Importer '
+      'verlangt sie zwar, aber die App hängt sie bei eingeschaltetem '
+      'Rigging selbst an – doppelt kostet nur Platz und verschiebt '
+      'die Gewichtung.\n'
       '- Geschlossene, massive Formen mit sichtbarer Dicke. Keine '
       'hauchdünnen Flächen (Umhänge, Schleier, Blätter, Netze, '
       'Zäune) – die kommen als Flächen ohne Stärke heraus und '
@@ -971,9 +979,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
-  static const _tPoseSuffix =
-      'full body character in T-pose, arms stretched out horizontally, '
-      'legs slightly apart, facing forward, neutral expression';
+  /// Der Prompt, wie er tatsächlich an den Anbieter geht – mit dem
+  /// T-Pose-Zusatz, sofern Rigging an ist und die Pose nicht schon im
+  /// Text steht (siehe services/pose_prompt.dart).
+  String _effectivePrompt(String prompt) =>
+      withTPose(prompt, wanted: _rigging || _tPose);
+
+  /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
+  int get _promptSuffixChars =>
+      tPoseExtraChars(_promptCtrl.text, wanted: _rigging || _tPose);
 
   @override
   void dispose() {
@@ -1775,10 +1789,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           isCancelled: cancelled,
         );
       } else {
-        // Für Rigging (oder auf Wunsch) braucht das Modell eine T-Pose –
-        // wird automatisch an den Prompt angehängt.
-        final effectivePrompt =
-            _rigging || _tPose ? '$prompt, $_tPoseSuffix' : prompt;
+        // Für Rigging (oder auf Wunsch) braucht das Modell eine
+        // T-Pose – die hängt die App an, sofern sie nicht schon im
+        // Prompt steht.
+        final effectivePrompt = _effectivePrompt(prompt);
         taskPath = 'v2/text-to-3d';
         taskId = await service.createTextPreview(
           effectivePrompt,
@@ -1916,9 +1930,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       }
     } else {
       // Für Rigging (oder auf Wunsch) braucht das Modell eine T-Pose –
-      // wird automatisch an den Prompt angehängt.
-      final effectivePrompt =
-          _rigging || _tPose ? '$prompt, $_tPoseSuffix' : prompt;
+      // die hängt die App an, sofern sie nicht schon im Prompt steht.
+      final effectivePrompt = _effectivePrompt(prompt);
       modelTaskId = await service.createTextTask(
         effectivePrompt,
         texture: _texture,
@@ -2487,6 +2500,39 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
         ),
       );
+
+  /// Ob der fertige Prompt Tripos 1024-Zeichen-Grenze reißt.
+  bool get _tripoPromptTooLong =>
+      _effectivePrompt(_promptCtrl.text).length >
+      TripoService.maxPromptChars;
+
+  /// Hinweis unter dem Prompt-Feld bei Tripo.
+  ///
+  /// Gezählt wird der **fertige** Text: Bei Rigging hängt die App den
+  /// T-Pose-Zusatz an, und Tripo misst genau den. Wer nur das
+  /// Eingabefeld zählt, läuft bei jedem Rigging-Lauf in denselben
+  /// 400er.
+  String _tripoPromptHint() {
+    final raw = _promptCtrl.text.trim().length;
+    final effective = _effectivePrompt(_promptCtrl.text).length;
+    final suffix = _promptSuffixChars;
+    final anhang = suffix > 0
+        ? ' Dazu kommen $suffix Zeichen T-Pose-Zusatz (Rigging ist an) '
+            '– zusammen $effective.'
+        : (_rigging || _tPose)
+            ? ' Die T-Pose steht schon im Prompt, deshalb hängt die App '
+                'nichts an.'
+            : '';
+    if (!_tripoPromptTooLong) {
+      return '$raw von ${TripoService.maxPromptChars} Zeichen.$anhang '
+          'Knapp bleiben: Objektklasse zuerst, dann Silhouette, dann '
+          'wenige markante Merkmale.';
+    }
+    return 'Zu lang für Tripo: $effective von '
+        '${TripoService.maxPromptChars} Zeichen.$anhang Die App würde '
+        'am letzten Komma kürzen – besser selbst kürzen, damit nichts '
+        'Wichtiges hinten wegfällt.';
+  }
 
   /// Ob der Negativ-Prompt Tripos 255-Zeichen-Grenze reißt.
   bool get _tripoNegativeTooLong =>
@@ -3142,22 +3188,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     controller: _promptCtrl,
                     minLines: 2,
                     maxLines: 4,
-                    decoration: const InputDecoration(
+                    // Die Länge zählt erst nach dem Zusammenbauen:
+                    // Bei Rigging hängt die App den T-Pose-Zusatz an,
+                    // und Tripo misst den fertigen String.
+                    onChanged: (_) {
+                      if (isTripo) setState(() {});
+                    },
+                    decoration: InputDecoration(
                       labelText: 'Beschreibung des 3D-Modells',
                       hintText:
                           'z. B. „Ein mittelalterlicher Ritter in voller '
                           'Rüstung mit Schwert“',
-                      helperText:
-                          'Tipp für Text→3D: knapp bleiben – '
-                          'Objektklasse zuerst, dann Silhouette, dann '
-                          'wenige markante Merkmale; ein einzelnes, '
-                          'freistehendes Objekt. Kamera-, Licht- und '
-                          'Qualitätswörter („8k“, „photorealistic“) '
-                          'weglassen – 3D-Modelle ignorieren sie oder '
-                          'werden schlechter. Wird das Ergebnis '
-                          'matschig, hilft Kürzen mehr als Ergänzen.',
+                      helperText: isTripo
+                          ? _tripoPromptHint()
+                          : 'Tipp für Text→3D: knapp bleiben – '
+                              'Objektklasse zuerst, dann Silhouette, dann '
+                              'wenige markante Merkmale; ein einzelnes, '
+                              'freistehendes Objekt. Kamera-, Licht- und '
+                              'Qualitätswörter („8k“, „photorealistic“) '
+                              'weglassen – 3D-Modelle ignorieren sie oder '
+                              'werden schlechter. Wird das Ergebnis '
+                              'matschig, hilft Kürzen mehr als Ergänzen.',
                       helperMaxLines: 6,
-                      border: OutlineInputBorder(),
+                      helperStyle: isTripo && _tripoPromptTooLong
+                          ? TextStyle(color: Colors.orange.shade800)
+                          : null,
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 8),
