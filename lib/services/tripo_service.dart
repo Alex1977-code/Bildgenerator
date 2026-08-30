@@ -131,40 +131,41 @@ class TripoService {
 
   /// Legt einen Task an. [v3Path] ist der eigene V3-Endpunkt, [v2Type]
   /// der Wert, den V2 im Feld `type` erwartet.
+  /// Legt einen Auftrag an.
+  ///
+  /// [optional] nennt Felder, die nicht jede Modellfassung kennt.
+  /// Weist Tripo eines davon zurück, wird der Auftrag ohne diese
+  /// Felder wiederholt – die Alternative wäre ein Lauf, der gar nicht
+  /// erst startet, nur weil eine Zusatzoption fehlt.
   Future<String> _createTask(
     String v3Path,
     String v2Type,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    Set<String> optional = const {},
+  }) async {
     final url = _v3 ? '$_base$v3Path' : '$_base/task';
     final payload = _v3 ? body : {'type': v2Type, ...body};
-    http.Response response;
-    try {
-      response = await http.post(
-        Uri.parse(url),
-        headers: _jsonHeaders,
-        body: jsonEncode(payload),
-      );
-    } catch (e) {
-      _throwNetworkError(e);
-    }
-    // „smart_low_poly" kennt nicht jede Modellfassung. Weist Tripo
-    // das Feld zurück, wird der Auftrag ohne es wiederholt statt zu
-    // scheitern – die Alternative wäre ein Lauf, der gar nicht erst
-    // startet, nur weil eine Zusatzoption fehlt.
-    if (response.statusCode >= 400 &&
-        payload.containsKey('smart_low_poly') &&
-        response.body.contains('smart_low_poly')) {
-      final retry = {...payload}..remove('smart_low_poly');
+    Future<http.Response> post(Map<String, dynamic> data) async {
       try {
-        response = await http.post(
+        return await http.post(
           Uri.parse(url),
           headers: _jsonHeaders,
-          body: jsonEncode(retry),
+          body: jsonEncode(data),
         );
       } catch (e) {
         _throwNetworkError(e);
       }
+    }
+
+    var response = await post(payload);
+    final rejected = optional
+        .where((key) => payload.containsKey(key))
+        .where((key) => response.body.contains(key))
+        .toList();
+    if (response.statusCode >= 400 && rejected.isNotEmpty) {
+      final retry = {...payload}
+        ..removeWhere((key, _) => optional.contains(key));
+      response = await post(retry);
     }
     final data = _unwrap(response);
     final id = data['task_id'] as String?;
@@ -257,14 +258,14 @@ class TripoService {
       // Angabe lehnt sie den Auftrag ab oder liefert stillschweigend
       // FBX. Siehe [quadForcesFbx].
       if (quad) ...{'quad': true, 'out_format': 'fbx'},
-      // Obergrenze der Flächen – deutlich weniger Ärger als
-      // nachträgliches Dezimieren, etwa für den Roblox-Import.
+      // Obergrenze der Flächen bei der Generierung.
       //
-      // Achtung: Die Grenze ist ein Wunsch, keine Zusage. Ein Lauf mit
-      // face_limit = 10.000 lieferte 101.298 Dreiecke. Wer die Zahl
-      // wirklich braucht, schaltet [smartLowPoly] dazu – das ist der
-      // Weg, auf dem Tripo ein spielefertiges Netz baut, statt das
-      // volle nur zu beschneiden.
+      // Gemessen an einem Lauf: mit face_limit = 10.000 kamen 101.298
+      // Dreiecke zurück. Woran das lag, steht in keiner Dokumentation,
+      // die hier greifbar war – belegt ist nur die Beobachtung. Wer
+      // die Zahl sicher braucht, nimmt deshalb [createConvertTask]:
+      // Dort ist face_limit dokumentiert (Vorgabe 10.000) und Tripo
+      // rechnet das fertige Modell neu, mit UVs und Textur.
       if (faceLimit > 0) 'face_limit': faceLimit,
       if (smartLowPoly) 'smart_low_poly': true,
       if (texture && detailedTexture) 'texture_quality': 'detailed',
@@ -281,7 +282,8 @@ class TripoService {
     bool smartLowPoly = false,
     String? negativePrompt,
   }) =>
-      _createTask('/generation/text-to-model', 'text_to_model', {
+      _createTask(optional: _optionalQualityFields,
+          '/generation/text-to-model', 'text_to_model', {
         'prompt': clipToLimit(prompt, maxPromptChars),
         'texture': texture,
         'pbr': texture,
@@ -309,7 +311,8 @@ class TripoService {
     bool smartLowPoly = false,
   }) {
     final subtype = mimeType.split('/').last;
-    return _createTask('/generation/image-to-model', 'image_to_model', {
+    return _createTask(optional: _optionalQualityFields,
+        '/generation/image-to-model', 'image_to_model', {
       'file': {
         'type': subtype == 'jpeg' ? 'jpg' : subtype,
         'file_token': fileToken,
@@ -349,7 +352,7 @@ class TripoService {
       };
     }
 
-    return _createTask(
+    return _createTask(optional: _optionalQualityFields,
         '/generation/multiview-to-model', 'multiview_to_model', {
       'files': [for (final view in views) fileEntry(view)],
       'texture': texture,
@@ -375,17 +378,74 @@ class TripoService {
   /// keine GLB mehr.
   static const bool quadForcesFbx = true;
 
+  /// Felder, die nicht jede Modellfassung kennt – siehe [_createTask].
+  static const Set<String> _optionalQualityFields = {
+    'smart_low_poly',
+    'texture_quality',
+  };
+
+  /// Rechnet ein fertiges Modell bei Tripo neu.
+  ///
+  /// Das ist der Weg, ein Modell auf eine Dreiecks- und Texturgrenze
+  /// zu bringen, **ohne** es lokal zu dezimieren: Tripo remesht auf
+  /// [faceLimit] und backt die Texturen auf [textureSize] – UVs und
+  /// Bilder bleiben dabei erhalten, weil derselbe Dienst rechnet, der
+  /// das Modell gebaut hat. Ein lokaler Dezimierer könnte das nicht:
+  /// Er müsste UV-Nähte auftrennen und die Textur neu packen.
+  ///
+  /// Kostet zusätzliche Credits (laut Preisliste 10 für eine reine
+  /// Umwandlung, 20 sobald Geometrie-Optionen wie `face_limit` oder
+  /// `texture_size` dabei sind).
+  ///
+  /// Der V3-Pfad ist nicht dokumentiert gewesen, als das hier
+  /// entstand; bei 404 nennt die Fehlermeldung den Weg über V2, wo
+  /// der Auftrag als `type: convert_model` sicher angenommen wird.
+  Future<String> createConvertTask(
+    String modelTaskId, {
+    int faceLimit = 0,
+    int textureSize = 0,
+    bool quad = false,
+    bool packUv = false,
+    String format = 'GLTF',
+  }) =>
+      _createTask('/conversion/convert-model', 'convert_model', {
+        'original_model_task_id': modelTaskId,
+        'format': format,
+        if (faceLimit > 0) 'face_limit': faceLimit,
+        if (textureSize > 0) 'texture_size': textureSize,
+        if (quad) 'quad': true,
+        if (packUv) 'pack_uv': true,
+      });
+
   /// Prüft, ob das Modell riggbar ist (Figur erkannt).
   Future<String> createPrerigCheck(String modelTaskId) =>
       _createTask('/animations/rig-check', 'animate_prerigcheck', {
         'original_model_task_id': modelTaskId,
       });
 
-  Future<String> createRig(String modelTaskId) =>
-      _createTask('/animations/rig', 'animate_rig', {
-        'original_model_task_id': modelTaskId,
-        'out_format': 'glb',
-      });
+  /// Figurtypen, die Tripos Rigging kennt – Schlüssel ist der Typ
+  /// aus der App.
+  static const Map<String, String> rigTypes = {
+    'biped': 'biped',
+    'quadruped': 'quadruped',
+    'insect': 'hexapod',
+    'bird': 'avian',
+    'snake': 'serpentine',
+    'fish': 'aquatic',
+  };
+
+  Future<String> createRig(String modelTaskId, {String rigType = ''}) =>
+      _createTask(
+          optional: const {'rig_type', 'spec'},
+          '/animations/rig',
+          'animate_rig',
+          {
+            'original_model_task_id': modelTaskId,
+            'out_format': 'glb',
+            // Ohne Typangabe muss Tripo raten; bei einer Kapuzenfigur
+            // ohne sichtbares Gesicht ist das eine unnötige Hürde.
+            if (rigTypes[rigType] != null) 'rig_type': rigTypes[rigType],
+          });
 
   Future<Map<String, dynamic>> getTask(String id) async {
     http.Response response;

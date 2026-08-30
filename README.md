@@ -654,13 +654,25 @@ PLY, STL, ZIP), sie steht in der Ergebniskarte, der Export bekommt die
 richtige Endung, und die GLB-Funktionen sind grau statt kaputt. Dieselbe
 Prüfung greift bei per Drag & Drop abgelegten Dateien.
 
-**Bei Tripo ist `face_limit` ein Wunsch, keine Zusage.** Ein Lauf mit
-angefragten 10.000 Flächen lieferte 101.298 Dreiecke – gemessen an der
-gelieferten GLB, nicht geschätzt. Wer die Zahl wirklich braucht,
-schaltet **„Smart Low-Poly"** dazu: Damit baut Tripo ein
-spielefertiges Netz, statt das volle nur zu beschneiden. Die
-Roblox-Vorlage schaltet es ein. Kennt eine Modellfassung das Feld
-nicht, wiederholt die App den Auftrag ohne es, statt zu scheitern.
+**Bei Tripo hat `face_limit` in einem Lauf nicht gegriffen.** Angefragt
+waren 10.000 Flächen, in der gelieferten GLB stecken 101.298 Dreiecke –
+gemessen, nicht geschätzt. Woran das lag, steht in keiner
+Dokumentation, die greifbar war; belegt ist nur die Beobachtung. Zwei
+Wege führen trotzdem zum Ziel:
+
+- **„Smart Low-Poly"** bei der Generierung: Damit baut Tripo ein
+  spielefertiges Netz, statt das volle nur zu beschneiden. Die
+  Roblox-Vorlage schaltet es ein. Kennt eine Modellfassung das Feld
+  nicht, wiederholt die App den Auftrag ohne es, statt zu scheitern.
+- **„Bei Tripo3D nachrechnen"** am fertigen Modell: Die Prüfung bietet
+  den Knopf an, sobald Dreiecke oder Texturen über der Grenze liegen.
+  Er schickt das Modell über Tripos Umwandlungs-Auftrag zurück –
+  `face_limit` (dort mit dokumentierter Vorgabe 10.000) und
+  `texture_size` in einem Lauf – und holt es passend wieder. **UVs und
+  Textur bleiben erhalten, weil derselbe Dienst rechnet, der das
+  Modell gebaut hat.** Das kostet zusätzliche Credits (laut Preisliste
+  20 für einen Lauf mit Geometrie-Optionen), deshalb fragt die App
+  vorher.
 
 Damit hinterher nicht offenbleibt, wer die Grenze übergangen hat,
 merkt sich jedes Ergebnis, **was angefordert war** („Tripo
@@ -679,11 +691,22 @@ wachsen; die Karte nennt die gemessene Größe vorher und nachher. Am
 Beispiel der 3,19-MB-Figur: drei Texturen 2048 → 1024, Geometrie
 unverändert, Datei 3,83 MB, Textur-Blocker weg.
 
-**Die Dreieckszahl kann die App nicht senken.** Ein Netz zu
+**Die Dreieckszahl senkt die App nicht selbst.** Ein Netz zu
 reduzieren, ohne UV-Nähte und damit die Textur zu zerstören, braucht
-ein Werkzeug, das UVs und Rig mitführt – dafür bleibt Blender
-(Modifier **Decimate**) der Weg. Die Prüfung sagt das so, statt einen
-Knopf anzubieten, der das Modell verunstaltet.
+ein Werkzeug, das UVs und Rig mitführt. Der eingebaute Dezimierer
+arbeitet per Vertex-Clustering und wirft die UVs weg – auf einem
+texturierten Modell wäre das Ergebnis eine zerrissene Textur. Deshalb
+geht der Weg über den Anbieter (siehe „Bei Tripo3D nachrechnen") oder
+über Blender (Modifier **Decimate**), statt über einen Knopf, der das
+Modell verunstaltet.
+
+**Kein Skelett, obwohl Rigging an war?** Dann steht der Grund am
+Ergebnis und in der Prüfung („Rigging wurde angefordert, kam aber
+nicht zustande: …"). Vorher gab es dafür nur eine Kurzmeldung während
+des Laufs – wer sie verpasste, sah später ein Modell ohne Rig-Anzeige
+und ohne Animationen und wusste nicht, ob die App nicht gefragt oder
+der Dienst abgelehnt hatte. Die App nennt Tripo beim Rigging jetzt
+auch den Figurtyp (`rig_type`), statt ihn raten zu lassen.
 
 **Die Einheiten der Anbieter meinen nicht dasselbe.** `face_limit` bei
 Tripo, `target_polycount` bei Meshy und `quality_override` bei Rodin

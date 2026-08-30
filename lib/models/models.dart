@@ -298,6 +298,8 @@ class ThreeDResult {
     this.rigTypeUsed,
     this.format = ModelFormat.glb,
     this.limitNote = '',
+    this.rigNote = '',
+    this.providerTaskId = '',
   });
 
   Uint8List glbBytes;
@@ -324,6 +326,20 @@ class ThreeDResult {
   /// das war die Frage, als ein Lauf mit angefragten 10.000 Flächen
   /// 101.298 Dreiecke lieferte.
   final String limitNote;
+
+  /// Warum kein Skelett drin ist, obwohl eines angefordert war.
+  ///
+  /// Ohne diesen Satz sieht man im Viewer nur ein Modell ohne
+  /// Rig-Anzeige und ohne Animationen und weiß nicht, ob die App
+  /// nicht gefragt oder der Dienst abgelehnt hat.
+  final String rigNote;
+
+  /// Auftragskennung beim Anbieter, solange sie gilt.
+  ///
+  /// Damit lässt sich das fertige Modell beim Anbieter noch einmal
+  /// anfassen – bei Tripo etwa neu berechnen (Dreiecks- und
+  /// Texturgrenze), ohne es lokal zu verschlechtern.
+  final String providerTaskId;
 
   /// Das Modell VOR dem eigenen Auto-Rigging plus verwendeter
   /// Figurtyp – Grundlage für den Rig-Editor (Gelenke manuell

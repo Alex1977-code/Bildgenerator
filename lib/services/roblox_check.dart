@@ -280,15 +280,18 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         'Über der Grenze von ${_n(hard)} je Mesh – der Importer weist '
             'es ab. Am besten schon bei der Generierung begrenzen '
             '(Meshy „target_polycount", Tripo „face_limit", Rodin '
-            '„quality_override"). Bei Tripo reicht die Zahl allein '
-            'nicht: Ein Lauf mit angefragten 10.000 Flächen lieferte '
-            '101.298 Dreiecke. Dort zusätzlich „Smart Low-Poly" '
-            'einschalten – damit baut Tripo ein spielefertiges Netz, '
-            'statt das volle nur zu beschneiden. Bleibt es zu groß, '
-            'hilft nur Blender („Decimate"): Die Dreiecke lassen sich '
-            'hier nicht reduzieren, ohne UVs und Textur zu zerstören. '
-            'Achtung bei Quad-Netzen: Jedes Viereck wird zu zwei '
-            'Dreiecken.\$sum'));
+            '„quality_override"); bei Tripo zusätzlich „Smart '
+            'Low-Poly" einschalten – mit „face_limit" = 10.000 allein '
+            'kamen in einem Lauf 101.298 Dreiecke zurück. Ist es '
+            'trotzdem zu viel, das Modell beim Anbieter neu rechnen '
+            'lassen: Der Knopf „Bei Tripo3D nachrechnen" schickt es '
+            'zurück und holt es mit Dreiecks- und Texturgrenze wieder '
+            '– UVs und Textur bleiben erhalten, weil derselbe Dienst '
+            'rechnet. Nur wenn auch das nicht geht, bleibt Blender '
+            '(„Decimate"). In der App selbst lassen sich die Dreiecke '
+            'nicht senken, ohne UV-Nähte und damit die Textur zu '
+            'zerstören. Achtung bei Quad-Netzen: Jedes Viereck wird zu '
+            'zwei Dreiecken.\$sum'));
   } else if (largest > goal) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,

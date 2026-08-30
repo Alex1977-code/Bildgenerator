@@ -1440,6 +1440,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     String? rigTypeUsed,
     ModelFormat format = ModelFormat.glb,
     String limitNote = '',
+    String rigNote = '',
+    String providerTaskId = '',
   }) {
     if (!mounted) return;
     setState(() {
@@ -1456,6 +1458,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           rigTypeUsed: rigTypeUsed,
           format: format,
           limitNote: limitNote,
+          rigNote: rigNote,
+          providerTaskId: providerTaskId,
         ),
       );
     });
@@ -1470,6 +1474,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'Rigging': rigged ? 'ja' : 'nein',
         if (format != ModelFormat.glb) 'Format': modelFormatLabel(format),
         if (limitNote.isNotEmpty) 'Angefordert': limitNote,
+        if (rigNote.isNotEmpty) 'Rigging-Hinweis': rigNote,
       },
     );
   }
@@ -2078,6 +2083,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
     var glbUrl = TripoService.findGlbUrl(modelData);
     var rigged = false;
+    var rigNote = '';
     if (_rigging) {
       try {
         final checkId = await service.createPrerigCheck(modelTaskId);
@@ -2093,7 +2099,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           throw GenerationException(
               'Tripo3D hat keine riggbare Figur erkannt.');
         }
-        final rigId = await service.createRig(modelTaskId);
+        final rigId =
+            await service.createRig(modelTaskId, rigType: _rigType);
         final rigData = await service.waitForTask(
           rigId,
           stageLabel: 'Rigging (Skelett)',
@@ -2104,7 +2111,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         rigged = true;
       } on GenerationException catch (e) {
         // Rigging kann bei Nicht-Figuren scheitern – Modell trotzdem
-        // liefern und den Grund anzeigen.
+        // liefern. Der Grund gehört ans Ergebnis, nicht nur in eine
+        // Kurzmeldung: Sonst steht später ein Modell ohne
+        // Rig-Anzeige und ohne Animationen da, und niemand weiß,
+        // woran es lag.
+        rigNote = e.message;
         _showSnack('Rigging nicht möglich: ${e.message} – '
             'das Modell wird ohne Skelett exportiert.');
       }
@@ -2141,6 +2152,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       rigged: rigged,
       textured: _texture,
       format: format,
+      rigNote: rigNote,
+      providerTaskId: modelTaskId,
       limitNote: _tripoFaceLimit > 0
           ? 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}'
               '${_tripoQuad ? ' (Vierecke)' : ''}, Smart Low-Poly: '
@@ -2990,10 +3003,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   Future<void> _showRobloxCheck(ThreeDResult result) async {
     List<RobloxFinding> findings;
     bool texturesTooLarge;
+    bool tooManyTriangles;
     try {
       final facts = await readRobloxFacts(result.glbBytes);
       findings = checkRobloxFacts(facts, _robloxTarget);
       texturesTooLarge = facts.textures.any((t) => t.tooLarge);
+      tooManyTriangles = facts.triangles > _robloxTarget.goalTriangles;
     } catch (e) {
       if (mounted) _showSnack('Die Roblox-Prüfung schlug fehl: $e');
       return;
@@ -3030,6 +3045,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             : Colors.green.shade700),
                   ),
                   const SizedBox(height: 4),
+                  if (result.rigNote.isNotEmpty)
+                    Text('Rigging wurde angefordert, kam aber nicht '
+                        'zustande: ${result.rigNote}',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.orange.shade800)),
                   if (result.limitNote.isNotEmpty)
                     // Ohne diese Zeile bleibt offen, ob die App die
                     // Grenze nicht mitgeschickt oder der Anbieter sie
@@ -3081,9 +3101,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
           ),
           actions: [
-            // Der einzige harte Punkt, den die App selbst beheben
-            // kann. Die Dreieckszahl braucht ein Werkzeug, das UVs
-            // und Rig mitführt – das kann sie nicht.
+            // Beides in einem Auftrag – und beim Anbieter gerechnet,
+            // nicht hier: Tripo remesht mit UVs und Textur.
+            if ((tooManyTriangles || texturesTooLarge) &&
+                result.providerTaskId.isNotEmpty &&
+                context.read<SettingsService>().threeDProvider == 'tripo')
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _remeshAtTripo(result);
+                },
+                child: const Text('Bei Tripo3D nachrechnen …'),
+              ),
+            // Texturen kann die App auch selbst verkleinern – ohne
+            // Credits und ohne Netz. Die Dreieckszahl nicht: Dafür
+            // braucht es ein Werkzeug, das UVs und Rig mitführt.
             if (texturesTooLarge)
               TextButton(
                 onPressed: () {
@@ -3101,6 +3133,108 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         );
       },
     );
+  }
+
+  /// Lässt Tripo das fertige Modell neu rechnen: Dreiecksgrenze und
+  /// Texturgröße in einem Auftrag, mit UVs und Textur.
+  ///
+  /// Das ist der Weg, der die App nicht braucht, um selbst zu
+  /// dezimieren – gerechnet wird beim selben Dienst, der das Modell
+  /// gebaut hat.
+  Future<void> _remeshAtTripo(ThreeDResult result) async {
+    final settings = context.read<SettingsService>();
+    final apiKey = settings.tripoApiKey;
+    if (apiKey == null || apiKey.trim().isEmpty) {
+      _showSnack('Für das Nachrechnen wird der Tripo3D-Schlüssel '
+          'gebraucht.');
+      return;
+    }
+    if (result.providerTaskId.isEmpty) {
+      _showSnack('Zu diesem Modell ist keine Tripo-Auftragskennung '
+          'gespeichert – nachrechnen geht nur bei Modellen aus dieser '
+          'Fassung der App.');
+      return;
+    }
+    final goal = _robloxTarget.goalTriangles;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bei Tripo3D nachrechnen lassen'),
+        content: Text(
+          'Tripo rechnet das fertige Modell neu: höchstens '
+          '${_n(goal)} Flächen und Texturen auf '
+          '$robloxMaxTexture Pixel, UVs und Bilder bleiben erhalten. '
+          'Das ist ein neuer Auftrag beim Anbieter und kostet '
+          'zusätzliche Credits (laut Preisliste 20 für einen Lauf mit '
+          'Geometrie-Optionen).\n\n'
+          'Der Vorteil gegenüber dem Dezimieren in der App: Dort '
+          'müssten UV-Nähte aufgetrennt und die Textur neu gepackt '
+          'werden – das kann die App nicht, ohne das Modell zu '
+          'verunstalten.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Nachrechnen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final service = TripoService(apiKey.trim(),
+        version: TripoApiVersion.fromName(settings.tripoApiVersion));
+    setState(() {
+      _running = true;
+      _stage = 'Tripo3D rechnet das Modell neu …';
+    });
+    try {
+      final taskId = await service.createConvertTask(
+        result.providerTaskId,
+        faceLimit: goal,
+        textureSize: robloxMaxTexture,
+        packUv: true,
+      );
+      final data = await service.waitForTask(
+        taskId,
+        stageLabel: 'Neu rechnen',
+        onProgress: (text) {
+          if (mounted) setState(() => _stage = text);
+        },
+        isCancelled: () => false,
+      );
+      final url = TripoService.findGlbUrl(data);
+      if (url == null) {
+        throw GenerationException(
+            'Tripo3D hat kein neues Modell zurückgegeben.');
+      }
+      final bytes = await service.downloadFile(url);
+      final format = detectModelFormat(bytes);
+      if (!mounted) return;
+      if (format != ModelFormat.glb) {
+        _showSnack('Tripo3D hat ${modelFormatLabel(format)} geliefert '
+            '– das Ergebnis bleibt unverändert.');
+        return;
+      }
+      setState(() => result.glbBytes = bytes);
+      _showSnack('Neu gerechnet – die Prüfung öffnet sich gleich.');
+      await _showRobloxCheck(result);
+    } on GenerationException catch (e) {
+      if (mounted) _showSnack('Nachrechnen fehlgeschlagen: ${e.message}');
+    } catch (e) {
+      if (mounted) _showSnack('Nachrechnen fehlgeschlagen: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stage = '';
+        });
+      }
+    }
   }
 
   /// Verkleinert die eingebetteten Texturen auf die Roblox-Grenze und
@@ -4634,10 +4768,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         title: const Text('Smart Low-Poly'),
                         subtitle: Text(
                           'Tripo baut ein spielefertiges Netz, statt '
-                          'das volle nur zu beschneiden. Ohne das '
-                          'bleibt „face_limit" ein Wunsch: Ein Lauf '
-                          'mit angefragten 10.000 Flächen lieferte '
-                          '101.298 Dreiecke. '
+                          'das volle nur zu beschneiden. Gemessen an '
+                          'einem Lauf: Mit „face_limit" = 10.000 kamen '
+                          '101.298 Dreiecke zurück – die Grenze allein '
+                          'hat dort nicht gegriffen. '
                           '${_robloxMode ? 'Für Roblox ist das der '
                               'entscheidende Schalter – dort zählt '
                               'genau diese Zahl.' : 'Sinnvoll für '
@@ -5259,6 +5393,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       if (!result.usableInApp)
                         modelFormatLabel(result.format),
                     ].join(' · ')),
+                    // Ohne Skelett gibt es keine Rig-Anzeige und keine
+                    // Animationen. Warum, steht hier – sonst bleibt
+                    // nur Rätselraten.
+                    if (result.rigNote.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Ohne Skelett: ${result.rigNote} Deshalb '
+                          'zeigt der Viewer kein Rig und keine '
+                          'Animationen.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.orange.shade800),
+                        ),
+                      ),
                     // Steht hier kein GLB, sagt die Karte das – und
                     // warum die Knöpfe daneben grau sind.
                     if (!result.usableInApp)
@@ -5272,7 +5420,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ),
                   ],
                 ),
-                isThreeLine: !result.usableInApp,
+                isThreeLine:
+                    !result.usableInApp || result.rigNote.isNotEmpty,
                 onTap: result.usableInApp
                     ? () => _openModelPreview(result)
                     : null,
