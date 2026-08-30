@@ -1571,4 +1571,40 @@ void main() {
     expect(rigTypePromptRules['snake'], contains('ohne Gliedmaßen'));
     expect(rigTypePromptRules['vehicle'], contains('Räder'));
   });
+
+  group('Blickrichtung aus der Geometrie', () {
+    /// Baut eine stehende Figur als Punktwolke: Fuesse mit Zehen nach
+    /// +z, ein Bauch, der nach vorn steht, und eine Kapuze, die nach
+    /// hinten ueberhaengt. Genau diese Kombination hat die alte
+    /// Messung umgedreht – sie verglich den Fuss mit dem Rumpf und den
+    /// Kopf mit der Brust, und beide Bezugspunkte waren verschoben.
+    Float32List figur({required double front}) {
+      final points = <double>[];
+      void add(double x, double y, double z) {
+        points.addAll([x, y * 1.0, z * front]);
+      }
+
+      for (var i = 0; i < 400; i++) {
+        final t = i / 400;
+        // Fuesse 0-8 %: von der Ferse (-0.1) bis zur Zehe (+0.35).
+        add(-0.3 + 0.6 * (i % 2), 0.02 + 0.05 * t, -0.1 + 0.45 * t);
+        // Schienbein 12-28 %: schlank, mittig.
+        add(-0.3 + 0.6 * (i % 2), 0.14 + 0.14 * t, -0.05 + 0.1 * t);
+        // Bauch 45-70 %: dick und weit nach vorn.
+        add(-0.5 + 1.0 * t, 0.45 + 0.25 * t, 0.55);
+        // Kapuze 75-100 %: haengt nach hinten ueber.
+        add(-0.3 + 0.6 * t, 0.75 + 0.25 * t, -0.5);
+      }
+      return Float32List.fromList(points);
+    }
+
+    test('Bauch und Kapuze drehen die Richtung nicht mehr um', () {
+      // Zehen nach +z -> Gesicht nach +z, obwohl Bauch (+0.55) und
+      // Kapuze (-0.5) in entgegengesetzte Richtungen ziehen.
+      expect(estimateFrontSign([figur(front: 1)]), 1);
+      // Dieselbe Figur gespiegelt: Zehen nach -z.
+      expect(estimateFrontSign([figur(front: -1)]), -1);
+    });
+  });
+
 }

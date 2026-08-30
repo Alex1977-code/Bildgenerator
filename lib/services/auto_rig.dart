@@ -16,6 +16,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// Was die Beschreibung zeigen muss, damit sich ein Modell dieses
@@ -103,6 +104,8 @@ class _BodyProfile {
     required this.neckY,
     required this.legX,
     this.shoulderY,
+    this.armInnerX,
+    this.armOuterX,
   });
 
   final double crotchY; // Beinansatz (absolute y-Koordinate)
@@ -114,6 +117,17 @@ class _BodyProfile {
   /// bei Frisuren, die den Kopf breit umschließen. Null, wenn keine
   /// getrennten Arme erkennbar sind (z. B. echte T-Pose).
   final double? shoulderY;
+
+  /// Wo der Arm den Rumpf verlässt und wo er endet – jeweils als
+  /// Abstand von der Körpermitte. Gemessen an den Inseln des
+  /// Arm-Bands; null, wenn keine freistehenden Arme erkennbar sind.
+  ///
+  /// Vorher standen dafür feste Anteile der Modellbreite. Bei einer
+  /// T-Pose **ist** die Modellbreite aber die Armspanne, und ein
+  /// Zehntel davon liegt mitten im Rumpf – die Schulter landete
+  /// entsprechend zu weit innen.
+  final double? armInnerX;
+  final double? armOuterX;
 }
 
 /// Vermisst die Figur über ein Höhenprofil: Beinspalt (zwei getrennte
@@ -133,7 +147,6 @@ _BodyProfile _analyzeBipedProfile(
         legX: 0.06 * width);
   }
   final cx = (minX + maxX) / 2;
-  final centerBand = 0.06 * width;
   final hasLeft = List<bool>.filled(bins, false);
   final hasRight = List<bool>.filled(bins, false);
   final hasCenter = List<bool>.filled(bins, false);
@@ -151,9 +164,6 @@ _BodyProfile _analyzeBipedProfile(
       var bin = ((y - minY) / height * bins).floor();
       if (bin < 0) bin = 0;
       if (bin >= bins) bin = bins - 1;
-      if (x < -centerBand) hasLeft[bin] = true;
-      if (x > centerBand) hasRight[bin] = true;
-      if (x.abs() <= centerBand) hasCenter[bin] = true;
       if (x.abs() > halfWidth[bin]) halfWidth[bin] = x.abs();
       legXSum[bin] += x.abs();
       legXCount[bin]++;
@@ -164,6 +174,34 @@ _BodyProfile _analyzeBipedProfile(
     }
   }
   double binY(int bin) => minY + (bin + 0.5) / bins * height;
+
+  // Körperbreite statt Modellbreite. Bei einer T-Pose ist die
+  // Modellbreite die Armspanne – ein daran bemessenes Mittelband ist
+  // breiter als der Beinspalt, und der Spalt wird nie als frei
+  // erkannt. Gemessen wird deshalb in Hüfthöhe, wo keine Arme sind.
+  var bodyHalf = 0.0;
+  for (var bin = (bins * 0.25).floor(); bin < (bins * 0.45).floor(); bin++) {
+    if (halfWidth[bin] > bodyHalf) bodyHalf = halfWidth[bin];
+  }
+  if (bodyHalf <= 0) bodyHalf = 0.5 * width;
+  final centerBand = 0.12 * bodyHalf;
+  final middleCell = xBins ~/ 2;
+  final centerCells = (centerBand / (width / xBins)).ceil();
+  for (var bin = 0; bin < bins; bin++) {
+    for (var x = 0; x < xBins; x++) {
+      if (occ[bin * xBins + x] == 0) continue;
+      if (x < middleCell - centerCells) {
+        hasLeft[bin] = true;
+      } else if (x > middleCell + centerCells) {
+        hasRight[bin] = true;
+      } else {
+        hasCenter[bin] = true;
+      }
+    }
+  }
+
+  /// Abstand einer Rasterzelle von der Körpermitte.
+  double cellX(int cell) => (minX + (cell + 0.5) * width / xBins - cx).abs();
 
   // Inseln einer Zeile: zusammenhängende belegte x-Zellen; Lücken von
   // einer Zelle werden überbrückt (Rauschen), ab zwei leeren Zellen
@@ -189,18 +227,41 @@ _BodyProfile _analyzeBipedProfile(
     return islands;
   }
 
-  // Beinspalt: zusammenhängender Bereich von unten, in dem links und
-  // rechts belegt sind, die Mitte aber frei bleibt.
-  bool split(int bin) => hasLeft[bin] && hasRight[bin] && !hasCenter[bin];
+  // Beinspalt über die Inseln: Vom Boden aufwärts zerfällt jede Zeile
+  // in genau zwei Inseln, solange die Beine getrennt sind. Wo sie
+  // wieder zu einer werden, sitzt der Beinansatz.
+  //
+  // Das grobe Mittelband (hasLeft/hasRight/hasCenter) taugt dafür
+  // nicht: Seine Breite hängt an der Körperbreite, der Beinspalt ist
+  // oft schmaler, und schon eine Zelle Bein im Band lässt die Zeile
+  // als „nicht geteilt" durchgehen. Gemessen an einer Figur im Mantel
+  // fand es nur noch den Spalt zwischen den Schuhen – das Skelett
+  // wurde dadurch ins untere Zehntel gequetscht.
   var crotchBin = -1;
-  for (var bin = 0; bin < (bins * 0.7).floor(); bin++) {
-    if (split(bin)) {
-      var top = bin;
-      while (top + 1 < bins && split(top + 1)) {
-        top++;
+  if (islandsOf(0).length == 2 || islandsOf(1).length == 2) {
+    var top = -1;
+    for (var bin = 0; bin < (bins * 0.7).floor(); bin++) {
+      if (islandsOf(bin).length == 2) {
+        top = bin;
+      } else if (top >= 0) {
+        break;
       }
-      if (top - bin >= 2) crotchBin = top;
-      break;
+    }
+    // Ein Spalt von nur zwei, drei Zeilen ist der Abstand zwischen den
+    // Schuhspitzen, kein Beinansatz.
+    if (top >= (bins * 0.06).ceil()) crotchBin = top;
+  }
+  bool split(int bin) => hasLeft[bin] && hasRight[bin] && !hasCenter[bin];
+  if (crotchBin < 0) {
+    for (var bin = 0; bin < (bins * 0.7).floor(); bin++) {
+      if (split(bin)) {
+        var top = bin;
+        while (top + 1 < bins && split(top + 1)) {
+          top++;
+        }
+        if (top - bin >= 2) crotchBin = top;
+        break;
+      }
     }
   }
   if (crotchBin < 0) {
@@ -259,10 +320,81 @@ _BodyProfile _analyzeBipedProfile(
   // (mindestens 10 % der Figur). Ein kurzes Band sind nur die Hände
   // herabhängender, mit dem Rumpf verschmolzener Arme – die Schulter
   // läge dann weit darüber (dort greift die Halsmessung).
-  final armSpanOk = armTopBin >= 0 &&
-      (armTopBin - armBottomBin + 1) >= (bins * 0.10).ceil();
+  // Zweiter Weg, wenn die Inseln nichts hergeben: über die Breite.
+  //
+  // Bei einer Figur im Mantel füllt der Stoff die Achsel – im Umriss
+  // sind Arm und Rumpf dann nicht getrennt, und die Insel-Suche findet
+  // nichts. Dass dort Arme sind, sieht man trotzdem: Genau auf
+  // Armhöhe ist die Figur weit breiter als ihr Rumpf.
+  // Ein Band von nur ein, zwei Zeilen ist Rauschen im Raster, kein
+  // Arm – dann denselben Weg gehen wie ohne jeden Fund.
+  final minArmBins = (bins * 0.10).ceil();
+  if (armTopBin - armBottomBin + 1 < minArmBins) {
+    armTopBin = -1;
+    armBottomBin = -1;
+  }
+  if (armTopBin < 0) {
+    for (var bin = (bins * 0.35).floor(); bin < bins - 1; bin++) {
+      if (halfWidth[bin] > bodyHalf * 1.35 &&
+          halfWidth[bin + 1] > bodyHalf * 1.35) {
+        armBottomBin = bin;
+        var top = bin + 1;
+        while (top + 1 < bins && halfWidth[top + 1] > bodyHalf * 1.35) {
+          top++;
+        }
+        armTopBin = top;
+        break;
+      }
+    }
+  }
+
+  final armSpanOk =
+      armTopBin >= 0 && (armTopBin - armBottomBin + 1) >= minArmBins;
+  // Die Mitte des Bands ist die Achse des Arms; die Oberkante war die
+  // Oberseite des Ärmels und lag damit zu hoch.
   final shoulderY =
-      armSpanOk ? binY(armTopBin) + 0.04 * height : null;
+      armSpanOk ? binY((armBottomBin + armTopBin) ~/ 2) : null;
+
+  // Wo der Arm den Rumpf verlässt und wo er endet: die äußere Kante
+  // der mittleren Insel (Rumpf) und die äußere Kante der äußersten.
+  // Über alle Zeilen des Bands gemittelt, damit ein einzelner
+  // Ausreißer nichts verschiebt.
+  double? armInnerX, armOuterX;
+  if (armSpanOk) {
+    var innerSum = 0.0, outerSum = 0.0;
+    var rows = 0;
+    for (var bin = armBottomBin; bin <= armTopBin; bin++) {
+      final islands = islandsOf(bin);
+      if (islands.length < 3) continue;
+      var inner = 0.0, outer = 0.0;
+      for (final (start, end) in islands) {
+        if (start <= middleCell && middleCell <= end) {
+          inner = math.max(cellX(start), cellX(end));
+        }
+        outer = math.max(outer, math.max(cellX(start), cellX(end)));
+      }
+      if (inner <= 0 || outer <= inner) continue;
+      innerSum += inner;
+      outerSum += outer;
+      rows++;
+    }
+    if (rows > 0) {
+      armInnerX = innerSum / rows;
+      armOuterX = outerSum / rows;
+    }
+    // Wieder über die Breite, wenn die Inseln nichts hergaben: Der Arm
+    // beginnt am Rumpfrand und endet an der breitesten Stelle.
+    if (armInnerX == null) {
+      var reach = 0.0;
+      for (var bin = armBottomBin; bin <= armTopBin; bin++) {
+        if (halfWidth[bin] > reach) reach = halfWidth[bin];
+      }
+      if (reach > bodyHalf) {
+        armInnerX = bodyHalf;
+        armOuterX = reach;
+      }
+    }
+  }
 
   // Hals: schmalste Stelle zwischen Rumpf-Oberkante und der breitesten
   // Kopf-/Haarstelle (darüber wird der Kopf wieder schmaler – dort
@@ -307,7 +439,12 @@ _BodyProfile _analyzeBipedProfile(
       : 0.06 * width;
 
   return _BodyProfile(
-      crotchY: crotchY, neckY: neckY, legX: legX, shoulderY: shoulderY);
+      crotchY: crotchY,
+      neckY: neckY,
+      legX: legX,
+      shoulderY: shoulderY,
+      armInnerX: armInnerX,
+      armOuterX: armOuterX);
 }
 
 /// Schätzt die Blickrichtung einer stehenden Figur aus der Geometrie:
@@ -332,41 +469,51 @@ int estimateFrontSign(List<Float32List> positionLists) {
   }
   final height = maxY - minY, depth = maxZ - minZ;
   if (height <= 0 || depth <= 0) return 1;
-  // z-Mittelwerte in Höhenbändern: Füße/Beine, Rumpf, Brust, Kopf.
+  // Gemessen wird am Fuß, nicht am Rumpf.
+  //
+  // Vorher stand hier „Füße gegen Rumpf" und „Kopf gegen Brust". Beide
+  // Bezugspunkte sind unzuverlässig: Ein Bauch wandert nach vorn, eine
+  // Kapuze nach hinten – bei einer Figur mit beidem zeigten beide
+  // Signale in die falsche Richtung, und die Figur verbeugte sich nach
+  // hinten. Der Fuß gegen das Schienbein darüber ist unabhängig
+  // davon, was der Oberkörper macht.
   final sums = Float64List(4);
   final counts = Int32List(4);
+  // 0 = Fuß, 1 = Schienbein, 2 = Brust, 3 = Kopf.
+  const bands = [(0.0, 0.08), (0.12, 0.28), (0.45, 0.70), (0.75, 1.01)];
+  var footFront = double.negativeInfinity, footBack = double.infinity;
   for (final positions in positionLists) {
     for (var i = 0; i < positions.length; i += 3) {
       final f = (positions[i + 1] - minY) / height;
       final z = positions[i + 2];
-      if (f < 0.25) {
-        sums[0] += z;
-        counts[0]++;
+      for (var k = 0; k < bands.length; k++) {
+        if (f >= bands[k].$1 && f < bands[k].$2) {
+          sums[k] += z;
+          counts[k]++;
+        }
       }
-      if (f >= 0.30 && f < 0.70) {
-        sums[1] += z;
-        counts[1]++;
-      }
-      if (f >= 0.45 && f < 0.70) {
-        sums[2] += z;
-        counts[2]++;
-      }
-      if (f >= 0.75) {
-        sums[3] += z;
-        counts[3]++;
+      if (f < bands[0].$2) {
+        if (z > footFront) footFront = z;
+        if (z < footBack) footBack = z;
       }
     }
   }
-  if (counts[0] == 0 ||
-      counts[1] == 0 ||
-      counts[2] == 0 ||
-      counts[3] == 0) {
-    return 1;
+  if (counts[0] == 0 || counts[1] == 0) return 1;
+  final shin = sums[1] / counts[1];
+  // Zwei Signale, beide am Fuß: seine Mitte liegt vor dem Schienbein,
+  // und er ragt nach vorn weiter über das Schienbein hinaus als nach
+  // hinten (Zehen gegen Ferse).
+  final footShift = (sums[0] / counts[0] - shin) / depth;
+  final toeShift = footFront.isFinite && footBack.isFinite
+      ? ((footFront - shin) - (shin - footBack)) / depth
+      : 0.0;
+  var signal = footShift * 2 + toeShift;
+  // Kopf gegen Brust nur noch als Stichentscheid bei unklarem Fuß –
+  // Kapuzen, Helme und Frisuren machen dieses Signal unzuverlässig.
+  if (signal.abs() < 0.05 && counts[2] > 0 && counts[3] > 0) {
+    signal = (sums[3] / counts[3] - sums[2] / counts[2]) / depth;
   }
-  final feetShift = sums[0] / counts[0] - sums[1] / counts[1];
-  final headShift = sums[3] / counts[3] - sums[2] / counts[2];
-  final signal = (feetShift + headShift) / depth;
-  return signal < -0.08 ? -1 : 1;
+  return signal < -0.02 ? -1 : 1;
 }
 
 /// Ein erkanntes Rad bzw. Radpaar (eine Achse) des Fahrzeug-Rigs.
@@ -727,20 +874,27 @@ class _SkeletonBuilder {
           b.joint('Head', neck, p(0, headF), boneRadius: 1.8);
       b.tip(head, p(0, 1.0), radius: 2.4);
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
-        final shoulder = b.joint('Shoulder_$suffix', chest,
-            p(sign * 0.10 * w, shoulderF),
-            boneRadius: 1.1);
+        // Schulter und Hand aus den gemessenen Arminseln, sonst wie
+        // bisher als Anteil der Modellbreite. Der Unterschied ist
+        // groß: Bei einer T-Pose ist die Modellbreite die Armspanne,
+        // und „0,10 davon" liegt mitten im Rumpf.
+        final inner = profile?.armInnerX ?? 0.10 * w;
+        final outer = profile?.armOuterX ?? 0.50 * w;
+        final reach = (outer - inner).abs();
         // Leicht abfallend – passt für T-Pose wie für die typische
         // A-Pose von Spielfiguren. Schmale Einflussradien (0,85),
         // damit der Rumpf (Anzug/Jacke) beim Chest-Knochen bleibt
         // und beim Arm-Anheben nicht mitgezogen wird.
+        final shoulder = b.joint('Shoulder_$suffix', chest,
+            p(sign * inner, shoulderF),
+            boneRadius: 1.1);
         final elbow = b.joint('Elbow_$suffix', shoulder,
-            p(sign * 0.28 * w, shoulderF - 0.03),
+            p(sign * (inner + 0.45 * reach), shoulderF - 0.03),
             boneRadius: 0.85);
         final hand = b.joint('Hand_$suffix', elbow,
-            p(sign * 0.43 * w, shoulderF - 0.06),
+            p(sign * (inner + 0.85 * reach), shoulderF - 0.06),
             boneRadius: 0.85);
-        b.tip(hand, p(sign * 0.5 * w, shoulderF - 0.08), radius: 0.85);
+        b.tip(hand, p(sign * outer, shoulderF - 0.08), radius: 0.85);
       }
       for (final (suffix, sign) in [('L', -1.0), ('R', 1.0)]) {
         final upper = b.joint(
