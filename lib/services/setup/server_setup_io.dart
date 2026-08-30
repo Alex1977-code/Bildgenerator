@@ -644,6 +644,7 @@ Future<String> startServer({
   required String targetDir,
   required int port,
   String backend = 'sf3d',
+  String imageModel = '',
 }) async {
   final venvPython = _venvPython(targetDir);
   if (!File(venvPython).existsSync()) {
@@ -654,13 +655,22 @@ Future<String> startServer({
   await Process.start(
     venvPython,
     isImage
-        ? ['local_image_server.py', '--port', '$port']
+        ? [
+            'local_image_server.py',
+            '--port',
+            '$port',
+            // Das im Bild-Tab gewählte Modell gleich vorwählen. Sonst
+            // startet der Server mit seiner Vorgabe (sdxl-turbo) und
+            // lädt beim ersten Bild ein zweites Mal.
+            if (imageModel.isNotEmpty) ...['--model', imageModel],
+          ]
         : ['local3d_server.py', '--backend', backend, '--port', '$port'],
     workingDirectory: targetDir,
     mode: ProcessStartMode.detached,
   );
-  return 'Server gestartet auf http://127.0.0.1:$port – der erste Lauf '
-      'lädt einmalig die Modellgewichte '
+  return 'Server gestartet auf http://127.0.0.1:$port'
+      '${isImage && imageModel.isNotEmpty ? ' mit $imageModel' : ''} – '
+      'der erste Lauf lädt einmalig die Modellgewichte '
       '${isImage ? '(je nach Modell 2–24 GB)' : '(~1,7 GB)'}.';
 }
 

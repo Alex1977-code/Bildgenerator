@@ -61,6 +61,11 @@ class SelfHostService {
   /// trellis) bzw. beim Bild-Server das Modell.
   static String lastBackend = '';
 
+  /// Modell, das beim Bild-Server gerade im Speicher liegt. Es kann
+  /// vom Startmodell abweichen: Maßgeblich ist, was im Bild-Tab
+  /// gewählt ist – der Server lädt es bei Bedarf nach.
+  static String lastLoaded = '';
+
   /// '3d' oder 'image' – der Bild-Server meldet seine Art selbst.
   static String lastKind = '3d';
 
@@ -94,7 +99,15 @@ class SelfHostService {
       final gpu = json['gpu']?.toString() ?? '';
       final where =
           gpu.isEmpty ? '${json['device']}' : '${json['device']} ($gpu)';
-      final info = '$lastBackend auf $where';
+      // Der Bild-Server nennt zwei Modelle: das beim Start
+      // vorgewählte („model") und das gerade geladene („loaded").
+      // Beide zeigen, sobald sie auseinanderlaufen – sonst steht dort
+      // „sdxl-turbo", während längst SDXL Base rechnet.
+      lastLoaded = json['loaded']?.toString() ?? '';
+      final model = lastLoaded.isEmpty || lastLoaded == lastBackend
+          ? lastBackend
+          : '$lastBackend beim Start, geladen: $lastLoaded';
+      final info = '$model auf $where';
       // Der 3D-Server hängt fehlende Pakete schon selbst an.
       return missing.isEmpty || info.contains('FEHLEN')
           ? info

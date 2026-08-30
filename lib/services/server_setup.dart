@@ -328,6 +328,10 @@ Future<String> startServer({
   required String targetDir,
   int port = 8765,
   String backend = 'sf3d',
+  String imageModel = '',
 }) =>
     impl.startServer(
-        targetDir: targetDir, port: port, backend: backend);
+        targetDir: targetDir,
+        port: port,
+        backend: backend,
+        imageModel: imageModel);

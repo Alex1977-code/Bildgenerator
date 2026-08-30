@@ -98,9 +98,18 @@ Zwei Eigenheiten bleiben, weil sie in den Modellen stecken:
   alles als eine Stichwortliste.
 
 Reicht der Grafikspeicher nicht, lagert der Server Teile automatisch
-aus – langsamer, aber es läuft. Das Modell wird in der App gewählt
-(Bild-Tab → KI-Modell → „Eigene GPU · …"); der Server lädt es beim
-ersten Bild aus dem Hugging-Face-Cache. SD 3.5 und FLUX verlangen
+aus – langsamer, aber es läuft.
+
+**Welches Modell rechnet?** Das entscheidet allein die Auswahl im
+Bild-Tab (KI-Modell → „Eigene GPU · …"). Sie geht bei jeder Anfrage als
+Feld `model` mit, und der Server lädt das Modell bei Bedarf aus dem
+Hugging-Face-Cache nach. Der Wert hinter `--model` beim Start ist nur
+die **Vorauswahl** für den Fall, dass eine Anfrage kein Modell nennt –
+deshalb kann in den Einstellungen „sdxl-turbo" stehen, während längst
+SDXL Base rechnet. Die Statuszeile zeigt jetzt beides an
+(„sdxl-turbo beim Start, geladen: sdxl"), und „Server starten" gibt das
+im Bild-Tab gewählte Modell gleich mit, damit der Server nicht zweimal
+lädt. SD 3.5 und FLUX verlangen
 einmalig eine Lizenz-Zustimmung auf huggingface.co und
 `huggingface-cli login`.
 

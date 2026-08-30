@@ -456,7 +456,15 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     });
     try {
       await setup.startServer(
-          targetDir: entry.dir, backend: entry.backend, port: entry.port);
+          targetDir: entry.dir,
+          backend: entry.backend,
+          port: entry.port,
+          // Beim Bild-Server gleich das Modell vorwählen, das im
+          // Bild-Tab eingestellt ist – sonst lädt er erst seine
+          // Vorgabe und beim ersten Bild ein zweites Mal.
+          imageModel: entry.backend == 'sd-image'
+              ? context.read<SettingsService>().selfHostImageModel
+              : '');
       if (!mounted) return;
       _ctrl.text = entry.url;
       _storeUrl(context.read<SettingsService>(), entry.url);
@@ -526,7 +534,11 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                       'SDXL, SD 3.5, FLUX). Im Bild-Tab erscheint der '
                       'Server als Modell „Eigene GPU"; zusammen mit '
                       'einem 3D-Server läuft die ganze Kette '
-                      'Text→Bild→3D lokal.'
+                      'Text→Bild→3D lokal. Welches Modell rechnet, '
+                      'entscheidet allein die Auswahl im Bild-Tab – '
+                      'der Server lädt es bei Bedarf nach. „Server '
+                      'starten" wählt es gleich vor, damit er nicht '
+                      'zweimal lädt.'
                   : 'Bild→3D auf dem eigenen PC mit NVIDIA-GPU – '
                       'kostenlos und komplett lokal '
                       '(Open-Source-Modelle TripoSR, SF3D, SPAR3D, '
@@ -880,7 +892,10 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
       final message = await setup.startServer(
           targetDir: _dirCtrl.text.trim(),
           backend: _backend,
-          port: _port);
+          port: _port,
+          imageModel: _backend == 'sd-image'
+              ? context.read<SettingsService>().selfHostImageModel
+              : '');
       if (!mounted) return;
       context.read<SettingsService>().rememberLocalServer(
             setup.InstalledServer(

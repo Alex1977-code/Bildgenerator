@@ -31,6 +31,7 @@ Future<String> startServer({
   required String targetDir,
   required int port,
   String backend = 'sf3d',
+  String imageModel = '',
 }) async =>
     throw UnsupportedError('Nur in der Desktop-App verfügbar.');
 
