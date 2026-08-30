@@ -13,7 +13,10 @@
 omegaconf==2.3.0
 einops==0.7.0
 transformers==4.35.0
-trimesh==4.0.5
+# trimesh NICHT auf TripoSRs 4.0.5 festnageln: diese Fassung ruft beim
+# GLB-Export ndarray.ptp() auf, das NumPy 2 entfernt hat
+# ("'numpy.ndarray' object has no attribute 'ptp'").
+trimesh>=4.5
 huggingface-hub<1.0
 rembg
 onnxruntime

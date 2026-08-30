@@ -41,6 +41,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Bilderzeugung; einstellbar sind Textur-Auflösung, Polygonform
     (Original/Quads/Dreiecke), Ziel-Polygonzahl und Detailgrad – jede
     Option mit Infotext
+  - **Einrichtungs-Assistent für den eigenen Server** (Windows, Linux,
+    macOS): Einstellungen → Eigener 3D-Server → „Einrichtungs-Assistent".
+    Prüft Python 3.11, Git und die NVIDIA-GPU (mit Download-Links, wenn
+    etwas fehlt), zeigt vorab jeden Schritt samt Downloadgröße, führt
+    die komplette Installation mit Live-Protokoll aus und startet den
+    Server anschließend – die Adresse trägt sich selbst ein
   - **Eigener 3D-Server** als Provider „Server“: Bild→3D komplett auf
     dem eigenen PC mit NVIDIA-GPU – kostenlos, ohne Cloud, alle Daten
     bleiben lokal. Mitgelieferter Python-Server

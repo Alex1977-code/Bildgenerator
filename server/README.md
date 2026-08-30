@@ -16,6 +16,15 @@ Selbst-Hosten, dessen Community-Lizenz die EU ausschließt).
 | **TripoSR** (empfohlen zum Start) | solide | Sekunden | ~4–6 GB | einfach |
 | **TRELLIS** | deutlich besser (Textur!) | 1–3 Min. | ~12–16 GB | aufwendig |
 
+## Der bequeme Weg: Assistent in der App
+
+Die Windows-, Linux- und macOS-App bringt die Einrichtung fertig mit:
+**Einstellungen → Eigener 3D-Server → „Einrichtungs-Assistent"**. Er
+prüft Python 3.11, Git und die GPU, zeigt vorab, was installiert wird,
+erledigt alle Schritte mit Live-Protokoll und startet den Server. Die
+Anleitung unten ist der Weg von Hand – nötig nur für TRELLIS oder wenn
+etwas schiefgeht.
+
 ## Voraussetzungen
 
 - NVIDIA-GPU mit aktuellem Treiber
@@ -202,6 +211,10 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   `trellis`-Paket) und Installation abschließen.
 - **`/health` meldet `cpu`** → PyTorch ohne CUDA installiert; Schritt 2
   oben mit dem CUDA-Index wiederholen.
+- **`'numpy.ndarray' object has no attribute 'ptp'`** → das von
+  TripoSR gepinnte `trimesh==4.0.5` ist nicht mit NumPy 2 verträglich.
+  `pip install -U trimesh` behebt es; die Liste
+  `requirements-triposr.txt` verlangt deshalb `trimesh>=4.5`.
 - **Out of Memory** → andere GPU-Programme schließen; bei TRELLIS
   `texture_size` im Skript auf 512 senken.
 - **`Permission denied` / `Zugriff verweigert` beim Klonen** → du bist

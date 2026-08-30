@@ -9,6 +9,7 @@ import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/key_check.dart';
 import '../services/self_host_service.dart';
+import '../services/server_setup.dart' as setup;
 import '../services/settings_service.dart';
 import '../services/tripo_service.dart';
 import '../services/watermark.dart';
@@ -393,7 +394,9 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 FilledButton.tonalIcon(
                   onPressed: _checking ? null : _saveAndTest,
@@ -406,6 +409,28 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                       : const Icon(Icons.link, size: 18),
                   label: const Text('Speichern & testen'),
                 ),
+                // Der Assistent nimmt die komplette Einrichtung ab –
+                // nur auf dem Desktop, wo Python und GPU vorhanden
+                // sein können.
+                if (setup.setupSupported)
+                  FilledButton.icon(
+                    onPressed: _checking
+                        ? null
+                        : () async {
+                            final url = await showDialog<String>(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) =>
+                                  const _ServerSetupDialog(),
+                            );
+                            if (url != null && mounted) {
+                              _ctrl.text = url;
+                              await _saveAndTest();
+                            }
+                          },
+                    icon: const Icon(Icons.auto_fix_high, size: 18),
+                    label: const Text('Einrichtungs-Assistent'),
+                  ),
               ],
             ),
             if (_status != null) ...[
@@ -422,6 +447,348 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Führt die komplette Einrichtung des eigenen 3D-Servers durch:
+/// Voraussetzungen prüfen, TripoSR samt Python-Umgebung installieren,
+/// Server starten. Gibt beim Schließen die Server-Adresse zurück.
+class _ServerSetupDialog extends StatefulWidget {
+  const _ServerSetupDialog();
+
+  @override
+  State<_ServerSetupDialog> createState() => _ServerSetupDialogState();
+}
+
+class _ServerSetupDialogState extends State<_ServerSetupDialog> {
+  late final TextEditingController _dirCtrl =
+      TextEditingController(text: setup.defaultTargetDir());
+  final _logCtrl = ScrollController();
+  final List<String> _log = [];
+
+  Map<String, String?>? _prereq;
+  bool _checking = true;
+  bool _installing = false;
+  bool _installed = false;
+  String? _error;
+
+  static const _port = 8765;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  @override
+  void dispose() {
+    _dirCtrl.dispose();
+    _logCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    setState(() => _checking = true);
+    final result = await setup.checkPrerequisites();
+    if (!mounted) return;
+    setState(() {
+      _prereq = result;
+      _checking = false;
+    });
+  }
+
+  void _append(String line) {
+    setState(() => _log.add(line));
+    // Ans Ende scrollen, sobald die Zeile gezeichnet ist.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_logCtrl.hasClients) {
+        _logCtrl.jumpTo(_logCtrl.position.maxScrollExtent);
+      }
+    });
+  }
+
+  Future<void> _install() async {
+    final pythonEntry = _prereq?['python'];
+    if (pythonEntry == null) return;
+    final pythonExe = pythonEntry.split('|').first;
+    setState(() {
+      _installing = true;
+      _error = null;
+      _log.clear();
+    });
+    try {
+      await for (final line in setup.installServer(
+        targetDir: _dirCtrl.text.trim(),
+        pythonExe: pythonExe,
+      )) {
+        if (!mounted) return;
+        _append(line);
+      }
+      if (mounted) setState(() => _installed = true);
+    } catch (e) {
+      if (mounted) {
+        setState(() =>
+            _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _installing = false);
+    }
+  }
+
+  Future<void> _startAndClose() async {
+    try {
+      final message =
+          await setup.startServer(targetDir: _dirCtrl.text.trim());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+      Navigator.of(context).pop('http://127.0.0.1:$_port');
+    } catch (e) {
+      if (mounted) {
+        setState(() =>
+            _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  Widget _prereqRow(ThemeData theme, String label, String? value,
+      {required bool required, String? hint, String? url}) {
+    final ok = value != null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            ok
+                ? Icons.check_circle
+                : (required ? Icons.cancel : Icons.info_outline),
+            size: 18,
+            color: ok
+                ? Colors.green.shade600
+                : (required
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.outline),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$label: ${value ?? 'nicht gefunden'}',
+                    style: theme.textTheme.bodySmall),
+                if (!ok && hint != null)
+                  Text(hint,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.outline)),
+                if (!ok && url != null)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () => launchUrl(Uri.parse(url),
+                        mode: LaunchMode.externalApplication),
+                    child: const Text('Download öffnen'),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final python = _prereq?['python'];
+    final git = _prereq?['git'];
+    final gpu = _prereq?['gpu'];
+    final ready = python != null && git != null;
+    return AlertDialog(
+      title: const Text('Eigenen 3D-Server einrichten'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Richtet TripoSR auf diesem PC ein, damit Bild→3D '
+                'kostenlos auf deiner NVIDIA-GPU läuft. Alles landet im '
+                'gewählten Ordner; dein System-Python bleibt unberührt.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _dirCtrl,
+                enabled: !_installing,
+                decoration: const InputDecoration(
+                  labelText: 'Zielordner',
+                  helperText: 'Wird angelegt, falls er noch nicht '
+                      'existiert. Kein Systemordner wie C:\\Windows.',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Text('Voraussetzungen',
+                      style: theme.textTheme.titleSmall),
+                  const SizedBox(width: 8),
+                  if (_checking)
+                    const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child:
+                            CircularProgressIndicator(strokeWidth: 2))
+                  else
+                    IconButton(
+                      tooltip: 'Erneut prüfen',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _installing ? null : _check,
+                      icon: const Icon(Icons.refresh, size: 18),
+                    ),
+                ],
+              ),
+              if (!_checking) ...[
+                _prereqRow(theme, 'Python 3.11',
+                    python?.split('|').last, required: true,
+                    hint: 'Wird zwingend gebraucht – neuere Versionen '
+                        'brechen bei TripoSR ab. Nach der Installation '
+                        'hier auf „Erneut prüfen" tippen.',
+                    url: 'https://www.python.org/ftp/python/3.11.9/'
+                        'python-3.11.9-amd64.exe'),
+                _prereqRow(theme, 'Git', git,
+                    required: true,
+                    hint: 'Zum Laden des Modell-Quellcodes.',
+                    url: 'https://git-scm.com/download/win'),
+                _prereqRow(theme, 'NVIDIA-GPU', gpu,
+                    required: false,
+                    hint: 'Ohne GPU läuft es auf der CPU – sehr langsam, '
+                        'aber die Einrichtung funktioniert trotzdem.'),
+              ],
+              const SizedBox(height: 16),
+              Text('Was installiert wird',
+                  style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              for (final (title, description, size) in setup.setupSteps)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• '),
+                      Expanded(
+                        child: RichText(
+                          text: TextSpan(
+                            style: theme.textTheme.bodySmall,
+                            children: [
+                              TextSpan(
+                                  text: title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600)),
+                              TextSpan(text: ' – $description'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(size,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 4),
+              Text(
+                'Zusammen rund 3,5 GB Download. Die Modellgewichte '
+                '(~1,7 GB) kommen beim ersten Generieren dazu.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+              if (_log.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text('Protokoll', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Container(
+                  height: 180,
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ListView.builder(
+                    controller: _logCtrl,
+                    itemCount: _log.length,
+                    itemBuilder: (context, index) {
+                      final line = _log[index];
+                      final isStep = line.startsWith('#');
+                      return Text(
+                        line,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight:
+                              isStep ? FontWeight.w700 : FontWeight.w400,
+                          color: isStep ? theme.colorScheme.primary : null,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Card(
+                  color: theme.colorScheme.errorContainer,
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed:
+              _installing ? null : () => Navigator.of(context).pop(),
+          child: Text(_installed ? 'Schließen' : 'Abbrechen'),
+        ),
+        if (!_installed)
+          FilledButton.icon(
+            onPressed: (_installing || !ready) ? null : _install,
+            icon: _installing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download, size: 18),
+            label: Text(_installing
+                ? 'Installiert …'
+                : (ready
+                    ? 'Installieren'
+                    : 'Voraussetzungen fehlen')),
+          )
+        else
+          FilledButton.icon(
+            onPressed: _startAndClose,
+            icon: const Icon(Icons.play_arrow, size: 18),
+            label: const Text('Server starten & übernehmen'),
+          ),
+      ],
     );
   }
 }
