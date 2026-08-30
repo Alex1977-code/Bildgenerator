@@ -20,6 +20,7 @@ Endpunkte:
 import argparse
 import base64
 import io
+import os
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -106,6 +107,50 @@ def _prepare_foreground(img):
     return Image.fromarray((arr * 255.0).astype(np.uint8))
 
 
+def _shim_active():
+    """True, wenn statt torchmcubes der CPU-Ersatz geladen ist."""
+    try:
+        import torchmcubes
+
+        return bool(getattr(torchmcubes, "SHIM", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _fix_shim_axes(mesh):
+    """Dreht das Netz gerade, wenn der CPU-Ersatz benutzt wurde.
+
+    scikit-image gibt die Ecken in anderer Achsen-Reihenfolge zurueck
+    als torchmcubes; die Figur stuende sonst entlang z statt y (an
+    einem erzeugten Modell nachgemessen: blauer Hut bei z-max, Stiefel
+    bei z-min, Gesicht bei x-max, Spiegelachse y).
+
+    Die Zuordnung laesst sich mit TRIPOSR_AXES ueberschreiben, z. B.
+    "yzx" (Vorgabe) oder "y z -x", falls das Modell spiegelverkehrt
+    herauskommt.
+    """
+    import numpy as np
+
+    order = os.environ.get("TRIPOSR_AXES", "yzx").replace(" ", "").lower()
+    index = {"x": 0, "y": 1, "z": 2}
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    columns = []
+    rest = order
+    while rest:
+        sign = 1.0
+        if rest[0] in "+-":
+            sign = -1.0 if rest[0] == "-" else 1.0
+            rest = rest[1:]
+        columns.append(sign * vertices[:, index[rest[0]]])
+        rest = rest[1:]
+    if len(columns) != 3:
+        print(f"[triposr] TRIPOSR_AXES='{order}' ist ungueltig - "
+              "es wird nicht gedreht.")
+        return mesh
+    mesh.vertices = np.stack(columns, axis=1)
+    return mesh
+
+
 def _run_triposr(img):
     import torch
 
@@ -115,8 +160,11 @@ def _run_triposr(img):
         scene_codes = model([image], device=_device)
     # True = Vertex-Farben direkt aus dem Modell (kein Textur-Baking).
     meshes = model.extract_mesh(scene_codes, True, resolution=256)
+    mesh = meshes[0]
+    if _shim_active():
+        mesh = _fix_shim_axes(mesh)
     buf = io.BytesIO()
-    meshes[0].export(buf, file_type="glb")
+    mesh.export(buf, file_type="glb")
     return buf.getvalue()
 
 

@@ -15,13 +15,10 @@ legen (neben ``run.py``). Python findet sie dort anstelle des Pakets,
 ``pip install`` ist nicht nötig.
 
 Achsen-Reihenfolge: torchmcubes und scikit-image geben die Ecken in
-unterschiedlicher Reihenfolge zurück. Sieht das erzeugte Modell
-gespiegelt oder verdreht aus, die Umgebungsvariable
-``TORCHMCUBES_SHIM_FLIP`` auf ``0`` setzen (Standard ist ``1``) und den
-Server neu starten:
-
-    $env:TORCHMCUBES_SHIM_FLIP = "0"
-    python local3d_server.py --backend triposr --port 8765
+unterschiedlicher Reihenfolge zurück – das Modell läge sonst auf der
+Seite. Der Server erkennt diesen Ersatz am Merkmal ``SHIM`` und dreht
+das fertige Netz gerade (siehe ``_fix_shim_axes`` in
+``local3d_server.py``); an dieser Datei ist dafür nichts einzustellen.
 """
 
 import os
@@ -29,6 +26,10 @@ import os
 import numpy as np
 import torch
 from skimage import measure
+
+# Erkennungsmerkmal: Der Server sieht daran, dass nicht das echte
+# torchmcubes läuft, und dreht die Achsen entsprechend gerade.
+SHIM = True
 
 _FLIP = os.environ.get("TORCHMCUBES_SHIM_FLIP", "1") != "0"
 

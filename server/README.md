@@ -130,11 +130,13 @@ curl.exe -L -o requirements-triposr.txt https://raw.githubusercontent.com/Alex19
 pip install -r requirements-triposr.txt
 ```
 
-Kommt das erzeugte Modell **gespiegelt oder verdreht** heraus, ist nur
-die Achsen-Reihenfolge andersherum – dann den Server so starten:
+Der Server erkennt den Ersatz selbst und dreht das Netz gerade –
+scikit-image liefert die Achsen anders als torchmcubes, die Figur läge
+sonst auf der Seite. Sollte ein Modell trotzdem falsch herum stehen,
+lässt sich die Zuordnung überschreiben:
 
 ```powershell
-$env:TORCHMCUBES_SHIM_FLIP = "0"
+$env:TRIPOSR_AXES = "yzx"   # Vorgabe; z. B. "y z -x" spiegelt zusätzlich
 python local3d_server.py --backend triposr --port 8765
 ```
 
@@ -211,6 +213,10 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   `trellis`-Paket) und Installation abschließen.
 - **`/health` meldet `cpu`** → PyTorch ohne CUDA installiert; Schritt 2
   oben mit dem CUDA-Index wiederholen.
+- **Figur steht auf der Seite oder liegt** → alte Fassung von
+  `local3d_server.py`; die aktuelle dreht das Netz beim CPU-Ersatz
+  selbst gerade. Beide Dateien neu laden (`local3d_server.py` und
+  `torchmcubes.py`).
 - **`'numpy.ndarray' object has no attribute 'ptp'`** → das von
   TripoSR gepinnte `trimesh==4.0.5` ist nicht mit NumPy 2 verträglich.
   `pip install -U trimesh` behebt es; die Liste
