@@ -155,6 +155,11 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 
 ## Fehlersuche
 
+- **`No module named 'PIL'`** (oder ein anderes Paket) beim Generieren
+  → `pip install -r requirements.txt` ist nicht vollständig
+  durchgelaufen. In der aktiven Umgebung wiederholen und dabei auf die
+  letzten Zeilen achten – es muss `Successfully installed …` erscheinen.
+  Der Server nennt fehlende Pakete beim Start und unter `/health`.
 - **„Backend ist nicht installiert“** → Server aus dem Ordner des
   geklonten Modell-Repos starten (dort liegt das `tsr`- bzw.
   `trellis`-Paket) und Installation abschließen.

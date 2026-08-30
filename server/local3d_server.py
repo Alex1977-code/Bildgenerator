@@ -155,6 +155,18 @@ def _run_trellis(img):
 # --------------------------------------------------------------------- API
 
 
+def _missing_modules():
+    """Pakete, die zum Generieren gebraucht werden, aber fehlen."""
+    import importlib.util
+
+    needed = ["PIL", "torch", "numpy"]
+    if BACKEND == "trellis":
+        needed += ["trellis"]
+    else:
+        needed += ["tsr", "torchmcubes", "transformers", "trimesh"]
+    return [m for m in needed if importlib.util.find_spec(m) is None]
+
+
 @app.get("/health")
 def health():
     try:
@@ -166,11 +178,28 @@ def health():
             device = "cpu (langsam - CUDA-Torch installieren!)"
     except Exception as e:  # noqa: BLE001 - Diagnose-Endpunkt
         device = f"unbekannt (torch fehlt? {e})"
-    return {"status": "ok", "backend": BACKEND, "device": device}
+    missing = _missing_modules()
+    return {
+        "status": "ok" if not missing else "unvollstaendig",
+        "backend": BACKEND,
+        "device": device
+        + (f" - ES FEHLEN: {', '.join(missing)}" if missing else ""),
+        "missing": missing,
+    }
 
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
+    missing = _missing_modules()
+    if missing:
+        raise HTTPException(
+            500,
+            "Die Installation ist unvollstaendig - es fehlen: "
+            f"{', '.join(missing)}. Im Ordner des Modell-Repos in der "
+            "aktiven Umgebung 'pip install -r requirements.txt' "
+            "ausfuehren und auf Fehlermeldungen achten (siehe "
+            "server/README.md).",
+        )
     try:
         img = _decode_image(req)
     except Exception as e:  # noqa: BLE001
@@ -208,6 +237,15 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    fehlend = _missing_modules()
+    if fehlend:
+        print("\n!!! ACHTUNG: Die Installation ist unvollstaendig. "
+              f"Es fehlen: {', '.join(fehlend)}")
+        print("!!! Bitte in der aktiven Umgebung im Ordner des "
+              "Modell-Repos ausfuehren:")
+        print("!!!   pip install -r requirements.txt")
+        print("!!! Der Server startet trotzdem, das Generieren wird "
+              "aber fehlschlagen.\n")
     print(f"Backend: {BACKEND} - in der App als Server-Adresse eintragen: "
           f"http://127.0.0.1:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)
