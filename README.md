@@ -633,6 +633,24 @@ gilt im Massenlauf nicht, sonst passten Name und Ergebnis nicht mehr
 zusammen. Höchstens 200 Bilder pro Lauf. Kosten: Anzahl der Blöcke ×
 Preis des gewählten Modells; auf der eigenen GPU 0 $.
 
+## Galerie: direkt herunterladen
+
+Jede Kachel hat einen **Download-Knopf** — die Datei kommt sofort,
+ohne den Umweg über die Detailansicht. Daneben liegt weiterhin der
+Erstellungsnachweis als PDF.
+
+Über der Liste steht **„Alle herunterladen"**, bei aktiver Suche
+**„Gefundene herunterladen"** — gedacht für einen Massenlauf: 43
+Gebäude auf einmal, oder nach `burg-` gefiltert nur die Burgen. Die
+Dateien gehen einzeln nacheinander raus, nicht als Schwall; im Browser
+fragt Chrome beim ersten Mal, ob die Seite mehrere Dateien speichern
+darf. Das einmal erlauben.
+
+**Der Dateiname ist der Name aus dem Massenprompt** — aus `bld-02-bakery`
+wird `bld-02-bakery.png`. Ohne eigenen Namen bleibt es bei der
+Kennung. Zeichen, die Windows in Dateinamen nicht erlaubt, werden
+ersetzt.
+
 ## Aus den eigenen Läufen lernen
 
 Die App merkt sich zu jedem 3D-Modell, mit welchen Einstellungen es

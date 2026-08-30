@@ -197,6 +197,7 @@ class GeneratedImage {
   String get mimeType => 'image/$format';
 
   String get fileExtension => format == 'jpeg' ? 'jpg' : format;
+
 }
 
 /// Ein Eintrag im Verlauf (Galerie).
@@ -244,6 +245,20 @@ class HistoryEntry {
       isModel ? 'model/gltf-binary' : 'image/$format';
 
   String get fileExtension => format == 'jpeg' ? 'jpg' : format;
+
+  /// Dateiname beim Herunterladen. Der selbst vergebene Name gewinnt –
+  /// bei einem Massenlauf heißt die Datei dann „bld-02-bakery.png"
+  /// statt einer Zahlenfolge. Zeichen, die Windows im Dateinamen nicht
+  /// erlaubt, werden ersetzt.
+  String get downloadFileName {
+    final base = name.trim().isNotEmpty
+        ? name.trim()
+        : '${isModel ? 'modell' : 'bild'}_$id';
+    final safe = base
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '-')
+        .replaceAll(RegExp(r'\s+'), '_');
+    return '$safe.${isModel ? 'glb' : fileExtension}';
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,

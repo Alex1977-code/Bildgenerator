@@ -22,6 +22,61 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
+  /// Läuft gerade ein Sammel-Download? Dann bleibt der Knopf gesperrt
+  /// und zeigt den Fortschritt – bei 43 Bildern aus einem Massenlauf
+  /// dauert das einen Moment.
+  bool _downloading = false;
+  int _downloadDone = 0;
+  int _downloadTotal = 0;
+
+  /// Alle gerade angezeigten Einträge nacheinander herunterladen.
+  ///
+  /// Nacheinander und nicht gleichzeitig: Im Browser zählt jeder
+  /// Download einzeln, und ein Schwall von vierzig Anfragen auf einmal
+  /// wird blockiert. Beim ersten Mal fragt Chrome, ob die Seite
+  /// mehrere Dateien speichern darf – das einmal erlauben.
+  Future<void> _downloadAll(List<HistoryEntry> entries) async {
+    final history = context.read<HistoryService>();
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _downloading = true;
+      _downloadDone = 0;
+      _downloadTotal = entries.length;
+    });
+    var failed = 0;
+    try {
+      for (final entry in entries) {
+        try {
+          final bytes = await history.readImage(entry);
+          if (bytes == null) {
+            failed++;
+          } else {
+            await exportImageBytes(
+                bytes, entry.downloadFileName, entry.mimeType);
+          }
+        } catch (_) {
+          failed++;
+        }
+        if (!mounted) return;
+        setState(() => _downloadDone++);
+        // Kleine Pause, damit der Browser die Downloads einzeln
+        // annimmt statt sie als Schwall abzuweisen.
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(failed == 0
+          ? '${entries.length} '
+              '${entries.length == 1 ? 'Datei' : 'Dateien'} '
+              'heruntergeladen.'
+          : '${entries.length - failed} von ${entries.length} '
+              'heruntergeladen, $failed nicht mehr im Speicher.'),
+    ));
+  }
+
   final _searchCtrl = TextEditingController();
 
   /// Suchbegriff – trifft auf Name und Beschreibung zu. Über den
@@ -140,17 +195,46 @@ class _GalleryScreenState extends State<GalleryScreen> {
             onChanged: (value) => setState(() => _search = value),
           ),
         ),
-        if (needle.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              entries.isEmpty
-                  ? 'Nichts gefunden – der Name muss so geschrieben sein '
-                      'wie im Massenprompt (z. B. „burg-03").'
-                  : '${entries.length} von ${all.length} Einträgen',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  needle.isEmpty
+                      ? '${entries.length} '
+                          '${entries.length == 1 ? 'Eintrag' : 'Einträge'}'
+                      : entries.isEmpty
+                          ? 'Nichts gefunden – der Name muss so '
+                              'geschrieben sein wie im Massenprompt '
+                              '(z. B. „burg-03").'
+                          : '${entries.length} von ${all.length} '
+                              'Einträgen',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              if (entries.isNotEmpty)
+                TextButton.icon(
+                  onPressed: _downloading
+                      ? null
+                      : () => _downloadAll(entries),
+                  icon: _downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_for_offline_outlined,
+                          size: 18),
+                  label: Text(_downloading
+                      ? 'Lädt … $_downloadDone von $_downloadTotal'
+                      : needle.isEmpty
+                          ? 'Alle herunterladen'
+                          : 'Gefundene herunterladen'),
+                ),
+            ],
           ),
+        ),
         if (!history.isPersistent)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -241,6 +325,32 @@ class _GalleryTile extends StatelessWidget {
     } catch (e) {
       messenger.showSnackBar(
           SnackBar(content: Text('Nachweis fehlgeschlagen: $e')));
+    }
+  }
+
+  /// Die Datei selbst herunterladen – ohne den Umweg über die
+  /// Detailansicht. Auf dem Desktop landet sie im Downloads-Ordner, im
+  /// Web startet der Browser-Download, auf dem Handy öffnet sich das
+  /// Teilen-Menü.
+  Future<void> _download(BuildContext context) async {
+    final history = context.read<HistoryService>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = await history.readImage(entry);
+      if (bytes == null) {
+        messenger.showSnackBar(const SnackBar(
+            content:
+                Text('Die Datei ist nicht mehr im Speicher vorhanden.')));
+        return;
+      }
+      final message = await exportImageBytes(
+          bytes, entry.downloadFileName, entry.mimeType);
+      if (message != null) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Herunterladen fehlgeschlagen: $e')));
     }
   }
 
@@ -373,6 +483,15 @@ class _GalleryTile extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
+                      IconButton(
+                        tooltip: isModel
+                            ? 'GLB herunterladen'
+                            : 'Bild herunterladen',
+                        iconSize: 20,
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.download_outlined),
+                        onPressed: () => _download(context),
                       ),
                       IconButton(
                         tooltip: 'Erstellungsnachweis (PDF)',
