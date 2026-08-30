@@ -293,7 +293,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         SelfHostImageGenerator.normalizeBaseUrl(settings.selfHostImageUrl);
     if (url.isEmpty) return '';
     final job = 'app-${DateTime.now().microsecondsSinceEpoch}';
-    final service = SelfHostService(url);
+    final service = SelfHostService(url, kindHint: 'image');
     _previewTimer =
         Timer.periodic(const Duration(milliseconds: 1200), (_) async {
       if (!mounted || !_generating) return;

@@ -68,6 +68,15 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     kein PowerShell-Fenster mehr nötig. Die Liste enthält sowohl die
     vom Assistenten angelegten als auch von Hand eingerichtete
     Installationen, die neben dem Standardordner gefunden werden.
+    Jede Installation steht **einmal** in der Liste, mit ihrem Port:
+    Derselbe Ordner tauchte sonst doppelt auf (einmal gemerkt, einmal
+    gefunden, mit verschiedenen Ports) und von den beiden gleich
+    aussehenden Einträgen funktionierte nur einer. Eine von Hand
+    geänderte Portnummer im Adressfeld gilt auch für den Start und
+    wird gemerkt. Meldet sich der Server nach einer Minute nicht,
+    zeigt die Karte den **Befehl zum Starten von Hand** zum Kopieren –
+    die App startet den Prozess abgekoppelt und sieht seine Ausgabe
+    nicht, im Terminal steht der wirkliche Grund.
     **„Läuft bereits"** steht auf dem Knopf nur, wenn der Server unter
     dieser Adresse tatsächlich antwortet – und zwar der richtige:
     Meldet sich dort der jeweils andere Server (beide auf demselben

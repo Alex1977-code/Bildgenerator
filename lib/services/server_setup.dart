@@ -180,8 +180,10 @@ class InstalledServer {
   const InstalledServer({
     required this.backend,
     required this.dir,
-    this.port = 8765,
-  });
+    // 0 heißt „der übliche Port dieser Art" – siehe [port].
+    int port = 0,
+    // ignore: prefer_initializing_formals
+  }) : _port = port;
 
   /// Backend-Kennung: triposr, sf3d, spar3d, trellis.
   final String backend;
@@ -189,13 +191,27 @@ class InstalledServer {
   /// Ordner der Installation (enthält .venv und local3d_server.py).
   final String dir;
 
-  final int port;
+  final int _port;
+
+  /// Port, auf dem der Server läuft.
+  ///
+  /// 0 in der Ablage heißt „der übliche Port dieser Art". Vorher stand
+  /// dort fest 8765 – ein gefundener Bild-Server bekam damit den Port
+  /// des 3D-Servers, und weil die Anzeige den Port verschwieg, standen
+  /// zwei scheinbar gleiche Einträge in der Liste, von denen nur einer
+  /// funktionierte.
+  int get port => _port > 0 ? _port : defaultPort(kind);
 
   /// Kurzer Anzeigename, z. B. „SF3D".
   String get label => backendLabel(backend);
 
   /// '3d' = Bild→3D-Server, 'image' = Text→Bild-Server.
   String get kind => backend == 'sd-image' ? 'image' : '3d';
+
+  /// Dieselbe Installation auf einem anderen Port – die getippte
+  /// Adresse hat Vorrang vor dem gemerkten Eintrag.
+  InstalledServer withPort(int port) =>
+      InstalledServer(backend: backend, dir: dir, port: port);
 
   String get url => 'http://127.0.0.1:$port';
 
@@ -213,7 +229,7 @@ class InstalledServer {
     return InstalledServer(
       backend: backend,
       dir: dir,
-      port: int.tryParse(parts[1]) ?? 8765,
+      port: int.tryParse(parts[1]) ?? 0,
     );
   }
 
@@ -325,6 +341,36 @@ int defaultPort(String kind) =>
 /// und liefert den Pfad – null, wenn das nicht ging.
 Future<String?> saveSetupLog(String targetDir, List<String> lines) =>
     impl.saveSetupLog(targetDir, lines);
+
+/// Der Befehl, mit dem sich der Server von Hand starten lässt.
+///
+/// Gebraucht wird er, wenn der Start aus der App nichts meldet: Der
+/// Prozess wird abgekoppelt gestartet, ein sofortiger Absturz sieht
+/// deshalb genauso aus wie ein langsam ladendes Modell. Im Terminal
+/// steht stattdessen der wirkliche Grund.
+///
+/// Die Schreibweise richtet sich nach dem Ordner, nicht nach dem
+/// laufenden System – so lässt sie sich auch prüfen.
+String manualStartCommand({
+  required String targetDir,
+  required String backend,
+  required int port,
+  String imageModel = '',
+}) {
+  final windows = RegExp(r'^[A-Za-z]:|\\').hasMatch(targetDir);
+  final python =
+      windows ? r'.venv\Scripts\python.exe' : './.venv/bin/python';
+  final args = backend == 'sd-image'
+      ? [
+          'local_image_server.py',
+          '--port',
+          '$port',
+          if (imageModel.isNotEmpty) ...['--model', imageModel],
+        ]
+      : ['local3d_server.py', '--backend', backend, '--port', '$port'];
+  final cd = windows ? 'cd /d "$targetDir"' : 'cd "$targetDir"';
+  return '$cd\n$python ${args.join(' ')}';
+}
 
 Future<String> startServer({
   required String targetDir,

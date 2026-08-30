@@ -286,6 +286,11 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   bool _starting = false;
   bool _refreshing = false;
 
+  /// Befehl zum Starten von Hand – wird gezeigt, wenn der Start aus
+  /// der App nichts meldet. Im Terminal steht dann der wirkliche
+  /// Grund (fehlendes Paket, belegter Port, zu wenig VRAM).
+  String _manualCommand = '';
+
   /// Auf diesem Rechner eingerichtete Server – gemerkte Einträge plus
   /// gefundene Installationen.
   List<setup.InstalledServer> _servers = const [];
@@ -301,6 +306,31 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   }
 
   bool get _isImage => widget.kind == 'image';
+
+  /// Portnummer aus der eingetippten Adresse – null, wenn keine
+  /// dasteht. Absichtlich über einen Ausdruck statt über [Uri.port]:
+  /// Ohne Doppelpunkt liefert Uri den Schema-Port (80), und der
+  /// bedeutet hier etwas anderes als „nicht angegeben".
+  int? get _typedPort {
+    final match =
+        RegExp(r':(\d{2,5})(/|$)').firstMatch(_ctrl.text.trim());
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  /// Der gewählte Server mit dem Port, der im Adressfeld steht.
+  ///
+  /// Die getippte Adresse ist die Ansage des Benutzers. Vorher startete
+  /// „Server starten" stur auf dem Port des Listeneintrags und schrieb
+  /// die getippte Adresse anschließend wieder weg – der Server lief
+  /// dann woanders, als in der App stand.
+  setup.InstalledServer? get _currentAtTypedPort {
+    final entry = _current;
+    if (entry == null) return null;
+    final typed = _typedPort;
+    return typed == null || typed == entry.port
+        ? entry
+        : entry.withPort(typed);
+  }
 
   /// Ob Bild- und 3D-Server auf dieselbe Adresse zeigen. Das geht
   /// nicht: Zwei Prozesse können denselben Port nicht belegen, und
@@ -340,20 +370,30 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   Future<void> _loadServers() async {
     final settings = context.read<SettingsService>();
     final list = <setup.InstalledServer>[];
+    // Ein Ordner ist eine Installation – der Port ist eine
+    // Eigenschaft davon, kein Unterscheidungsmerkmal. Ohne diesen
+    // Schlüssel stand dieselbe Installation zweimal in der Liste
+    // (einmal gemerkt, einmal gefunden, mit verschiedenen Ports) und
+    // von den beiden gleich aussehenden Einträgen funktionierte nur
+    // einer. Der gemerkte Eintrag gewinnt: Dort steht der Port, den
+    // der Benutzer zuletzt gesetzt hat.
+    final seen = <String>{};
+    bool add(setup.InstalledServer entry) {
+      if (entry.kind != widget.kind) return false;
+      final key = '${entry.backend}|${entry.dir.toLowerCase()}';
+      if (!seen.add(key)) return false;
+      list.add(entry);
+      return true;
+    }
+
     for (final raw in settings.localServers) {
       final entry = setup.InstalledServer.decode(raw);
-      if (entry != null &&
-          entry.kind == widget.kind &&
-          !list.contains(entry)) {
-        list.add(entry);
-      }
+      if (entry != null) add(entry);
     }
     if (setup.setupSupported) {
       try {
         for (final found in await setup.detectInstalledServers()) {
-          if (found.kind == widget.kind && !list.contains(found)) {
-            list.add(found);
-          }
+          add(found);
         }
       } catch (_) {
         // Ohne Fundliste weiterarbeiten – die Adresse geht immer.
@@ -362,7 +402,9 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     if (!mounted) return;
     setState(() {
       _servers = list;
-      // Vorauswahl: der Server, dessen Adresse gerade eingetragen ist.
+      // Vorauswahl: der Server, dessen Adresse gerade eingetragen
+      // ist. Ein von Hand geänderter Port darf die Zuordnung nicht
+      // aufheben – gemeint ist dieselbe Installation.
       final url = _ctrl.text.trim();
       _selected = '';
       for (final entry in list) {
@@ -370,6 +412,9 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
           _selected = entry.encode();
           break;
         }
+      }
+      if (_selected.isEmpty && list.length == 1 && url.isNotEmpty) {
+        _selected = list.single.encode();
       }
     });
   }
@@ -429,7 +474,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
       _status = null;
       _neutral = false;
     });
-    final service = SelfHostService(url);
+    final service = SelfHostService(url, kindHint: widget.kind);
     try {
       final info = await service.health();
       final answering = service.kind;
@@ -493,13 +538,14 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
 
   /// Startet den gewählten Server und wartet, bis er antwortet.
   Future<void> _startSelected() async {
-    final entry = _current;
+    final entry = _currentAtTypedPort;
     if (entry == null) return;
     setState(() {
       _starting = true;
       _ok = false;
       _running = false;
       _neutral = true;
+      _manualCommand = '';
       _status = '${entry.label} wird gestartet …';
     });
     try {
@@ -515,14 +561,34 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
               : '');
       if (!mounted) return;
       _ctrl.text = entry.url;
-      _storeUrl(context.read<SettingsService>(), entry.url);
+      final settings = context.read<SettingsService>();
+      _storeUrl(settings, entry.url);
+      // Den tatsächlich benutzten Port merken, sonst steht beim
+      // nächsten Start wieder der alte in der Liste.
+      final old = _current;
+      if (old != null && old.port != entry.port) {
+        settings.forgetLocalServer(old.encode());
+      }
+      settings.rememberLocalServer(entry.encode());
+      setState(() {
+        _servers = [
+          for (final e in _servers)
+            if (e.backend == entry.backend && e.dir == entry.dir)
+              entry
+            else
+              e,
+        ];
+        _selected = entry.encode();
+      });
       // Der erste Start lädt das Modell – deshalb geduldig nachfragen,
       // statt sofort „nicht erreichbar" zu melden.
       for (var attempt = 0; attempt < 30; attempt++) {
         await Future<void>.delayed(const Duration(seconds: 2));
         if (!mounted) return;
         try {
-          final info = await SelfHostService(entry.url).health();
+          final info = await SelfHostService(entry.url,
+                  kindHint: widget.kind)
+              .health();
           if (!mounted) return;
           setState(() {
             _status = 'Verbunden – $info.';
@@ -540,11 +606,23 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
       }
       if (mounted) {
         setState(() {
-          _status = 'Der Server meldet sich noch nicht. Beim ersten '
-              'Start lädt er die Modellgewichte – gleich noch einmal '
-              'auf „Speichern & testen" tippen.';
+          _status = 'Der Server meldet sich nach einer Minute nicht. '
+              'Beim ersten Start lädt er die Modellgewichte, das kann '
+              'dauern – dann gleich noch einmal auf „Speichern & '
+              'testen" tippen. Meldet er sich auch danach nicht, ist '
+              'er vermutlich beim Start abgestürzt: Die App startet '
+              'ihn abgekoppelt und sieht seine Ausgabe nicht. Der '
+              'Befehl unten zeigt sie im Terminal.';
           _ok = false;
           _neutral = true;
+          _manualCommand = setup.manualStartCommand(
+            targetDir: entry.dir,
+            backend: entry.backend,
+            port: entry.port,
+            imageModel: _isImage
+                ? context.read<SettingsService>().selfHostImageModel
+                : '',
+          );
         });
       }
     } catch (e) {
@@ -621,8 +699,12 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                     for (final entry in _servers)
                       DropdownMenuItem(
                         value: entry.encode(),
+                        // Der Port gehört sichtbar dazu: Zwei
+                        // Einträge derselben Installation ließen sich
+                        // sonst nicht auseinanderhalten.
                         child: Text(
-                          '${entry.label} · ${entry.dir}',
+                          '${entry.label} · ${entry.dir} · '
+                          'Port ${entry.port}',
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -782,6 +864,42 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                   ),
               ],
             ),
+            if (_manualCommand.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              // Zum Kopieren und im Terminal einfügen – dort steht,
+              // woran der Start scheitert.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      _manualCommand,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(fontFamily: 'monospace'),
+                    ),
+                    const SizedBox(height: 4),
+                    TextButton.icon(
+                      onPressed: () {
+                        Clipboard.setData(
+                            ClipboardData(text: _manualCommand));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Befehl kopiert.')),
+                        );
+                      },
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Befehl kopieren'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (_status != null) ...[
               const SizedBox(height: 8),
               Text(

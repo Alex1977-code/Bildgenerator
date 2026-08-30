@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'generators.dart' show GenerationException;
+import 'server_ports.dart';
 
 /// Anbindung an den eigenen 3D-Server (server/local3d_server.py):
 /// MIT-lizenzierte Open-Source-Modelle (TripoSR, TRELLIS) auf dem
@@ -11,9 +12,18 @@ import 'generators.dart' show GenerationException;
 /// Die App schickt die Vorderansicht, der Server antwortet direkt mit
 /// der fertigen GLB-Datei.
 class SelfHostService {
-  SelfHostService(String baseUrl) : baseUrl = normalizeBaseUrl(baseUrl);
+  SelfHostService(String baseUrl, {this.kindHint = '3d'})
+      : baseUrl = normalizeBaseUrl(baseUrl);
 
   final String baseUrl;
+
+  /// Welche Art Server hier gemeint ist ('3d' oder 'image').
+  ///
+  /// Steht nur in den Fehlermeldungen: Die Bild-Server-Karte meldete
+  /// vorher „Der eigene 3D-Server ist nicht erreichbar … python
+  /// local3d_server.py" – falscher Name, falsches Skript, und damit
+  /// eine Anleitung, die ins Leere führt.
+  final String kindHint;
 
   /// „127.0.0.1:8765/“ → „http://127.0.0.1:8765“ (Schema ergänzen,
   /// Slashes am Ende entfernen).
@@ -31,11 +41,18 @@ class SelfHostService {
   }
 
   Never _throwNetworkError(Object e) {
+    final image = kindHint == 'image';
     throw GenerationException(
-      'Der eigene 3D-Server ist nicht erreichbar: $e\n'
-      'Läuft der Server (python local3d_server.py) und stimmt die '
-      'Adresse in den Einstellungen? Bei einem anderen PC im Netzwerk '
-      'auch die Firewall prüfen (Anleitung: server/README.md).',
+      'Der eigene ${image ? 'Bild' : '3D'}-Server ist nicht '
+      'erreichbar: $e\n'
+      'Läuft der Server (python '
+      '${image ? 'local_image_server.py' : 'local3d_server.py'}) und '
+      'stimmt die Adresse in den Einstellungen? Üblich sind '
+      'http://127.0.0.1:$threeDDefaultPort für 3D und '
+      'http://127.0.0.1:$imageDefaultPort für Bilder – zwei Server '
+      'können denselben Port nicht belegen. Bei einem anderen PC im '
+      'Netzwerk auch die Firewall prüfen (Anleitung: '
+      'server/README.md).',
     );
   }
 
