@@ -633,6 +633,41 @@ gilt im Massenlauf nicht, sonst passten Name und Ergebnis nicht mehr
 zusammen. Höchstens 200 Bilder pro Lauf. Kosten: Anzahl der Blöcke ×
 Preis des gewählten Modells; auf der eigenen GPU 0 $.
 
+## Aus den eigenen Läufen lernen
+
+Die App merkt sich zu jedem 3D-Modell, mit welchen Einstellungen es
+entstanden ist und wie gut es geworden ist, und leitet daraus
+Empfehlungen ab — getrennt nach Motivklasse, weil sich die Anbieter bei
+Gebäuden anders schlagen als bei Figuren.
+
+**Die Bewertung kommt aus zwei Quellen.** Aus der messbaren
+Beschaffenheit des Netzes — wasserdicht, einheitliche Wicklung, keine
+entarteten Dreiecke, ein Material, Textur vorhanden, nicht flach, und
+die Dreieckszahl im angeforderten Bereich — und aus **deiner Note**
+(die fünf Sterne unter einem fertigen Modell). Beides zusammen, weil
+das eine ohne das andere in die Irre führt: Ein technisch tadelloses
+Netz kann das Motiv verfehlen, ein schönes Modell kann Löcher haben.
+Die Note wiegt deshalb schwerer als die Messung.
+
+**Was das ist — und was nicht.** Kein neuronales Netz. Bei ein paar
+Dutzend Läufen wäre eines das falsche Werkzeug: Es hätte mehr
+Parameter als du Datenpunkte hast und würde vor allem den Zufall der
+ersten Versuche auswendig lernen. Gerechnet wird ein geschrumpfter
+Mittelwert je Einstellung (Bayes-Mittel): Ein Wert mit zwei Läufen
+wird zum Gesamtmittel hingezogen, einer mit zwanzig steht für sich.
+Ein Wert, der nur einmal vorkam, wird gar nicht erst vorgeschlagen —
+ein einzelner guter Lauf ist Glück, kein Befund.
+
+Deshalb steht bei jeder Empfehlung, **auf wie vielen Läufen sie
+beruht**. Eine Empfehlung aus drei Läufen ist eine Vermutung und wird
+auch so benannt; eine aus dreißig ist eine Aussage. Unter vier
+bewerteten Läufen einer Motivklasse sagt die App gar nichts, sondern
+zeigt, wie viele noch fehlen.
+
+Alles bleibt auf diesem Rechner: Die Läufe liegen in den lokalen
+Einstellungen, nichts wird hochgeladen, und kein fremdes Wissen fließt
+ein — die Empfehlungen sind ausschließlich deine eigenen Ergebnisse.
+
 ## Roblox: Figuren, die der Importer annimmt
 
 > Kurzfassung samt offener Punkte für eine neue Sitzung:

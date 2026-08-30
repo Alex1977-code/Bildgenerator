@@ -43,6 +43,7 @@ import '../widgets/print_size_dialog.dart';
 import '../services/batch_prompt.dart' show sanitizeBatchName;
 import '../services/pose_prompt.dart';
 import '../services/roblox_check.dart';
+import '../services/run_stats.dart';
 import '../services/roblox_export.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_install.dart';
@@ -1569,6 +1570,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         ),
       );
     });
+    // Für die Empfehlungen mitschreiben: Einstellungen und – sobald
+    // gemessen – die Beschaffenheit des Netzes. Läuft nebenher, ein
+    // Fehlschlag darf das Ergebnis nicht aufhalten.
+    unawaited(_recordRun(glbBytes, providerLabel, format));
     // Auch in der Galerie ablegen (auf nativen Plattformen dauerhaft).
     context.read<HistoryService>().addModel(
       glbBytes: glbBytes,
@@ -1584,6 +1589,172 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       },
     );
   }
+
+  /// Schreibt den eben abgeschlossenen Lauf mit: Motivklasse,
+  /// Anbieter, die Einstellungen, die sich auf das Ergebnis auswirken,
+  /// und die gemessene Beschaffenheit des Netzes.
+  Future<void> _recordRun(
+      Uint8List glbBytes, String providerLabel, ModelFormat format) async {
+    double? mesh;
+    if (format == ModelFormat.glb) {
+      try {
+        final facts = await readRobloxFacts(glbBytes);
+        mesh = meshQualityScore(
+          triangles: facts.triangles,
+          // Zielgröße: was in diesem Lauf angefordert wurde, sonst das
+          // Arbeitsziel der Roblox-Regeln.
+          targetTriangles: _robloxMode
+              ? _robloxTarget.goalTriangles
+              : (_tripoFaceLimit > 0 ? _tripoFaceLimit : 0),
+          watertight: facts.openEdges == 0,
+          reversedEdges: facts.reversedEdges,
+          degenerateTriangles: facts.degenerateTriangles,
+          materials: facts.materialCount,
+          hasTexture: facts.textures.isNotEmpty,
+          volumeRatio: facts.volumeRatio,
+        );
+      } catch (_) {
+        // Nicht messbar – dann zählt später allein die Note.
+      }
+    }
+    if (!mounted) return;
+    await context.read<SettingsService>().recordRun(RunRecord(
+          at: DateTime.now(),
+          motif: motifOf(_promptCtrl.text,
+              figureType: _rigging ? _rigType : null),
+          provider: providerLabel,
+          settings: {
+            'rigging': _rigging ? 'an' : 'aus',
+            'textur': _texture ? 'an' : 'aus',
+            'symmetrie': _refineSymmetrize ? 'an' : 'aus',
+            'schaerfen': _refineProjectTexture ? 'an' : 'aus',
+            'polygonform': _quadTopology ? 'quad' : 'original',
+            if (_imageMode) 'quelle': 'bild' else 'quelle': 'text',
+            if (_robloxMode) 'vorlage': 'roblox',
+          },
+          meshScore: mesh,
+        ));
+  }
+
+  /// Note für den zuletzt erzeugten Lauf.
+  ///
+  /// Die Messung am Netz sagt, ob es technisch sauber ist – ob es das
+  /// Motiv trifft, sagt nur ein Mensch. Deshalb hier eine Note, und
+  /// deshalb wiegt sie in der Auswertung schwerer als die Messung.
+  Widget _ratingRow(ThemeData theme) {
+    final stats = context.watch<SettingsService>().runStats;
+    final rated = stats.runs.isEmpty ? null : stats.runs.last.rating;
+    return Card(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                rated == null
+                    ? 'Wie gut ist das geworden?'
+                    : 'Danke – fließt in die Empfehlungen ein.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+            for (var note = 1; note <= 5; note++)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: switch (note) {
+                  1 => 'unbrauchbar',
+                  2 => 'schwach',
+                  3 => 'geht so',
+                  4 => 'gut',
+                  _ => 'genau so',
+                },
+                icon: Icon(
+                  (rated ?? 0) >= note
+                      ? Icons.star
+                      : Icons.star_border_outlined,
+                  size: 20,
+                  color: (rated ?? 0) >= note
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outline,
+                ),
+                onPressed: () =>
+                    context.read<SettingsService>().rateLastRun(note),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// „Was bei dir am besten funktioniert" – die Auswertung der eigenen
+  /// Läufe, getrennt nach Motivklasse.
+  Widget _adviceCard(ThemeData theme) {
+    final stats = context.watch<SettingsService>().runStats;
+    final advice = stats.adviceText(_motif);
+    final rated = stats.ratedCount(_motif);
+    final klasse = switch (_motif) {
+      'gebaeude' => 'Gebäuden',
+      'fahrzeug' => 'Fahrzeugen',
+      'figur' => 'Figuren',
+      _ => 'Objekten',
+    };
+    if (advice.isEmpty && rated < RunStats.minRuns) {
+      // Solange nichts zu sagen ist: sagen, was noch fehlt.
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          'Aus eigenen Läufen lernen: $rated von '
+          '${RunStats.minRuns} bewerteten Läufen bei $klasse. Ab dann '
+          'steht hier, welche Einstellungen bei dir am besten '
+          'abgeschnitten haben. Bewertet wird über die Sterne unter '
+          'einem fertigen Modell.',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.outline),
+        ),
+      );
+    }
+    if (advice.isEmpty) return const SizedBox.shrink();
+    return Card(
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.insights_outlined,
+                    size: 18, color: theme.colorScheme.onSecondaryContainer),
+                const SizedBox(width: 8),
+                Text('Was bei dir bei $klasse am besten lief',
+                    style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final line in advice)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('• $line', style: theme.textTheme.bodySmall),
+              ),
+            const SizedBox(height: 6),
+            Text(
+              'Gerechnet aus deinen $rated bewerteten Läufen bei '
+              '$klasse – kein fremdes Wissen, nichts verlässt diesen '
+              'Rechner. Der Wert in Klammern ist der Durchschnitt aller '
+              'deiner Läufe zum Vergleich.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSecondaryContainer),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Die Motivklasse des aktuellen Prompts – danach werden die
+  /// Empfehlungen getrennt gerechnet.
+  String get _motif =>
+      motifOf(_promptCtrl.text, figureType: _rigging ? _rigType : null);
 
   Future<void> _runLocal(
     SettingsService settings,
@@ -5511,6 +5682,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     ],
                   ),
                 ],
+                _adviceCard(theme),
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -5752,7 +5924,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
           )
         else
-          for (final result in _results)
+          for (final result in _results) ...[
+            if (result == _results.first) _ratingRow(theme),
             Card(
               clipBehavior: Clip.antiAlias,
               child: ListTile(
@@ -5850,6 +6023,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 ),
               ),
             ),
+          ],
         const SizedBox(height: 8),
         // Versions-Kennung: zeigt, welcher Stand wirklich läuft (der
         // Web-Cache liefert nach Updates gern noch die alte Version –

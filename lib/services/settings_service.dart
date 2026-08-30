@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'run_stats.dart';
+
 import '../models/models.dart';
 
 /// Minimale Schnittstelle für die sichere Schlüsselablage (testbar).
@@ -245,6 +247,31 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Die eigenen Läufe samt Bewertung – Grundlage der Empfehlungen
+  /// im 3D-Bereich (siehe [RunStats]). Bleibt auf diesem Rechner.
+  RunStats runStats = RunStats([]);
+
+  /// Hält einen abgeschlossenen Lauf fest.
+  Future<void> recordRun(RunRecord run) async {
+    runStats.add(run);
+    await _saveRuns();
+  }
+
+  /// Bewertet den zuletzt festgehaltenen Lauf.
+  Future<void> rateLastRun(int rating) async {
+    if (!runStats.rateLatest(rating)) return;
+    await _saveRuns();
+  }
+
+  Future<void> _saveRuns() async {
+    try {
+      await _prefs?.setString('run_stats', runStats.encode());
+    } catch (_) {
+      // Ohne Persistenz bleiben die Läufe für diese Sitzung erhalten.
+    }
+    notifyListeners();
+  }
+
   /// Bis zu 5 eigene 3D-Vorlagen als JSON-Text (leerer Text = freier
   /// Platz). Inhalt und Aufbau bestimmt der 3D-Tab.
   List<String> customPresets = List<String>.filled(5, '');
@@ -271,6 +298,7 @@ class SettingsService extends ChangeNotifier {
     try {
       final prefs = _prefs = await SharedPreferences.getInstance();
       provider = GenProvider.fromName(prefs.getString('provider'));
+      runStats = RunStats.decode(prefs.getString('run_stats') ?? '');
       themeMode = ThemeMode.values.firstWhere(
         (m) => m.name == prefs.getString('themeMode'),
         orElse: () => ThemeMode.system,
