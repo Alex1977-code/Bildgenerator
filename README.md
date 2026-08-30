@@ -689,6 +689,16 @@ Topologie-Schalter. Die Roblox-Karte schreibt aus, was gerade
 tatsächlich gesetzt ist, z. B. „Ziel: 10.000 Dreiecke (Budget 5.000
 Polygone). Aktuell eingestellt: Meshy „target_polycount" = 5.000".
 
+**Die Roblox-Vorlage schaltet Quad-Topologie aus**, und zwar
+absichtlich: Der Importer trianguliert ohnehin und zählt Dreiecke –
+für Roblox bringt ein Viereck-Netz nichts. Kosten bringt es dreifach:
+Bei Meshy halbiert es das Polygonbudget, bei Tripo erzwingt es FBX
+(beim Ziel **Accessoire**, wo kein Rigging läuft, hätte das den ganzen
+Weg gesprengt – Prüfung, Ansicht und Export lesen GLB), und P1 liefert
+von sich aus schon vierecksnahe Topologie. Wer das Modell danach in
+Blender überarbeiten will, schaltet sie von Hand ein; beim
+Accessoire-Ziel warnt die App dann ausdrücklich.
+
 **Bei Tripo schließen sich Quad-Topologie und Rigging aus.** glTF
 kennt keine Vierecke, nur Dreiecke – Tripo liefert Quad-Netze deshalb
 **ausschließlich als FBX**. Alles, was diese App danach rechnet

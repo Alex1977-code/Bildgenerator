@@ -371,7 +371,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _robloxMode = true;
           _meshyAiModel = 'meshy-5';
           _meshyUltra = false;
-          _quadTopology = true;
+          // Quad-Topologie bringt für Roblox nichts: Der Importer
+          // trianguliert ohnehin und zählt Dreiecke. Sie kostet aber
+          // dreifach – bei Meshy halbiert sie das Budget, bei Tripo
+          // erzwingt sie FBX (beim Accessoire-Ziel, wo kein Rigging
+          // läuft, hätte das den ganzen Weg gesprengt), und P1
+          // liefert von sich aus schon vierecksnahe Topologie. Wer
+          // sie für Blender will, schaltet sie von Hand ein.
+          _quadTopology = false;
           // P1 ist Tripos Low-Poly-Modell: Flächenbudget 48 bis
           // 20.000, saubere Topologie, zum Riggen gedacht – genau der
           // Bereich, den Roblox verlangt. Das allgemeine v2.5 hat in
@@ -5232,17 +5239,27 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         title: const Text('Quad-Topologie'),
                         subtitle: Text([
                           _robloxMode
-                              ? 'Viereck-Netz statt Dreiecke – sauberer '
-                                  'für Blender und Animation. Jedes '
-                                  'Viereck wird beim Export zu zwei '
-                                  'Dreiecken; das Anbieter-Ziel wird '
-                                  'deshalb halbiert.'
+                              ? 'Für Roblox nicht nötig: Der Importer '
+                                  'trianguliert ohnehin und zählt '
+                                  'Dreiecke. Nur einschalten, wenn das '
+                                  'Modell danach in Blender überarbeitet '
+                                  'wird – dann wird jedes Viereck zu '
+                                  'zwei Dreiecken und das Anbieter-Ziel '
+                                  'halbiert sich.'
                               : 'Viereck-Netz statt Dreiecke – sauberer '
                                   'für Blender, Animation und '
                                   'Weiterbearbeitung',
                           // Die Einschränkung gehört an den Schalter,
                           // nicht in eine Fehlermeldung nach dem Lauf.
-                          if (isTripo && _rigging)
+                          if (isTripo &&
+                              !_rigging &&
+                              _quadTopology &&
+                              _robloxMode)
+                            'ACHTUNG: Ohne Rigging geht sie wirklich '
+                                'an Tripo – das Ergebnis kommt dann als '
+                                'FBX, und Prüfung, Ansicht und Export '
+                                'für Roblox funktionieren damit nicht.'
+                          else if (isTripo && _rigging)
                             'Bei Tripo mit Rigging bleibt sie aus: '
                                 'Quad-Netze kommen dort nur als FBX, '
                                 'ein Skelett braucht GLB.'
