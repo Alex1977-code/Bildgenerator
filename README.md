@@ -654,25 +654,46 @@ PLY, STL, ZIP), sie steht in der Ergebniskarte, der Export bekommt die
 richtige Endung, und die GLB-Funktionen sind grau statt kaputt. Dieselbe
 Prüfung greift bei per Drag & Drop abgelegten Dateien.
 
-**Bei Tripo hat `face_limit` in einem Lauf nicht gegriffen.** Angefragt
-waren 10.000 Flächen, in der gelieferten GLB stecken 101.298 Dreiecke –
-gemessen, nicht geschätzt. Woran das lag, steht in keiner
-Dokumentation, die greifbar war; belegt ist nur die Beobachtung. Zwei
-Wege führen trotzdem zum Ziel:
+#### Was für Roblox an Tripo geht
 
-- **„Smart Low-Poly"** bei der Generierung: Damit baut Tripo ein
-  spielefertiges Netz, statt das volle nur zu beschneiden. Die
-  Roblox-Vorlage schaltet es ein. Kennt eine Modellfassung das Feld
-  nicht, wiederholt die App den Auftrag ohne es, statt zu scheitern.
-- **„Bei Tripo3D nachrechnen"** am fertigen Modell: Die Prüfung bietet
-  den Knopf an, sobald Dreiecke oder Texturen über der Grenze liegen.
-  Er schickt das Modell über Tripos Umwandlungs-Auftrag zurück –
-  `face_limit` (dort mit dokumentierter Vorgabe 10.000) und
-  `texture_size` in einem Lauf – und holt es passend wieder. **UVs und
-  Textur bleiben erhalten, weil derselbe Dienst rechnet, der das
-  Modell gebaut hat.** Das kostet zusätzliche Credits (laut Preisliste
-  20 für einen Lauf mit Geometrie-Optionen), deshalb fragt die App
-  vorher.
+Ein Lauf mit `face_limit` = 10.000 lieferte 101.298 Dreiecke und drei
+2048er Texturen. Die Grenze war also mitgeschickt – falsch war der
+Rest des Auftrags. Die Prüfung Feld für Feld gegen Tripos
+Parameterliste hat drei Lücken gefunden, alle drei sind geschlossen,
+und die Roblox-Vorlage setzt sie:
+
+| Feld | vorher | jetzt (Roblox) | warum |
+| --- | --- | --- | --- |
+| `model` | `v2.5-20250123` | **`P1`** | P1 ist Tripos Low-Poly-Modell: Flächenbudget 48–20.000, saubere Topologie, zum Riggen gedacht. Genau Roblox' Bereich. v2.5 ist das allgemeine Modell. |
+| `pbr` | fest an `texture` gekoppelt, also **immer an** | **aus** | PBR liefert drei Bilder (Basecolor, Normal, Metallic-Roughness). Roblox nimmt je Mesh **ein** Material – die anderen beiden kosten nur Texturgrenze und Ladezeit. Der PBR-Schalter der App wirkte bisher nur auf Meshy. |
+| `auto_size` | nicht gesendet | **an** | Ohne Maßstab kam die Figur mit 0,98 Einheiten. Der Importer rechnet glTF-Einheiten als Meter → 3,5 Studs statt der üblichen 5. |
+| `face_limit` | 10.000 | 10.000 | Bei P1 im dokumentierten Bereich. |
+| `smart_low_poly` | nicht gesendet | **an** | Baut ein spielefertiges Netz, statt das volle zu beschneiden. |
+| `quad` | an (Vorlage) | **aus** | Erzwingt FBX; das Skelett kommt als GLB. |
+| `orientation` (Bild→3D) | nicht gesendet | **`align_image`** | Sonst dreht Tripo das Modell nach eigenem Gutdünken. |
+| Rigging `rig_type` | nicht gesendet | **aus dem Figurtyp** | Tripo musste raten. |
+| Rigging `spec` | nicht gesendet | **`mixamo`** | Die R15-Umbenennung der App ist auf Mixamo-Namen ausgelegt (`mixamorig:Hips`, `LeftForeArm`). |
+
+Nicht gesendet werden bewusst `generate_parts` (zerlegt das Modell in
+mehrere Meshes) und `compress` (gepackte GLB). `test/tripo_service_test.dart`
+hält das fest, damit die Prüfung nicht wieder zur Vermutung wird.
+
+**Tripos Figurtypen** (`rig_type`) und wie die App sie abbildet:
+`biped` (zweibeinig – Mensch, Roboter, Fantasy), `quadruped`
+(Vierbeiner), `hexapod` (Insekt/Mehrbeiner), `avian` (Vogel),
+`serpentine` (Schlange), `aquatic` (Fisch). Für Fahrzeuge gibt es
+keinen – die riggt die App selbst.
+
+**Bleibt es trotzdem zu groß**, gibt es den Reparaturweg: **„Bei
+Tripo3D nachrechnen"** in der Prüfung schickt das fertige Modell über
+Tripos Umwandlungs-Auftrag zurück – `face_limit` (dokumentierte
+Vorgabe 10.000) und `texture_size` in einem Lauf – und holt es passend
+wieder. **UVs und Textur bleiben erhalten, weil derselbe Dienst
+rechnet, der das Modell gebaut hat.** Das kostet zusätzliche Credits
+(laut Preisliste 20 für einen Lauf mit Geometrie-Optionen), deshalb
+fragt die App vorher. Gedacht ist der Knopf für Modelle, die vor
+diesen Korrekturen entstanden sind – im Normalfall soll er nicht
+gebraucht werden.
 
 Damit hinterher nicht offenbleibt, wer die Grenze übergangen hat,
 merkt sich jedes Ergebnis, **was angefordert war** („Tripo

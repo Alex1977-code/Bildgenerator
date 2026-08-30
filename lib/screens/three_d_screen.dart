@@ -140,6 +140,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Dreiecke lieferte – die Grenze allein ist offenbar ein Wunsch,
   /// keine Zusage. Für Roblox zählt aber genau diese Zahl.
   bool _tripoSmartLowPoly = false;
+
+  /// Tripos `auto_size`: bringt das Modell auf eine plausible
+  /// Weltgröße, statt es in beliebigem Maßstab zu liefern.
+  ///
+  /// Der Roblox-Importer rechnet glTF-Einheiten als Meter. Eine Figur
+  /// mit 0,98 Einheiten landet dort bei 3,5 Studs – ein
+  /// Standard-Charakter ist rund 5 Studs hoch.
+  bool _tripoAutoSize = false;
   bool _pbr = true;
   String _tripoVersion = '';
   bool _tripoDetailedTexture = false;
@@ -364,9 +372,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _meshyAiModel = 'meshy-5';
           _meshyUltra = false;
           _quadTopology = true;
-          // Ohne das liefert Tripo trotz face_limit sechsstellige
-          // Dreieckszahlen – gemessen: 101.298 bei angefragten 10.000.
+          // P1 ist Tripos Low-Poly-Modell: Flächenbudget 48 bis
+          // 20.000, saubere Topologie, zum Riggen gedacht – genau der
+          // Bereich, den Roblox verlangt. Das allgemeine v2.5 hat in
+          // einem Lauf trotz face_limit = 10.000 gut 101.000 Dreiecke
+          // geliefert.
+          _tripoVersion = 'P1-20260311';
           _tripoSmartLowPoly = true;
+          // Roblox nimmt je Mesh ein Material. PBR liefert drei
+          // Bilder (Basecolor, Normal, Metallic-Roughness) – die
+          // beiden zusätzlichen kosten nur Grenze und Ladezeit.
+          _pbr = false;
+          // Ohne Maßstab kam die Figur mit 0,98 Einheiten, im
+          // Importer also 3,5 Studs statt der üblichen 5.
+          _tripoAutoSize = true;
           _localTextureMode = 'atlas1024';
           _symmetryMode = 'auto';
       }
@@ -420,6 +439,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'symmetryMode': _symmetryMode,
         'quadTopology': _quadTopology,
         'tripoSmartLowPoly': _tripoSmartLowPoly,
+        'tripoAutoSize': _tripoAutoSize,
         'pbr': _pbr,
         'tripoVersion': _tripoVersion,
         'tripoDetailedTexture': _tripoDetailedTexture,
@@ -480,6 +500,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _quadTopology = pick('quadTopology', _quadTopology);
       _tripoSmartLowPoly =
           pick('tripoSmartLowPoly', _tripoSmartLowPoly);
+      _tripoAutoSize = pick('tripoAutoSize', _tripoAutoSize);
       _pbr = pick('pbr', _pbr);
       _tripoVersion = pick('tripoVersion', _tripoVersion);
       _tripoDetailedTexture =
@@ -2036,6 +2057,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
           smartLowPoly: _tripoSmartLowPoly,
+          pbr: _pbr,
+          autoSize: _tripoAutoSize,
+          alignToImage: _robloxMode,
         );
       } else {
         progress('Bild wird hochgeladen …');
@@ -2050,6 +2074,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           detailedTexture: _tripoDetailedTexture,
           faceLimit: _tripoFaceLimit,
           smartLowPoly: _tripoSmartLowPoly,
+          pbr: _pbr,
+          autoSize: _tripoAutoSize,
+          alignToImage: _robloxMode,
         );
       }
     } else {
@@ -2064,6 +2091,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         detailedTexture: _tripoDetailedTexture,
         faceLimit: _tripoFaceLimit,
         smartLowPoly: _tripoSmartLowPoly,
+        pbr: _pbr,
+        autoSize: _tripoAutoSize,
         negativePrompt: _negative3dCtrl.text.trim(),
       );
     }
@@ -2154,12 +2183,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       format: format,
       rigNote: rigNote,
       providerTaskId: modelTaskId,
-      limitNote: _tripoFaceLimit > 0
-          ? 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}'
-              '${_tripoQuad ? ' (Vierecke)' : ''}, Smart Low-Poly: '
-              '${_tripoSmartLowPoly ? 'an' : 'aus'}'
-          : 'Tripo ohne „face_limit", Smart Low-Poly: '
-              '${_tripoSmartLowPoly ? 'an' : 'aus'}',
+      limitNote: [
+        'Modell ${_tripoVersion.isEmpty ? TripoService.defaultModelVersion : _tripoVersion}',
+        if (_tripoFaceLimit > 0)
+          '„face_limit" = ${_n(_tripoFaceLimit)}'
+              '${_tripoQuad ? ' (Vierecke)' : ''}'
+        else
+          'ohne „face_limit"',
+        'Smart Low-Poly ${_tripoSmartLowPoly ? 'an' : 'aus'}',
+        'PBR ${_texture && _pbr ? 'an' : 'aus'}',
+        'Maßstab ${_tripoAutoSize ? 'an' : 'aus'}',
+      ].join(', '),
     );
   }
 
@@ -2557,7 +2591,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             : '';
     final provider = switch (settings.threeDProvider) {
       'meshy' => 'Meshy „target_polycount" = ${_n(_meshyPolycount)}',
-      'tripo' => 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}',
+      'tripo' => 'Tripo „face_limit" = ${_n(_tripoFaceLimit)}, '
+          'Modell ${_tripoVersion.isEmpty ? TripoService.defaultModelVersion : _tripoVersion}'
+          '${_tripoVersion.startsWith('P1') ? ' (Low-Poly, 48–20.000 '
+              'Flächen – der Bereich, den Roblox verlangt)' : ' – für '
+              'Roblox besser P1 wählen, das ist Tripos Low-Poly-Modell'}',
       'rodin' => 'Rodin „quality_override" = ${_n(_rodinPolycount)} '
           '(Rodin arbeitet eigentlich in Qualitätsstufen, die Zahl '
           'ist dort eine Näherung)',
@@ -4256,8 +4294,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                           'Neueste (H3.1, beste Qualität)'),
                                   DropdownMenuEntry(
                                       value: 'P1-20260311',
-                                      label:
-                                          'P1 (Low-Poly, Face-Limit)'),
+                                      label: 'P1 (Low-Poly für Spiele '
+                                          '– empfohlen für Roblox)'),
                                 ]
                               : const [
                                   DropdownMenuEntry(
@@ -4763,6 +4801,43 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       style: theme.textTheme.bodySmall,
                     ),
                     children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('PBR-Material'),
+                        subtitle: Text(
+                          'Drei Bilder statt einem: Basecolor, Normal '
+                          'und Metallic-Roughness. '
+                          '${_robloxMode ? 'Für Roblox aus – dort '
+                              'zählt je Mesh ein Material, die beiden '
+                              'zusätzlichen Bilder kosten nur '
+                              'Texturgrenze und Ladezeit.' : 'An für '
+                              'realistischere Oberflächen, aus für '
+                              'eine einzelne, schlanke Textur.'}',
+                        ),
+                        value: _pbr,
+                        onChanged: _running || !_texture
+                            ? null
+                            : (v) => setState(() => _pbr = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Maßstab setzen (auto_size)'),
+                        subtitle: Text(
+                          'Tripo bringt das Modell auf eine plausible '
+                          'Weltgröße, statt einen beliebigen Maßstab '
+                          'zu liefern. '
+                          '${_robloxMode ? 'Der Roblox-Importer '
+                              'rechnet glTF-Einheiten als Meter – ohne '
+                              'das kam die Figur mit 0,98 Einheiten '
+                              'und damit 3,5 Studs statt der üblichen '
+                              '5.' : 'Nützlich, wenn die Größe in der '
+                              'Engine stimmen soll.'}',
+                        ),
+                        value: _tripoAutoSize,
+                        onChanged: _running
+                            ? null
+                            : (v) => setState(() => _tripoAutoSize = v),
+                      ),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Smart Low-Poly'),

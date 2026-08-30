@@ -137,4 +137,84 @@ void main() {
       expect(TripoService.findThumbnailUrl({'output': {}}), isNull);
     });
   });
+
+  group('Was für Roblox an Tripo geht', () {
+    // Diese Gruppe hält die Prüfung fest, die einmal von Hand gegen
+    // Tripos Parameterliste gelaufen ist. Sie beantwortet die Frage
+    // „schicken wir eigentlich alles Nötige?" nachprüfbar.
+    final service = TripoService('schluessel');
+
+    Map<String, dynamic> robloxFields() => service.qualityFields(
+          texture: true,
+          modelVersion: 'P1-20260311',
+          faceLimit: 10000,
+          smartLowPoly: true,
+          pbr: false,
+          autoSize: true,
+        );
+
+    test('Das Low-Poly-Modell P1 wird ausdrücklich genannt', () {
+      // Die V3-API verlangt eine Modellangabe, und für Roblox ist es
+      // nicht das allgemeine v2.5: P1 arbeitet im Bereich 48 bis
+      // 20.000 Flächen – genau Roblox\' Grenze.
+      expect(robloxFields()['model'], 'P1-20260311');
+    });
+
+    test('Ohne Angabe bleibt es beim bewährten Modell', () {
+      expect(service.qualityFields(texture: true)['model'],
+          TripoService.defaultModelVersion);
+    });
+
+    test('Flächengrenze, Low-Poly und Maßstab stehen im Auftrag', () {
+      final fields = robloxFields();
+      expect(fields['face_limit'], 10000);
+      expect(fields['smart_low_poly'], true);
+      // Ohne auto_size kam die Figur mit 0,98 Einheiten – im
+      // Importer 3,5 Studs statt der üblichen 5.
+      expect(fields['auto_size'], true);
+    });
+
+    test('Quad erzwingt FBX und bleibt deshalb bei Roblox draußen', () {
+      final quad = service.qualityFields(texture: true, quad: true);
+      expect(quad['quad'], true);
+      expect(quad['out_format'], 'fbx');
+      expect(robloxFields().containsKey('quad'), isFalse);
+      expect(robloxFields().containsKey('out_format'), isFalse);
+    });
+
+    test('Detaillierte Texturen nur auf Wunsch', () {
+      expect(robloxFields().containsKey('texture_quality'), isFalse);
+      expect(
+          service.qualityFields(
+              texture: true, detailedTexture: true)['texture_quality'],
+          'detailed');
+      // Ohne Textur ergibt die Stufe keinen Sinn.
+      expect(
+          service
+              .qualityFields(texture: false, detailedTexture: true)
+              .containsKey('texture_quality'),
+          isFalse);
+    });
+
+    test('Nichts Unerwünschtes im Auftrag', () {
+      final fields = robloxFields();
+      // „generate_parts" zerlegt das Modell in mehrere Meshes,
+      // „compress" liefert eine gepackte GLB – beides bringt den
+      // Roblox-Import durcheinander.
+      expect(fields.containsKey('generate_parts'), isFalse);
+      expect(fields.containsKey('compress'), isFalse);
+      expect(fields.containsKey('style'), isFalse);
+    });
+
+    test('Die Figurtypen der App treffen Tripos Namen', () {
+      expect(TripoService.rigTypes['biped'], 'biped');
+      expect(TripoService.rigTypes['quadruped'], 'quadruped');
+      expect(TripoService.rigTypes['insect'], 'hexapod');
+      expect(TripoService.rigTypes['bird'], 'avian');
+      expect(TripoService.rigTypes['snake'], 'serpentine');
+      expect(TripoService.rigTypes['fish'], 'aquatic');
+      // Ein Fahrzeug hat kein Skelett, das Tripo kennt.
+      expect(TripoService.rigTypes['vehicle'], isNull);
+    });
+  });
 }

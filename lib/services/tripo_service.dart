@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
@@ -237,13 +238,20 @@ class TripoService {
   }
 
   /// Qualitäts-Optionen, die alle Modell-Endpunkte verstehen.
-  Map<String, dynamic> _qualityFields({
+  ///
+  /// Öffentlich, damit sich nachprüfen lässt, was tatsächlich an
+  /// Tripo geht – die Frage „schicken wir eigentlich alles Nötige?"
+  /// soll ein Test beantworten, nicht eine Vermutung.
+  @visibleForTesting
+  Map<String, dynamic> qualityFields({
     required bool texture,
     String? modelVersion,
     bool quad = false,
     bool detailedTexture = false,
     int faceLimit = 0,
     bool smartLowPoly = false,
+    bool pbr = true,
+    bool autoSize = false,
   }) {
     final model = (modelVersion == null || modelVersion.isEmpty)
         ? defaultModelVersion
@@ -269,6 +277,11 @@ class TripoService {
       if (faceLimit > 0) 'face_limit': faceLimit,
       if (smartLowPoly) 'smart_low_poly': true,
       if (texture && detailedTexture) 'texture_quality': 'detailed',
+      // Maßstab: Ohne das kommt das Modell in einer beliebigen Größe.
+      // Der Roblox-Importer rechnet glTF-Einheiten als Meter – eine
+      // Figur mit 0,98 Einheiten wird dort 3,5 Studs hoch statt der
+      // üblichen 5.
+      if (autoSize) 'auto_size': true,
     };
   }
 
@@ -280,23 +293,30 @@ class TripoService {
     bool detailedTexture = false,
     int faceLimit = 0,
     bool smartLowPoly = false,
+    bool pbr = true,
+    bool autoSize = false,
     String? negativePrompt,
   }) =>
       _createTask(optional: _optionalQualityFields,
           '/generation/text-to-model', 'text_to_model', {
         'prompt': clipToLimit(prompt, maxPromptChars),
         'texture': texture,
-        'pbr': texture,
+        // PBR liefert drei Bilder (Basecolor, Normal,
+        // Metallic-Roughness). Wer nur eine Textur will – Roblox etwa
+        // nimmt je Mesh ein Material –, schaltet es aus.
+        'pbr': texture && pbr,
         if (negativePrompt != null && negativePrompt.trim().isNotEmpty)
           'negative_prompt':
               clipToLimit(negativePrompt, maxNegativePromptChars),
-        ..._qualityFields(
+        ...qualityFields(
           texture: texture,
           modelVersion: modelVersion,
           quad: quad,
           detailedTexture: detailedTexture,
           faceLimit: faceLimit,
           smartLowPoly: smartLowPoly,
+          pbr: pbr,
+          autoSize: autoSize,
         ),
       });
 
@@ -309,6 +329,9 @@ class TripoService {
     bool detailedTexture = false,
     int faceLimit = 0,
     bool smartLowPoly = false,
+    bool pbr = true,
+    bool autoSize = false,
+    bool alignToImage = false,
   }) {
     final subtype = mimeType.split('/').last;
     return _createTask(optional: _optionalQualityFields,
@@ -318,14 +341,21 @@ class TripoService {
         'file_token': fileToken,
       },
       'texture': texture,
-      'pbr': texture,
-      ..._qualityFields(
+      'pbr': texture && pbr,
+      // Ohne das dreht Tripo das Modell nach eigenem Gutdünken; mit
+      // „align_image" steht es so, wie es auf dem Bild steht. Für
+      // eine Figur, die anschließend geriggt wird, ist das der
+      // Unterschied zwischen „schaut nach vorn" und „schaut schräg".
+      if (alignToImage) 'orientation': 'align_image',
+      ...qualityFields(
         texture: texture,
         modelVersion: modelVersion,
         quad: quad,
         detailedTexture: detailedTexture,
         faceLimit: faceLimit,
         smartLowPoly: smartLowPoly,
+        pbr: pbr,
+        autoSize: autoSize,
       ),
     });
   }
@@ -341,6 +371,9 @@ class TripoService {
     bool detailedTexture = false,
     int faceLimit = 0,
     bool smartLowPoly = false,
+    bool pbr = true,
+    bool autoSize = false,
+    bool alignToImage = false,
   }) {
     Map<String, dynamic> fileEntry((String, String)? view) {
       if (view == null) return <String, dynamic>{};
@@ -356,14 +389,21 @@ class TripoService {
         '/generation/multiview-to-model', 'multiview_to_model', {
       'files': [for (final view in views) fileEntry(view)],
       'texture': texture,
-      'pbr': texture,
-      ..._qualityFields(
+      'pbr': texture && pbr,
+      // Ohne das dreht Tripo das Modell nach eigenem Gutdünken; mit
+      // „align_image" steht es so, wie es auf dem Bild steht. Für
+      // eine Figur, die anschließend geriggt wird, ist das der
+      // Unterschied zwischen „schaut nach vorn" und „schaut schräg".
+      if (alignToImage) 'orientation': 'align_image',
+      ...qualityFields(
         texture: texture,
         modelVersion: modelVersion,
         quad: quad,
         detailedTexture: detailedTexture,
         faceLimit: faceLimit,
         smartLowPoly: smartLowPoly,
+        pbr: pbr,
+        autoSize: autoSize,
       ),
     });
   }
@@ -445,6 +485,11 @@ class TripoService {
             // Ohne Typangabe muss Tripo raten; bei einer Kapuzenfigur
             // ohne sichtbares Gesicht ist das eine unnötige Hürde.
             if (rigTypes[rigType] != null) 'rig_type': rigTypes[rigType],
+            // Mixamo-Namensschema: Die R15-Umbenennung dieser App ist
+            // genau darauf ausgelegt (sie schneidet „mixamorig:" ab
+            // und kennt „LeftForeArm" & Co.). Ohne die Angabe kommen
+            // Tripo-eigene Namen, die sie schlechter trifft.
+            'spec': 'mixamo',
           });
 
   Future<Map<String, dynamic>> getTask(String id) async {
