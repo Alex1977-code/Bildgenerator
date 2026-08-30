@@ -295,6 +295,11 @@ Stream<String> installServer({
 /// Übliche Portnummer je Art: 8765 für Bild→3D, 8766 für Text→Bild.
 int defaultPort(String kind) => kind == 'image' ? 8766 : 8765;
 
+/// Schreibt das Protokoll der Einrichtung in den Zielordner (Desktop)
+/// und liefert den Pfad – null, wenn das nicht ging.
+Future<String?> saveSetupLog(String targetDir, List<String> lines) =>
+    impl.saveSetupLog(targetDir, lines);
+
 Future<String> startServer({
   required String targetDir,
   int port = 8765,

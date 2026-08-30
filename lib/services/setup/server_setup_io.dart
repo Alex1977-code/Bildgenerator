@@ -103,24 +103,35 @@ Stream<String> _run(
 
   pipe(process.stdout);
   pipe(process.stderr);
-  // Die letzten Zeilen merken: Sie stehen in der Fehlermeldung, damit
-  // die eigentliche Ursache nicht im langen Protokoll untergeht.
-  final tail = <String>[];
+  // Zwei Sammlungen für die Fehlermeldung: die auffälligen Zeilen
+  // (Compiler, Linker, pip) und die letzten Zeilen überhaupt – sonst
+  // geht die eigentliche Ursache im langen Protokoll unter.
+  final flagged = <String>[];
+  final lastLines = <String>[];
+  final pattern = RegExp(
+      r'\berror\b|\bERROR\b|Fehler|unresolved|nicht aufgel|LNK\d|'
+      r'fatal|Traceback',
+      caseSensitive: false);
   await for (final line in lines.stream) {
-    // Zeilen mit dem eigentlichen Grund bevorzugt behalten.
-    if (line.trimLeft().startsWith('ERROR') ||
-        line.contains('error:') ||
-        line.contains('Fehler')) {
-      tail.add(line.trim());
-      if (tail.length > 4) tail.removeAt(0);
+    final trimmed = line.trim();
+    if (trimmed.isNotEmpty && pattern.hasMatch(trimmed)) {
+      flagged.add(trimmed);
+      if (flagged.length > 8) flagged.removeAt(0);
+    }
+    if (trimmed.isNotEmpty) {
+      lastLines.add(trimmed);
+      if (lastLines.length > 12) lastLines.removeAt(0);
     }
     yield line;
   }
   final code = await process.exitCode;
   if (code != 0) {
-    final reason = tail.isEmpty ? '' : '\n${tail.join('\n')}';
+    final reason = <String>[
+      if (flagged.isNotEmpty) ...flagged,
+      if (flagged.isEmpty && lastLines.isNotEmpty) ...lastLines,
+    ];
     throw Exception('„${arguments.join(' ')}" endete mit Fehlercode '
-        '$code.$reason');
+        '$code.${reason.isEmpty ? '' : '\n${reason.join('\n')}'}');
   }
 }
 
@@ -164,9 +175,12 @@ Iterable<String> _patchNativeSources(String targetDir) sync* {
 Map<String, String> _buildEnvironment() {
   if (!Platform.isWindows) return const {};
   final existing = Platform.environment['CL'] ?? '';
+  // /openmp schaltet die parallelen Schleifen des Quellcodes scharf
+  // (MSVC bindet dann vcomp selbst ein).
+  const flags = '/std:c++17 /openmp';
   return {
     ...Platform.environment,
-    'CL': existing.isEmpty ? '/std:c++17' : '$existing /std:c++17',
+    'CL': existing.isEmpty ? flags : '$existing $flags',
   };
 }
 
@@ -299,6 +313,17 @@ Stream<String> installServer({
       for (final line in _patchNativeSources(targetDir)) {
         yield line;
       }
+      // Zwischenstände eines früheren Versuchs wegräumen: Sonst
+      // verwendet setuptools die alten Objektdateien weiter, und
+      // geänderte Compiler-Schalter bleiben wirkungslos.
+      for (final name in const ['uv_unwrapper', 'texture_baker']) {
+        final build =
+            Directory('$targetDir$sep$name${sep}build');
+        if (build.existsSync()) {
+          build.deleteSync(recursive: true);
+          yield 'Alten Bau-Zwischenstand entfernt: $name/build';
+        }
+      }
       yield '# Modell-Abhängigkeiten (ohne Bau-Abkapselung, damit die '
           'C++-Erweiterungen PyTorch finden)';
       yield* _run(
@@ -419,4 +444,20 @@ Future<List<(String, String)>> detectInstalledServers(
     }
   }
   return found;
+}
+
+
+/// Schreibt das Einrichtungs-Protokoll in den Zielordner, damit es sich
+/// in Ruhe ansehen (und weitergeben) lässt. Liefert den Pfad.
+Future<String?> saveSetupLog(String targetDir, List<String> lines) async {
+  try {
+    final dir = Directory(targetDir);
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final file =
+        File('$targetDir${Platform.pathSeparator}einrichtung-protokoll.txt');
+    await file.writeAsString(lines.join(Platform.lineTerminator));
+    return file.path;
+  } catch (_) {
+    return null;
+  }
 }

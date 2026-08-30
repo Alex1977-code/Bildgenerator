@@ -306,6 +306,20 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
   erneut auf „Installieren" tippen – bereits geladene Teile werden
   übersprungen. Wer sich das sparen will, nimmt **TripoSR**: Das
   Modell kommt ohne eigene C++-Bauteile aus.
+- **SF3D/SPAR3D unter Windows: `link.exe … returned non-zero exit
+  status 1120`** → Das Übersetzen hat geklappt, erst das
+  Zusammenbinden scheitert; 1120 heißt „nicht aufgelöste Symbole".
+  Welche fehlen, steht im Protokoll in den Zeilen darüber
+  (`LNK2019: unresolved external symbol …`). Der Assistent speichert
+  das vollständige Protokoll als `einrichtung-protokoll.txt` im
+  Zielordner und hat einen Knopf „Kopieren".
+  Hintergrund: SF3D und SPAR3D werden vom Projekt selbst nur unter
+  Linux gebaut – die `setup.py` beider C++-Teile kennt ausschließlich
+  GCC/Clang-Schalter und keinen Windows-Zweig. Zuverlässig laufen
+  unter Windows deshalb **TripoSR** (3D) und der **Bild-Server**
+  (Text→Bild); beide brauchen keinen Compiler. SF3D in voller
+  Qualität gibt es alternativ über WSL2 (Ubuntu) oder als
+  Bezahl-API (Stability „Fast 3D", fal.ai).
 - **`No module named 'PIL'`** (oder ein anderes Paket) beim Generieren
   → `pip install -r requirements.txt` ist nicht vollständig
   durchgelaufen. In der aktiven Umgebung wiederholen und dabei auf die

@@ -30,3 +30,6 @@ Future<List<String>> pythonCandidates() async => const [];
 Future<List<(String, String)>> detectInstalledServers(
         List<String> backends) async =>
     const [];
+
+Future<String?> saveSetupLog(String targetDir, List<String> lines) async =>
+    null;

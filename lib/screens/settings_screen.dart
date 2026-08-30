@@ -685,6 +685,9 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   bool _installed = false;
   String? _error;
 
+  /// Pfad des gespeicherten Protokolls (nach einem Fehlschlag).
+  String? _logPath;
+
   late final int _port = setup.defaultPort(widget.kind);
 
   @override
@@ -750,23 +753,73 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
             );
       }
     } catch (e) {
+      // Das komplette Protokoll neben die Installation legen – dort
+      // steht mehr als in die Fehlerkarte passt.
+      final path = await setup.saveSetupLog(_dirCtrl.text.trim(), _log);
       if (mounted) {
-        setState(() =>
-            _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _logPath = path;
+        });
       }
     } finally {
       if (mounted) setState(() => _installing = false);
     }
   }
 
-  /// Erkennt am Fehlertext, ob das Übersetzen der C++-Erweiterungen
-  /// gescheitert ist – dann fehlt fast immer der C++-Compiler.
-  bool get _buildToolsMissing {
+  /// Erkennt am Fehlertext, woran der Bau der C++-Erweiterungen
+  /// gescheitert ist: gar kein Compiler, oder erst beim Zusammenbinden.
+  bool get _nativeBuildFailed {
     final text = (_error ?? '').toLowerCase();
     return text.contains('wheel') ||
         text.contains('cl.exe') ||
         text.contains('texture_baker') ||
         text.contains('uv_unwrapper');
+  }
+
+  /// Linker-Fehler: Übersetzen hat geklappt, das Zusammenbinden nicht.
+  bool get _linkerFailed {
+    final text = (_error ?? '').toLowerCase();
+    return text.contains('link.exe') ||
+        text.contains('lnk') ||
+        text.contains('unresolved') ||
+        text.contains('status 1120');
+  }
+
+  /// Fehlt der Compiler selbst?
+  bool get _compilerMissing {
+    final text = (_error ?? '').toLowerCase();
+    return text.contains('visual c++ 14') ||
+        text.contains('microsoft visual c++') ||
+        text.contains('cl.exe\' failed') ||
+        text.contains('cannot open include file');
+  }
+
+  String get _nativeHint {
+    if (_linkerFailed) {
+      return 'Das Übersetzen hat geklappt, erst das Zusammenbinden '
+          '(link.exe) schlägt fehl – SF3D und SPAR3D werden vom '
+          'Projekt selbst nur unter Linux gebaut. Im gespeicherten '
+          'Protokoll stehen über dieser Meldung die Zeilen mit '
+          '„LNK2019: unresolved external symbol"; sie nennen die '
+          'fehlenden Symbole. Solange das offen ist, führen zwei Wege '
+          'sicher zum Ziel: TripoSR als 3D-Server (läuft ohne eigene '
+          'C++-Bauteile) und – für Text→Bild – der Bild-Server, der '
+          'ebenfalls keinen Compiler braucht.';
+    }
+    if (_compilerMissing) {
+      return 'Für die C++-Erweiterungen von SF3D bzw. SPAR3D werden die '
+          '„Visual Studio Build Tools" mit der Arbeitslast '
+          '„Desktopentwicklung mit C++" gebraucht – danach hier erneut '
+          'auf „Installieren" tippen; bereits geladene Teile werden '
+          'übersprungen. Wer sich das sparen möchte, wählt oben '
+          'TripoSR: Das kommt ohne eigene C++-Bauteile aus.';
+    }
+    return 'Das betrifft die C++-Erweiterungen von SF3D bzw. SPAR3D. '
+        'Bereits geladene Teile werden übersprungen, ein erneutes '
+        '„Installieren" setzt an der fehlgeschlagenen Stelle an. Ohne '
+        'eigene C++-Bauteile kommen TripoSR (3D) und der Bild-Server '
+        '(Text→Bild) aus.';
   }
 
   Future<void> _startAndClose() async {
@@ -1044,7 +1097,29 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
               ),
               if (_log.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                Text('Protokoll', style: theme.textTheme.titleSmall),
+                Row(
+                  children: [
+                    Text('Protokoll', style: theme.textTheme.titleSmall),
+                    const Spacer(),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                            ClipboardData(text: _log.join('\n')));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Protokoll kopiert.')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Kopieren'),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 4),
                 Container(
                   height: 180,
@@ -1088,38 +1163,61 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                           style: TextStyle(
                               color: theme.colorScheme.onErrorContainer),
                         ),
-                        // Scheitert das Übersetzen der C++-Teile, hilft
-                        // meist der fehlende Compiler – oder gleich das
-                        // Modell ohne solche Bauteile.
-                        if (_buildToolsMissing) ...[
+                        if (_logPath != null) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'Das betrifft die C++-Erweiterungen von SF3D '
-                            'bzw. SPAR3D. Dafür werden die „Visual Studio '
-                            'Build Tools" mit der Arbeitslast '
-                            '„Desktopentwicklung mit C++" gebraucht – '
-                            'danach hier erneut auf „Installieren" '
-                            'tippen; bereits geladene Teile werden '
-                            'übersprungen. Wer sich das sparen möchte, '
-                            'wählt oben TripoSR: Das kommt ohne eigene '
-                            'C++-Bauteile aus.',
+                            'Das vollständige Protokoll liegt in '
+                            '$_logPath – der Knopf „Kopieren" über dem '
+                            'Protokoll legt es auch in die '
+                            'Zwischenablage.',
                             style: TextStyle(
                                 color: theme.colorScheme.onErrorContainer),
                           ),
-                          const SizedBox(height: 4),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(0, 32),
-                              tapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: () => launchUrl(
-                                Uri.parse('https://visualstudio.microsoft'
-                                    '.com/de/visual-cpp-build-tools/'),
-                                mode: LaunchMode.externalApplication),
-                            child: const Text('Build Tools herunterladen'),
+                        ],
+                        // Scheitert das Übersetzen der C++-Teile, hilft
+                        // meist der fehlende Compiler – oder gleich das
+                        // Modell ohne solche Bauteile.
+                        if (_nativeBuildFailed) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _nativeHint,
+                            style: TextStyle(
+                                color: theme.colorScheme.onErrorContainer),
                           ),
+                          if (_compilerMissing) ...[
+                            const SizedBox(height: 4),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 32),
+                                tapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => launchUrl(
+                                  Uri.parse('https://visualstudio'
+                                      '.microsoft.com/de/'
+                                      'visual-cpp-build-tools/'),
+                                  mode: LaunchMode.externalApplication),
+                              child:
+                                  const Text('Build Tools herunterladen'),
+                            ),
+                          ],
+                          if (_linkerFailed) ...[
+                            const SizedBox(height: 4),
+                            FilledButton.tonalIcon(
+                              onPressed: _installing
+                                  ? null
+                                  : () => setState(() {
+                                        _backend = 'triposr';
+                                        _dirCtrl.text =
+                                            setup.targetDirFor('triposr');
+                                        _error = null;
+                                        _log.clear();
+                                      }),
+                              icon: const Icon(Icons.swap_horiz, size: 18),
+                              label: const Text('Auf TripoSR wechseln'),
+                            ),
+                          ],
                         ],
                       ],
                     ),
