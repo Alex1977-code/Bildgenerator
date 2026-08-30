@@ -503,6 +503,30 @@ void _rigStructureTests() {
       for (final value in world['HumanoidRootPart']!) {
         expect(value.abs(), lessThan(1e-6));
       }
+      for (final value in world['LowerTorso']!) {
+        expect(value.abs(), lessThan(1e-6));
+      }
+    });
+
+    test('Der Nullpunkt liegt an der Hüfte, nicht am Boden', () {
+      // Roblox' Spezifikation für Charakterkörper: „The LowerTorso and
+      // Root bone or joint position must be set to 0, 0, 0."
+      final result = prepareRigForRoblox(_tripoBiped().glb, targetStuds: 5);
+      final json = splitGlb(result.glb).json;
+      final world = _jointWorld(json);
+      for (final name in const ['HumanoidRootPart', 'LowerTorso']) {
+        for (final v in world[name]!) {
+          expect(v.abs(), lessThan(1e-5), reason: name);
+        }
+      }
+      // Die Füße stehen darunter, der Kopf darüber.
+      expect(world['LeftFoot']![1], lessThan(-0.5));
+      expect(world['Head']![1], greaterThan(0.5));
+      // Und genau so weit reicht die Figur nach unten – der Startwert
+      // für die Hip Height.
+      expect(result.report.hipStuds, greaterThan(1.0));
+      expect(result.report.hipStuds, lessThan(3.5));
+      expect(result.report.heightStuds, closeTo(5, 1e-4));
     });
 
     test('Die Figur wird nach vorn gedreht, das Netz dreht mit', () {
@@ -510,23 +534,25 @@ void _rigStructureTests() {
       final result = prepareRigForRoblox(built.glb);
       expect(result.report.turnedDegrees, 90);
 
-      // 90°: (x,y,z) → (−z,y,x); danach um die Wurzel nach unten.
+      // 90°: (x,y,z) → (−z,y,x); danach auf die Hüfte als Nullpunkt.
       final world = _jointWorld(splitGlb(result.glb).json);
       final head = built.world['tripo::Head_1']!;
-      expect(world['Head']![0], closeTo(-head[2], 1e-5));
-      expect(world['Head']![1], closeTo(head[1] - 0.02, 1e-5));
-      expect(world['Head']![2], closeTo(head[0], 1e-5));
+      final hip = built.world['tripo::Spine_0']!;
+      expect(world['Head']![0], closeTo(-(head[2] - hip[2]), 1e-5));
+      expect(world['Head']![1], closeTo(head[1] - hip[1], 1e-5));
+      expect(world['Head']![2], closeTo(head[0] - hip[0], 1e-5));
 
       // Das Netz macht dieselbe Bewegung mit – sonst stünde das
       // Skelett neben der Figur.
       final parts = splitGlb(result.glb);
       final positions = readGltfFloats(parts.json, parts.bin, 0);
       expect(positions[3], closeTo(0, 1e-5)); // −z des zweiten Vertex
-      expect(positions[4], closeTo(0.30 - 0.02, 1e-5));
+      expect(positions[4], closeTo(0.30 - 0.50, 1e-5));
       expect(positions[5], closeTo(0.05, 1e-5));
+      // Die Füße stehen jetzt unter dem Nullpunkt.
       final min = ((parts.json['accessors'] as List).first
           as Map<String, dynamic>)['min'] as List;
-      expect((min[1] as num).toDouble(), closeTo(0.0, 1e-5));
+      expect((min[1] as num).toDouble(), closeTo(-0.48, 1e-5));
     });
 
     test('Die Bind-Matrizen kehren die neue Weltlage um', () {

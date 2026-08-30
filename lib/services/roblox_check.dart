@@ -150,6 +150,7 @@ class RobloxFacts {
     this.scaledBones = 0,
     this.rotatedBones = 0,
     this.rootAtOrigin = true,
+    this.lowerTorsoAtOrigin = true,
     this.rootWeighted = false,
     this.rootName = '',
     this.boneNames = const [],
@@ -217,6 +218,11 @@ class RobloxFacts {
 
   /// Sitzt der Wurzelknochen im Ursprung?
   final bool rootAtOrigin;
+
+  /// Sitzt der LowerTorso im Ursprung? Roblox verlangt das für R15
+  /// ausdrücklich – der Nullpunkt einer Figur liegt an der Hüfte,
+  /// nicht am Boden.
+  final bool lowerTorsoAtOrigin;
 
   /// Hat der Wurzelknochen Einflüsse auf Vertices? (Roblox will keine.)
   final bool rootWeighted;
@@ -574,11 +580,26 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
           'Der Wurzelknochen darf keine Vertices beeinflussen – er ist '
               'nur der Aufhängepunkt. Die Gewichte auf den ersten '
               'echten Bone (Hüfte/Torso) übertragen.'));
+    } else if (!facts.lowerTorsoAtOrigin &&
+        target != RobloxTarget.accessory) {
+      findings.add(const RobloxFinding(
+          RobloxLevel.blocker,
+          'LowerTorso nicht im Ursprung',
+          'Roblox schreibt für Charakterkörper beides zugleich vor: '
+              'Wurzelknochen **und** LowerTorso bei 0,0,0. Der '
+              'Nullpunkt einer Figur liegt damit an der Hüfte, nicht '
+              'am Boden – die Füße stehen im Minus. Liegt er auf '
+              'Fußhöhe, landet der HumanoidRootPart zwischen den '
+              'Füßen: Die Figur schwebt um die Hip Height nach oben '
+              'oder kippt beim ersten Schritt um. Der Knopf „Für '
+              'Roblox vorbereiten" legt den Nullpunkt richtig.'));
     } else {
       findings.add(const RobloxFinding(
           RobloxLevel.ok,
-          'Wurzelknochen im Ursprung, ohne Gewichte',
-          'So erwartet es der Importer.'));
+          'Nullpunkt an der Hüfte, Wurzelknochen ohne Gewichte',
+          'Wurzelknochen und LowerTorso sitzen bei 0,0,0, und der '
+              'Wurzelknochen bewegt keinen Vertex. So erwartet es der '
+              'Importer.'));
     }
     // Die R15-Benennung ist der Schritt, an dem der Rig-Weg steht
     // oder fällt – und sie ist aus der Datei ablesbar.
@@ -766,6 +787,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
     var maxInfluences = 0;
     var scaled = 0, rotated = 0;
     var rootAtOrigin = true, rootWeighted = false;
+    var lowerTorsoAtOrigin = true;
     var rootName = '';
     var boneCount = 0;
     if (rig != null) {
@@ -791,6 +813,23 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
             (node.rotation[3].abs() - 1).abs() > 0.001) {
           rotated++;
         }
+      }
+      // LowerTorso: Weltlage über die Elternkette aufsummiert. Das
+      // stimmt, solange keine Drehungen im Baum stehen – und die
+      // meldet die Prüfung ohnehin gesondert.
+      final torso = rig.jointNames.indexOf('LowerTorso');
+      if (torso >= 0) {
+        var x = 0.0, y = 0.0, z = 0.0;
+        var slot = torso;
+        for (var guard = 0; slot >= 0 && guard <= rig.joints.length; guard++) {
+          final node = rig.nodes[rig.joints[slot]];
+          x += node.translation[0];
+          y += node.translation[1];
+          z += node.translation[2];
+          slot = rig.jointParents[slot];
+        }
+        lowerTorsoAtOrigin =
+            x.abs() < 0.05 && y.abs() < 0.05 && z.abs() < 0.05;
       }
       final rootSlot = rig.jointParents.indexOf(-1);
       if (rootSlot >= 0) {
@@ -831,6 +870,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
       scaledBones: scaled,
       rotatedBones: rotated,
       rootAtOrigin: rootAtOrigin,
+      lowerTorsoAtOrigin: lowerTorsoAtOrigin,
       rootWeighted: rootWeighted,
       rootName: rootName,
       boneNames: rig == null ? const [] : rig.jointNames,

@@ -922,6 +922,9 @@ RobloxPrepareResult prepareRigForRoblox(
   // Datei gleich die richtige Zahl: Höhe in Einheiten = Höhe in Studs.
   var scale = 1.0;
   final heightBefore = _modelHeight(json, bin);
+  // Vor dem Umschreiben ablesen: Danach stehen in den Accessoren die
+  // schon gedrehten und verschobenen Grenzen.
+  final lowestBefore = _modelLowest(json, bin);
   if (targetStuds > 0 && heightBefore > 1e-6) {
     scale = targetStuds / heightBefore;
   }
@@ -932,26 +935,33 @@ RobloxPrepareResult prepareRigForRoblox(
       j: [for (final v in turn(worldPos(j))) v * scale],
   };
 
-  // Verschiebung, damit der Wurzelknochen im Ursprung sitzt.
+  // Der Nullpunkt einer R15-Figur.
+  //
+  // Roblox' Spezifikation für Charakterkörper ist hier wörtlich:
+  // „The LowerTorso and Root bone or joint position must be set to
+  // 0, 0, 0." Der Ursprung liegt also **an der Hüfte**, nicht am
+  // Boden – die Füße stehen im Minus. Legt man ihn stattdessen auf
+  // Fußhöhe, landet der HumanoidRootPart zwischen den Füßen, und die
+  // Figur schwebt im Spiel um die eingetragene Hip Height nach oben.
+  //
+  // Verschoben wird deshalb auf den LowerTorso; der Wurzelknochen
+  // rückt danach auf denselben Punkt. Er trägt keine Gewichte mehr
+  // (siehe [_unweightRoot]), also verformt ihn das nicht.
   var shift = [0.0, 0.0, 0.0];
   if (rootToOrigin) {
-    final root = placed[rootJoint]!;
-    var minY = double.infinity, maxY = -double.infinity;
-    for (final p in placed.values) {
-      minY = math.min(minY, p[1]);
-      maxY = math.max(maxY, p[1]);
+    int? anchor;
+    for (final j in joints) {
+      if ((nodes[j]['name'] as String? ?? '') == 'LowerTorso') anchor = j;
     }
-    final height = maxY - minY;
-    final distance = math.sqrt(
-        root[0] * root[0] + root[1] * root[1] + root[2] * root[2]);
-    if (distance > 1e-6 && (height <= 0 || distance <= height * 0.25)) {
-      shift = [-root[0], -root[1], -root[2]];
-    } else if (distance > 1e-6) {
-      notes.add('Der Wurzelknochen steht '
-          '${(distance * 100).toStringAsFixed(0)} cm über dem '
-          'Ursprung. Das Modell wurde nicht verschoben – es würde '
-          'sonst im Boden versinken. In Studio die Hip Height '
-          'nachziehen.');
+    // Ohne LowerTorso (Prop, Accessoire, unvollständiges Rig) bleibt
+    // es beim alten Bezugspunkt: der Wurzelknochen selbst.
+    final at = placed[anchor ?? rootJoint]!;
+    if (at.any((v) => v.abs() > 1e-6)) {
+      shift = [-at[0], -at[1], -at[2]];
+    }
+    if (anchor == null) {
+      notes.add('Kein LowerTorso gefunden – der Ursprung liegt auf dem '
+          'Wurzelknochen. Für eine R15-Figur gehört er an die Hüfte.');
     }
   }
   for (final entry in placed.entries) {
@@ -959,6 +969,8 @@ RobloxPrepareResult prepareRigForRoblox(
     entry.value[1] += shift[1];
     entry.value[2] += shift[2];
   }
+  // Wurzelknochen auf denselben Punkt wie der LowerTorso.
+  if (rootToOrigin) placed[rootJoint] = [0.0, 0.0, 0.0];
 
   // Netzdaten mitdrehen, mitskalieren und mitverschieben.
   if (turned != 0 || scale != 1 || shift.any((v) => v != 0)) {
@@ -1073,7 +1085,7 @@ RobloxPrepareResult prepareRigForRoblox(
       unweightedVertices: unweighted,
       scale: scale,
       heightStuds: heightBefore * scale,
-      hipStuds: _hipHeight(nodes, joints, placed),
+      hipStuds: -(lowestBefore * scale + shift[1]),
       shift: shift,
       turnedDegrees: turned,
       notes: [...notes, ...(structure?.notes ?? const [])],
@@ -1516,9 +1528,11 @@ List<String> robloxPrepareSummary(RobloxPrepareReport report) {
         'stünde die Figur kniehoch neben einem Standard-Charakter.');
   }
   if (report.moved) {
-    final mm = report.shift.map((v) => (v * 1000).abs().round()).toList();
-    out.add('Modell um ${mm.join('/')} mm verschoben, damit der '
-        'Wurzelknochen genau im Ursprung sitzt.');
+    out.add('Nullpunkt auf die Hüfte gelegt: LowerTorso und '
+        'Wurzelknochen sitzen bei 0/0/0, die Füße stehen '
+        '${report.hipStuds.toStringAsFixed(1)} Studs darunter. So '
+        'verlangt es Roblox für R15 – auf Fußhöhe schwebt die Figur '
+        'im Spiel um die Hip Height nach oben.');
   }
   if (report.turnedDegrees != 0) {
     out.add('Figur um ${report.turnedDegrees}° um die Hochachse '
@@ -1565,22 +1579,29 @@ double _modelHeight(Map<String, dynamic> json, Uint8List bin) {
   return min > max ? 0 : max - min;
 }
 
-/// Höhe des Hüftgelenks über dem Boden, in Studs. Der Humanoid hält
-/// den HumanoidRootPart genau so weit über dem Boden – daraus wird der
-/// Startwert für die Hip Height.
-double _hipHeight(List<Map<String, dynamic>> nodes, List<int> joints,
-    Map<int, List<double>> placed) {
-  var best = 0.0;
-  var low = double.infinity;
-  for (final j in joints) {
-    final name = nodes[j]['name'] as String? ?? '';
-    final p = placed[j];
-    if (p == null) continue;
-    low = math.min(low, p[1]);
-    if (name == 'LeftUpperLeg' || name == 'RightUpperLeg') {
-      best = best == 0 ? p[1] : math.min(best, p[1]);
+/// Tiefster Punkt des Netzes in glTF-Einheiten, vor Maßstab und
+/// Verschiebung.
+double _modelLowest(Map<String, dynamic> json, Uint8List bin) {
+  var min = double.infinity;
+  for (final meshRaw in (json['meshes'] as List? ?? const [])) {
+    for (final primRaw in
+        ((meshRaw as Map<String, dynamic>)['primitives'] as List? ??
+            const [])) {
+      final index = (((primRaw as Map<String, dynamic>)['attributes']
+              as Map<String, dynamic>?)?['POSITION'] as num?)
+          ?.toInt();
+      if (index == null) continue;
+      final acc = (json['accessors'] as List)[index] as Map<String, dynamic>;
+      final low = acc['min'] as List?;
+      if (low != null && low.length > 1) {
+        min = math.min(min, (low[1] as num).toDouble());
+        continue;
+      }
+      final values = readGltfFloats(json, bin, index);
+      for (var i = 1; i < values.length; i += 3) {
+        min = math.min(min, values[i]);
+      }
     }
   }
-  if (best == 0 || low == double.infinity) return 0;
-  return best - low;
+  return min == double.infinity ? 0 : min;
 }
