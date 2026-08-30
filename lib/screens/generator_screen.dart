@@ -84,6 +84,14 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   final List<Duration> _batchTimes = [];
   final List<String> _batchFailures = [];
 
+  /// Blöcke, die nicht durchgingen – damit sich nur diese wiederholen
+  /// lassen und nicht der ganze Lauf.
+  final List<BatchItem> _batchFailedItems = [];
+
+  /// Anmerkungen des Servers zu gelungenen Bildern (z. B. „Prompt
+  /// musste gekürzt werden").
+  final List<String> _batchNotes = [];
+
   /// Lässt die Anzeige der vergangenen Zeit sekündlich weiterlaufen.
   Timer? _batchTicker;
 
@@ -465,8 +473,15 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
+  /// Wiederholt nur die Blöcke, die beim letzten Lauf nicht
+  /// durchgingen. Bei 43 Bildern à zehn Minuten ist ein kompletter
+  /// Neustart wegen eines Ausfalls keine Option.
+  Future<void> _retryFailedBatch() =>
+      _generateBatch(only: List.of(_batchFailedItems));
+
   /// Erzeugt alle Bilder des Massenprompts nacheinander.
-  Future<void> _generateBatch() async {
+  /// [only] beschränkt den Lauf auf diese Blöcke (Wiederholung).
+  Future<void> _generateBatch({List<BatchItem>? only}) async {
     final settings = context.read<SettingsService>();
     final history = context.read<HistoryService>();
 
@@ -477,6 +492,19 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         _error = 'Der Massenprompt hat noch offene Punkte – bitte oben '
             'nachsehen.';
       });
+      return;
+    }
+    // Beim Wiederholen zählen die Namen aus dem letzten Lauf; sie
+    // müssen noch im Text stehen, sonst ist der Block weg.
+    final items = only == null || only.isEmpty
+        ? plan.items
+        : [
+            for (final item in plan.items)
+              if (only.any((failed) => failed.name == item.name)) item,
+          ];
+    if (items.isEmpty) {
+      setState(() => _error = 'Die zu wiederholenden Blöcke stehen nicht '
+          'mehr im Massenprompt.');
       return;
     }
     final apiKey = settings.apiKeyFor(settings.provider);
@@ -491,11 +519,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       _generating = true;
       _batchCancel = false;
       _batchDone = 0;
-      _batchTotal = plan.items.length;
-      _batchCurrent = plan.items.first.name;
+      _batchTotal = items.length;
+      _batchCurrent = items.first.name;
       _batchStart = DateTime.now();
       _batchTimes.clear();
       _batchFailures.clear();
+      _batchFailedItems.clear();
+      _batchNotes.clear();
       _results = [];
       _usageInfo = null;
       _error = null;
@@ -508,7 +538,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     final produced = <GeneratedImage>[];
     final generator = ImageGenerator.forProvider(settings.provider);
     try {
-      for (final item in plan.items) {
+      for (final item in items) {
         if (_batchCancel) break;
         if (mounted) setState(() => _batchCurrent = item.name);
         final started = DateTime.now();
@@ -528,6 +558,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             count: 1,
           );
           final result = await generator.generate(request, apiKey.trim());
+          if (result.note.isNotEmpty) {
+            _batchNotes.add('${item.name}: ${result.note}');
+          }
           final watermarkOn =
               settings.watermarkEnabled && settings.watermarkLogo != null;
           final images = await _watermarked(settings, result.images);
@@ -543,8 +576,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           _lastRequest = request;
         } on GenerationException catch (e) {
           _batchFailures.add('${item.name}: ${e.message}');
+          _batchFailedItems.add(item);
         } catch (e) {
           _batchFailures.add('${item.name}: $e');
+          _batchFailedItems.add(item);
         }
         if (!mounted) return;
         setState(() {
@@ -1123,6 +1158,35 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 Text('… und ${_batchFailures.length - 8} weitere',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.error)),
+              if (!_batchRunning && _batchFailedItems.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: _generating ? null : _retryFailedBatch,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: Text(_batchFailedItems.length == 1
+                      ? 'Das eine Bild wiederholen'
+                      : '${_batchFailedItems.length} Bilder wiederholen'),
+                ),
+                Text(
+                  'Wiederholt nur diese Blöcke – die fertigen Bilder '
+                  'bleiben in der Galerie.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline),
+                ),
+              ],
+            ],
+            if (_batchNotes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Anmerkungen des Servers (${_batchNotes.length}):',
+                  style: theme.textTheme.labelMedium),
+              for (final note in _batchNotes.take(5))
+                Text('• $note',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline)),
+              if (_batchNotes.length > 5)
+                Text('… und ${_batchNotes.length - 5} weitere',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline)),
             ],
             if (!_batchRunning && done > 0)
               Padding(

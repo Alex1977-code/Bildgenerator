@@ -27,6 +27,8 @@ import base64
 import io
 import os
 import random
+import threading
+import traceback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,6 +74,18 @@ _pipe = None
 _pipe_name = None
 _device = None
 _remover = None
+
+# FastAPI fuehrt gewoehnliche (nicht-async) Endpunkte in einem
+# Threadpool aus. Pipeline und Scheduler sind aber ein einziges,
+# gemeinsam genutztes Objekt mit internem Schrittzaehler - laufen zwei
+# Anfragen gleichzeitig hinein, zaehlt der Scheduler ueber das Ende
+# hinaus ("index 31 is out of bounds for dimension 0 with size 31" bei
+# 30 Schritten). Deshalb darf immer nur eine Anfrage rechnen.
+_pipe_lock = threading.Lock()
+
+# Eigene Sperre fuers Laden, damit nicht zwei Anfragen dasselbe Modell
+# gleichzeitig in den Speicher holen.
+_load_lock = threading.Lock()
 
 
 class GenerateRequest(BaseModel):
@@ -133,6 +147,16 @@ def _load(name: str):
     global _pipe, _pipe_name, _device
     if _pipe is not None and _pipe_name == name:
         return _pipe
+    # Zwei gleichzeitige Anfragen duerfen nicht beide laden - das
+    # kostet doppelt Speicher und kann die GPU sprengen.
+    with _load_lock:
+        if _pipe is not None and _pipe_name == name:
+            return _pipe
+        return _load_locked(name)
+
+
+def _load_locked(name: str):
+    global _pipe, _pipe_name, _device
     if name not in MODELS:
         raise HTTPException(
             status_code=400,
@@ -266,29 +290,54 @@ def _embed_sdxl(pipe, text: str, device, blocks: int):
     return torch.cat(parts, dim=1), pooled
 
 
+# Obergrenze fuer die Zahl der Bloecke. Mehr als das braucht kein
+# sinnvoller Prompt, und ein versehentlich riesiger Text soll den
+# Speicher nicht sprengen.
+_MAX_BLOCKS = 5
+
+
 def _block_count(pipe, family: str, texts: list[str]) -> int:
-    """Wie viele 75-Token-Bloecke der laengste Text braucht."""
-    tokenizer = pipe.tokenizer
+    """Wie viele 75-Token-Bloecke der laengste Text braucht.
+
+    SDXL hat zwei Tokenizer, die denselben Text unterschiedlich lang
+    zerlegen. Es zaehlt der laengere - sonst bekommt der zweite Encoder
+    stillschweigend nur den Anfang des Prompts zu sehen.
+    """
+    tokenizers = [pipe.tokenizer]
+    if family == "sdxl" and getattr(pipe, "tokenizer_2", None) is not None:
+        tokenizers.append(pipe.tokenizer_2)
     longest = 1
-    for text in texts:
-        ids = tokenizer(text, truncation=False,
-                        add_special_tokens=False).input_ids
-        longest = max(longest, -(-len(ids) // _CLIP_CHUNK) or 1)
+    for tokenizer in tokenizers:
+        for text in texts:
+            ids = tokenizer(text, truncation=False,
+                            add_special_tokens=False).input_ids
+            longest = max(longest, -(-len(ids) // _CLIP_CHUNK) or 1)
     return longest
 
 
 def _long_prompt_kwargs(pipe, family: str, prompt: str, negative: str):
     """Baut die Text-Vektoren fuer lange Prompts.
 
-    Liefert None, wenn der Prompt ohnehin in 77 Tokens passt oder die
-    Familie (SD 3.5, FLUX) von Haus aus lange Texte versteht - dann
-    bekommt die Pipeline wie bisher einfach den Text.
+    Liefert (kwargs, Anmerkung). kwargs ist None, wenn der Prompt
+    ohnehin in 77 Tokens passt oder die Familie (SD 3.5, FLUX) von Haus
+    aus lange Texte versteht - dann bekommt die Pipeline wie bisher
+    einfach den Text. Die Anmerkung ist leer, solange nichts wegfiel.
     """
     if family not in ("sd", "sdxl"):
-        return None
-    blocks = _block_count(pipe, family, [prompt, negative])
-    if blocks <= 1:
-        return None
+        return None, ""
+    needed = _block_count(pipe, family, [prompt, negative])
+    if needed <= 1:
+        return None, ""
+    blocks = min(needed, _MAX_BLOCKS)
+    note = ""
+    if needed > _MAX_BLOCKS:
+        note = (
+            f"Der Prompt braucht {needed} Textbloecke, verarbeitet "
+            f"werden hoechstens {_MAX_BLOCKS} (rund "
+            f"{_MAX_BLOCKS * _CLIP_CHUNK} Tokens) - der Rest fiel weg. "
+            "Kuerzer formulieren bringt hier mehr."
+        )
+        print(note, flush=True)
     device = pipe._execution_device
     if family == "sdxl":
         embeds, pooled = _embed_sdxl(pipe, prompt, device, blocks)
@@ -299,12 +348,12 @@ def _long_prompt_kwargs(pipe, family: str, prompt: str, negative: str):
             "pooled_prompt_embeds": pooled,
             "negative_prompt_embeds": negative_embeds,
             "negative_pooled_prompt_embeds": negative_pooled,
-        }
+        }, note
     return {
         "prompt_embeds": _embed_clip(pipe, prompt, device, blocks),
         "negative_prompt_embeds": _embed_clip(pipe, negative, device,
                                               blocks),
-    }
+    }, note
 
 
 def _cutout(image):
@@ -397,9 +446,10 @@ def generate(req: GenerateRequest):
     # Statt den Rest wegzuwerfen, zerlegen wir den Text in Bloecke und
     # reichen die fertigen Text-Vektoren durch.
     long_kwargs = None
+    long_note = ""
     if len(req.prompt) > 200:
         try:
-            long_kwargs = _long_prompt_kwargs(
+            long_kwargs, long_note = _long_prompt_kwargs(
                 pipe, family, req.prompt,
                 req.negative_prompt if use_negative else "")
         except Exception as exc:  # pragma: no cover - modellabhaengig
@@ -408,7 +458,13 @@ def generate(req: GenerateRequest):
                 f"77-Token-Limit: {exc}",
                 flush=True,
             )
+            traceback.print_exc()
             long_kwargs = None
+            long_note = (
+                f"Der lange Prompt liess sich nicht zerlegen "
+                f"({type(exc).__name__}: {exc}); es gilt das "
+                "77-Token-Limit."
+            )
 
     if long_kwargs:
         kwargs.update(long_kwargs)
@@ -426,17 +482,67 @@ def generate(req: GenerateRequest):
         elif family == "flux":
             kwargs["max_sequence_length"] = 512
 
-    try:
-        result = pipe(**kwargs)
-    except torch.cuda.OutOfMemoryError:
-        raise HTTPException(
-            status_code=500,
-            detail="Der GPU-Speicher reicht nicht. Kleineres Modell "
-            "waehlen (sd15 oder sdxl-turbo), weniger Bilder auf einmal "
-            "oder ein kleineres Seitenverhaeltnis.",
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Generierung fehlgeschlagen: {exc}")
+    # Nur eine Anfrage zur Zeit an die Pipeline: Scheduler und Modell
+    # sind gemeinsam genutzter Zustand (siehe _pipe_lock).
+    note = long_note
+    with _pipe_lock:
+        try:
+            result = pipe(**kwargs)
+        except torch.cuda.OutOfMemoryError:
+            raise HTTPException(
+                status_code=500,
+                detail="Der GPU-Speicher reicht nicht. Kleineres Modell "
+                "waehlen (sd15 oder sdxl-turbo), weniger Bilder auf einmal "
+                "oder ein kleineres Seitenverhaeltnis.",
+            )
+        except Exception as exc:
+            # Der ganze Stapel gehoert ins Server-Log: Die einzeilige
+            # Meldung ("index 31 is out of bounds ...") sagt nicht, aus
+            # welcher Ecke sie kommt.
+            print("Generierung fehlgeschlagen:", flush=True)
+            traceback.print_exc()
+            if not long_kwargs:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Generierung fehlgeschlagen "
+                    f"({type(exc).__name__}): {exc}",
+                )
+            # Zweiter Versuch ohne die selbst gebauten Text-Vektoren.
+            # Der Prompt wird dann bei 77 Tokens abgeschnitten - ein
+            # etwas schwaecheres Bild ist immer noch besser als ein
+            # Loch mitten im Massenlauf.
+            print(
+                "Zweiter Versuch ohne zerlegten Prompt (der Text wird "
+                "dabei bei 77 Tokens abgeschnitten).",
+                flush=True,
+            )
+            for key in (
+                "prompt_embeds",
+                "pooled_prompt_embeds",
+                "negative_prompt_embeds",
+                "negative_pooled_prompt_embeds",
+            ):
+                kwargs.pop(key, None)
+            kwargs["prompt"] = req.prompt
+            if use_negative:
+                kwargs["negative_prompt"] = req.negative_prompt
+            try:
+                result = pipe(**kwargs)
+            except Exception as second:
+                print("Auch der zweite Versuch schlug fehl:", flush=True)
+                traceback.print_exc()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Generierung fehlgeschlagen "
+                    f"({type(exc).__name__}): {exc} - auch der Versuch "
+                    f"mit gekuerztem Prompt schlug fehl "
+                    f"({type(second).__name__}): {second}",
+                )
+            note = (
+                "Der zerlegte lange Prompt liess sich nicht verwenden "
+                f"({type(exc).__name__}: {exc}); das Bild entstand mit "
+                "dem bei 77 Tokens gekuerzten Text."
+            )
 
     images = []
     for image in result.images:
@@ -455,6 +561,9 @@ def generate(req: GenerateRequest):
         "width": width,
         "height": height,
         "steps": int(steps),
+        # Leer, wenn alles glatt lief; sonst steht hier, was der Server
+        # hinter den Kulissen anders machen musste.
+        "note": note,
     }
 
 

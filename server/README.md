@@ -75,6 +75,16 @@ aus dem ersten Block). Der komplette Prompt kommt damit an. `sd35-medium`
 (256 Tokens) und `flux-schnell` (512 Tokens) können das von Haus aus und
 bekommen die passende Obergrenze mitgegeben.
 
+Höchstens **5 Blöcke** (rund 375 Tokens) werden verarbeitet; was
+darüber hinausgeht, fällt weg. Der Server sagt das dann in der Antwort,
+und die App zeigt es im Massenlauf unter „Anmerkungen des Servers".
+
+Bei SDXL zählen **beide** Tokenizer. Die beiden Text-Encoder zerlegen
+denselben Satz unterschiedlich lang; maßgeblich ist der längere. Vorher
+richtete sich die Blockzahl nur nach dem ersten – dadurch bekam der
+zweite Encoder bei manchen Prompts stillschweigend nur den Anfang zu
+sehen.
+
 Zwei Eigenheiten bleiben, weil sie in den Modellen stecken:
 
 - **Verneinungen wirken nicht.** „no text", „ohne Schrift", „keine
@@ -297,6 +307,29 @@ Port 8765 in der Windows-Firewall freigeben.
 `http://127.0.0.1` bzw. `http://localhost` auch aus der per HTTPS
 geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 „Mixed Content“ – dann die Windows- oder Android-App verwenden.
+
+### Wenn ein Bild mit „Generierung fehlgeschlagen" abbricht
+
+Der Server schreibt seit der aktuellen Fassung den **vollständigen
+Python-Stapel** ins Konsolenfenster und nennt in der Fehlermeldung an
+die App zusätzlich den Ausnahmetyp. Bricht ein Bild ab, steht die
+eigentliche Ursache also im Fenster, in dem der Server läuft – dieser
+Ausschnitt ist das, was zur Fehlersuche gebraucht wird.
+
+Zwei Dinge fängt der Server selbst ab:
+
+- **Lange Prompts.** Scheitert der Lauf mit den selbst gebauten
+  Text-Vektoren, versucht er es einmal ohne – der Prompt wird dann bei
+  77 Tokens abgeschnitten. Das Bild ist etwas schwächer, aber der
+  Massenlauf bekommt kein Loch. Die App vermerkt das unter
+  „Anmerkungen des Servers".
+- **Gleichzeitige Anfragen.** Pipeline und Scheduler sind ein einziges
+  Objekt mit internem Schrittzähler. FastAPI führt normale Endpunkte in
+  einem Threadpool aus, zwei Anfragen könnten also gleichzeitig
+  hineinlaufen und den Zähler über das Ende hinaustreiben – die Meldung
+  dazu lautet typischerweise `index 31 is out of bounds for dimension 0
+  with size 31` (31 = 30 Schritte + 1). Der Server lässt deshalb immer
+  nur eine Anfrage rechnen und lädt Modelle unter einer eigenen Sperre.
 
 ## Fehlersuche
 

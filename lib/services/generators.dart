@@ -20,6 +20,7 @@ class GenerationResult {
     required this.images,
     this.totalTokens,
     this.creditsRemaining,
+    this.note = '',
   });
 
   final List<GeneratedImage> images;
@@ -29,6 +30,11 @@ class GenerationResult {
 
   /// Verbleibendes Guthaben in Credits (nur Stability).
   final double? creditsRemaining;
+
+  /// Anmerkung des Servers: Das Bild ist da, aber er musste etwas
+  /// anders machen als angefragt (z. B. den Prompt kürzen). Leer,
+  /// wenn alles glatt lief.
+  final String note;
 }
 
 /// Gemeinsame Schnittstelle aller Bild-Provider.
@@ -536,7 +542,8 @@ class SelfHostImageGenerator implements ImageGenerator {
       throw GenerationException(
           'Der Bild-Server hat kein Bild geliefert.');
     }
-    return GenerationResult(images: images);
+    return GenerationResult(
+        images: images, note: (json['note'] as String? ?? '').trim());
   }
 }
 
