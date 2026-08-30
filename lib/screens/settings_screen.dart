@@ -174,6 +174,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         const _ServerUrlCard(),
         const SizedBox(height: 12),
+        const _ServerUrlCard(kind: 'image'),
+        const SizedBox(height: 12),
         _UsageCard(
           hasStabilityKey: settings.hasApiKeyFor(GenProvider.stability),
           hasTripoKey:
@@ -251,7 +253,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 /// Karte für den eigenen 3D-Server (server/local3d_server.py):
 /// Adresse eintragen, speichern und per /health-Endpunkt testen.
 class _ServerUrlCard extends StatefulWidget {
-  const _ServerUrlCard();
+  const _ServerUrlCard({this.kind = '3d'});
+
+  /// '3d' = Bild→3D-Server, 'image' = Text→Bild-Server.
+  final String kind;
 
   @override
   State<_ServerUrlCard> createState() => _ServerUrlCardState();
@@ -280,11 +285,20 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     return null;
   }
 
+  bool get _isImage => widget.kind == 'image';
+
+  String _storedUrl(SettingsService settings) =>
+      _isImage ? settings.selfHostImageUrl : settings.selfHostUrl;
+
+  void _storeUrl(SettingsService settings, String url) => _isImage
+      ? settings.setSelfHostImageUrl(url)
+      : settings.setSelfHostUrl(url);
+
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(
-        text: context.read<SettingsService>().selfHostUrl);
+        text: _storedUrl(context.read<SettingsService>()));
     _loadServers();
   }
 
@@ -301,12 +315,18 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     final list = <setup.InstalledServer>[];
     for (final raw in settings.localServers) {
       final entry = setup.InstalledServer.decode(raw);
-      if (entry != null && !list.contains(entry)) list.add(entry);
+      if (entry != null &&
+          entry.kind == widget.kind &&
+          !list.contains(entry)) {
+        list.add(entry);
+      }
     }
     if (setup.setupSupported) {
       try {
         for (final found in await setup.detectInstalledServers()) {
-          if (!list.contains(found)) list.add(found);
+          if (found.kind == widget.kind && !list.contains(found)) {
+            list.add(found);
+          }
         }
       } catch (_) {
         // Ohne Fundliste weiterarbeiten – die Adresse geht immer.
@@ -330,7 +350,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   Future<void> _saveAndTest() async {
     final settings = context.read<SettingsService>();
     final url = _ctrl.text.trim();
-    settings.setSelfHostUrl(url);
+    _storeUrl(settings, url);
     if (url.isEmpty) {
       setState(() {
         _status = 'Adresse entfernt.';
@@ -376,7 +396,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     final entry = _current;
     if (entry == null) {
       _ctrl.text = '';
-      context.read<SettingsService>().setSelfHostUrl('');
+      _storeUrl(context.read<SettingsService>(), '');
       setState(() {
         _status = 'Kein Server ausgewählt.';
         _neutral = true;
@@ -401,7 +421,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
           targetDir: entry.dir, backend: entry.backend, port: entry.port);
       if (!mounted) return;
       _ctrl.text = entry.url;
-      context.read<SettingsService>().setSelfHostUrl(entry.url);
+      _storeUrl(context.read<SettingsService>(), entry.url);
       // Der erste Start lädt das Modell – deshalb geduldig nachfragen,
       // statt sofort „nicht erreichbar" zu melden.
       for (var attempt = 0; attempt < 30; attempt++) {
@@ -455,26 +475,38 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Eigener 3D-Server (3D-Bereich)',
+            Text(
+                _isImage
+                    ? 'Eigener Bild-Server (Text→Bild, Bild-Bereich)'
+                    : 'Eigener 3D-Server (3D-Bereich)',
                 style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
-              'Bild→3D auf dem eigenen PC mit NVIDIA-GPU – kostenlos '
-              'und komplett lokal (Open-Source-Modelle TripoSR, SF3D, '
-              'SPAR3D, TRELLIS). Der Einrichtungs-Assistent installiert '
-              'alles; danach steht der Server hier in der Liste und '
-              'lässt sich mit einem Knopfdruck starten.',
+              _isImage
+                  ? 'Text→Bild auf dem eigenen PC mit NVIDIA-GPU – '
+                      'kostenlos, ohne Cloud (Stable Diffusion 1.5, '
+                      'SDXL, SD 3.5, FLUX). Im Bild-Tab erscheint der '
+                      'Server als Modell „Eigene GPU"; zusammen mit '
+                      'einem 3D-Server läuft die ganze Kette '
+                      'Text→Bild→3D lokal.'
+                  : 'Bild→3D auf dem eigenen PC mit NVIDIA-GPU – '
+                      'kostenlos und komplett lokal '
+                      '(Open-Source-Modelle TripoSR, SF3D, SPAR3D, '
+                      'TRELLIS). Der Einrichtungs-Assistent '
+                      'installiert alles; danach steht der Server hier '
+                      'in der Liste und lässt sich mit einem '
+                      'Knopfdruck starten.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
             // Auswahlliste: oben „Keiner", darunter alles, was auf
             // diesem Rechner eingerichtet ist.
             InputDecorator(
-              decoration: const InputDecoration(
-                labelText: '3D-Server',
-                border: OutlineInputBorder(),
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: InputDecoration(
+                labelText: _isImage ? 'Bild-Server' : '3D-Server',
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 6),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
@@ -510,10 +542,11 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
             const SizedBox(height: 12),
             TextField(
               controller: _ctrl,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Server-Adresse',
-                hintText: 'http://127.0.0.1:8765',
-                border: OutlineInputBorder(),
+                hintText:
+                    'http://127.0.0.1:${setup.defaultPort(widget.kind)}',
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 8),
@@ -557,7 +590,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                               context: context,
                               barrierDismissible: false,
                               builder: (context) =>
-                                  const _ServerSetupDialog(),
+                                  _ServerSetupDialog(kind: widget.kind),
                             );
                             if (!mounted) return;
                             await _loadServers();
@@ -616,20 +649,26 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
 /// Voraussetzungen prüfen, TripoSR samt Python-Umgebung installieren,
 /// Server starten. Gibt beim Schließen die Server-Adresse zurück.
 class _ServerSetupDialog extends StatefulWidget {
-  const _ServerSetupDialog();
+  const _ServerSetupDialog({this.kind = '3d'});
+
+  /// '3d' = Bild→3D, 'image' = Text→Bild.
+  final String kind;
 
   @override
   State<_ServerSetupDialog> createState() => _ServerSetupDialogState();
 }
 
 class _ServerSetupDialogState extends State<_ServerSetupDialog> {
+  late final List<setup.SetupBackend> _backends =
+      setup.backendsOfKind(widget.kind);
+  late String _backend =
+      _backends.isEmpty ? 'sf3d' : _backends.first.id;
   late final TextEditingController _dirCtrl =
-      TextEditingController(text: setup.defaultTargetDir());
+      TextEditingController(text: setup.targetDirFor(_backend));
   final _logCtrl = ScrollController();
   final List<String> _log = [];
 
   Map<String, String?>? _prereq;
-  String _backend = 'sf3d';
 
   /// Grafikspeicher der erkannten Karte in GB (aus nvidia-smi, z. B.
   /// „NVIDIA GeForce RTX 3070, 8192 MiB"). Null = unbekannt.
@@ -646,7 +685,7 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
   bool _installed = false;
   String? _error;
 
-  static const _port = 8765;
+  late final int _port = setup.defaultPort(widget.kind);
 
   @override
   void initState() {
@@ -810,9 +849,13 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
     final python = _prereq?['python'];
     final git = _prereq?['git'];
     final gpu = _prereq?['gpu'];
-    final ready = python != null && git != null;
+    // Der Bild-Server braucht kein Git – es wird nichts geklont.
+    final needsGit = widget.kind != 'image';
+    final ready = python != null && (!needsGit || git != null);
     return AlertDialog(
-      title: const Text('Eigenen 3D-Server einrichten'),
+      title: Text(widget.kind == 'image'
+          ? 'Eigenen Bild-Server einrichten'
+          : 'Eigenen 3D-Server einrichten'),
       content: SizedBox(
         width: 620,
         child: SingleChildScrollView(
@@ -821,15 +864,21 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Richtet TripoSR auf diesem PC ein, damit Bild→3D '
-                'kostenlos auf deiner NVIDIA-GPU läuft. Alles landet im '
-                'gewählten Ordner; dein System-Python bleibt unberührt.',
+                widget.kind == 'image'
+                    ? 'Richtet Stable Diffusion auf diesem PC ein, damit '
+                        'Text→Bild kostenlos auf deiner NVIDIA-GPU '
+                        'läuft. Alles landet im gewählten Ordner; dein '
+                        'System-Python bleibt unberührt.'
+                    : 'Richtet das gewählte Modell auf diesem PC ein, '
+                        'damit Bild→3D kostenlos auf deiner NVIDIA-GPU '
+                        'läuft. Alles landet im gewählten Ordner; dein '
+                        'System-Python bleibt unberührt.',
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
               Text('Modell', style: theme.textTheme.titleSmall),
               const SizedBox(height: 6),
-              for (final backend in setup.setupBackends)
+              for (final backend in _backends)
                 Builder(builder: (context) {
                   final fits = _gpuMemoryGb == null ||
                       _gpuMemoryGb! + 0.5 >= backend.minVramGb;
@@ -845,13 +894,8 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                               _backend = value ?? _backend;
                               // Jedes Modell in einen eigenen Ordner,
                               // damit sie sich nicht überschreiben.
-                              final base = setup.defaultTargetDir();
-                              final cut =
-                                  base.lastIndexOf(RegExp(r'[\\/]'));
-                              _dirCtrl.text = cut < 0
-                                  ? base
-                                  : '${base.substring(0, cut + 1)}'
-                                      '${_backend.toUpperCase()}';
+                              _dirCtrl.text =
+                                  setup.targetDirFor(_backend);
                             }),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -939,15 +983,16 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
               if (!_checking) ...[
                 _prereqRow(theme, 'Python 3.11',
                     python?.split('|').last, required: true,
-                    hint: 'Wird zwingend gebraucht – neuere Versionen '
-                        'brechen bei TripoSR ab. Nach der Installation '
-                        'hier auf „Erneut prüfen" tippen.',
+                    hint: 'Wird gebraucht – neuere Versionen brechen '
+                        'bei TripoSR ab. Nach der Installation hier auf '
+                        '„Erneut prüfen" tippen.',
                     url: 'https://www.python.org/ftp/python/3.11.9/'
                         'python-3.11.9-amd64.exe'),
-                _prereqRow(theme, 'Git', git,
-                    required: true,
-                    hint: 'Zum Laden des Modell-Quellcodes.',
-                    url: 'https://git-scm.com/download/win'),
+                if (needsGit)
+                  _prereqRow(theme, 'Git', git,
+                      required: true,
+                      hint: 'Zum Laden des Modell-Quellcodes.',
+                      url: 'https://git-scm.com/download/win'),
                 _prereqRow(theme, 'NVIDIA-GPU', gpu,
                     required: false,
                     hint: 'Ohne GPU läuft es auf der CPU – sehr langsam, '
@@ -957,7 +1002,8 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
               Text('Was installiert wird',
                   style: theme.textTheme.titleSmall),
               const SizedBox(height: 4),
-              for (final (title, description, size) in setup.setupSteps)
+              for (final (title, description, size)
+                  in setup.setupStepsFor(widget.kind))
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(
@@ -987,8 +1033,12 @@ class _ServerSetupDialogState extends State<_ServerSetupDialog> {
                 ),
               const SizedBox(height: 4),
               Text(
-                'Zusammen rund 3,5 GB Download. Die Modellgewichte '
-                '(~1,7 GB) kommen beim ersten Generieren dazu.',
+                widget.kind == 'image'
+                    ? 'Zusammen rund 3,5 GB Download. Die Modellgewichte '
+                        'kommen beim ersten Bild dazu – je nach Modell '
+                        '2 GB (SD 1.5) bis 24 GB (FLUX).'
+                    : 'Zusammen rund 3,5 GB Download. Die Modellgewichte '
+                        '(~1,7 GB) kommen beim ersten Generieren dazu.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),

@@ -106,6 +106,19 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     für Game-Assets wie Fahrzeuge und Gebäude. Rigging, Symmetrisieren
     und Textur-Schärfen übernimmt die eigene lokale
     Veredelungs-Pipeline
+  - **Text→Bild auf der eigenen GPU** (kostenlos, ohne Cloud): Der
+    mitgelieferte Bild-Server (`server/local_image_server.py`) stellt
+    Stable Diffusion über die eigene NVIDIA-Karte bereit – wählbar sind
+    **SD 1.5** (~4 GB VRAM), **SDXL Turbo** (~7 GB), **SDXL** (~8 GB),
+    **SD 3.5 Medium** (~10 GB) und **FLUX.1 schnell** (~16 GB). In der
+    Modell-Liste des Bild-Tabs steht er als „Eigene GPU“; die
+    Einrichtung übernimmt derselbe Assistent wie beim 3D-Server
+    (Einstellungen → Eigener Bild-Server), ein Knopfdruck startet ihn.
+    Zusammen mit einem lokalen 3D-Server läuft damit die **komplette
+    Kette Text→Bild→3D auf dem eigenen Rechner** – ohne API-Schlüssel,
+    ohne Kosten, ohne dass ein Bild den PC verlässt. Der Hintergrund
+    wird serverseitig freigestellt (rembg), sodass die Ansichten mit
+    echter Transparenz beim 3D-Teil ankommen
   - **Eigener lokaler 3D-Generator** (Standard, ohne API, kostenlos):
     baut direkt in der App ein farbiges 360°-Modell (Visual Hull aus
     bis zu 4 Ansichten mit geglätteter Surface-Nets-Oberfläche);

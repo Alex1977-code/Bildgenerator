@@ -96,6 +96,18 @@ const qualityTierLabels = {
         'core' => (0.03, 0.03, 2),
         _ => (0.03, 0.08, 3),
       };
+    case GenProvider.selfhost:
+      // Eigene GPU: keine Kosten, nur Strom und Rechenzeit. Die Stufe
+      // richtet sich nach dem geladenen Modell.
+      final tier = switch (model) {
+        'flux-schnell' => 5,
+        'sd35-medium' => 4,
+        'sdxl' => 4,
+        'sdxl-turbo' => 3,
+        'sd15' => 2,
+        _ => 3,
+      };
+      return (0, 0, tier);
   }
 }
 

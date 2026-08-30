@@ -1,0 +1,25 @@
+# Pakete für den Bild-Server (Text→Bild auf der eigenen GPU).
+#
+# PyTorch vorher separat mit CUDA installieren:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Hier wird nichts selbst übersetzt – es gibt für alles fertige
+# Pakete, deshalb läuft die Installation auch ohne C++-Compiler durch.
+
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.34
+safetensors
+sentencepiece
+protobuf
+pillow
+huggingface-hub
+
+# Freistellen des Hintergrunds für die 3D-Ansichten
+rembg
+onnxruntime
+
+# Der Server selbst
+fastapi
+uvicorn
+pydantic

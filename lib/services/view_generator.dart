@@ -102,16 +102,24 @@ String _turnPrompt(String viewInstruction, {required bool trueAlpha}) =>
   final provider = settings.provider;
   if (needsReferences && !provider.supportsReferences) {
     throw GenerationException(
-        'Hierfür wird ein referenzbildfähiger Bild-Provider benötigt '
-        '(OpenAI oder Google Gemini). Bitte in den Einstellungen '
-        'umstellen.');
+        'Hierfür wird ein referenzbildfähiges Bild-Modell benötigt '
+        '(OpenAI oder Google Gemini) – nur damit lassen sich die '
+        'gedrehten Ansichten aus der Vorderansicht ableiten. Oben bei '
+        '„Bild-KI-Modell" umstellen.'
+        '${provider.isLocal ? ' Die eigene GPU kann die Vorderansicht '
+            'liefern: dafür einen 3D-Dienst wählen, der mit einem '
+            'einzelnen Bild auskommt (eigener Server, Stability, '
+            'fal.ai, Replicate).' : ''}');
   }
   final apiKey = settings.apiKeyFor(provider)?.trim();
   if (apiKey == null || apiKey.isEmpty) {
-    throw GenerationException(
-        'Für den Bild-Provider ${provider.label} ist kein API-Schlüssel '
-        'hinterlegt (wird für die Bild-KI-Schritte des 3D-Generators '
-        'genutzt).');
+    throw GenerationException(provider.isLocal
+        ? 'Für die eigene GPU fehlt die Adresse des Bild-Servers '
+            '(Einstellungen → Eigener Bild-Server). Er erzeugt die '
+            'Ansichten für den 3D-Teil.'
+        : 'Für den Bild-Provider ${provider.label} ist kein API-Schlüssel '
+            'hinterlegt (wird für die Bild-KI-Schritte des 3D-Generators '
+            'genutzt).');
   }
   return (provider, apiKey, ImageGenerator.forProvider(provider));
 }
@@ -174,7 +182,7 @@ Future<GeneratedViews> generateViewsFromText({
       openAiSize: '1024x1024',
       geminiAspect: '1:1',
       quality: settings.quality,
-      transparent: provider == GenProvider.openai,
+      transparent: provider == GenProvider.openai || provider.isLocal,
       outputFormat: 'png',
       count: 1,
       model: settings.modelFor(provider),
@@ -202,11 +210,12 @@ Future<GeneratedViews> generateViewsFromText({
     // Provider ohne echte Transparenz: angeforderten Greenscreen
     // entfernen (Chroma-Key); Rückfall ist der generische Flutlauf.
     bytes = await removeGeneratedBackground(bytes,
-        expectGreenScreen: provider != GenProvider.openai);
+        expectGreenScreen:
+            provider != GenProvider.openai && !provider.isLocal);
     return ReferenceImage(bytes: bytes, name: 'ansicht_$label.png');
   }
 
-  final trueAlpha = provider == GenProvider.openai;
+  final trueAlpha = provider == GenProvider.openai || provider.isLocal;
   final front = existing['front'] ??
       await generateOne(
           'Vorn',

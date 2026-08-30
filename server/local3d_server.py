@@ -411,6 +411,7 @@ def health():
     missing = _missing_modules()
     return {
         "status": "ok" if not missing else "unvollstaendig",
+        "kind": "3d",
         "backend": BACKEND,
         "device": device
         + (f" - ES FEHLEN: {', '.join(missing)}" if missing else ""),

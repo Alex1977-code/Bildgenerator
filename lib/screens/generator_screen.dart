@@ -177,10 +177,18 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('API-Schlüssel fehlt'),
+        title: Text(provider.isLocal
+            ? 'Bild-Server fehlt'
+            : 'API-Schlüssel fehlt'),
         content: Text(
-          'Für „${provider.label}“ ist noch kein API-Schlüssel hinterlegt. '
-          'Bitte in den Einstellungen einen Schlüssel eintragen.',
+          provider.isLocal
+              ? 'Für die eigene GPU wird der lokale Bild-Server '
+                  'gebraucht. In den Einstellungen unter „Eigener '
+                  'Bild-Server" richtet ihn der Assistent ein und '
+                  'startet ihn auf Knopfdruck.'
+              : 'Für „${provider.label}“ ist noch kein API-Schlüssel '
+                  'hinterlegt. Bitte in den Einstellungen einen '
+                  'Schlüssel eintragen.',
         ),
         actions: [
           TextButton(
@@ -632,14 +640,20 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     final isOpenAi = provider == GenProvider.openai;
     final isStability = provider == GenProvider.stability;
     final isGemini = provider == GenProvider.gemini;
+    // Der eigene Bild-Server nutzt dieselben Seitenverhältnisse wie
+    // Stability und rechnet sie in Pixelmaße um.
     final sizeOptions = switch (provider) {
       GenProvider.openai => openAiSizeOptions,
-      GenProvider.stability => stabilityAspectOptions,
+      GenProvider.stability ||
+      GenProvider.selfhost =>
+        stabilityAspectOptions,
       GenProvider.gemini => geminiAspectOptions,
     };
     final sizeValue = switch (provider) {
       GenProvider.openai => settings.openAiSize,
-      GenProvider.stability => settings.stabilityAspect,
+      GenProvider.stability ||
+      GenProvider.selfhost =>
+        settings.stabilityAspect,
       GenProvider.gemini => settings.geminiAspect,
     };
     // Alle Modelle aller Anbieter in einer Liste: Der Anbieter wird
@@ -747,6 +761,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                         case GenProvider.openai:
                           settings.setOpenAiSize(value);
                         case GenProvider.stability:
+                        case GenProvider.selfhost:
                           settings.setStabilityAspect(value);
                         case GenProvider.gemini:
                           settings.setGeminiAspect(value);
@@ -935,6 +950,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   'Ultra: ≈ 0,08 \$ – beste Stability-Qualität. '
                   'Kein Referenzbild-Support (für die 3D-Pipeline '
                   'OpenAI/Gemini wählen).\n'
+                  '• Eigene GPU (lokaler Bild-Server): 0 \$ – Stable '
+                  'Diffusion auf dem eigenen Rechner, unbegrenzt viele '
+                  'Bilder, alle Daten bleiben lokal. Einrichtung in den '
+                  'Einstellungen unter „Eigener Bild-Server".\n'
                   'Faustregel: Zum Experimentieren gpt-image-1-mini oder '
                   'Stability Core, für gute Alltagsbilder Gemini Flash '
                   'Image, für Feinstes gpt-image (hoch) oder Nano Banana '
@@ -954,6 +973,8 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   String _sizeOptionLabel(SettingsService settings, Option option) {
     switch (settings.provider) {
       case GenProvider.openai:
+        return option.$2;
+      case GenProvider.selfhost:
         return option.$2;
       case GenProvider.stability:
         final (w, h) =

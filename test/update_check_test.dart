@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:bildgenerator/models/models.dart';
+import 'package:bildgenerator/services/generators.dart';
+import 'package:bildgenerator/services/model_catalog.dart';
 import 'package:bildgenerator/services/server_setup.dart';
 import 'package:bildgenerator/services/update_check.dart';
 
@@ -61,6 +64,67 @@ void main() {
       expect(backendLabel('triposr'), 'TripoSR');
       expect(backendLabel('trellis'), 'TRELLIS');
       expect(backendLabel('unbekannt'), 'UNBEKANNT');
+    });
+  });
+
+  group('Anbieterübergreifende Modell-Liste', () {
+    test('enthält jeden Anbieter mindestens einmal', () {
+      final all = allImageModels((_) => const []);
+      for (final provider in GenProvider.values) {
+        expect(all.any((choice) => choice.provider == provider), isTrue,
+            reason: 'Kein Modell für ${provider.name}');
+      }
+    });
+
+    test('Schlüssel lässt sich wieder zerlegen', () {
+      final choice = allImageModels((_) => const []).first;
+      final parsed = ImageModelChoice.parseKey(choice.key);
+      expect(parsed?.$1, choice.provider);
+      expect(parsed?.$2, choice.id);
+      expect(choice.fullLabel, startsWith(choice.provider.shortLabel));
+    });
+
+    test('Abgerufene Modelle kommen dazu, ohne zu doppeln', () {
+      final all = allImageModels((p) =>
+          p == GenProvider.openai ? const ['gpt-image-1', 'neu-99'] : const []);
+      final openAi =
+          all.where((c) => c.provider == GenProvider.openai).toList();
+      expect(openAi.where((c) => c.id == 'gpt-image-1').length, 1);
+      expect(openAi.any((c) => c.id == 'neu-99'), isTrue);
+    });
+
+    test('Kaputte Schlüssel liefern null', () {
+      expect(ImageModelChoice.parseKey('ohne-schraegstrich'), isNull);
+      expect(ImageModelChoice.parseKey('openai/'), isNull);
+      expect(ImageModelChoice.parseKey('gibtsnicht/modell'), isNull);
+    });
+  });
+
+  group('Eigener Bild-Server', () {
+    test('Adresse wird vereinheitlicht', () {
+      expect(SelfHostImageGenerator.normalizeBaseUrl('127.0.0.1:8766'),
+          'http://127.0.0.1:8766');
+      expect(SelfHostImageGenerator.normalizeBaseUrl(' http://pc:8766/ '),
+          'http://pc:8766');
+      expect(SelfHostImageGenerator.normalizeBaseUrl(''), '');
+    });
+
+    test('Der Bild-Server ist ein eigener Anbieter ohne Referenzbilder',
+        () {
+      expect(GenProvider.selfhost.isLocal, isTrue);
+      expect(GenProvider.selfhost.supportsReferences, isFalse);
+      expect(staticModelOptions(GenProvider.selfhost), isNotEmpty);
+    });
+
+    test('Der Eintrag kennt seine Art', () {
+      const image =
+          InstalledServer(backend: 'sd-image', dir: r'C:\KI\SD-Bilder');
+      const mesh = InstalledServer(backend: 'sf3d', dir: r'C:\KI\SF3D');
+      expect(image.kind, 'image');
+      expect(mesh.kind, '3d');
+      expect(backendsOfKind('image').single.id, 'sd-image');
+      expect(defaultPort('image'), 8766);
+      expect(defaultPort('3d'), 8765);
     });
   });
 }

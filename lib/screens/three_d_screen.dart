@@ -21,6 +21,7 @@ import '../services/history_service.dart';
 import '../services/local_3d.dart';
 import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
+import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
 import '../services/model_refine.dart';
 import '../services/obj_export.dart';
@@ -2499,15 +2500,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     Text(
                       isFal || isSelfHost || isReplicate
                           ? 'Die Ansicht wird automatisch mit der '
-                              'Bild-KI aus dem Generator-Tab '
-                              '(${settings.provider.label}) erzeugt; '
+                              'gewählten Bild-KI '
+                              '(${settings.provider.shortLabel} · '
+                              '${settings.modelFor(settings.provider)}) '
+                              'erzeugt; '
                               '${isFal ? 'das gewählte fal.ai-Modell' : isReplicate ? 'das gewählte Replicate-Modell' : 'dein eigener Server (TripoSR/TRELLIS)'} '
                               'rekonstruiert daraus das komplette '
                               '3D-Modell inklusive Rückseite.'
                           : isStability
                           ? 'Die Ansicht wird automatisch mit der '
-                              'Bild-KI aus dem Generator-Tab '
-                              '(${settings.provider.label}) erzeugt; das '
+                              'gewählten Bild-KI '
+                              '(${settings.provider.shortLabel} · '
+                              '${settings.modelFor(settings.provider)}) '
+                              'erzeugt; das '
                               'trainierte Stability-Modell rekonstruiert '
                               'daraus das komplette 3D-Modell inklusive '
                               'Rückseite. Ehrlich: Die Textur erzeugt '
@@ -2518,8 +2523,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                               'Schärfe gibt es erst mit Meshy/Tripo '
                               '(Spitzenklasse).'
                           : 'Die 4 Ansichten (vorn/links/rechts/hinten) '
-                              'werden automatisch mit der Bild-KI aus dem '
-                              'Generator-Tab (${settings.provider.label}) '
+                              'werden automatisch mit der gewählten '
+                              'Bild-KI (${settings.provider.shortLabel} · '
+                              '${settings.modelFor(settings.provider)}) '
                               'erzeugt – mit abgestimmten Prompts, damit '
                               'sie perfekt zusammenpassen.',
                       style: theme.textTheme.bodySmall,
@@ -2532,7 +2538,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       subtitle: Text(
                           'Erzeugt zuerst 4 konsistente Ansichten '
                           '(vorn/links/rechts/hinten) mit '
-                          '${settings.provider.label} aus dem Generator-Tab '
+                          '${settings.provider.shortLabel} · '
+                          '${settings.modelFor(settings.provider)} '
                           'und baut daraus ein Rundum-Modell – meist '
                           'detailtreuer als das direkte Text→3D. Kostet '
                           'zusätzlich ca. 4 Bildgenerierungen.'),
@@ -2583,7 +2590,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ],
                 ] else ...[
                   // Prompt-Hilfe auch im Bild-Modus: Die Bildvorlagen
-                  // entstehen meist im Generator-Tab – hier steht die
+                  // entstehen meist im Bild-Tab – hier steht die
                   // passende Vorlage zum Kopieren bereit.
                   _promptHelp(theme, mode: 'images'),
                   const SizedBox(height: 12),
@@ -2638,8 +2645,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'Konsistenz-Vorgaben wie im Text-Modus '
                           '(identisches Motiv, gleiche Skalierung, '
                           'orthographisch, transparenter Hintergrund). '
-                          'Nutzt ${settings.provider.label} aus dem '
-                          'Generator-Tab, ca. 1 Bildgenerierung je '
+                          'Nutzt ${settings.provider.shortLabel} · '
+                          '${settings.modelFor(settings.provider)}, '
+                          'ca. 1 Bildgenerierung je '
                           'fehlender Ansicht.'),
                       value: _completeViews,
                       onChanged: _running
@@ -2695,18 +2703,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   final usesImageAi =
                       generatesViews || (isLocal && _localDepthAi);
                   final provider = settings.provider;
-                  final staticModels = switch (provider) {
-                    GenProvider.openai => openAiModelOptions,
-                    GenProvider.stability => stabilityModelOptions,
-                    GenProvider.gemini => geminiModelOptions,
-                  };
-                  final knownModels = [
-                    ...staticModels,
-                    for (final id
-                        in settings.fetchedModelsFor(provider))
-                      if (!staticModels.any((o) => o.$1 == id)) (id, id),
-                  ];
+                  // Dieselbe anbieterübergreifende Liste wie im
+                  // Bild-Tab: Der Anbieter wird über das Modell
+                  // gewählt.
+                  final allModels =
+                      allImageModels(settings.fetchedModelsFor);
                   final currentModel = settings.modelFor(provider);
+                  final currentKey = '${provider.name}/$currentModel';
                   final controls = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -3107,27 +3110,37 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ],
                       if (usesImageAi) ...[
                         DropdownMenu<String>(
-                          key: ValueKey(
-                              '3d-model-${provider.name}-$currentModel'),
-                          initialSelection: currentModel,
-                          label: Text(
-                              'Bild-KI-Modell (${provider.label})'),
+                          key: ValueKey('3d-model-$currentKey'
+                              '-${allModels.length}'),
+                          initialSelection: currentKey,
+                          label: const Text('Bild-KI-Modell'),
                           expandedInsets: EdgeInsets.zero,
                           dropdownMenuEntries: [
-                            for (final option in knownModels)
+                            for (final choice in allModels)
                               DropdownMenuEntry(
-                                  value: option.$1, label: option.$2),
-                            if (!knownModels
-                                .any((o) => o.$1 == currentModel))
+                                value: choice.key,
+                                label: choice.fullLabel,
+                                trailingIcon:
+                                    settings.hasApiKeyFor(choice.provider)
+                                        ? null
+                                        : const Icon(Icons.key_off,
+                                            size: 16),
+                              ),
+                            if (!allModels
+                                .any((choice) => choice.key == currentKey))
                               DropdownMenuEntry(
-                                value: currentModel,
-                                label: '$currentModel (eigene ID)',
+                                value: currentKey,
+                                label: '${provider.shortLabel} · '
+                                    '$currentModel (eigene ID)',
                               ),
                           ],
                           onSelected: (value) {
-                            if (value != null) {
-                              settings.setModelFor(provider, value);
-                            }
+                            if (value == null) return;
+                            final parsed =
+                                ImageModelChoice.parseKey(value);
+                            if (parsed == null) return;
+                            settings.setProvider(parsed.$1);
+                            settings.setModelFor(parsed.$1, parsed.$2);
                           },
                         ),
                         if (provider == GenProvider.gemini &&
@@ -3153,9 +3166,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ],
                         const SizedBox(height: 6),
                         Text(
-                          'Der Bild-Provider selbst wird im '
-                          'Generator-Tab gewählt; die Ansichten-Schärfe '
-                          'bestimmt die Textur-Schärfe des Modells.',
+                          'Die Liste enthält die Modelle aller Anbieter – '
+                          'die Auswahl gilt auch im Bild-Tab. Die '
+                          'Ansichten-Schärfe bestimmt die Textur-Schärfe '
+                          'des Modells.',
                           style: theme.textTheme.bodySmall,
                         ),
                       ] else

@@ -219,6 +219,7 @@ Stream<String> installServer({
     parent.createSync(recursive: true);
   }
 
+  final isImage = backend == 'sd-image';
   // Paketordner des jeweiligen Modells – daran erkennen wir, ob das
   // Repository schon geholt wurde.
   final packageDir = switch (backend) {
@@ -226,7 +227,13 @@ Stream<String> installServer({
     'spar3d' => 'spar3d',
     _ => 'sf3d',
   };
-  if (Directory('$targetDir${Platform.pathSeparator}$packageDir')
+  if (isImage) {
+    // Der Bild-Server braucht kein Repository: Alles kommt als
+    // fertiges Paket von PyPI.
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    yield '# 1/6 Kein Quellcode nötig – die Bild-Modelle kommen als '
+        'fertige Pakete.';
+  } else if (Directory('$targetDir${Platform.pathSeparator}$packageDir')
       .existsSync()) {
     yield '# Das Modell ist bereits vorhanden – überspringe das Klonen.';
   } else {
@@ -267,11 +274,13 @@ Stream<String> installServer({
   }
   await _download(requirementsUrl, File('$targetDir$sep$listName'));
   yield listName;
-  await _download(serverScriptUrl, File('$targetDir${sep}local3d_server.py'));
-  yield 'local3d_server.py';
+  final scriptName =
+      isImage ? 'local_image_server.py' : 'local3d_server.py';
+  await _download(serverScriptUrl, File('$targetDir$sep$scriptName'));
+  yield scriptName;
 
   yield '# 5/6 Restliche Pakete werden installiert (~1 GB)';
-  if (backend != 'triposr') {
+  if (backend != 'triposr' && !isImage) {
     // SF3D und SPAR3D bringen eine eigene Liste mit. Sie enthält zwei
     // eigene C++-Erweiterungen (texture_baker, uv_unwrapper), die
     // PyTorch bereits beim Bauen brauchen. pip kapselt den Bauvorgang
@@ -314,10 +323,14 @@ Stream<String> installServer({
   );
 
   yield '# 6/6 Installation wird geprüft';
-  final needed = backend == 'triposr'
-      ? "['numpy','PIL','torch','torchmcubes','transformers','trimesh',"
-          "'omegaconf','einops','rembg','skimage']"
-      : "['numpy','PIL','torch','trimesh','rembg','$packageDir']";
+  final needed = switch (backend) {
+    'sd-image' =>
+      "['torch','diffusers','transformers','PIL','safetensors','rembg']",
+    'triposr' =>
+      "['numpy','PIL','torch','torchmcubes','transformers','trimesh',"
+          "'omegaconf','einops','rembg','skimage']",
+    _ => "['numpy','PIL','torch','trimesh','rembg','$packageDir']",
+  };
   yield* _run(
     venvPython,
     [
@@ -329,7 +342,12 @@ Stream<String> installServer({
     ],
     workingDirectory: targetDir,
   );
-  if (backend != 'triposr') {
+  if (isImage) {
+    yield '# Hinweis: SD 1.5, SDXL und SDXL Turbo laufen ohne Anmeldung. '
+        'SD 3.5 und FLUX verlangen einmalig eine Lizenz-Zustimmung auf '
+        'huggingface.co und ein "huggingface-cli login" in dieser '
+        'Umgebung.';
+  } else if (backend != 'triposr') {
     yield '# Hinweis: Die Modellgewichte sind auf Hugging Face '
         'freigabepflichtig. Einmalig die Lizenz auf der Modellseite '
         'bestätigen und in dieser Umgebung "huggingface-cli login" '
@@ -351,14 +369,18 @@ Future<String> startServer({
     throw Exception('Im Ordner „$targetDir" wurde keine eingerichtete '
         'Python-Umgebung gefunden. Bitte zuerst installieren.');
   }
+  final isImage = backend == 'sd-image';
   await Process.start(
     venvPython,
-    ['local3d_server.py', '--backend', backend, '--port', '$port'],
+    isImage
+        ? ['local_image_server.py', '--port', '$port']
+        : ['local3d_server.py', '--backend', backend, '--port', '$port'],
     workingDirectory: targetDir,
     mode: ProcessStartMode.detached,
   );
   return 'Server gestartet auf http://127.0.0.1:$port – der erste Lauf '
-      'lädt einmalig die Modellgewichte (~1,7 GB).';
+      'lädt einmalig die Modellgewichte '
+      '${isImage ? '(je nach Modell 2–24 GB)' : '(~1,7 GB)'}.';
 }
 
 /// Übliche Ordnernamen je Backend – der Assistent legt sie so an.
@@ -367,13 +389,14 @@ const _folderNames = <String, List<String>>{
   'sf3d': ['SF3D', 'sf3d', 'stable-fast-3d'],
   'spar3d': ['SPAR3D', 'spar3d', 'stable-point-aware-3d'],
   'trellis': ['TRELLIS', 'trellis'],
+  'sd-image': ['SD-Bilder', 'SD-BILDER', 'sd-image'],
 };
 
 /// Ein Ordner gilt als eingerichtet, wenn dort eine Python-Umgebung
-/// und das Server-Skript liegen.
-bool _looksInstalled(String dir) =>
+/// und das passende Server-Skript liegen.
+bool _looksInstalled(String dir, String script) =>
     File(_venvPython(dir)).existsSync() &&
-    File('$dir${Platform.pathSeparator}local3d_server.py').existsSync();
+    File('$dir${Platform.pathSeparator}$script').existsSync();
 
 /// Sucht neben dem Standard-Zielordner nach fertigen Installationen.
 Future<List<(String, String)>> detectInstalledServers(
@@ -386,7 +409,10 @@ Future<List<(String, String)>> detectInstalledServers(
   for (final id in backends) {
     for (final folder in _folderNames[id] ?? [id]) {
       final dir = '$parent$folder';
-      if (_looksInstalled(dir)) {
+      final script = id == 'sd-image'
+          ? 'local_image_server.py'
+          : 'local3d_server.py';
+      if (_looksInstalled(dir, script)) {
         found.add((id, dir));
         break;
       }

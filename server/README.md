@@ -31,6 +31,44 @@ Der Server meldet unter `/health`, was das laufende Modell kann
 `resolution`, `bake_texture`) – die App blendet genau die passenden
 Bedienelemente ein.
 
+## Zwei Server: Bild und 3D
+
+Der Ordner enthält zwei kleine Server, die unabhängig voneinander
+laufen können:
+
+| Server | Skript | Port | Aufgabe |
+| --- | --- | --- | --- |
+| Bild | `local_image_server.py` | 8766 | Text→Bild (Stable Diffusion) |
+| 3D | `local3d_server.py` | 8765 | Bild→3D (TripoSR, SF3D, SPAR3D, TRELLIS) |
+
+Beide zusammen ergeben die komplette Kette **Text→Bild→3D auf dem
+eigenen Rechner**: kostenlos, ohne API-Schlüssel, und kein Bild
+verlässt den PC. Beide richtet derselbe Assistent in der App ein
+(Einstellungen → „Eigener Bild-Server" bzw. „Eigener 3D-Server").
+
+### Bild-Server: Modelle und Speicherbedarf
+
+| Kennung | Modell | VRAM | Bemerkung |
+| --- | --- | --- | --- |
+| `sd15` | Stable Diffusion 1.5 | ~4 GB | sparsam, schnell |
+| `sdxl-turbo` | SDXL Turbo | ~7 GB | wenige Schritte, sehr schnell |
+| `sdxl` | SDXL Base 1.0 | ~8 GB | beste Allround-Qualität |
+| `sd35-medium` | SD 3.5 Medium | ~10 GB | auch Schrift im Bild |
+| `flux-schnell` | FLUX.1 schnell | ~16 GB | Spitzenklasse |
+
+Reicht der Grafikspeicher nicht, lagert der Server Teile automatisch
+aus – langsamer, aber es läuft. Das Modell wird in der App gewählt
+(Bild-Tab → KI-Modell → „Eigene GPU · …"); der Server lädt es beim
+ersten Bild aus dem Hugging-Face-Cache. SD 3.5 und FLUX verlangen
+einmalig eine Lizenz-Zustimmung auf huggingface.co und
+`huggingface-cli login`.
+
+Start von Hand:
+
+```powershell
+.\.venv\Scripts\python.exe local_image_server.py --model sdxl-turbo --port 8766
+```
+
 ## Der bequeme Weg: Assistent in der App
 
 Die Windows-, Linux- und macOS-App bringt die Einrichtung fertig mit:

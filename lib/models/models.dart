@@ -6,7 +6,12 @@ import 'dart:typed_data';
 enum GenProvider {
   openai('OpenAI (GPT Image)', 'OpenAI'),
   stability('Stability AI (Stable Image)', 'Stability'),
-  gemini('Google Gemini (Nano Banana)', 'Gemini');
+  gemini('Google Gemini (Nano Banana)', 'Gemini'),
+
+  /// Stable Diffusion auf dem eigenen PC über server/local_image_server.py –
+  /// kostenlos, alle Daten bleiben lokal. Statt eines Schlüssels wird
+  /// die Server-Adresse hinterlegt.
+  selfhost('Eigene GPU (lokaler Bild-Server)', 'Eigene GPU');
 
   const GenProvider(this.label, this.shortLabel);
   final String label;
@@ -14,8 +19,12 @@ enum GenProvider {
   /// Kurzform für die Modell-Liste, z. B. „OpenAI · gpt-image-2".
   final String shortLabel;
 
+  /// Läuft der Anbieter auf dem eigenen Rechner (kostenlos, offline)?
+  bool get isLocal => this == GenProvider.selfhost;
+
   /// Unterstützt der Provider Referenzbilder?
-  bool get supportsReferences => this != GenProvider.stability;
+  bool get supportsReferences =>
+      this == GenProvider.openai || this == GenProvider.gemini;
 
   static GenProvider fromName(String? name) => GenProvider.values.firstWhere(
         (p) => p.name == name,
@@ -154,6 +163,13 @@ class GenerationRequest {
       case GenProvider.gemini:
         map['Seitenverhältnis'] = geminiAspect;
         if (model.contains('pro')) map['Auflösung'] = geminiImageSize;
+      case GenProvider.selfhost:
+        map['Seitenverhältnis'] = stabilityAspect;
+        map['Transparenz'] = transparent ? 'ja' : 'nein';
+        if (negativePrompt.trim().isNotEmpty) {
+          map['Negativ-Prompt'] = negativePrompt.trim();
+        }
+        if (seed != 0) map['Seed'] = '$seed';
     }
     if (references.isNotEmpty) {
       map['Referenzbilder'] = '${references.length}';
@@ -393,11 +409,23 @@ const List<Option> geminiModelOptions = [
   ('gemini-3-pro-image-preview', 'Nano Banana Pro (bis 4K)'),
 ];
 
+/// Modelle des eigenen Bild-Servers. Die Kennungen sind dieselben wie
+/// in server/local_image_server.py; die Angabe dahinter ist der grob
+/// nötige Grafikspeicher.
+const List<Option> selfHostImageModelOptions = [
+  ('sdxl-turbo', 'SDXL Turbo – schnell (~7 GB VRAM)'),
+  ('sd15', 'Stable Diffusion 1.5 – sparsam (~4 GB)'),
+  ('sdxl', 'SDXL Base – beste Allround-Qualität (~8 GB)'),
+  ('sd35-medium', 'SD 3.5 Medium – auch Schrift im Bild (~10 GB)'),
+  ('flux-schnell', 'FLUX.1 schnell – Spitzenklasse (~16 GB)'),
+];
+
 /// Eingebaute Modelle des Anbieters.
 List<Option> staticModelOptions(GenProvider provider) => switch (provider) {
       GenProvider.openai => openAiModelOptions,
       GenProvider.stability => stabilityModelOptions,
       GenProvider.gemini => geminiModelOptions,
+      GenProvider.selfhost => selfHostImageModelOptions,
     };
 
 /// Ein Bild-Modell samt Anbieter. Der Anbieter wird nicht mehr getrennt

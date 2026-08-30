@@ -58,8 +58,11 @@ class SelfHostService {
   static List<String> lastCapabilities = const [];
 
   /// Name des laufenden Backends (triposr, sf3d, spar3d,
-  /// trellis).
+  /// trellis) bzw. beim Bild-Server das Modell.
   static String lastBackend = '';
+
+  /// '3d' oder 'image' – der Bild-Server meldet seine Art selbst.
+  static String lastKind = '3d';
 
   /// Fragt den /health-Endpunkt ab und liefert eine Kurzinfo,
   /// z. B. „triposr auf cuda (NVIDIA GeForce RTX 4070)“.
@@ -77,12 +80,25 @@ class SelfHostService {
     }
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      lastBackend = json['backend']?.toString() ?? '';
+      lastKind = json['kind']?.toString() ?? '3d';
+      // Der Bild-Server nennt sein Modell statt eines Backends.
+      lastBackend =
+          (json['backend'] ?? json['model'])?.toString() ?? '';
       lastCapabilities = [
         for (final c in (json['capabilities'] as List?) ?? [])
           c.toString(),
       ];
-      return '$lastBackend auf ${json['device']}';
+      final missing = [
+        for (final m in (json['missing'] as List?) ?? []) m.toString(),
+      ];
+      final gpu = json['gpu']?.toString() ?? '';
+      final where =
+          gpu.isEmpty ? '${json['device']}' : '${json['device']} ($gpu)';
+      final info = '$lastBackend auf $where';
+      // Der 3D-Server hängt fehlende Pakete schon selbst an.
+      return missing.isEmpty || info.contains('FEHLEN')
+          ? info
+          : '$info – es fehlen noch: ${missing.join(', ')}';
     } catch (_) {
       return 'erreichbar';
     }

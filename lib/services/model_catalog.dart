@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/models.dart';
-import 'generators.dart' show GenerationException;
+import 'generators.dart'
+    show GenerationException, SelfHostImageGenerator;
 
 /// Holt die aktuell verfügbaren Bild-Modelle direkt vom Anbieter, damit
 /// neue Modelle (z. B. gpt-image-2-Nachfolger) ohne App-Update wählbar
@@ -71,6 +72,30 @@ Future<List<String>> fetchAvailableModels(
       case GenProvider.stability:
         // Feste Engines – die API bietet keine Modell-Liste.
         return [for (final option in stabilityModelOptions) option.$1];
+      case GenProvider.selfhost:
+        // Der eigene Bild-Server nennt seine Modelle unter /health;
+        // als „Schlüssel" kommt hier die Adresse an.
+        final base = SelfHostImageGenerator.normalizeBaseUrl(apiKey);
+        if (base.isEmpty) {
+          throw GenerationException(
+              'Für die eigene GPU fehlt die Server-Adresse.');
+        }
+        final response = await http
+            .get(Uri.parse('$base/health'))
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode != 200) {
+          throw GenerationException(
+              'Der Bild-Server antwortet nicht (${response.statusCode}).');
+        }
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final models = [
+          for (final m in (json['models'] as List? ?? [])) m.toString(),
+        ];
+        if (models.isEmpty) {
+          throw GenerationException(
+              'Der Bild-Server hat keine Modelle gemeldet.');
+        }
+        return models;
     }
   } on GenerationException {
     rethrow;

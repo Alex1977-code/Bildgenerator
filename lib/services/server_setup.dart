@@ -11,6 +11,8 @@ const _rawBase = 'https://raw.githubusercontent.com/Alex1977-code/'
     'Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server';
 
 const serverScriptUrl = '$_rawBase/local3d_server.py';
+const imageServerScriptUrl = '$_rawBase/local_image_server.py';
+const imageRequirementsUrl = '$_rawBase/requirements-image.txt';
 const shimUrl = '$_rawBase/shim/torchmcubes.py';
 const requirementsUrl = '$_rawBase/requirements-triposr.txt';
 const sf3dRequirementsUrl = '$_rawBase/requirements-sf3d.txt';
@@ -28,15 +30,21 @@ class SetupBackend {
     required this.vramLabel,
     required this.minVramGb,
     this.nativeOnWindows = true,
+    this.kind = '3d',
   });
 
   final String id;
   final String name;
+
+  /// Leer, wenn kein Repository geklont werden muss (Bild-Server).
   final String repoUrl;
   final String description;
   final String vramLabel;
   final double minVramGb;
   final bool nativeOnWindows;
+
+  /// '3d' = Bild→3D, 'image' = Text→Bild.
+  final String kind;
 }
 
 /// Von sparsam nach anspruchsvoll sortiert – so findet jeder Rechner
@@ -87,7 +95,26 @@ const setupBackends = <SetupBackend>[
     minVramGb: 12,
     nativeOnWindows: false,
   ),
+  SetupBackend(
+    id: 'sd-image',
+    kind: 'image',
+    name: 'Stable Diffusion – Text→Bild',
+    repoUrl: '',
+    description: 'Bilder aus Text auf der eigenen GPU – kostenlos und '
+        'ohne Cloud. Das Modell wird später in der App gewählt: '
+        'SD 1.5 (~4 GB), SDXL Turbo (~7 GB), SDXL (~8 GB), '
+        'SD 3.5 Medium (~10 GB) oder FLUX.1 schnell (~16 GB). '
+        'Zusammen mit einem 3D-Server läuft damit die ganze Kette '
+        'Text→Bild→3D lokal. Nichts wird selbst übersetzt – die '
+        'Installation braucht keinen C++-Compiler.',
+    vramLabel: 'ab ca. 4 GB',
+    minVramGb: 4,
+  ),
 ];
+
+/// Backends einer Art ('3d' oder 'image').
+List<SetupBackend> backendsOfKind(String kind) =>
+    [for (final b in setupBackends) if (b.kind == kind) b];
 
 /// Die Schritte, die der Assistent ausführt – für die Übersicht vor
 /// dem Start: (Titel, Beschreibung, ungefähre Größe).
@@ -118,6 +145,33 @@ const setupSteps = <(String, String, String)>[
   ('Prüfen', 'Kontrolle, dass wirklich alles installiert ist', '—'),
 ];
 
+/// Schritte des Bild-Servers – ohne Repository und ohne C++-Bauteile.
+const imageSetupSteps = <(String, String, String)>[
+  (
+    'Python-Umgebung anlegen',
+    'Eigene Umgebung im Zielordner – dein System-Python bleibt '
+        'unberührt',
+    '—'
+  ),
+  ('PyTorch mit CUDA', 'Rechen-Bibliothek für die NVIDIA-GPU', '2,4 GB'),
+  (
+    'Hilfsdateien',
+    'Server-Skript und Paketliste',
+    '< 1 MB'
+  ),
+  (
+    'Bild-Bibliotheken',
+    'diffusers, transformers, accelerate, rembg – alles als fertige '
+        'Pakete, kein Compiler nötig',
+    '≈ 1 GB'
+  ),
+  ('Prüfen', 'Kontrolle, dass wirklich alles installiert ist', '—'),
+];
+
+/// Schrittliste je Art.
+List<(String, String, String)> setupStepsFor(String kind) =>
+    kind == 'image' ? imageSetupSteps : setupSteps;
+
 /// Ein auf diesem Rechner eingerichteter 3D-Server. Die App merkt
 /// sich die Einträge, damit man den Server später oben in der
 /// Auswahlliste anklicken und mit einem Knopfdruck starten kann.
@@ -138,6 +192,9 @@ class InstalledServer {
 
   /// Kurzer Anzeigename, z. B. „SF3D".
   String get label => backendLabel(backend);
+
+  /// '3d' = Bild→3D-Server, 'image' = Text→Bild-Server.
+  String get kind => backend == 'sd-image' ? 'image' : '3d';
 
   String get url => 'http://127.0.0.1:$port';
 
@@ -194,6 +251,15 @@ bool get setupSupported => impl.setupSupported;
 /// Vorschlag für den Zielordner der Installation.
 String defaultTargetDir() => impl.defaultTargetDir();
 
+/// Vorschlag für den Zielordner eines bestimmten Backends – jedes
+/// Modell bekommt seinen eigenen Ordner.
+String targetDirFor(String backend) {
+  final base = defaultTargetDir();
+  final cut = base.lastIndexOf(RegExp(r'[\\/]'));
+  final folder = backend == 'sd-image' ? 'SD-Bilder' : backend.toUpperCase();
+  return cut < 0 ? folder : '${base.substring(0, cut + 1)}$folder';
+}
+
 /// Voraussetzungen prüfen: 'python' (Pfad|Version), 'git', 'gpu' –
 /// jeweils null, wenn nichts gefunden wurde.
 Future<Map<String, String?>> checkPrerequisites() =>
@@ -207,20 +273,27 @@ Stream<String> installServer({
   required String targetDir,
   required String pythonExe,
   String backend = 'sf3d',
-}) =>
-    impl.installServer(
-      targetDir: targetDir,
-      serverScriptUrl: serverScriptUrl,
-      shimUrl: shimUrl,
-      requirementsUrl:
-          backend == 'triposr' ? requirementsUrl : sf3dRequirementsUrl,
-      pythonExe: pythonExe,
-      backend: backend,
-      repoUrl: setupBackends
-          .firstWhere((b) => b.id == backend,
-              orElse: () => setupBackends.first)
-          .repoUrl,
-    );
+}) {
+  final entry = setupBackends.firstWhere((b) => b.id == backend,
+      orElse: () => setupBackends.first);
+  final isImage = entry.kind == 'image';
+  return impl.installServer(
+    targetDir: targetDir,
+    serverScriptUrl: isImage ? imageServerScriptUrl : serverScriptUrl,
+    shimUrl: shimUrl,
+    requirementsUrl: switch (backend) {
+      'sd-image' => imageRequirementsUrl,
+      'triposr' => requirementsUrl,
+      _ => sf3dRequirementsUrl,
+    },
+    pythonExe: pythonExe,
+    backend: backend,
+    repoUrl: entry.repoUrl,
+  );
+}
+
+/// Übliche Portnummer je Art: 8765 für Bild→3D, 8766 für Text→Bild.
+int defaultPort(String kind) => kind == 'image' ? 8766 : 8765;
 
 Future<String> startServer({
   required String targetDir,

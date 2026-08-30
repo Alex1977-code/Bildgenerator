@@ -97,6 +97,19 @@ class SettingsService extends ChangeNotifier {
   /// z. B. http://127.0.0.1:8765 – leer = nicht eingerichtet.
   String selfHostUrl = '';
 
+  /// Adresse des eigenen Bild-Servers (server/local_image_server.py),
+  /// z. B. http://127.0.0.1:8766 – leer = nicht eingerichtet.
+  String selfHostImageUrl = '';
+
+  /// Gewähltes Modell des eigenen Bild-Servers.
+  String selfHostImageModel = 'sdxl-turbo';
+
+  void setSelfHostImageUrl(String v) {
+    selfHostImageUrl = v.trim();
+    _persistString('selfHostImageUrl', selfHostImageUrl);
+    notifyListeners();
+  }
+
   void setSelfHostUrl(String v) {
     selfHostUrl = v.trim();
     _persistString('selfHostUrl', selfHostUrl);
@@ -256,6 +269,10 @@ class SettingsService extends ChangeNotifier {
       threeDProvider = prefs.getString('threeDProvider') ?? threeDProvider;
       selfHostUrl = prefs.getString('selfHostUrl') ?? selfHostUrl;
       localServers = prefs.getStringList('localServers') ?? localServers;
+      selfHostImageUrl =
+          prefs.getString('selfHostImageUrl') ?? selfHostImageUrl;
+      selfHostImageModel =
+          prefs.getString('selfHostImageModel') ?? selfHostImageModel;
       final storedPresets = prefs.getStringList('customPresets');
       if (storedPresets != null) {
         customPresets = [
@@ -311,10 +328,15 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Zugangsdaten des Anbieters. Beim eigenen Bild-Server ist das kein
+  /// Schlüssel, sondern die Adresse – dort läuft nichts über fremde
+  /// Konten.
   String? apiKeyFor(GenProvider p) => switch (p) {
         GenProvider.openai => _openAiKey,
         GenProvider.stability => _stabilityKey,
         GenProvider.gemini => _geminiKey,
+        GenProvider.selfhost =>
+          selfHostImageUrl.isEmpty ? null : selfHostImageUrl,
       };
 
   bool hasApiKeyFor(GenProvider p) {
@@ -342,6 +364,7 @@ class SettingsService extends ChangeNotifier {
         GenProvider.openai => openAiModel,
         GenProvider.stability => stabilityModel,
         GenProvider.gemini => geminiModel,
+        GenProvider.selfhost => selfHostImageModel,
       };
 
   void setModelFor(GenProvider p, String value) {
@@ -357,16 +380,26 @@ class SettingsService extends ChangeNotifier {
       case GenProvider.gemini:
         geminiModel = model;
         _persistString('geminiModel', model);
+      case GenProvider.selfhost:
+        selfHostImageModel = model;
+        _persistString('selfHostImageModel', model);
     }
     notifyListeners();
   }
 
   Future<void> setApiKey(GenProvider p, String value) async {
     final trimmed = value.trim();
+    // Der eigene Bild-Server hat keinen Schlüssel, sondern eine
+    // Adresse – die liegt unverschlüsselt bei den Einstellungen.
+    if (p == GenProvider.selfhost) {
+      setSelfHostImageUrl(trimmed);
+      return;
+    }
     final storageKey = switch (p) {
       GenProvider.openai => 'openai_api_key',
       GenProvider.stability => 'stability_api_key',
       GenProvider.gemini => 'gemini_api_key',
+      GenProvider.selfhost => '',
     };
     switch (p) {
       case GenProvider.openai:
@@ -375,6 +408,8 @@ class SettingsService extends ChangeNotifier {
         _stabilityKey = trimmed.isEmpty ? null : trimmed;
       case GenProvider.gemini:
         _geminiKey = trimmed.isEmpty ? null : trimmed;
+      case GenProvider.selfhost:
+        break;
     }
     if (trimmed.isEmpty) {
       await _secure.delete(storageKey);

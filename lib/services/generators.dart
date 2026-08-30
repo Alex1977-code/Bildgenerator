@@ -40,6 +40,7 @@ abstract class ImageGenerator {
         GenProvider.openai => OpenAiGenerator(),
         GenProvider.stability => StabilityGenerator(),
         GenProvider.gemini => GeminiGenerator(),
+        GenProvider.selfhost => SelfHostImageGenerator(),
       };
 }
 
@@ -458,3 +459,84 @@ class GeminiGenerator implements ImageGenerator {
     return 'Gemini-Fehler (${response.statusCode}): $detail$hint';
   }
 }
+
+/// Text→Bild auf dem eigenen PC (server/local_image_server.py):
+/// Stable Diffusion auf der eigenen NVIDIA-GPU – kostenlos, ohne
+/// Cloud, alle Daten bleiben lokal. Statt eines API-Schlüssels wird
+/// hier die Server-Adresse durchgereicht.
+class SelfHostImageGenerator implements ImageGenerator {
+  /// „127.0.0.1:8766/" → „http://127.0.0.1:8766".
+  static String normalizeBaseUrl(String url) {
+    var u = url.trim();
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    if (u.isNotEmpty && !u.startsWith('http://') && !u.startsWith('https://')) {
+      u = 'http://$u';
+    }
+    return u;
+  }
+
+  @override
+  Future<GenerationResult> generate(
+      GenerationRequest request, String baseUrl) async {
+    final url = normalizeBaseUrl(baseUrl);
+    if (url.isEmpty) {
+      throw GenerationException(
+        'Für die eigene GPU fehlt die Adresse des Bild-Servers. '
+        'Einstellungen → „Eigener Bild-Server" – dort lässt er sich '
+        'auch einrichten und starten.',
+      );
+    }
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$url/generate'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'prompt': request.prompt,
+              'negative_prompt': request.negativePrompt,
+              'model': request.model,
+              // Der eigene Server nutzt dasselbe Seitenverhältnis-Feld
+              // wie Stability.
+              'aspect': request.stabilityAspect,
+              'count': request.count,
+              'transparent': request.transparent,
+              if (request.seed != 0) 'seed': request.seed,
+            }),
+          )
+          // Der erste Lauf lädt die Modellgewichte (mehrere GB).
+          .timeout(const Duration(minutes: 20));
+    } catch (e) {
+      throw GenerationException(
+        'Der eigene Bild-Server ist nicht erreichbar: $e\n'
+        'Läuft er (Einstellungen → Eigener Bild-Server → „Server '
+        'starten") und stimmt die Adresse?',
+      );
+    }
+    if (response.statusCode != 200) {
+      var detail = response.body;
+      try {
+        final json = jsonDecode(response.body);
+        if (json is Map && json['detail'] != null) {
+          detail = json['detail'].toString();
+        }
+      } catch (_) {}
+      throw GenerationException(
+          'Bild-Server-Fehler (${response.statusCode}): $detail');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final images = <GeneratedImage>[
+      for (final entry in (json['images'] as List? ?? []))
+        GeneratedImage(
+            bytes: base64Decode(entry.toString()), format: 'png'),
+    ];
+    if (images.isEmpty) {
+      throw GenerationException(
+          'Der Bild-Server hat kein Bild geliefert.');
+    }
+    return GenerationResult(images: images);
+  }
+}
+
