@@ -22,6 +22,24 @@ import 'update/update_installer_web.dart'
 const _releaseApi = 'https://api.github.com/repos/Alex1977-code/'
     'Bildgenerator/releases/latest';
 
+/// Fester Link, unter dem GitHub immer die Datei des neuesten Releases
+/// ausliefert – ohne API und damit ohne Abfragegrenze.
+const _latestDownloadBase =
+    'https://github.com/Alex1977-code/Bildgenerator/releases/latest/'
+    'download';
+
+/// Die Release-Seite zum Nachsehen von Hand.
+const releasesPageUrl =
+    'https://github.com/Alex1977-code/Bildgenerator/releases/latest';
+
+/// GitHub weist Anfragen ohne Programmkennung ab; ohne diesen Kopf
+/// antwortet die API mit 403.
+const _apiHeaders = {
+  'Accept': 'application/vnd.github+json',
+  'User-Agent': '3DGenerator-App',
+  'X-GitHub-Api-Version': '2022-11-28',
+};
+
 /// Eine im Release verfügbare Fassung.
 class UpdateInfo {
   const UpdateInfo({
@@ -40,8 +58,11 @@ class UpdateInfo {
   final int sizeBytes;
 
   String get shortSha => sha.length >= 7 ? sha.substring(0, 7) : sha;
-  String get sizeLabel =>
-      '${(sizeBytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  /// Größe der Datei; bei der Notfall-Variante ohne API ist sie
+  /// unbekannt.
+  String get sizeLabel => sizeBytes <= 0
+      ? 'Größe unbekannt'
+      : '${(sizeBytes / 1024 / 1024).toStringAsFixed(1)} MB';
 }
 
 /// Commit-Kennung der laufenden App (die ersten Zeichen aus
@@ -68,17 +89,16 @@ String? get platformAssetName {
 Future<UpdateInfo?> fetchLatestRelease() async {
   http.Response response;
   try {
-    response = await http.get(
-      Uri.parse(_releaseApi),
-      headers: const {'Accept': 'application/vnd.github+json'},
-    ).timeout(const Duration(seconds: 20));
+    response = await http
+        .get(Uri.parse(_releaseApi), headers: _apiHeaders)
+        .timeout(const Duration(seconds: 20));
   } catch (e) {
     throw GenerationException('Update-Prüfung nicht möglich – '
         'Netzwerkfehler: $e');
   }
   if (response.statusCode != 200) {
-    throw GenerationException(
-        'Update-Prüfung fehlgeschlagen (${response.statusCode}).');
+    throw GenerationException(describeApiFailure(
+        response.statusCode, response.headers));
   }
   final json = jsonDecode(response.body) as Map<String, dynamic>;
   // Die CI schreibt „Build-Kennung: `<sha>`" in den Release-Text.
@@ -101,6 +121,56 @@ Future<UpdateInfo?> fetchLatestRelease() async {
     }
   }
   return null;
+}
+
+/// Verständlicher Text zu einem fehlgeschlagenen API-Aufruf.
+///
+/// 403 ist der häufigste Fall und heißt bei GitHub fast immer
+/// „Abfragegrenze erreicht": Ohne Anmeldung sind 60 Abfragen je Stunde
+/// und IP-Adresse erlaubt. Die Kopfzeilen sagen, ob es daran lag und
+/// wann es wieder geht.
+String describeApiFailure(int status, Map<String, String> headers) {
+  if (status == 403 || status == 429) {
+    final remaining =
+        int.tryParse(headers['x-ratelimit-remaining'] ?? '') ?? -1;
+    if (remaining == 0) {
+      final reset = int.tryParse(headers['x-ratelimit-reset'] ?? '');
+      var wait = '';
+      if (reset != null) {
+        final at = DateTime.fromMillisecondsSinceEpoch(reset * 1000);
+        final minutes = at.difference(DateTime.now()).inMinutes;
+        if (minutes > 0) wait = ' Wieder möglich in etwa $minutes Minuten.';
+      }
+      return 'GitHub erlaubt ohne Anmeldung nur 60 Abfragen je Stunde '
+          'und Internet-Anschluss – die sind gerade aufgebraucht.$wait '
+          'Die neueste Fassung lässt sich trotzdem direkt laden.';
+    }
+    return 'GitHub hat die Anfrage abgewiesen (403). Das passiert bei '
+        'zu vielen Abfragen oder wenn ein Firmen-Netz bzw. ein '
+        'Virenscanner dazwischenfunkt. Die neueste Fassung lässt sich '
+        'trotzdem direkt laden.';
+  }
+  if (status == 404) {
+    return 'Es ist noch keine Veröffentlichung vorhanden (404).';
+  }
+  return 'Update-Prüfung fehlgeschlagen ($status).';
+}
+
+/// Die neueste Fassung ohne API: GitHub liefert unter
+/// `releases/latest/download/<Datei>` immer die Datei des neuesten
+/// Releases aus. Damit kommt man auch dann an das Update, wenn die
+/// Abfragegrenze erreicht ist – nur die Kennung bleibt unbekannt,
+/// deshalb sagt die App nicht, ob es wirklich neuer ist.
+UpdateInfo? latestReleaseWithoutApi() {
+  final wanted = platformAssetName;
+  if (wanted == null) return null;
+  return UpdateInfo(
+    sha: '',
+    published: null,
+    downloadUrl: '$_latestDownloadBase/$wanted',
+    assetName: wanted,
+    sizeBytes: 0,
+  );
 }
 
 /// True, wenn sich das Release von der laufenden Fassung

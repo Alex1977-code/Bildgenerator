@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/batch_prompt.dart';
 import '../services/exporter.dart';
+import '../services/prompt_briefing.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/model_catalog.dart';
@@ -379,18 +380,46 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   }
 
   /// Vorlage für die Prompt-KI – mit den Namen der aktuell geladenen
-  /// Referenzbilder, damit die KI sie auch nennen kann.
-  String _batchBriefing() {
+  /// Referenzbilder und den Regeln des gewählten Bild-Modells, damit
+  /// die einzelnen PROMPT-Zeilen gleich richtig geschrieben sind.
+  String _batchBriefing(SettingsService settings) {
     final names = [for (final ref in _references) ref.name].join(', ');
-    return batchPromptBriefing.replaceFirst(
+    final profile = _profile(settings);
+    final base = batchPromptBriefing.replaceFirst(
         '[HIER DATEINAMEN ODER „keine"]', names.isEmpty ? 'keine' : names);
+    return '$base\n\n'
+        'So muss jede PROMPT-Zeile geschrieben sein – das Bild wird mit '
+        '${profile.modelLabel} erzeugt:\n'
+        '${profile.style == PromptStyle.keywords ? _batchKeywordRules(profile) : _batchBriefingRules()}';
   }
 
-  Future<void> _copyBatchBriefing() async {
-    await Clipboard.setData(ClipboardData(text: _batchBriefing()));
+  String _batchKeywordRules(PromptProfile profile) =>
+      '- Der Text hinter „PROMPT:" ist eine dichte Stichwortkette auf '
+      'Englisch, durch Kommas getrennt – keine Sätze, keine '
+      'Überschriften.\n'
+      '- Reihenfolge ist Gewichtung: Motiv und Bauform zuerst, dann '
+      'Material und Farben, zuletzt Kamera, Licht und Hintergrund.\n'
+      '- Keine Verneinungen im PROMPT („no text" wirkt wie „text"). '
+      '${profile.wantsNegativePrompt ? 'Unerwünschtes gehört in die '
+          'Zeile „NEGATIV:".' : 'Dieses Modell kennt keinen '
+          'Negativ-Prompt – Unerwünschtes durch positive '
+          'Formulierungen ersetzen.'}\n'
+      '- Höchstens etwa ${profile.maxWords} Wörter je PROMPT.';
+
+  String _batchBriefingRules() =>
+      '- Der Text hinter „PROMPT:" ist ein zusammenhängender Auftrag in '
+      'ganzen Sätzen; das Modell versteht Sprache.\n'
+      '- Verneinungen sind erlaubt und wirken („kein Text im Bild").\n'
+      '- Maße, Proportionen und Farben so genau wie möglich nennen.\n'
+      '- Englisch bringt meist etwas bessere Ergebnisse.';
+
+  Future<void> _copyBatchBriefing(SettingsService settings) async {
+    await Clipboard.setData(
+        ClipboardData(text: _batchBriefing(settings)));
     if (mounted) {
-      _showSnack('Vorlage kopiert – in die Prompt-KI einfügen, Vorgaben '
-          'ausfüllen und das Ergebnis hier hereinkopieren.');
+      _showSnack('Vorlage für ${_profile(settings).modelLabel} kopiert – '
+          'in die Prompt-KI einfügen, Vorgaben ausfüllen und das '
+          'Ergebnis hier hereinkopieren.');
     }
   }
 
@@ -664,7 +693,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             : (selection) => setState(() => _batchMode = selection.first),
       ),
       const SizedBox(height: 12),
-      if (_batchMode) _buildBatchCard() else _buildPromptCard(settings),
+      if (_batchMode)
+        _buildBatchCard(settings)
+      else
+        _buildPromptCard(settings),
       const SizedBox(height: 12),
       _buildReferenceCard(settings.provider.supportsReferences),
       const SizedBox(height: 12),
@@ -747,7 +779,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   }
 
   /// Eingabefeld und Prüfung für den Massenprompt.
-  Widget _buildBatchCard() {
+  Widget _buildBatchCard(SettingsService settings) {
     final theme = Theme.of(context);
     final plan = _batchPlan;
     return Card(
@@ -804,7 +836,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   label: const Text('Prüfen'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _generating ? null : _copyBatchBriefing,
+                  onPressed: _generating
+                      ? null
+                      : () => _copyBatchBriefing(settings),
                   icon: const Icon(Icons.copy_all_outlined, size: 18),
                   label: const Text('Vorlage für Prompt-KI kopieren'),
                 ),
@@ -819,6 +853,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   label: const Text('Beispiel einfügen'),
                 ),
               ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Die Vorlage enthält die Schreibregeln für '
+              '${_profile(settings).modelLabel}.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
             ),
             if (plan != null) ...[
               const SizedBox(height: 12),
@@ -1085,6 +1126,36 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 ],
               ),
             ],
+            const SizedBox(height: 10),
+            // Der Auftrag für die Prompt-KI hängt am gewählten Modell:
+            // GPT-Image und Gemini wollen ein gegliedertes Briefing,
+            // Stable Diffusion eine Stichwortkette.
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Prompt-Vorlage für ${_profile(settings).modelLabel}',
+                    style: theme.textTheme.labelMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _showPromptBriefing(settings),
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('Ansehen'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _copyPromptBriefing(settings),
+                  icon: const Icon(Icons.copy_all_outlined, size: 18),
+                  label: const Text('Kopieren'),
+                ),
+              ],
+            ),
+            Text(
+              _profile(settings).summary,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
             const SizedBox(height: 10),
             Text('Stil-Vorlagen',
                 style: Theme.of(context).textTheme.labelMedium),
@@ -1588,6 +1659,90 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Vorlage für die Prompt-KI, passend zum gewählten Modell.
+  PromptProfile _profile(SettingsService settings) => promptProfileFor(
+        settings.provider,
+        settings.modelFor(settings.provider),
+        referenceCount: _references.length,
+      );
+
+  Future<void> _copyPromptBriefing(SettingsService settings) async {
+    final profile = _profile(settings);
+    await Clipboard.setData(ClipboardData(text: profile.briefing));
+    if (mounted) {
+      _showSnack('Vorlage für ${profile.modelLabel} kopiert – in die '
+          'Prompt-KI einfügen, Vorgaben ausfüllen, Ergebnis hier '
+          'einsetzen.');
+    }
+  }
+
+  /// Zeigt die Vorlage zum Lesen, mit Kopier-Knopf.
+  Future<void> _showPromptBriefing(SettingsService settings) async {
+    final profile = _profile(settings);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Vorlage für die Prompt-KI'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(profile.modelLabel,
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(profile.summary,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline)),
+                const SizedBox(height: 12),
+                SelectableText(
+                  profile.briefing,
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12.5),
+                ),
+                if (profile.wantsNegativePrompt) ...[
+                  const SizedBox(height: 12),
+                  Text('Vorschlag für den Negativ-Prompt',
+                      style: Theme.of(context).textTheme.labelMedium),
+                  const SizedBox(height: 2),
+                  SelectableText(profile.negativeExample,
+                      style: const TextStyle(
+                          fontFamily: 'monospace', fontSize: 12.5)),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          if (profile.wantsNegativePrompt)
+            TextButton.icon(
+              onPressed: () {
+                setState(() => _negativeCtrl.text = profile.negativeExample);
+                Navigator.of(context).pop();
+                _showSnack('Negativ-Prompt eingesetzt.');
+              },
+              icon: const Icon(Icons.block_flipped, size: 18),
+              label: const Text('Negativ-Prompt übernehmen'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Schließen'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _copyPromptBriefing(settings);
+            },
+            icon: const Icon(Icons.copy_all_outlined, size: 18),
+            label: const Text('Kopieren'),
+          ),
+        ],
       ),
     );
   }

@@ -33,6 +33,11 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   - Negativ-Prompt, Seed (reproduzierbare Bilder) und 16 Style-Presets
     (Stability AI)
   - Stil-Vorlagen per Klick (fotorealistisch, Ölgemälde, Logo, 3D-Render …)
+  - **Prompt-Vorlage für das gewählte Modell**: ein fertiger Auftrag zum
+    Kopieren, mit dem eine Prompt-KI genau in der Schreibweise
+    schreibt, die dieses Modell versteht – gegliedertes Briefing bei
+    GPT-Image/Gemini, gewichtete Stichwortkette samt Negativ-Prompt bei
+    Stable Diffusion (siehe unten)
   - Generierte Bilder als neue Referenz übernehmen (iteratives Verfeinern)
   - **3D-Bereich mit 8 Anbietern** (Lokal, Stability 3D, Meshy AI,
     Tripo3D, fal.ai, Rodin, Replicate, eigener Server): 3D-Figuren
@@ -282,6 +287,34 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   - API-Schlüssel werden **verschlüsselt lokal** gespeichert (Keychain /
     Keystore / DPAPI), dunkles & helles Design
 
+## Prompt-Vorlage für das gewählte Modell
+
+Die Bild-Modelle lesen einen Prompt grundverschieden, und ein Prompt,
+der bei einem hervorragend funktioniert, geht beim anderen daneben:
+
+- **GPT-Image und Gemini** verstehen Sprache. Sie befolgen ein
+  gegliedertes Briefing mit Abschnitten, ganzen Sätzen und
+  ausdrücklichen Anweisungen – auch Verneinungen („kein Text im Bild").
+- **Stable Diffusion** (Stability und eigene GPU) versteht keine
+  Sprache, sondern gewichtet Stichworte. Gegliederte Briefings
+  verwässern das Ergebnis, Verneinungen im Prompt bewirken oft das
+  Gegenteil; sie gehören in den **Negativ-Prompt**. Dazu kommt die
+  Textlänge: SD 1.5 und SDXL verarbeiten nur rund 75 Wörter, alles
+  Weitere zählt weniger. FLUX und SD 3.5 vertragen deutlich mehr.
+
+Deshalb steht im Tab **Bild** unter dem Prompt-Feld die Zeile
+**„Prompt-Vorlage für <Anbieter · Modell>"** mit den Knöpfen
+**Ansehen** und **Kopieren**. Kopiert wird ein fertiger Auftrag für
+eine Prompt-KI (ChatGPT, Gemini, Claude …): Er nennt das Zielmodell,
+die Schreibweise, die empfohlene Höchstlänge und – wo das Modell einen
+auswertet – ein Beispiel für den Negativ-Prompt. Die Vorlage wechselt
+automatisch mit, sobald oben ein anderes KI-Modell gewählt wird.
+
+Ein Satz unter der Zeile fasst zusammen, worauf es bei diesem Modell
+ankommt. Im Massenprompt-Modus gibt es dieselbe Vorlage – dort um das
+Blockformat mit `NAME:`/`PROMPT:` ergänzt, sodass die Prompt-KI gleich
+die ganze Liste in der richtigen Form ausgibt.
+
 ## Massenprompt: viele Bilder in einem Lauf
 
 Im Tab **Bild** oben auf **Massenprompt** umschalten. Statt einer
@@ -399,6 +432,17 @@ vergleicht ihre eigene Build-Kennung mit der des neuesten Releases:
 - **Android**: Der Knopf öffnet den APK-Download; die Installation
   übernimmt das System.
 - **Web**: Ein Neuladen mit `Strg`+`F5` genügt.
+
+**Wenn die Prüfung mit „403" abbricht.** Für den Versionsvergleich
+fragt die App die GitHub-API. Ohne Anmeldung erlaubt GitHub davon nur
+60 Abfragen je Stunde und Internet-Anschluss; sind sie aufgebraucht,
+antwortet der Dienst mit 403. Die App sagt dann, woran es liegt und
+wann es wieder geht, und bietet zwei Auswege an: **„Neueste Fassung
+trotzdem laden"** holt die Datei über den festen Download-Link (der
+ohne API auskommt) – nur ob sie wirklich neuer ist, kann die App dabei
+nicht sagen –, und **„Release-Seite öffnen"** führt zum Nachsehen von
+Hand. Dasselbe hilft, wenn ein Firmennetz oder ein Virenscanner die
+API blockiert.
 
 **Was ein Update nicht anfasst.** Alles, was die App sich merkt, liegt
 im Benutzerprofil und nicht im Programmordner: Einstellungen und die

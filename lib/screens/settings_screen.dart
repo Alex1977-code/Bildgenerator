@@ -1888,6 +1888,10 @@ class _UpdateCardState extends State<_UpdateCard> {
   String? _status;
   update.UpdateInfo? _info;
 
+  /// Die Prüfung ist gescheitert (meist 403 = Abfragegrenze). Dann
+  /// bleibt der feste Download-Link als Ausweg.
+  bool _checkFailed = false;
+
   bool get _updateAvailable =>
       _info != null && update.isNewer(_info!);
 
@@ -1903,6 +1907,7 @@ class _UpdateCardState extends State<_UpdateCard> {
     setState(() {
       _busy = true;
       _error = false;
+      _checkFailed = false;
       _status = 'Es wird nach einer neuen Fassung gesucht …';
     });
     try {
@@ -1926,15 +1931,32 @@ class _UpdateCardState extends State<_UpdateCard> {
             '(${info.sizeLabel}).');
       }
     } on GenerationException catch (e) {
+      if (mounted) setState(() => _checkFailed = true);
       _set(e.message, error: true);
     } catch (e) {
+      if (mounted) setState(() => _checkFailed = true);
       _set('$e', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _downloadAndRun() async {
+  /// Ausweg, wenn die Prüfung scheitert: GitHub liefert unter einem
+  /// festen Link immer die Datei des neuesten Releases – ohne API und
+  /// damit ohne Abfragegrenze. Ob sie wirklich neuer ist, weiß die App
+  /// dann nicht; installiert wird sie ohnehin daneben.
+  Future<void> _downloadLatestAnyway() async {
+    final info = update.latestReleaseWithoutApi();
+    if (info == null) {
+      _set('Für diese Plattform wird keine fertige Datei '
+          'veröffentlicht.', error: true);
+      return;
+    }
+    setState(() => _info = info);
+    await _downloadAndRun(unchecked: true);
+  }
+
+  Future<void> _downloadAndRun({bool unchecked = false}) async {
     final info = _info;
     if (info == null) return;
     // Android & Co.: Der System-Installer übernimmt, die App darf
@@ -1953,6 +1975,10 @@ class _UpdateCardState extends State<_UpdateCard> {
     try {
       final bytes = await update.downloadUpdate(info, _set);
       final program = await update.installUpdate(bytes, info, _set);
+      if (unchecked) {
+        _set('Neueste Fassung geladen und daneben abgelegt – sie wird '
+            'jetzt gestartet.');
+      }
       _set('Neue Fassung wird gestartet …');
       await update.launchInstalled(program);
       // Kurz warten, damit das neue Fenster oben liegt, dann die alte
@@ -2015,13 +2041,31 @@ class _UpdateCardState extends State<_UpdateCard> {
                 ),
                 if (_updateAvailable)
                   FilledButton.icon(
-                    onPressed: _busy ? null : _downloadAndRun,
+                    onPressed: _busy ? null : () => _downloadAndRun(),
                     icon: const Icon(Icons.download, size: 18),
                     label: Text(update.canInstall
                         ? 'Herunterladen & starten '
                             '(${_info!.sizeLabel})'
                         : 'Download öffnen (${_info!.sizeLabel})'),
                   ),
+                // Scheitert die Prüfung (meist 403 wegen der
+                // Abfragegrenze), führt der feste Download-Link
+                // trotzdem zur neuesten Fassung.
+                if (_checkFailed && !kIsWeb) ...[
+                  FilledButton.tonalIcon(
+                    onPressed: _busy ? null : _downloadLatestAnyway,
+                    icon: const Icon(Icons.download_for_offline_outlined,
+                        size: 18),
+                    label: const Text('Neueste Fassung trotzdem laden'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => launchUrl(
+                        Uri.parse(update.releasesPageUrl),
+                        mode: LaunchMode.externalApplication),
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Release-Seite öffnen'),
+                  ),
+                ],
               ],
             ),
             if (_status != null) ...[
