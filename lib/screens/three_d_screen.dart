@@ -46,6 +46,7 @@ import '../services/roblox_check.dart';
 import '../services/roblox_export.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_install.dart';
+import '../services/roblox_prompt.dart';
 import '../services/roblox_rig.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
@@ -889,66 +890,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Hier steht nur, was ein Bild- oder 3D-Prompt überhaupt
   /// beeinflussen kann – Dreiecksgrenze, Materialzahl und Rig-Regeln
   /// setzt die App selbst bzw. prüft sie am fertigen Modell.
-  static const _robloxFigureRules =
-      '\n\nZUSÄTZLICH – das Modell wird nach Roblox hochgeladen. Der '
-      'Prompt muss deshalb ein Motiv beschreiben, das der Importer '
-      'annimmt:\n\n'
-      '- GENAU EINE Figur, ein zusammenhängender Körper. Keine '
-      'zweite Person, kein Begleittier, kein Sockel, kein Podest.\n'
-      '- KEINE T-Pose in den Prompt schreiben. Der Roblox-Importer '
-      'verlangt sie zwar, aber die App hängt sie bei eingeschaltetem '
-      'Rigging selbst an – doppelt kostet nur Platz und verschiebt '
-      'die Gewichtung.\n'
-      '- Geschlossene, massive Formen mit sichtbarer Dicke. Keine '
-      'hauchdünnen Flächen (Umhänge, Schleier, Blätter, Netze, '
-      'Zäune) – die kommen als Flächen ohne Stärke heraus und '
-      'flackern im Spiel.\n'
-      '- Keine losen, freischwebenden Kleinteile (Schwebepartikel, '
-      'Ketten, einzelne Haarsträhnen) und keine feinen Durchbrüche.\n'
-      '- Einfache, kompakte Silhouette mit klaren Volumen: Das Modell '
-      'wird auf unter 10.000 Dreiecke reduziert, feine Rüschen und '
-      'Zierrat gehen dabei ohnehin verloren.\n'
-      '- Wenige, klar getrennte Farbflächen und ein einheitlicher '
-      'Materiallook – Roblox erlaubt nur ein Material je Mesh, alles '
-      'landet in einer einzigen 1024er-Textur.\n'
-      '- Keine Schrift, keine Logos, keine Marken- oder '
-      'Figurenbezüge: Alles Hochgeladene geht durch die '
-      'Roblox-Moderation.';
-
-  /// Dasselbe für ein UGC-Accessoire – da gilt fast das Gegenteil:
-  /// keine Figur, keine Pose, dafür ein einzelnes Teil, das später an
-  /// einem Avatar hängt, mit nur 4.000 Dreiecken.
-  static const _robloxAccessoryRules =
-      '\n\nZUSÄTZLICH – das Modell wird als UGC-Accessoire nach '
-      'Roblox hochgeladen. Der Prompt muss deshalb ein Motiv '
-      'beschreiben, das der Importer annimmt:\n\n'
-      '- KEINE Figur, kein Avatar, kein Kopf, kein Körper – nur das '
-      'Accessoire allein (Hut, Frisur, Rucksack, Brille, Flügel, '
-      'Schulterteil …), freistehend und vollständig sichtbar.\n'
-      '- GENAU EIN zusammenhängendes Teil. Keine Sets, keine zweite '
-      'Variante daneben, kein Sockel, kein Ständer, keine Hand, die '
-      'es hält.\n'
-      '- Sehr einfache, kompakte Form: Das Modell wird auf unter '
-      '4.000 Dreiecke reduziert – das ist ein Viertel dessen, was '
-      'eine Figur haben darf. Grobe Volumen, wenige klare Flächen, '
-      'keine Feinstruktur.\n'
-      '- Geschlossene, massive Formen mit sichtbarer Dicke. Keine '
-      'hauchdünnen Bänder, Netze, Schleier oder Einzelhaare – die '
-      'kommen als Flächen ohne Stärke heraus und flackern im Spiel.\n'
-      '- Keine losen, freischwebenden Kleinteile: Alles muss am '
-      'Hauptkörper des Accessoires hängen.\n'
-      '- Wenige, klar getrennte Farbflächen und ein einheitlicher '
-      'Materiallook – Roblox erlaubt nur ein Material je Mesh, alles '
-      'landet in einer einzigen 1024er-Textur.\n'
-      '- Keine Schrift, keine Logos, keine Marken- oder '
-      'Figurenbezüge: Alles Hochgeladene geht durch die '
-      'Roblox-Moderation.';
-
-  /// Der Zusatz, der zur aktuellen Zielwahl passt.
-  String get _robloxPromptRules =>
-      _robloxTarget == RobloxTarget.accessory
-          ? _robloxAccessoryRules
-          : _robloxFigureRules;
+  /// Die Roblox-Regeln, die an die kopierte Vorlage gehängt werden.
+  ///
+  /// Der Text steht in [robloxPromptRules] – dort gibt es ihn zum
+  /// Prüfen, und er enthält alles, was die Prompt-KI braucht:
+  /// Bauplan, festen Schwanz, NEGATIV-Zeile, Grenzen und ein
+  /// vollständiges Beispiel.
+  String get _robloxPromptRules => robloxPromptRules(
+      accessory: _robloxTarget == RobloxTarget.accessory);
 
   /// Deutsche Bezeichnung des eingestellten Figurtyps.
   String get _rigTypeLabel {

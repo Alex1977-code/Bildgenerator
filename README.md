@@ -759,6 +759,35 @@ trotzdem. Zwei Änderungen:
   derselben Reihe (`v2.5` bleibt `v2.5`), sonst die letztgenannte.
   Damit kostet die nächste Datumsumstellung keinen Lauf mehr.
 
+#### Die Roblox-Regeln stehen vollständig in der Vorlage
+
+„Prompt-Vorlage kopieren (mit Roblox-Regeln)" hängte bisher nur eine
+Liste an, was zu **vermeiden** ist. Damit muss die Prompt-KI den Rest
+raten – und genau daran sind die ersten Läufe gescheitert. Jetzt
+enthält der Block alles, was für einen brauchbaren Prompt nötig ist:
+
+- **Den Bauplan** in Reihenfolge: Was es ist → Proportionen →
+  Kleidung und erkennendes Merkmal (ausgeschrieben, mit Ort am
+  Körper) → Farben → fester Schwanz.
+- **Den festen Schwanz wörtlich.** Vier Angaben darin entscheiden
+  über „besteht die Prüfung": `single connected body`, `visible wall
+  thickness`, `closed watertight shell`, `single mesh`.
+- **Die NEGATIV-Zeile wörtlich** – fertig, innerhalb der 255 Zeichen.
+- **Die Fallen**, jede mit Grund: keine T-Pose im Text (die App hängt
+  121 Zeichen selbst an), keine Verneinungen (Text→3D liest sie nicht
+  als Ausschluss, sondern sieht das Substantiv), keine dünnen
+  Kleinteile, bei Figuren keine Umhänge oder Röcke über Armen und
+  Beinen – was verdeckt ist, verschmilzt mit dem Rumpf, und dort kann
+  kein Skelett andocken.
+- **Die Grenzen**: Dreiecke, ein Material, 1024er-Textur, 5 Studs
+  Höhe, und die Zeichenbudgets samt T-Pose-Abzug.
+- **Ein vollständiges Beispiel**, das selbst in die Grenzen passt.
+
+Für **UGC-Accessoires** dieselbe Struktur mit den anderen Vorgaben:
+kein Körper, keine Pose, 4.000 Dreiecke, eigener Schwanz und eigene
+NEGATIV-Zeile. `test/roblox_prompt_test.dart` hält fest, dass jeder
+dieser Punkte wirklich in der Vorlage steht.
+
 #### Vorhandene Modelle als Vorlage
 
 **„3D-Modell laden"** im Ergebnisbereich nimmt eine vorhandene GLB,
