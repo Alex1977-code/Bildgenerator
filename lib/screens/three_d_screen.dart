@@ -33,6 +33,7 @@ import '../services/rodin_service.dart';
 import '../services/stl_export.dart';
 import '../services/threemf_export.dart';
 import '../widgets/print_size_dialog.dart';
+import '../services/batch_prompt.dart' show sanitizeBatchName;
 import '../services/pose_prompt.dart';
 import '../services/roblox_check.dart';
 import '../services/roblox_export.dart';
@@ -979,6 +980,50 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
   }
 
+  /// Legt die erzeugten Ansichten in der Galerie ab.
+  ///
+  /// Sie kosten Bild-KI-Aufrufe und sind für einen zweiten Anlauf
+  /// bares Geld wert – bisher verschwanden sie mit dem Tab-Wechsel.
+  /// Jede Ansicht bekommt einen sprechenden Namen
+  /// („ritter-ansicht-vorn"), damit sie sich in der Galerie über die
+  /// Suche wiederfindet.
+  Future<void> _storeViewsInGallery(SettingsService settings,
+      Map<String, ReferenceImage> views, String prompt) async {
+    if (views.isEmpty || !mounted) return;
+    const german = {
+      'front': 'vorn',
+      'left': 'links',
+      'right': 'rechts',
+      'back': 'hinten',
+    };
+    final history = context.read<HistoryService>();
+    final stem = sanitizeBatchName(
+        prompt.trim().isEmpty ? 'ansicht' : prompt.trim().split('\n').first);
+    final short = stem.length > 24 ? stem.substring(0, 24) : stem;
+    for (final key in ['front', 'left', 'right', 'back']) {
+      final view = views[key];
+      if (view == null) continue;
+      final side = german[key] ?? key;
+      try {
+        await history.addResults(
+          GenerationRequest(
+            provider: settings.provider,
+            prompt: prompt,
+            model: settings.modelFor(settings.provider),
+          ),
+          [GeneratedImage(bytes: view.bytes, format: 'png')],
+          name: '$short-ansicht-$side',
+          extraParams: {
+            'Ansicht': side,
+            'Zweck': '3D-Pipeline',
+          },
+        );
+      } catch (_) {
+        // Eine misslungene Ablage darf den 3D-Lauf nicht stoppen.
+      }
+    }
+  }
+
   /// Der Prompt, wie er tatsächlich an den Anbieter geht – mit dem
   /// T-Pose-Zusatz, sofern Rigging an ist und die Pose nicht schon im
   /// Text steht (siehe services/pose_prompt.dart).
@@ -1247,10 +1292,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             _views[entry.key] = entry.value;
           }
         });
+        // Die Ansichten sind bezahlte Zwischenergebnisse – sie gehören
+        // in die Galerie, nicht in den Papierkorb. Von dort lassen sie
+        // sich einzeln herunterladen und für einen zweiten Lauf
+        // wiederverwenden.
+        await _storeViewsInGallery(settings, generated.views, prompt);
         if (generated.totalTokens != null) {
           usedTokens = generated.totalTokens!;
           _showSnack(
-              'Ansichten erzeugt (${generated.totalTokens} Tokens).');
+              'Ansichten erzeugt (${generated.totalTokens} Tokens) – '
+              'sie liegen auch in der Galerie.');
         }
       }
       final useImages = _imageMode || viewPipeline;
