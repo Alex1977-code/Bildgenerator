@@ -144,28 +144,81 @@ Stream<String> _run(
 /// die beiden Zeilen vor dem Bauen.
 Iterable<String> _patchNativeSources(String targetDir) sync* {
   final sep = Platform.pathSeparator;
-  final file = File('$targetDir${sep}uv_unwrapper$sep'
+  final bvh = File('$targetDir${sep}uv_unwrapper$sep'
       'uv_unwrapper${sep}csrc${sep}bvh.cpp');
-  if (!file.existsSync()) return;
-  final code = file.readAsStringSync();
-  final missing = <String>[
-    if (!code.contains('#include <tuple>')) '#include <tuple>',
-    if (!code.contains('#include <utility>')) '#include <utility>',
-  ];
-  if (missing.isEmpty) {
-    yield 'bvh.cpp: Header sind bereits vorhanden.';
-    return;
+  if (bvh.existsSync()) {
+    final code = bvh.readAsStringSync();
+    final missing = <String>[
+      if (!code.contains('#include <tuple>')) '#include <tuple>',
+      if (!code.contains('#include <utility>')) '#include <utility>',
+    ];
+    if (missing.isEmpty) {
+      yield 'bvh.cpp: Header sind bereits vorhanden.';
+    } else {
+      final lines = code.split('\n');
+      var last = -1;
+      for (var i = 0; i < lines.length && i < 60; i++) {
+        if (lines[i].trimLeft().startsWith('#include')) last = i;
+      }
+      if (last >= 0) {
+        lines.insertAll(last + 1, missing);
+        bvh.writeAsStringSync(lines.join('\n'));
+        yield 'bvh.cpp ergänzt um ${missing.join(' und ')} '
+            '(MSVC braucht die Header ausdrücklich).';
+      }
+    }
   }
-  final lines = code.split('\n');
-  var last = -1;
-  for (var i = 0; i < lines.length && i < 60; i++) {
-    if (lines[i].trimLeft().startsWith('#include')) last = i;
+  if (!Platform.isWindows) return;
+  // Jede Python-Erweiterung braucht unter Windows eine Init-Funktion
+  // PyInit_<Modul>; der Linker verlangt sie ausdrücklich
+  // (/EXPORT:PyInit__C). SF3D und SPAR3D melden ihre Funktionen aber
+  // nur über TORCH_LIBRARY an und definieren keine – unter Linux egal,
+  // unter Windows endet es mit „LNK2001: PyInit__C". Wir hängen die
+  // vom PyTorch-Handbuch vorgesehene Minimal-Fassung an.
+  for (final (package, file) in const [
+    ('uv_unwrapper', 'unwrapper.cpp'),
+    ('texture_baker', 'baker.cpp'),
+  ]) {
+    final dir = Directory('$targetDir$sep$package$sep$package${sep}csrc');
+    if (!dir.existsSync()) continue;
+    // Schon eine Init-Funktion vorhanden (eigene oder über pybind11)?
+    var hasInit = false;
+    for (final entry in dir.listSync()) {
+      if (entry is! File) continue;
+      final name = entry.path.toLowerCase();
+      if (!name.endsWith('.cpp') && !name.endsWith('.cu')) continue;
+      final text = entry.readAsStringSync();
+      if (text.contains('PyInit_') || text.contains('PYBIND11_MODULE')) {
+        hasInit = true;
+        break;
+      }
+    }
+    if (hasInit) {
+      yield '$package: Modul-Init ist vorhanden.';
+      continue;
+    }
+    final target = File('${dir.path}$sep$file');
+    if (!target.existsSync()) continue;
+    target.writeAsStringSync(
+      '\n\n// Vom 3DGenerator ergänzt: Windows verlangt eine\n'
+      '// Modul-Init-Funktion, sonst bricht der Linker ab.\n'
+      '#ifdef _WIN32\n'
+      '#include <Python.h>\n'
+      'extern "C" {\n'
+      'PyObject *PyInit__C(void) {\n'
+      '  static struct PyModuleDef module_def = {\n'
+      '      PyModuleDef_HEAD_INIT, "_C", NULL, -1, NULL,\n'
+      '      NULL, NULL, NULL, NULL,\n'
+      '  };\n'
+      '  return PyModule_Create(&module_def);\n'
+      '}\n'
+      '}\n'
+      '#endif\n',
+      mode: FileMode.append,
+    );
+    yield '$package/$file um die Windows-Modul-Init ergänzt '
+        '(behebt „LNK2001: PyInit__C").';
   }
-  if (last < 0) return;
-  lines.insertAll(last + 1, missing);
-  file.writeAsStringSync(lines.join('\n'));
-  yield 'bvh.cpp ergänzt um ${missing.join(' und ')} '
-      '(MSVC braucht die Header ausdrücklich).';
 }
 
 /// Umgebung für das Bauen der C++-Erweiterungen. Unter Windows
@@ -181,6 +234,11 @@ Map<String, String> _buildEnvironment() {
   return {
     ...Platform.environment,
     'CL': existing.isEmpty ? flags : '$existing $flags',
+    // CUDA 12.x lehnt neuere MSVC-Fassungen sonst rundheraus ab.
+    'NVCC_PREPEND_FLAGS':
+        '${Platform.environment['NVCC_PREPEND_FLAGS'] ?? ''} '
+                '-allow-unsupported-compiler'
+            .trim(),
   };
 }
 
@@ -303,10 +361,11 @@ Stream<String> installServer({
     // ab. Deshalb: Bau-Werkzeuge sicherstellen und die Abkapselung
     // abschalten, damit das eben installierte torch sichtbar ist.
     if (File('$targetDir${sep}requirements.txt').existsSync()) {
-      yield '# Bau-Werkzeuge werden vorbereitet';
+      yield '# Bau-Werkzeuge werden vorbereitet (mit ninja – ohne das '
+          'schickt PyTorch die CUDA-Dateien an den falschen Compiler)';
       yield* _run(
         venvPython,
-        ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel'],
+        ['-m', 'pip', 'install', '-U', 'pip', 'setuptools', 'wheel', 'ninja'],
         workingDirectory: targetDir,
       );
       yield '# Quellcode der C++-Erweiterungen wird geprüft';

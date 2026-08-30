@@ -309,17 +309,55 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 - **SF3D/SPAR3D unter Windows: `link.exe … returned non-zero exit
   status 1120`** → Das Übersetzen hat geklappt, erst das
   Zusammenbinden scheitert; 1120 heißt „nicht aufgelöste Symbole".
-  Welche fehlen, steht im Protokoll in den Zeilen darüber
-  (`LNK2019: unresolved external symbol …`). Der Assistent speichert
-  das vollständige Protokoll als `einrichtung-protokoll.txt` im
-  Zielordner und hat einen Knopf „Kopieren".
+  Welche fehlen, steht im Protokoll in den Zeilen darüber. Der
+  Assistent speichert das vollständige Protokoll als
+  `einrichtung-protokoll.txt` im Zielordner und hat einen Knopf
+  „Kopieren". Zwei Fälle sind bekannt, beide behebt der Assistent
+  inzwischen selbst:
+  1. `LNK2001: Nicht aufgelöstes externes Symbol "PyInit__C"` →
+     Die Erweiterung meldet ihre Funktionen nur über `TORCH_LIBRARY`
+     an und hat gar keine Python-Modul-Startfunktion. Unter Linux
+     stört das nicht, der Windows-Linker bekommt von setuptools aber
+     `/EXPORT:PyInit__C` mitgegeben und sucht sie. Abhilfe ist der
+     Mini-Baustein aus der PyTorch-Anleitung zu eigenen Operatoren,
+     ans Ende von `uv_unwrapper/…/csrc/unwrapper.cpp` bzw.
+     `texture_baker/…/csrc/baker.cpp`:
+
+     ```cpp
+     #ifdef _WIN32
+     #include <Python.h>
+     extern "C" {
+     PyObject *PyInit__C(void) {
+       static struct PyModuleDef module_def = {
+           PyModuleDef_HEAD_INIT, "_C", NULL, -1,
+           NULL, NULL, NULL, NULL, NULL, };
+       return PyModule_Create(&module_def);
+     }
+     }
+     #endif
+     ```
+
+  2. `"blockIdx": nichtdeklarierter Bezeichner` / `Syntaxfehler: "<"`
+     in einer `.cu`-Datei → weiter oben im Protokoll steht dann
+     „Attempted to use ninja as the BuildExtension backend but we
+     could not find ninja". Ohne **ninja** fällt PyTorch auf den alten
+     distutils-Weg zurück und schickt die CUDA-Dateien an `cl.exe`
+     statt an `nvcc`; der MSVC kennt CUDA-Syntax nicht. Abhilfe:
+
+     ```powershell
+     pip install ninja
+     ```
+
+     Passen CUDA- und MSVC-Version nicht zusammen (CUDA 12.4 mit
+     MSVC 14.40+), zusätzlich
+     `$env:NVCC_PREPEND_FLAGS = "-allow-unsupported-compiler"`.
+
   Hintergrund: SF3D und SPAR3D werden vom Projekt selbst nur unter
   Linux gebaut – die `setup.py` beider C++-Teile kennt ausschließlich
-  GCC/Clang-Schalter und keinen Windows-Zweig. Zuverlässig laufen
-  unter Windows deshalb **TripoSR** (3D) und der **Bild-Server**
-  (Text→Bild); beide brauchen keinen Compiler. SF3D in voller
-  Qualität gibt es alternativ über WSL2 (Ubuntu) oder als
-  Bezahl-API (Stability „Fast 3D", fal.ai).
+  GCC/Clang-Schalter und keinen Windows-Zweig. Ohne Compiler-Sorgen
+  laufen unter Windows **TripoSR** (3D) und der **Bild-Server**
+  (Text→Bild). SF3D in voller Qualität gibt es alternativ über WSL2
+  (Ubuntu) oder als Bezahl-API (Stability „Fast 3D", fal.ai).
 - **`No module named 'PIL'`** (oder ein anderes Paket) beim Generieren
   → `pip install -r requirements.txt` ist nicht vollständig
   durchgelaufen. In der aktiven Umgebung wiederholen und dabei auf die
