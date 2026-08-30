@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
+// XFile kommt hier vom image_picker – file_selector bringt
+// einen gleichnamigen Typ mit.
+import 'package:file_selector/file_selector.dart' hide XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, MaxLengthEnforcement;
@@ -25,6 +28,7 @@ import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
+import '../services/model_views.dart';
 import '../services/model_refine.dart';
 import '../services/glb_textures.dart';
 import '../services/model_format.dart';
@@ -40,6 +44,7 @@ import '../services/batch_prompt.dart' show sanitizeBatchName;
 import '../services/pose_prompt.dart';
 import '../services/roblox_check.dart';
 import '../services/roblox_export.dart';
+import '../services/roblox_fix.dart';
 import '../services/roblox_install.dart';
 import '../services/roblox_rig.dart';
 import '../services/self_host_service.dart';
@@ -1148,6 +1153,105 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   }
 
   String? _dragOverSlot;
+
+  /// Lädt ein vorhandenes 3D-Modell in die Ergebnisliste.
+  ///
+  /// Damit greifen alle Werkzeuge, die es sonst nur für frisch
+  /// erzeugte Modelle gibt: die Roblox-Prüfung, das Verkleinern der
+  /// Texturen, die R15-Umbenennung samt Blender- und Studio-Skript,
+  /// die Ausgabeformate – und „Als Vorlage verwenden".
+  Future<void> _loadExistingModel() async {
+    final file = await openFile(acceptedTypeGroups: const [
+      XTypeGroup(
+        label: '3D-Modelle',
+        extensions: ['glb', 'gltf', 'stl', 'obj'],
+      ),
+    ]);
+    if (file == null) return;
+    try {
+      final bytes = await file.readAsBytes();
+      final format = detectModelFormat(bytes);
+      if (format != ModelFormat.glb &&
+          format != ModelFormat.obj &&
+          format != ModelFormat.stl) {
+        if (mounted) {
+          _showSnack('„${file.name}" ist ${modelFormatLabel(format)}. '
+              'Laden lassen sich GLB, OBJ und STL; '
+              '${modelFormatLimitation(format)}');
+        }
+        return;
+      }
+      final glb = importModelToGlb(bytes, file.name);
+      if (!mounted) return;
+      _addResult(
+        glbBytes: glb,
+        label: file.name,
+        providerLabel: 'Geladen',
+        rigged: false,
+        textured: format == ModelFormat.glb,
+      );
+      _showSnack('„${file.name}" geladen – Prüfung, Texturgröße und '
+          'Roblox-Vorbereitung stehen jetzt unter „Export".');
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Modell konnte nicht geladen werden: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    }
+  }
+
+  /// Nimmt ein vorhandenes Modell als Vorlage für einen neuen Lauf.
+  ///
+  /// Aus dem Netz werden vier Ansichten gerendert; die gehen in
+  /// dieselbe Multiview-Pipeline wie eigene Fotos. So entsteht aus
+  /// einem zu großen oder ungeeigneten Modell ein neues, das die
+  /// Grenzen des Ziels einhält. Das vorhandene Netz direkt zu
+  /// reduzieren kann die App nicht, ohne UV-Nähte und Textur zu
+  /// zerstören – ein neues bauen zu lassen schon.
+  Future<void> _useModelAsReference(ThreeDResult result) async {
+    if (!result.usableInApp) {
+      _showSnack('Ansichten lassen sich nur aus einer GLB rendern – '
+          'diese Datei ist ${modelFormatLabel(result.format)}.');
+      return;
+    }
+    setState(() {
+      _running = true;
+      _stage = 'Ansichten werden aus dem Modell gerendert …';
+    });
+    try {
+      final views = await renderGlbViews(result.glbBytes, size: 1024);
+      if (!mounted) return;
+      if (views.isEmpty) {
+        _showSnack('Aus diesem Modell ließen sich keine Ansichten '
+            'rendern.');
+        return;
+      }
+      setState(() {
+        for (final entry in views.entries) {
+          _views[entry.key] = ReferenceImage(
+            bytes: entry.value,
+            name: 'vorlage_${entry.key}.png',
+          );
+        }
+        _imageMode = true;
+      });
+      _showSnack('${views.length} Ansichten übernommen. Jetzt Ziel und '
+          'Anbieter prüfen und „3D-Modell generieren" – daraus '
+          'entsteht ein neues Modell im gewählten Budget.');
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Ansichten konnten nicht gerendert werden: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stage = '';
+        });
+      }
+    }
+  }
 
   /// Öffnet abgelegte 3D-Dateien (GLB/STL/OBJ) direkt im Viewer;
   /// Bilddateien bleiben den Ansichten-Kacheln überlassen.
@@ -2533,6 +2637,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
             ListTile(
               enabled: result.usableInApp,
+              leading: const Icon(Icons.auto_awesome_motion_outlined),
+              title: const Text('Als Vorlage für ein neues Modell …'),
+              subtitle: Text(result.usableInApp
+                  ? 'Rendert vier Ansichten aus diesem Modell – daraus '
+                      'baut der gewählte Dienst ein neues im '
+                      'eingestellten Budget'
+                  : 'Ansichten lassen sich nur aus einer GLB rendern'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _useModelAsReference(result);
+                    }
+                  : null,
+            ),
+            ListTile(
+              enabled: result.usableInApp,
               leading: const Icon(Icons.videogame_asset_outlined),
               title: const Text('Für Roblox prüfen …'),
               subtitle: Text(result.usableInApp
@@ -3171,6 +3291,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
           ),
           actions: [
+            // Was die App selbst rechnen kann, in einem Zug.
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _makeRobloxReady(result);
+              },
+              child: const Text('In Ordnung bringen'),
+            ),
             // Beides in einem Auftrag – und beim Anbieter gerechnet,
             // nicht hier: Tripo remesht mit UVs und Textur.
             if ((tooManyTriangles || texturesTooLarge) &&
@@ -3297,6 +3425,76 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (mounted) _showSnack('Nachrechnen fehlgeschlagen: ${e.message}');
     } catch (e) {
       if (mounted) _showSnack('Nachrechnen fehlgeschlagen: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stage = '';
+        });
+      }
+    }
+  }
+
+  /// Bringt ein Modell in einem Zug auf die Roblox-Regeln.
+  ///
+  /// Vier Punkte, die die Prüfung sonst nur meldet: Löcher schließen,
+  /// Wicklung und Normalen richten, auf die Zielhöhe skalieren,
+  /// Texturen verkleinern. Danach wird neu geprüft, damit das
+  /// Ergebnis nicht behauptet, sondern gezeigt wird.
+  Future<void> _makeRobloxReady(ThreeDResult result) async {
+    if (!result.usableInApp) {
+      _showSnack('Das rechnet auf der GLB – diese Datei ist '
+          '${modelFormatLabel(result.format)}.');
+      return;
+    }
+    final studs = _robloxTarget == RobloxTarget.character
+        ? robloxCharacterStuds
+        : 0.0;
+    setState(() {
+      _running = true;
+      _stage = 'Modell wird auf die Roblox-Regeln gebracht …';
+    });
+    final done = <String>[];
+    try {
+      final fixed = fixGlbForRoblox(result.glbBytes, targetStuds: studs);
+      var bytes = fixed.glb;
+      if (fixed.report.filledHoles > 0) {
+        done.add('${fixed.report.filledHoles} Loch/Löcher geschlossen '
+            '(${fixed.report.addedTriangles} Dreiecke ergänzt)');
+      }
+      if (fixed.report.flippedFaces > 0) {
+        done.add('${fixed.report.flippedFaces} Fläche(n) umgedreht');
+      }
+      if (fixed.report.rebuiltNormals > 0) {
+        done.add('Normalen neu gerechnet');
+      }
+      if ((fixed.report.scale - 1).abs() > 1e-6) {
+        done.add('Größe von '
+            '${fixed.report.heightBefore.toStringAsFixed(2)} auf '
+            '${fixed.report.heightAfter.toStringAsFixed(2)} Einheiten '
+            '(${studs.toStringAsFixed(0)} Studs)');
+      }
+      final shrunk =
+          await shrinkGlbTextures(bytes, maxSize: robloxMaxTexture);
+      if (shrunk.didSomething) {
+        bytes = shrunk.glb;
+        final first = shrunk.changed.first;
+        done.add('${shrunk.changed.length} Textur(en) auf '
+            '${first.toWidth} px verkleinert');
+      }
+      if (!mounted) return;
+      if (done.isEmpty) {
+        _showSnack('Es war nichts zu richten.');
+        return;
+      }
+      setState(() => result.glbBytes = bytes);
+      _showSnack('Erledigt: ${done.join(', ')}.');
+      await _showRobloxCheck(result);
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Das Richten schlug fehl: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -5493,8 +5691,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Text('Ergebnisse (diese Sitzung)',
-            style: theme.textTheme.titleMedium),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Ergebnisse (diese Sitzung)',
+                  style: theme.textTheme.titleMedium),
+            ),
+            // Ein vorhandenes Modell kommt in dieselbe Liste – damit
+            // greifen Prüfung, Texturgröße, Roblox-Vorbereitung und
+            // „Als Vorlage verwenden" auch darauf.
+            OutlinedButton.icon(
+              onPressed: _running ? null : _loadExistingModel,
+              icon: const Icon(Icons.folder_open_outlined, size: 18),
+              label: const Text('3D-Modell laden'),
+            ),
+          ],
+        ),
         const SizedBox(height: 4),
         Text(
           'Generierte Modelle landen zusätzlich in der Galerie '

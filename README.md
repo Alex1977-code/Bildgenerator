@@ -759,6 +759,25 @@ trotzdem. Zwei Änderungen:
   derselben Reihe (`v2.5` bleibt `v2.5`), sonst die letztgenannte.
   Damit kostet die nächste Datumsumstellung keinen Lauf mehr.
 
+#### Vorhandene Modelle als Vorlage
+
+**„3D-Modell laden"** im Ergebnisbereich nimmt eine vorhandene GLB,
+OBJ oder STL in dieselbe Liste wie ein frisch erzeugtes Modell. Damit
+greifen alle Werkzeuge darauf: die Roblox-Prüfung, „In Ordnung
+bringen", die R15-Umbenennung samt Blender- und Studio-Skript, die
+Ausgabeformate.
+
+**„Als Vorlage für ein neues Modell"** im Export-Menü rendert vier
+Ansichten (vorn, links, hinten, rechts) aus dem geladenen Netz –
+gezeichnet mit demselben Renderer wie der Viewer, was man dort sieht,
+geht auch in die Pipeline – und legt sie in die Ansichten-Kacheln.
+Von da an ist es ein gewöhnlicher Multiview-Lauf: Der gewählte Dienst
+baut daraus ein **neues** Modell im eingestellten Budget. Das ist der
+Weg für ein Modell, das mit 100.000 Dreiecken ankommt: Ein
+vorhandenes Netz zu reduzieren, ohne UV-Nähte und Textur zu
+zerstören, kann die App nicht – ein neues aus Ansichten bauen zu
+lassen schon.
+
 #### Figurtyp: Dropdown und Prompt-Vorlage
 
 Der **Figurtyp** steht jetzt bei jedem Anbieter unter dem
@@ -815,6 +834,41 @@ anderes schreiben –, deshalb kann die Datei trotz kleinerer Bilder
 wachsen; die Karte nennt die gemessene Größe vorher und nachher. Am
 Beispiel der 3,19-MB-Figur: drei Texturen 2048 → 1024, Geometrie
 unverändert, Datei 3,83 MB, Textur-Blocker weg.
+
+#### „In Ordnung bringen": vier Punkte, ein Knopf
+
+Was die Prüfung findet, repariert sie auf Wunsch auch – in einem Zug,
+danach wird neu geprüft:
+
+- **Offene Kanten.** Kanten, die nur zu einem Dreieck gehören, bilden
+  den Rand eines Lochs. Die Ränder werden zu Schleifen
+  zusammengesetzt und als Fächer geschlossen – **ohne neue
+  Vertices**, damit UVs, Farben und Gewichte unangetastet bleiben.
+  Ein zusätzlicher Mittelpunkt bräuchte auch UV, Normale und
+  Gewichte, und jede dieser Erfindungen wäre an der Naht sichtbar.
+  Sehr große Schleifen (über 512 Kanten) bleiben offen: Das ist kein
+  Loch mehr, sondern ein offenes Netz, und ein Deckel darüber wäre
+  Unsinn.
+- **Uneinheitliche Wicklung.** Benachbarte Dreiecke müssen ihre
+  gemeinsame Kante gegenläufig durchlaufen. Ein Flutfüllen über die
+  Nachbarschaft dreht die Ausreißer um – je zusammenhängendem Teil
+  getrennt, ein Modell kann aus mehreren bestehen. Zeigt danach das
+  ganze Netz nach innen (negatives Volumen), wird alles gedreht.
+  Anschließend werden die **Normalen** neu gerechnet, sonst zeigen
+  sie weiter in die alte Richtung.
+- **Einheiten.** glTF rechnet in Metern, der Importer in Studs
+  (1 Stud ≈ 0,28 m). Beim Ziel *Figur* wird auf **5 Studs** skaliert.
+  Ohne Skelett geht der Maßstab in die Punkte (dann sieht ihn jedes
+  Werkzeug, auch eines, das Knotenmatrizen ignoriert), mit Skelett
+  über einen Knoten darüber – Gelenke und Bind-Matrizen einzeln
+  umzurechnen wäre fehleranfällig. Die `min`/`max` der Accessoren
+  werden mitgezogen; Importer glauben ihnen.
+- **Textur.** Wie oben beschrieben auf 1024 herunter.
+
+`test/roblox_fix_test.dart` prüft das an einem Würfel mit
+herausgenommenen und verdrehten Flächen: Löcher zu, Wicklung
+einheitlich, Volumen positiv, Höhe 1,4 m bei 5 Studs – und ein heiles
+Netz bleibt unangetastet.
 
 **Die Dreieckszahl senkt die App nicht selbst.** Ein Netz zu
 reduzieren, ohne UV-Nähte und damit die Textur zu zerstören, braucht
