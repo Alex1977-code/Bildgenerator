@@ -137,6 +137,82 @@ Set<int> _attributeAccessors(Map<String, dynamic> json, String attribute) {
   return result;
 }
 
+/// Dreht das Modell in 90°-Schritten um eine Achse ('x', 'y' oder 'z')
+/// und schreibt die gedrehte Geometrie zurück – anders als eine reine
+/// Ansichts-Drehung wirkt das auch im Export (Druck, Engine).
+///
+/// Wirft eine [Exception], wenn das Modell ein Skelett trägt oder die
+/// Mesh-Knoten eigene Transformationen haben: Dann müssten Gelenke und
+/// Bind-Matrizen mitgedreht werden, sonst zerreißt das Rig.
+/// [quarterTurns] zählt Vierteldrehungen im Uhrzeigersinn um die Achse
+/// (mathematisch positiv, von der Achsenspitze aus gesehen).
+Uint8List rotateGlbQuarterTurns(Uint8List glb, String axis,
+    {int quarterTurns = 1}) {
+  final turns = ((quarterTurns % 4) + 4) % 4;
+  if (turns == 0) return glb;
+  final (json, bin) = _parseGlb(glb);
+  if ((json['skins'] as List?)?.isNotEmpty ?? false) {
+    throw Exception('Das Modell trägt ein Skelett – bitte zuerst das '
+        'Rigging ausschalten bzw. das ungeriggte Modell drehen, sonst '
+        'passen Gelenke und Netz nicht mehr zusammen.');
+  }
+  for (final node in (json['nodes'] as List?) ?? []) {
+    final map = node as Map;
+    if (map.containsKey('mesh') &&
+        (map.containsKey('rotation') ||
+            map.containsKey('scale') ||
+            map.containsKey('matrix'))) {
+      throw Exception('Dieses Modell hat eigene Knoten-Transformationen '
+          '– Drehen würde die Darstellung verfälschen.');
+    }
+  }
+  final positionAccessors = _attributeAccessors(json, 'POSITION');
+  if (positionAccessors.isEmpty) {
+    throw Exception('Keine Geometrie zum Drehen gefunden.');
+  }
+
+  // 90°-Schritte exakt: nur Vertauschen und Vorzeichenwechsel, keine
+  // Sinus-/Kosinus-Rundungsfehler.
+  final angle = turns * math.pi / 2;
+  final c = math.cos(angle).round().toDouble();
+  final sn = math.sin(angle).round().toDouble();
+  late final void Function(Float64List) rotate;
+  switch (axis) {
+    case 'x':
+      rotate = (v) {
+        final y = v[1], z = v[2];
+        v[1] = y * c - z * sn;
+        v[2] = y * sn + z * c;
+      };
+    case 'z':
+      rotate = (v) {
+        final x = v[0], y = v[1];
+        v[0] = x * c - y * sn;
+        v[1] = x * sn + y * c;
+      };
+    default: // 'y'
+      rotate = (v) {
+        final x = v[0], z = v[2];
+        v[0] = x * c + z * sn;
+        v[2] = -x * sn + z * c;
+      };
+  }
+
+  for (final a in positionAccessors) {
+    _forEachVector(json, bin, a, 3, rotate, write: true);
+    _refreshMinMax(json, bin, a);
+  }
+  for (final a in _attributeAccessors(json, 'NORMAL')) {
+    _forEachVector(json, bin, a, 3, rotate, write: true);
+    _refreshMinMax(json, bin, a);
+  }
+  for (final a in _attributeAccessors(json, 'TANGENT')) {
+    // VEC4: xyz drehen, w (Händigkeit) bleibt.
+    _forEachVector(json, bin, a, 4, rotate, write: true);
+  }
+  return _writeGlb(json, bin);
+}
+
 /// Kanonische Ausrichtung: dreht das Modell um die y-Achse, sodass die
 /// horizontale Hauptachse (PCA über x/z) auf der Tiefenachse z liegt –
 /// die Fahrzeug-Konvention des Auto-Riggers. Liefert die neue GLB und

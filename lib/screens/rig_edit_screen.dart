@@ -401,6 +401,66 @@ class _RigEditScreenState extends State<RigEditScreen> {
                         ],
                       ),
                     ),
+                    // Kurzanleitung zum angetippten Gelenk: wohin der
+                    // Punkt gehört und was er steuert.
+                    if (_selected.isNotEmpty)
+                      Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                        child: Card(
+                          margin: EdgeInsets.zero,
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                for (final index in _selected.toList()
+                                  ..sort())
+                                  if (index < _joints.length)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                          bottom: 2),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.place_outlined,
+                                              size: 16,
+                                              color: theme
+                                                  .colorScheme.primary),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: RichText(
+                                              text: TextSpan(
+                                                style: theme
+                                                    .textTheme.bodySmall,
+                                                children: [
+                                                  TextSpan(
+                                                    text:
+                                                        '${_joints[index].name}: ',
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight
+                                                                .w600),
+                                                  ),
+                                                  TextSpan(
+                                                      text: jointGuide(
+                                                          _joints[index]
+                                                              .name)),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_selected.isNotEmpty)
                       Padding(
                         padding:

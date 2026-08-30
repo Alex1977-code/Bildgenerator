@@ -882,6 +882,79 @@ void main() {
     }
   });
 
+  test('Drehen in 90°-Schritten dreht die Geometrie mit', () async {
+    // Schmaler, liegender Quader: lang in z, flach in y – wie ein
+    // Modell, das z-up exportiert wurde.
+    final mesh = LocalMesh();
+    void add(double x, double y, double z) =>
+        mesh.addVertex(x, y, z, 0, 0);
+    for (final x in [-0.2, 0.2]) {
+      for (final y in [-0.1, 0.1]) {
+        for (final z in [-0.9, 0.9]) {
+          add(x, y, z);
+        }
+      }
+    }
+    for (var i = 0; i + 2 < 8; i++) {
+      mesh.addTriangle(i, i + 1, i + 2);
+    }
+    final glb = buildGlb(mesh);
+
+    Future<(double, double, double)> extent(Uint8List data) async {
+      final positions = (await parseGlbForPreview(data)).positions;
+      var lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+      for (var i = 0; i + 2 < positions.length; i += 3) {
+        for (var k = 0; k < 3; k++) {
+          if (positions[i + k] < lo[k]) lo[k] = positions[i + k];
+          if (positions[i + k] > hi[k]) hi[k] = positions[i + k];
+        }
+      }
+      return (hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    }
+
+    final before = await extent(glb);
+    expect(before.$3, greaterThan(before.$2),
+        reason: 'liegt zunächst in z');
+
+    // Drehung um x tauscht Höhe und Tiefe: das Modell steht.
+    final upright = rotateGlbQuarterTurns(glb, 'x');
+    final after = await extent(upright);
+    expect(after.$2, closeTo(before.$3, 1e-4), reason: 'Höhe war Tiefe');
+    expect(after.$3, closeTo(before.$2, 1e-4), reason: 'Tiefe war Höhe');
+    expect(after.$1, closeTo(before.$1, 1e-4), reason: 'Breite bleibt');
+
+    // Viermal drehen führt zurück zum Ausgangszustand.
+    var round = glb;
+    for (var i = 0; i < 4; i++) {
+      round = rotateGlbQuarterTurns(round, 'x');
+    }
+    final back = await extent(round);
+    expect(back.$1, closeTo(before.$1, 1e-4));
+    expect(back.$2, closeTo(before.$2, 1e-4));
+    expect(back.$3, closeTo(before.$3, 1e-4));
+
+    // 0 Vierteldrehungen lassen die Datei unverändert.
+    expect(rotateGlbQuarterTurns(glb, 'y', quarterTurns: 0), same(glb));
+
+    // Geriggte Modelle werden abgelehnt (Skelett würde zerreißen).
+    final rigged = injectAutoRig(glb, rigType: 'biped');
+    expect(() => rotateGlbQuarterTurns(rigged, 'x'), throwsException);
+  });
+
+  test('Gelenk-Anleitung erklärt jedes Gelenk verständlich', () {
+    expect(jointGuide('Hips'), contains('Becken'));
+    expect(jointGuide('Hand_L'), contains('linke Seite'));
+    expect(jointGuide('Hand_R'), contains('rechte Seite'));
+    // Fäustlinge/Handschuhe: Hinweis auf den Einflussbereich.
+    expect(jointGuide('Hand_L'), contains('Einflussbereich'));
+    // Nummerierte Namen fallen auf die Grundform zurück.
+    expect(jointGuide('Wheel2_L'), contains('Radmitte'));
+    expect(jointGuide('Spine_3'), contains('Wirbelsäule'));
+    // Endsegmente und Unbekanntes bekommen trotzdem einen Text.
+    expect(jointGuide('Hand_L_Tip'), isNotEmpty);
+    expect(jointGuide('Sonderling'), contains('Sonderling'));
+  });
+
   test(
       'Veredelung: kanonische Ausrichtung dreht schräge Fahrzeuge '
       'gerade und macht sie riggbar', () {

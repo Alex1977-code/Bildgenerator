@@ -901,6 +901,78 @@ _GlbAnalysis _analyzeGlb(Uint8List glb) {
 }
 
 /// Öffentliche Gelenk-Info (für den Rig-Editor).
+/// Kurzanleitung je Gelenk: wo der Punkt am Modell sitzen soll.
+/// Wird im Rig-Editor beim Antippen angezeigt, damit klar ist, was ein
+/// Punkt steuert und wohin er gehört. Die Namen kommen aus
+/// [_skeletonForGlb]; Seiten-Endungen (_L/_R) und Nummern (Achse,
+/// Beinpaar, Wirbel) werden vorher abgetrennt.
+String jointGuide(String jointName) {
+  var base = jointName;
+  var side = '';
+  if (base.endsWith('_L')) {
+    side = ' (linke Seite der Figur)';
+    base = base.substring(0, base.length - 2);
+  } else if (base.endsWith('_R')) {
+    side = ' (rechte Seite der Figur)';
+    base = base.substring(0, base.length - 2);
+  }
+  // Nummerierte Namen vereinheitlichen: Leg2Foot -> LegFoot,
+  // Spine_3 -> Spine, Wheel2 -> Wheel.
+  final generic = base.replaceAll(RegExp(r'[0-9]+'), '').replaceAll('_', '');
+  final text = switch (generic) {
+    'Hips' =>
+      'Beckenmitte, etwa auf Höhe des Hosenbunds – die Wurzel des '
+          'Skeletts. Bewegt die ganze Figur.',
+    'Spine' =>
+      'Untere Wirbelsäule, etwa auf Bauchnabelhöhe, mittig in der '
+          'Figur (nicht auf der Bauchdecke).',
+    'Chest' =>
+      'Brustbeinmitte, zwischen den Schultern und mittig in der Tiefe.',
+    'Neck' => 'Halsansatz, dort wo der Kopf auf den Schultern sitzt.',
+    'Head' =>
+      'Kopfmitte, etwa auf Augenhöhe und mittig in der Tiefe – nicht '
+          'an der Nasenspitze und nicht am Scheitel.',
+    'Shoulder' =>
+      'Schultergelenk, wo der Arm am Rumpf ansetzt – etwas innerhalb '
+          'der Silhouette$side.',
+    'Elbow' => 'Ellenbogen, in der Mitte des ausgestreckten Arms$side.',
+    'Hand' =>
+      'Handwurzel, wo die Hand am Unterarm ansetzt$side. Bei Fäustlingen '
+          'oder Handschuhen den Punkt eher in die Handmitte legen und '
+          'den Einflussbereich vergrößern, damit Daumen und Finger '
+          'mitgehen.',
+    'UpperLeg' =>
+      'Hüftgelenk, wo das Bein am Becken ansetzt$side – nicht am '
+          'äußeren Rand der Hose.',
+    'Knee' => 'Kniemitte$side.',
+    'Foot' =>
+      'Fußgelenk, kurz über der Sohle$side – der Punkt gehört an den '
+          'Knöchel, nicht an die Fußspitze.',
+    'LegHip' => 'Ansatz des Beins am Körper$side.',
+    'LegMid' => 'Mittleres Gelenk dieses Beins$side.',
+    'LegFoot' => 'Fußende dieses Beins, knapp über dem Boden$side.',
+    'Wing' => 'Flügelansatz am Rumpf$side.',
+    'WingTip' => 'Flügelspitze$side.',
+    'Tail' => 'Schwanzansatz bzw. Schwanzglied, mittig im Körper.',
+    'Body' =>
+      'Fahrzeugmitte auf Höhe der Karosserie – bewegt das ganze '
+          'Fahrzeug.',
+    'Wheel' =>
+      'Radmitte (Nabe)$side. Der Punkt muss genau im Radzentrum sitzen, '
+          'sonst eiert das Rad beim Drehen.',
+    'Root' => 'Wurzel des Skeletts, mittig im Modell.',
+    _ => '',
+  };
+  if (text.isNotEmpty) return text;
+  // Endsegmente (…_Tip) und alles Unbekannte.
+  if (jointName.toLowerCase().contains('tip')) {
+    return 'Endpunkt des Knochens – bestimmt nur, wie weit die '
+        'Gewichtung nach außen reicht.';
+  }
+  return 'Gelenk „$jointName" – mittig im zugehörigen Körperteil '
+      'platzieren.';
+}
+
 class RigJointInfo {
   const RigJointInfo(this.name, this.parent, this.x, this.y, this.z);
 

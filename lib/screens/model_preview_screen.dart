@@ -9,11 +9,13 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 
 import '../services/animation_bake.dart';
-import '../services/auto_rig.dart' show estimateFrontSign;
+import '../services/auto_rig.dart'
+    show estimateFrontSign, injectAutoRig;
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
 import '../services/model_import.dart';
+import '../services/model_refine.dart' show rotateGlbQuarterTurns;
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
 import '../services/provenance.dart';
@@ -245,6 +247,37 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               icon: const Icon(Icons.settings_accessibility),
               onPressed: _editRig,
             ),
+          // Importierte Dateien aus Blender/CAD stehen oft z-up und
+          // liegen dadurch auf der Seite – hier lässt sich das
+          // dauerhaft geraderücken (wirkt auch im Export).
+          PopupMenuButton<(String, int)>(
+            tooltip: 'Modell drehen (90°-Schritte, wirkt im Export)',
+            icon: const Icon(Icons.rotate_90_degrees_ccw),
+            onSelected: (choice) =>
+                _rotateModel(choice.$1, choice.$2),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: ('x', 1),
+                child: Text('Aufrichten (X +90°)'),
+              ),
+              PopupMenuItem(
+                value: ('x', -1),
+                child: Text('Kippen (X −90°)'),
+              ),
+              PopupMenuItem(
+                value: ('y', 1),
+                child: Text('Drehen links (Y +90°)'),
+              ),
+              PopupMenuItem(
+                value: ('y', -1),
+                child: Text('Drehen rechts (Y −90°)'),
+              ),
+              PopupMenuItem(
+                value: ('z', 1),
+                child: Text('Rollen (Z +90°)'),
+              ),
+            ],
+          ),
           IconButton(
             tooltip: 'Ansicht zurücksetzen',
             icon: const Icon(Icons.restart_alt),
@@ -397,6 +430,46 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
 
   /// Rig-Editor öffnen; danach das Modell mit dem angepassten Skelett
   /// neu laden und dem Aufrufer (Ergebnisliste) mitteilen.
+  /// Dreht das Modell in 90°-Schritten – echte Geometrie, damit auch
+  /// Export und Druck stimmen. Bei geriggten Modellen wird die
+  /// ungeriggte Fassung gedreht und das Skelett neu eingebaut, sonst
+  /// passten Gelenke und Netz nicht mehr zusammen.
+  Future<void> _rotateModel(String axis, int turns) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final unrigged = widget.unriggedGlb;
+    final rigType = widget.rigType;
+    Uint8List rotated;
+    Uint8List? rotatedUnrigged;
+    try {
+      if (unrigged != null && rigType != null) {
+        rotatedUnrigged =
+            rotateGlbQuarterTurns(unrigged, axis, quarterTurns: turns);
+        rotated = injectAutoRig(rotatedUnrigged, rigType: rigType);
+      } else {
+        rotated = rotateGlbQuarterTurns(widget.glbBytes, axis,
+            quarterTurns: turns);
+      }
+    } on Exception catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Drehen nicht möglich: '
+              '${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
+    if (!mounted) return;
+    widget.onGlbUpdated?.call(rotated);
+    navigator.pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: rotated,
+        title: widget.title,
+        provenance: widget.provenance,
+        unriggedGlb: rotatedUnrigged ?? widget.unriggedGlb,
+        rigType: widget.rigType,
+        onGlbUpdated: widget.onGlbUpdated,
+      ),
+    ));
+  }
+
   Future<void> _editRig() async {
     final unrigged = widget.unriggedGlb;
     final rigType = widget.rigType;

@@ -120,6 +120,17 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Schätzung über Fußspitzen und Kopfposition): Skelett,
     Testanimationen (z. B. Verbeugen nach vorn) und die Startansicht
     im Viewer richten sich nach dem Gesicht der Figur
+  - **Modell drehen im Viewer**: 90°-Schritte um X, Y oder Z direkt in
+    der Werkzeugleiste – dreht die **echte Geometrie**, wirkt also auch
+    im Export für Druck und Engine. Hilft vor allem bei importierten
+    Dateien aus Blender oder CAD, die meist z-up statt y-up stehen und
+    dadurch auf der Seite liegen; bei geriggten Modellen wird die
+    ungeriggte Fassung gedreht und das Skelett neu eingebaut
+  - **Gelenk-Anleitung im Rig-Editor**: Ein angetipptes Gelenk erklärt
+    sich selbst – wo der Punkt sitzen soll (z. B. „Handwurzel, wo die
+    Hand am Unterarm ansetzt; bei Fäustlingen den Punkt in die
+    Handmitte legen und den Einflussbereich vergrößern") und was er
+    steuert
   - **Animationen direkt in der App**: Die 3D-Vorschau spielt
     Animations-Clips aus der GLB-Datei ab (CPU-Skinning im eigenen
     Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
