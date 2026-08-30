@@ -317,6 +317,23 @@ Port 8765 in der Windows-Firewall freigeben.
 geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 „Mixed Content“ – dann die Windows- oder Android-App verwenden.
 
+### Live-Vorschau während der Generierung
+
+Der Server legt alle **5 Schritte** ein kleines Zwischenbild ab und
+stellt es unter `GET /preview/<job>` bereit; die App fragt es im
+Sekundentakt ab, während sie auf `/generate` wartet. So sieht man das
+Motiv aus dem Rauschen auftauchen, statt einen Kreisel zu drehen.
+
+Die Kennung `job` schickt die App im Anfrage-Körper mit. Ohne sie
+entsteht keine Vorschau – und kein Aufschlag: Jedes Zwischenbild
+kostet einen VAE-Decoder-Durchlauf, bei 30 Schritten zusammen ein bis
+zwei Sekunden.
+
+Möglich ist das bei **SD 1.5 und SDXL**. SD 3.5 und FLUX packen ihre
+Latents anders; dort gibt es keine Vorschau – lieber keine als eine
+falsche. `/health` meldet das unter `preview`, `previewEvery` und
+`previewFamilies`.
+
 ### Wenn ein Bild mit „Generierung fehlgeschlagen" abbricht
 
 Der Server schreibt seit der aktuellen Fassung den **vollständigen

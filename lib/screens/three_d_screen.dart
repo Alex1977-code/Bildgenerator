@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -46,6 +47,7 @@ import '../services/tripo_service.dart';
 import '../services/view_generator.dart';
 import '../widgets/common.dart';
 import '../widgets/cost_quality_panel.dart';
+import '../widgets/generation_progress.dart';
 import 'image_detail_screen.dart';
 import 'model_preview_screen.dart';
 
@@ -690,6 +692,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   ];
 
   bool _running = false;
+
+  /// Beginn des laufenden Durchgangs – für die verstrichene Zeit in
+  /// der Fortschrittsanzeige.
+  DateTime? _runStart;
+
+  /// Lässt die Uhr auch zwischen zwei Statusmeldungen weiterlaufen.
+  Timer? _runTicker;
+
+  /// Prozentwert aus dem Stage-Text („Modell wird gebaut … 42 %"),
+  /// 0 wenn der Anbieter keinen meldet.
+  int get _stageProgress {
+    final match = RegExp(r'(\d{1,3})\s*%').firstMatch(_stage ?? '');
+    final value = int.tryParse(match?.group(1) ?? '') ?? 0;
+    return value.clamp(0, 100);
+  }
   bool _cancelRequested = false;
   String? _stage;
   String? _error;
@@ -1037,6 +1054,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   @override
   void dispose() {
     _cancelRequested = true;
+    _runTicker?.cancel();
     _promptCtrl.dispose();
     _negative3dCtrl.dispose();
     _texturePromptCtrl.dispose();
@@ -1235,6 +1253,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
     setState(() {
       _running = true;
+      _runStart = DateTime.now();
+      _runTicker?.cancel();
+      _runTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _running) setState(() {});
+      });
       _cancelRequested = false;
       _error = null;
       _stage = viewPipeline || augmentViews
@@ -1363,6 +1386,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (mounted) {
         setState(() {
           _running = false;
+          _runTicker?.cancel();
+          _runTicker = null;
           _stage = null;
         });
       }
@@ -4912,15 +4937,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ],
                 ),
                 if (_running && _stage != null) ...[
-                  const SizedBox(height: 8),
-                  const LinearProgressIndicator(),
-                  const SizedBox(height: 6),
-                  Text(
-                    isLocal
-                        ? '$_stage'
-                        : '$_stage\nEine 3D-Generierung dauert je nach '
-                            'Optionen 2–10 Minuten.',
-                    style: theme.textTheme.bodySmall,
+                  const SizedBox(height: 12),
+                  // Zeigt, dass gearbeitet wird, und wie weit: Meshy
+                  // und Tripo melden einen Prozentwert, der im Stage-
+                  // Text steht. Ein echtes Zwischenbild liefert kein
+                  // 3D-Dienst – deshalb eine Wartegrafik statt einer
+                  // vorgetäuschten Vorschau.
+                  GenerationProgress(
+                    elapsed: _runStart == null
+                        ? Duration.zero
+                        : DateTime.now().difference(_runStart!),
+                    step: _stageProgress,
+                    totalSteps: _stageProgress > 0 ? 100 : 0,
+                    aspect: 16 / 9,
+                    label: '$_stage',
+                    hint: isLocal
+                        ? 'Läuft auf dem eigenen Rechner – kein '
+                            'Guthaben, keine Cloud.'
+                        : 'Die 3D-Dienste liefern keine '
+                            'Zwischenbilder, nur den Fortschritt. Je '
+                            'nach Optionen 2–10 Minuten.',
                   ),
                 ],
                 if (_error != null) ...[

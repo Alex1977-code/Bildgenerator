@@ -300,6 +300,29 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   - API-Schlüssel werden **verschlüsselt lokal** gespeichert (Keychain /
     Keystore / DPAPI), dunkles & helles Design
 
+## Zusehen, wie das Bild entsteht
+
+Während eines Laufs zeigt die App eine Fortschrittsfläche statt eines
+Kreisels – und der Unterschied zwischen „echt" und „Wartezeichen" wird
+ausgesprochen statt kaschiert:
+
+- **Eigene GPU**: eine **echte Live-Vorschau**. Der Server legt alle
+  fünf Diffusionsschritte ein kleines Zwischenbild ab, die App holt es
+  im Sekundentakt und zeigt das Motiv, wie es aus dem Rauschen
+  auftaucht – mit Schrittzähler (`Schritt 15/30`). Möglich bei SD 1.5
+  und SDXL; SD 3.5 und FLUX packen ihre Latents anders, dort steht das
+  auch so da.
+- **OpenAI, Gemini, Stability und die 3D-Dienste** liefern keine
+  Zwischenstände, sie antworten erst mit dem fertigen Ergebnis. Dort
+  läuft eine Aufbau-Grafik, die ausdrücklich als Wartezeichen
+  beschriftet ist – **kein** vorgetäuschter Fortschritt und kein
+  Fantasie-Motiv.
+- Im **3D-Tab** kommt der Prozentwert dazu, den Meshy und Tripo
+  melden, plus die verstrichene Zeit.
+
+Im Massenlauf steht dieselbe Fläche unter dem Statusfenster und zeigt,
+welches Bild gerade entsteht.
+
 ## Prompt-Vorlage für das gewählte Modell
 
 Die Bild-Modelle lesen einen Prompt grundverschieden, und ein Prompt,

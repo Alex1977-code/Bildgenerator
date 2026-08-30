@@ -290,6 +290,18 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
 
   bool get _isImage => widget.kind == 'image';
 
+  /// Ob Bild- und 3D-Server auf dieselbe Adresse zeigen. Das geht
+  /// nicht: Zwei Prozesse können denselben Port nicht belegen, und
+  /// dann antwortet der falsche.
+  bool _sharesAddressWithOther(SettingsService settings) {
+    String clean(String url) => url.trim().replaceAll(RegExp(r'/+$'), '');
+    final own = clean(_ctrl.text);
+    if (own.isEmpty) return false;
+    final other = clean(
+        _isImage ? settings.selfHostUrl : settings.selfHostImageUrl);
+    return other.isNotEmpty && own == other;
+  }
+
   String _storedUrl(SettingsService settings) =>
       _isImage ? settings.selfHostImageUrl : settings.selfHostUrl;
 
@@ -515,6 +527,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final busy = _checking || _starting || _refreshing;
+    final settings = context.watch<SettingsService>();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -599,23 +612,56 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
                 border: const OutlineInputBorder(),
               ),
             ),
+            if (_sharesAddressWithOther(settings)) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_outlined,
+                      size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Bild- und 3D-Server stehen auf derselben '
+                      'Adresse. Zwei Server können denselben Port aber '
+                      'nicht belegen – einer von beiden bekommt keine '
+                      'Verbindung. Üblich sind '
+                      'http://127.0.0.1:${setup.defaultPort('3d')} für '
+                      '3D und '
+                      'http://127.0.0.1:${setup.defaultPort('image')} '
+                      'für Bilder.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 if (_current != null)
+                  // Läuft der Server schon (grüner Haken von
+                  // „Speichern & testen"), wäre ein zweiter Start
+                  // sinnlos: Er käme auf demselben Port nicht hoch.
+                  // Deshalb wird der Knopf dann still gestellt.
                   FilledButton.icon(
-                    onPressed: busy ? null : _startSelected,
+                    onPressed: busy || _ok ? null : _startSelected,
                     icon: _starting
                         ? const SizedBox(
                             width: 16,
                             height: 16,
                             child:
                                 CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.play_arrow, size: 18),
-                    label: Text(
-                        _starting ? 'Startet …' : 'Server starten'),
+                        : Icon(_ok ? Icons.check : Icons.play_arrow,
+                            size: 18),
+                    label: Text(_starting
+                        ? 'Startet …'
+                        : _ok
+                            ? 'Läuft bereits'
+                            : 'Server starten'),
                   ),
                 FilledButton.tonalIcon(
                   onPressed: busy ? null : _saveAndTest,

@@ -88,6 +88,7 @@ class GenerationRequest {
     required this.provider,
     required this.prompt,
     this.negativePrompt = '',
+    this.previewJob = '',
     this.references = const [],
     this.openAiSize = 'auto',
     this.stabilityAspect = '1:1',
@@ -106,6 +107,10 @@ class GenerationRequest {
   final GenProvider provider;
   final String prompt;
   final String negativePrompt;
+
+  /// Kennung für die Live-Vorschau beim eigenen Bild-Server. Leer =
+  /// keine Vorschau (und kein Aufschlag auf die Laufzeit).
+  final String previewJob;
   final List<ReferenceImage> references;
 
   /// Modell-ID bzw. Engine des Providers ('' = Standardmodell).

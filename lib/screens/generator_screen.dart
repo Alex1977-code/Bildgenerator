@@ -16,10 +16,12 @@ import '../services/model_catalog.dart';
 import '../services/cost_estimator.dart';
 import '../services/prompt_relay.dart';
 import '../services/provenance.dart';
+import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
 import '../widgets/cost_quality_panel.dart';
+import '../widgets/generation_progress.dart';
 import 'image_detail_screen.dart';
 
 /// Hauptbildschirm: Prompt, Referenzbilder, Optionen und Ergebnisse.
@@ -46,6 +48,15 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
 
   final _promptCtrl = TextEditingController();
   final _negativeCtrl = TextEditingController();
+
+  /// Live-Vorschau des laufenden Bildes (nur eigene GPU – die
+  /// Cloud-Anbieter liefern keine Zwischenstände).
+  Uint8List? _preview;
+  int _previewStep = 0;
+  int _previewTotal = 0;
+  DateTime? _runStart;
+  Timer? _previewTimer;
+  String _previewJob = '';
 
   /// Regeln für Gebäude-Assets: genau ein Gebäude, keine Bodenplatte,
   /// 35° von oben, grobes Mauerwerk. Sie stehen in der Vorlage für die
@@ -129,6 +140,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     _relay?.removeListener(_onPromptRelay);
     _batchTicker?.cancel();
     _promptCtrl.dispose();
+    _previewTimer?.cancel();
     _negativeCtrl.dispose();
     _seedCtrl.dispose();
     _batchCtrl.dispose();
@@ -262,6 +274,56 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
+  /// Startet die Live-Vorschau, sofern der Anbieter welche liefert.
+  ///
+  /// Nur der eigene Bild-Server legt Zwischenstände ab; OpenAI, Gemini
+  /// und Stability antworten erst mit dem fertigen Bild. Ist keine
+  /// Vorschau möglich, bleibt die Kennung leer und der Server bekommt
+  /// gar keinen Vorschau-Auftrag – dann kostet es auch nichts.
+  String _startPreview(SettingsService settings) {
+    _previewTimer?.cancel();
+    setState(() {
+      _preview = null;
+      _previewStep = 0;
+      _previewTotal = 0;
+      _runStart = DateTime.now();
+    });
+    if (!settings.provider.isLocal) return '';
+    final url =
+        SelfHostImageGenerator.normalizeBaseUrl(settings.selfHostImageUrl);
+    if (url.isEmpty) return '';
+    final job = 'app-${DateTime.now().microsecondsSinceEpoch}';
+    final service = SelfHostService(url);
+    _previewTimer =
+        Timer.periodic(const Duration(milliseconds: 1200), (_) async {
+      if (!mounted || !_generating) return;
+      final shot = await service.fetchPreview(job);
+      if (!mounted || shot == null) {
+        // Auch ohne neues Bild soll die Uhr weiterlaufen.
+        if (mounted) setState(() {});
+        return;
+      }
+      setState(() {
+        _preview = shot.bytes;
+        _previewStep = shot.step;
+        _previewTotal = shot.total;
+      });
+    });
+    return job;
+  }
+
+  void _stopPreview() {
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    if (mounted) {
+      setState(() {
+        _preview = null;
+        _previewStep = 0;
+        _previewTotal = 0;
+      });
+    }
+  }
+
   /// Baut die Anfrage aus den aktuellen Einstellungen. Prompt,
   /// Negativ-Prompt, Referenzbilder und Anzahl kommen von außen –
   /// beim Massenprompt sind sie für jedes Bild andere.
@@ -286,6 +348,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       provider: settings.provider,
       prompt: withNegative.prompt,
       negativePrompt: withNegative.negativePrompt,
+      previewJob: _previewJob,
       references:
           settings.provider.supportsReferences ? references : const [],
       openAiSize: settings.openAiSize,
@@ -338,6 +401,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       return;
     }
 
+    setState(() {
+      _generating = true;
+      _error = null;
+    });
+    _previewJob = _startPreview(settings);
     final request = _buildRequest(
       settings,
       prompt: prompt,
@@ -345,11 +413,6 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       references: List.of(_references),
       count: settings.count,
     );
-
-    setState(() {
-      _generating = true;
-      _error = null;
-    });
     try {
       final generator = ImageGenerator.forProvider(settings.provider);
       final result = await generator.generate(request, apiKey.trim());
@@ -378,6 +441,8 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = 'Unerwarteter Fehler: $e');
     } finally {
+      _stopPreview();
+      _previewJob = '';
       if (mounted) setState(() => _generating = false);
     }
   }
@@ -542,6 +607,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         if (_batchCancel) break;
         if (mounted) setState(() => _batchCurrent = item.name);
         final started = DateTime.now();
+        _previewJob = _startPreview(settings);
         try {
           final request = _buildRequest(
             settings,
@@ -580,6 +646,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         } catch (e) {
           _batchFailures.add('${item.name}: $e');
           _batchFailedItems.add(item);
+        } finally {
+          _stopPreview();
+          _previewJob = '';
         }
         if (!mounted) return;
         setState(() {
@@ -1967,18 +2036,62 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       // stehen.
       if (_batchTotal > 0) ...[
         _buildBatchStatus(),
+        if (_generating) ...[
+          const SizedBox(height: 8),
+          _buildProgressView(context.read<SettingsService>()),
+        ],
         const SizedBox(height: 8),
       ] else if (_generating) ...[
-        const LinearProgressIndicator(),
-        const SizedBox(height: 8),
-        Text(
-          'Bild wird generiert – das kann je nach Qualität 10–60 Sekunden '
-          'dauern.',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        _buildProgressView(context.read<SettingsService>()),
         const SizedBox(height: 8),
       ],
     ];
+  }
+
+  /// Zeigt, wie das Bild entsteht.
+  ///
+  /// Bei der eigenen GPU kommt alle paar Diffusionsschritte ein echtes
+  /// Zwischenbild vom Server – man sieht das Motiv aus dem Rauschen
+  /// auftauchen. Die Cloud-Anbieter liefern keine Zwischenstände;
+  /// dort läuft eine Wartegrafik, und der Text sagt auch warum.
+  Widget _buildProgressView(SettingsService settings) {
+    final local = settings.provider.isLocal;
+    final elapsed = _runStart == null
+        ? Duration.zero
+        : DateTime.now().difference(_runStart!);
+    return GenerationProgress(
+      preview: _preview,
+      step: _previewStep,
+      totalSteps: _previewTotal,
+      elapsed: elapsed,
+      aspect: _previewAspect(settings),
+      label: _batchTotal > 0
+          ? 'Bild „$_batchCurrent" entsteht …'
+          : 'Bild entsteht …',
+      hint: local
+          ? _preview == null
+              ? 'Die Vorschau erscheint nach den ersten Schritten. '
+                  'Bei SD 3.5 und FLUX gibt es keine – die packen ihre '
+                  'Zwischenstände anders.'
+              : 'Zwischenstand vom eigenen Server, klein und weich – '
+                  'das fertige Bild kommt in voller Auflösung.'
+          : '${settings.provider.label} liefert keine Zwischenstände; '
+              'das Bild kommt am Stück. Je nach Qualität 10–60 Sekunden.',
+    );
+  }
+
+  /// Seitenverhältnis der Vorschaufläche, passend zur Einstellung.
+  double _previewAspect(SettingsService settings) {
+    final aspect = settings.provider == GenProvider.openai
+        ? settings.openAiSize
+        : settings.stabilityAspect;
+    final parts = aspect.split(RegExp(r'[:x×]'));
+    if (parts.length == 2) {
+      final w = double.tryParse(parts[0].trim());
+      final h = double.tryParse(parts[1].trim());
+      if (w != null && h != null && h > 0) return w / h;
+    }
+    return 1;
   }
 
   Widget _buildResultsGrid({required bool shrinkWrap}) {

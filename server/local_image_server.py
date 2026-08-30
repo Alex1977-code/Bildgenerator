@@ -87,6 +87,21 @@ _pipe_lock = threading.Lock()
 # gleichzeitig in den Speicher holen.
 _load_lock = threading.Lock()
 
+# Zwischenstaende je Auftrag: {job: {"step": n, "total": m, "image": b64}}
+# Die App fragt sie waehrend der Generierung ab und zeigt, wie das Bild
+# entsteht. Nur gefuellt, wenn die Anfrage eine job-Kennung mitbringt.
+_previews: dict[str, dict] = {}
+_preview_lock = threading.Lock()
+
+# Alle wie viele Schritte ein Zwischenbild entsteht. Der VAE-Decoder
+# kostet je Aufruf ein paar Zehntelsekunden - bei 30 Schritten sind das
+# rund 6 Bilder und ein bis zwei Sekunden Aufschlag.
+PREVIEW_EVERY = 5
+
+# Kantenlaenge der Zwischenbilder. Klein halten: Sie gehen als Base64
+# ueber HTTP und sollen die Generierung nicht ausbremsen.
+PREVIEW_SIZE = 320
+
 
 class GenerateRequest(BaseModel):
     prompt: str
@@ -107,6 +122,11 @@ class GenerateRequest(BaseModel):
     # Hintergrund freistellen (rembg) - so entstehen die transparenten
     # Ansichten, die der 3D-Teil der App braucht.
     transparent: bool = False
+
+    # Kennung fuer die Live-Vorschau. Ist sie gesetzt, legt der Server
+    # alle PREVIEW_EVERY Schritte ein Zwischenbild unter /preview/<job>
+    # ab. Leer = keine Vorschau, kein Aufschlag.
+    job: str = ""
 
 
 def _aspect_size(aspect: str, base: int) -> tuple[int, int]:
@@ -372,6 +392,73 @@ def _cutout(image):
     return remove(image, session=_remover)
 
 
+def _preview_callback(pipe, family: str, job: str, steps: int):
+    """Baut den Rueckruf, der die Zwischenbilder ablegt.
+
+    Der VAE-Decoder braucht die Latents in der Form, die die jeweilige
+    Familie liefert. Bei SD 1.5 und SDXL ist das geradeaus; SD 3.5 und
+    FLUX packen ihre Latents anders, dort gibt es deshalb keine
+    Vorschau - lieber keine als eine falsche.
+    """
+    if not job or family not in ("sd", "sdxl"):
+        return None
+
+    import torch
+    from PIL import Image
+
+    def callback(pipeline, step, timestep, kwargs):
+        # Nur jeden n-ten Schritt, und den letzten nie: Der fertige
+        # Lauf liefert das richtige Bild gleich selbst.
+        if step % PREVIEW_EVERY or step == 0:
+            return kwargs
+        latents = kwargs.get("latents")
+        if latents is None:
+            return kwargs
+        try:
+            with torch.no_grad():
+                scaled = latents / pipeline.vae.config.scaling_factor
+                decoded = pipeline.vae.decode(
+                    scaled.to(pipeline.vae.dtype), return_dict=False
+                )[0]
+            image = (decoded / 2 + 0.5).clamp(0, 1)[0]
+            array = (image.permute(1, 2, 0).float().cpu().numpy() * 255)
+            preview = Image.fromarray(array.astype("uint8"))
+            preview.thumbnail((PREVIEW_SIZE, PREVIEW_SIZE))
+            buffer = io.BytesIO()
+            preview.save(buffer, format="JPEG", quality=70)
+            with _preview_lock:
+                # Abgebrochene Laeufe hinterlassen sonst Eintraege -
+                # die aeltesten fliegen raus.
+                while len(_previews) > 8:
+                    _previews.pop(next(iter(_previews)))
+                _previews[job] = {
+                    "step": step,
+                    "total": steps,
+                    "image": base64.b64encode(
+                        buffer.getvalue()).decode("ascii"),
+                }
+        except Exception as exc:  # pragma: no cover - modellabhaengig
+            # Eine misslungene Vorschau darf den Lauf nicht stoppen.
+            print(f"Vorschau uebersprungen: {exc}", flush=True)
+        return kwargs
+
+    return callback
+
+
+@app.get("/preview/{job}")
+def preview(job: str):
+    """Der letzte Zwischenstand eines laufenden Auftrags.
+
+    Die App fragt das im Sekundentakt ab, waehrend sie auf /generate
+    wartet - so sieht man, wie das Bild entsteht.
+    """
+    with _preview_lock:
+        data = _previews.get(job)
+    if data is None:
+        return {"ready": False}
+    return {"ready": True, **data}
+
+
 @app.get("/health")
 def health():
     missing = _missing_modules()
@@ -408,6 +495,13 @@ def health():
         "gpu": gpu,
         "missing": missing,
         "loaded": _pipe_name or "",
+        # Live-Vorschau waehrend der Generierung: Die App fragt
+        # /preview/<job> ab, waehrend sie auf /generate wartet.
+        # Moeglich bei den CLIP-Familien; SD 3.5 und FLUX packen ihre
+        # Latents anders.
+        "preview": True,
+        "previewEvery": PREVIEW_EVERY,
+        "previewFamilies": ["sd", "sdxl"],
     }
 
 
@@ -438,6 +532,14 @@ def generate(req: GenerateRequest):
     )
     # FLUX und SDXL-Turbo kennen keinen Negativ-Prompt.
     family = MODELS[name][1]
+
+    # Live-Vorschau: alle paar Schritte ein Zwischenbild ablegen, damit
+    # die App zeigen kann, wie das Bild entsteht.
+    job = req.job.strip()
+    callback = _preview_callback(pipe, family, job, int(steps))
+    if callback is not None:
+        kwargs["callback_on_step_end"] = callback
+        kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
     use_negative = (
         bool(req.negative_prompt) and family != "flux" and guidance > 0
     )
@@ -543,6 +645,11 @@ def generate(req: GenerateRequest):
                 f"({type(exc).__name__}: {exc}); das Bild entstand mit "
                 "dem bei 77 Tokens gekuerzten Text."
             )
+
+    # Der Zwischenstand hat seinen Zweck erfuellt.
+    if job:
+        with _preview_lock:
+            _previews.pop(job, None)
 
     images = []
     for image in result.images:

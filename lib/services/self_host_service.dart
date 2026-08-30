@@ -117,6 +117,38 @@ class SelfHostService {
     }
   }
 
+  /// Ein Zwischenstand der Live-Vorschau.
+  ///
+  /// Der Bild-Server legt während der Generierung alle paar Schritte
+  /// ein kleines Bild ab – so lässt sich zeigen, wie das Motiv
+  /// entsteht, statt nur einen Kreisel zu drehen.
+  Future<({Uint8List bytes, int step, int total})?> fetchPreview(
+      String job) async {
+    if (job.isEmpty) return null;
+    http.Response response;
+    try {
+      response = await http
+          .get(Uri.parse('$baseUrl/preview/$job'))
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Ein verpasster Zwischenstand ist belanglos – beim nächsten
+      // Versuch kommt der nächste.
+      return null;
+    }
+    if (response.statusCode != 200) return null;
+    try {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (json['ready'] != true) return null;
+      return (
+        bytes: base64Decode(json['image'] as String),
+        step: (json['step'] as num?)?.toInt() ?? 0,
+        total: (json['total'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Bild→3D: ein synchroner Aufruf, der Server antwortet direkt mit
   /// den GLB-Bytes (TripoSR: Sekunden, TRELLIS: wenige Minuten).
   Future<Uint8List> generateModel({

@@ -504,6 +504,10 @@ class SelfHostImageGenerator implements ImageGenerator {
               'prompt': request.prompt,
               'negative_prompt': request.negativePrompt,
               'model': request.model,
+              // Kennung für die Live-Vorschau: Der Server legt darunter
+              // alle paar Schritte ein Zwischenbild ab, das die App
+              // abfragt, während sie hier wartet.
+              if (request.previewJob.isNotEmpty) 'job': request.previewJob,
               // Der eigene Server nutzt dasselbe Seitenverhältnis-Feld
               // wie Stability.
               'aspect': request.stabilityAspect,
