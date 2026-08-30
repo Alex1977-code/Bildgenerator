@@ -110,15 +110,15 @@ Statt es zu installieren, reicht der mitgelieferte CPU-Ersatz
 läuft dann auf der CPU – bei Auflösung 256 rund eine Sekunde –, das
 Modell selbst weiter auf der GPU:
 
+Wichtig: Scheitert `torchmcubes`, bricht pip den **gesamten** Vorgang
+ab – es ist dann gar nichts installiert, auch numpy und Pillow nicht.
+Deshalb hier eine eigene Paketliste ohne torchmcubes:
+
 ```powershell
 # im TripoSR-Ordner, Umgebung aktiv
 curl.exe -L -o torchmcubes.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/shim/torchmcubes.py
-
-# restliche Abhängigkeiten ohne torchmcubes installieren
-Select-String -Path requirements.txt -Pattern torchmcubes -NotMatch |
-  ForEach-Object { $_.Line } | Set-Content requirements-ohne-mcubes.txt
-pip install -r requirements-ohne-mcubes.txt
-pip install fastapi uvicorn pydantic
+curl.exe -L -o requirements-triposr.txt https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/requirements-triposr.txt
+pip install -r requirements-triposr.txt
 ```
 
 Kommt das erzeugte Modell **gespiegelt oder verdreht** heraus, ist nur

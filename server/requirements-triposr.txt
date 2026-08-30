@@ -1,0 +1,28 @@
+# Pakete für den 3DGenerator-Server mit TripoSR – bewusst OHNE
+# torchmcubes (braucht das CUDA-Toolkit; stattdessen der CPU-Ersatz
+# aus server/shim/torchmcubes.py) und ohne gradio (nur für die
+# Demo-Oberfläche von TripoSR, hier nicht nötig).
+#
+# PyTorch vorher separat mit CUDA installieren:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Pillow und numpy sind absichtlich nicht auf die alten TripoSR-Werte
+# festgenagelt – rembg verlangt neuere Fassungen, und pip käme mit den
+# alten Pins zu keiner Lösung.
+
+omegaconf==2.3.0
+einops==0.7.0
+transformers==4.35.0
+trimesh==4.0.5
+huggingface-hub<1.0
+rembg
+onnxruntime
+scikit-image
+imageio
+pillow
+numpy
+
+# Der Server selbst
+fastapi
+uvicorn
+pydantic
