@@ -335,6 +335,33 @@ final _isometricPattern = RegExp(
     r'view from above)\b',
     caseSensitive: false);
 
+/// Die Verstärkung des Blickwinkels. „high angle isometric view"
+/// allein blieb zu flach – im Bild war fast die volle Fassade zu
+/// sehen und vom Dach nur ein Streifen. Erst die Blickrichtung auf
+/// das Dach („looking down onto the roof", „tilted top view",
+/// „from high above") hat den Winkel gedreht.
+final _roofViewPattern = RegExp(
+    r'(looking down (onto|on|at) the roof|tilted top view|'
+    r'from high above|roof surface|onto the roof)',
+    caseSensitive: false);
+
+/// Boden im **positiven** Teil. Der Renderer malt den Erdsaum selbst;
+/// alles, was hier steht, malt das Modell zusätzlich – so kam nach
+/// dem Teller der ausgefranste Gras- und Erdfleck zurück.
+/// „centered on empty ground" war die Formulierung, die es ausgelöst
+/// hat.
+final _groundInPromptPattern = RegExp(
+    r'\b(empty ground|bare ground|on the ground|standing on|grass|'
+    r'grassy|dirt|soil|mud|moss|earth|lawn|meadow|terrain|island|'
+    r'ground)\b',
+    caseSensitive: false);
+
+/// „diorama" und „miniature scene" bringen die Bodenplatte mit –
+/// beide sind aus dem positiven Teil in den Negativ-Prompt gewandert.
+final _dioramaPattern = RegExp(
+    r'\b(diorama|miniature (scene|model|village)|tabletop scene)\b',
+    caseSensitive: false);
+
 /// Mengenangaben als Anweisung („at most 15 stone courses", „three
 /// windows"). Diffusions-Modelle zählen nicht – sie sehen nur das
 /// Substantiv und machen davon mehr.
@@ -369,6 +396,27 @@ final _styleOpenerPattern = RegExp(
     r'angle|golden hour|plain grey|low poly|render|octane|unreal|'
     r'concept art)\b',
     caseSensitive: false);
+
+/// Was die NEGATIV-Zeile bei Gebäude-Assets mindestens abdecken
+/// muss. Jede Gruppe steht für einen Fehler, der schon im Bild war:
+/// der Gras- und Erdfleck, der Teller darunter und der zu flache
+/// Blickwinkel.
+const Map<String, List<String>> _requiredNegativeGroups = {
+  'den Bodenfleck (Gras, Erde, Moos)': ['grass', 'dirt', 'soil', 'moss'],
+  'die Bodenplatte (Platte, Sockel, Podest)': [
+    'plate',
+    'platform',
+    'pedestal',
+    'platter',
+    'disc',
+  ],
+  'den flachen Blickwinkel (Front-, Seitenansicht, Augenhöhe)': [
+    'front view',
+    'side view',
+    'eye level',
+    'low camera angle',
+  ],
+};
 
 /// Die ersten [count] Wörter eines Textes.
 String _firstWords(String text, int count) =>
@@ -494,9 +542,27 @@ List<BatchIssue> _modelWarnings(
         'zweites Gebäude. Jedes Asset ist genau ein Gebäude, sonst '
         'lässt es sich nicht auf einen Knoten setzen.'));
   }
+  // Der Boden gehört in den Negativ-Prompt, nie in den Prompt: Das
+  // Modell malt, was dasteht.
+  final ground = items
+      .where((item) =>
+          _groundInPromptPattern.hasMatch(_withoutNegations(item.prompt)))
+      .toList();
+  if (ground.isNotEmpty) {
+    warnings.add(issue(
+        ground,
+        'Spielgrafik: ${_names(ground)} nennen im PROMPT den Boden '
+        '(Gras, Erde, „empty ground" …). Genau daran ist das zweite '
+        'Bild gescheitert: Der Renderer malt den Erdsaum selbst, das '
+        'Modell malt zusätzlich einen ausgefransten Fleck, und beim '
+        'Freistellen bleibt eine harte Kante stehen. Der Boden gehört '
+        'ausschließlich in die NEGATIV-Zeile; die Vereinzelung trägt '
+        '„single isolated 3d building model".'));
+  }
+
   // Der Kamerawinkel muss unterschiedlich formuliert sein: GPT-Image
   // und Gemini verstehen „35 degrees", ein Diffusions-Modell nicht –
-  // dort zählt „high angle isometric view".
+  // dort zählt „isometric view from high above".
   final keywordStyle = profile.style == PromptStyle.keywords;
   final flat = items
       .where((item) => keywordStyle
@@ -510,10 +576,31 @@ List<BatchIssue> _modelWarnings(
         'Aufsicht (${_names(flat)}). Das Spiel braucht rund 35° von '
         'oben – die Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf '
         'TILE 52). '
-        '${keywordStyle ? 'Bei diesem Modell gehört dafür „high angle '
-            'isometric view" in den Prompt.' : 'Bei diesem Modell wirkt '
-            'die Angabe „camera elevation 35 degrees above the '
+        '${keywordStyle ? 'Bei diesem Modell gehört dafür „isometric '
+            'view from high above" in den Prompt.' : 'Bei diesem Modell '
+            'wirkt die Angabe „camera elevation 35 degrees above the '
             'horizon".'}'));
+  }
+  // Und die Aufsicht muss auf das Dach zeigen. Beim zweiten
+  // Bäckerei-Bild stand „high angle isometric view" im Prompt – zu
+  // sehen war trotzdem fast die volle Fassade. Der Fehler wiegt
+  // schwer: Ein zu flach gesehenes Haus kippt neben dem Gelände und
+  // lässt sich nachträglich nicht reparieren.
+  final noRoof = items
+      .where((item) =>
+          !flat.contains(item) && !_roofViewPattern.hasMatch(item.prompt))
+      .toList();
+  if (noRoof.isNotEmpty) {
+    warnings.add(issue(
+        noRoof,
+        'Spielgrafik: Bei ${_names(noRoof)} steht die Aufsicht nur '
+        'als Schlagwort, ohne Blickrichtung. Das blieb zu flach: '
+        'fast die volle Fassade, vom Dach nur ein Streifen. '
+        '${keywordStyle ? 'Alle drei Angaben aus der Kette nehmen – '
+            '„isometric view from high above, looking down onto the '
+            'roof, tilted top view".' : 'Dazuschreiben, dass die '
+            'Kamera auf das Dach herabsieht und die Dachfläche etwa '
+            'ein Drittel des Bildes einnimmt.'}'));
   }
 
   if (keywordStyle) {
@@ -535,8 +622,19 @@ List<BatchIssue> _modelWarnings(
       warnings.add(issue(
           degrees,
           'Spielgrafik: ${_names(degrees)} nennen eine Gradzahl. '
-          '${profile.modelLabel} kennt keine Winkel; „high angle '
-          'isometric view" bringt die Aufsicht, die Gradzahl nicht.'));
+          '${profile.modelLabel} kennt keine Winkel; die Aufsicht '
+          'bringt nur die Kette „isometric view from high above, '
+          'looking down onto the roof, tilted top view".'));
+    }
+    final dioramas =
+        items.where((item) => _dioramaPattern.hasMatch(item.prompt)).toList();
+    if (dioramas.isNotEmpty) {
+      warnings.add(issue(
+          dioramas,
+          'Spielgrafik: ${_names(dioramas)} nennen „diorama" oder '
+          '„miniature scene" im PROMPT. Beide bringen die Bodenplatte '
+          'mit – sie gehören in die NEGATIV-Zeile, im PROMPT steht '
+          '„stylized game asset".'));
     }
     final boulders =
         items.where((item) => _boulderPattern.hasMatch(item.prompt)).toList();
@@ -564,18 +662,30 @@ List<BatchIssue> _modelWarnings(
           'danach.'));
     }
   }
-  if (profile.negativeHandling == NegativeHandling.separateField) {
-    final withoutTerms = items
-        .where((item) => !item.negativePrompt
-            .toLowerCase()
-            .contains('platform'))
-        .toList();
-    if (withoutTerms.isNotEmpty) {
+  if (profile.negativeHandling == NegativeHandling.ignored) {
+    // Ohne wirksamen Negativ-Prompt lässt sich weder der Bodenfleck
+    // noch das zweite Gebäude verhindern – das muss dastehen, bevor
+    // 43 Blöcke durchlaufen.
+    warnings.add(issue(
+        items,
+        'Spielgrafik: ${profile.modelLabel} wertet den NEGATIV-Block '
+        'nicht aus (Guidance ≤ 1). Bodenfleck, Bodenplatte und ein '
+        'zweites Gebäude lassen sich damit nicht ausschließen – für '
+        'Gebäude-Assets besser SDXL Base oder SD 3.5 wählen.'));
+  } else {
+    // Drei Gruppen, die alle drei schon einmal gefehlt haben.
+    for (final group in _requiredNegativeGroups.entries) {
+      final missing = items
+          .where((item) => !group.value.any(
+              (term) => item.negativePrompt.toLowerCase().contains(term)))
+          .toList();
+      if (missing.isEmpty) continue;
       warnings.add(issue(
-          withoutTerms,
-          'Spielgrafik: ${withoutTerms.length} NEGATIV-Zeile(n) führen '
-          'die Bodenplatten-Begriffe nicht (${_names(withoutTerms)}). '
-          'Empfohlen: $gameAssetNegativeTerms'));
+          missing,
+          'Spielgrafik: ${missing.length} NEGATIV-Zeile(n) schließen '
+          '${group.key} nicht aus (${_names(missing)}). '
+          'Empfohlen ist die vollständige Zeile: '
+          '$gameAssetNegativeTerms'));
     }
   }
   return warnings;

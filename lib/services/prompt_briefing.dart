@@ -367,28 +367,38 @@ const String gameAssetReason =
     'Diese Bilder werden als Spiel-Asset verwendet: Jedes Bild ist '
     'genau ein Gebäude, das auf einen Karten-Knoten gesetzt wird. Der '
     'Renderer malt den festgetretenen Erdsaum selbst um das Gebäude – '
-    'eine mitgemalte Bodenplatte läge darüber. Die Bodenebene ist auf '
-    '0,62 verkürzt (ROWH 32 auf TILE 52), das entspricht einem Blick '
-    'von etwa 35° von oben. Und das Bild wird rund 13-fach verkleinert '
-    '(eine Bäckerei ist im Spiel nur etwa 78 Weltpixel hoch), deshalb '
+    'ein mitgemalter Boden (Grasfleck, Erdfleck, Platte) läge darüber '
+    'und hinterließe beim Freistellen eine harte Kante. Die '
+    'Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf TILE 52), das '
+    'entspricht einem Blick von etwa 35° von oben: Die Dachfläche '
+    'füllt dann rund ein Drittel des Bildes. Ein zu flach gesehenes '
+    'Haus kippt neben dem Gelände und lässt sich nachträglich nicht '
+    'reparieren. Und das Bild wird rund 13-fach verkleinert (eine '
+    'Bäckerei ist im Spiel nur etwa 78 Weltpixel hoch), deshalb '
     'zerfällt kleinteiliges Mauerwerk zu Rauschen.';
 
-/// Die vier Sätze, die genau so in jeden Prompt eines
-/// sprachverstehenden Modells gehören.
+/// Die Sätze, die genau so in jeden Prompt eines sprachverstehenden
+/// Modells gehören.
 const List<String> gameAssetSentences = [
   'Exactly one single building in the image, nothing else beside it.',
-  'The building stands directly on flat ground — no terrace, no '
-      'paving, no low wall, no fence, no steps, no platform of any '
-      'kind under it.',
+  'The building stands on nothing: plain grey background all around '
+      'and underneath it — no grass, no soil, no moss, no dirt patch, '
+      'no terrain, no base, no plate, no terrace, no paving, no low '
+      'wall, no fence, no steps, no platform of any kind.',
   'Camera elevation 35 degrees above the horizon, clearly looking '
-      'down onto the roof, not at the facade.',
-  'Coarse masonry: at most about 15 courses of rounded boulders over '
-      'the height of a wall, each stone large and softly rounded — no '
-      'fine stone mosaic, the image is downscaled about 13 times in '
-      'the game.',
+      'down onto the roof: the roof surface takes up about a third of '
+      'the image, the facade noticeably less than half.',
+  'Name the one feature that identifies the building type early and '
+      'literally — for a bakery a large domed bread oven attached to '
+      'the side wall. It has to be visible as that feature; a chimney '
+      'alone does not read as an oven.',
+  'Coarse masonry: large, softly shaped stone blocks, at most about '
+      '15 courses over the height of a wall — no fine stone mosaic, '
+      'the image is downscaled about 13 times in the game.',
 ];
 
-/// Der feste Stil-Schwanz für Diffusions-Modelle – bewusst **kurz**.
+/// Der feste Stil-Schwanz für Diffusions-Modelle – bewusst **kurz**
+/// und in dieser Reihenfolge erprobt.
 ///
 /// Die erste Fassung war 47 Wörter lang und hat das Motiv ertränkt:
 /// Bei 12 Motivwörtern blieben nur 20 % des Prompts für das Gebäude
@@ -396,48 +406,71 @@ const List<String> gameAssetSentences = [
 /// SDXL gewichtet nach Position und Menge – der Stil darf das Motiv
 /// nicht überstimmen.
 ///
-/// Drei Formulierungen sind dabei ausdrücklich **nicht** mehr dabei:
+/// Drei Formulierungen sind ausdrücklich **nicht** dabei:
 ///
 /// * Mengenangaben („at most 15 stone courses") – das Modell zählt
 ///   nicht, es sieht „stone courses" und macht mehr Stein.
-/// * Gradzahlen („camera elevation 35 degrees") – kein Winkelbegriff;
-///   „high angle isometric view" versteht es.
+/// * Gradzahlen („camera elevation 35 degrees") – kein Winkelbegriff.
 /// * „rounded boulders" – zog ins Gegenteil und machte aus dem groben
 ///   Mauerwerk Gebäude aus Findlingen.
+///
+/// Und zwei Dinge sind nach dem zweiten Bäckerei-Bild geändert:
+///
+/// * **Die Kamera braucht drei Angaben statt einer.** „high angle
+///   isometric view" allein blieb zu flach – zu sehen war fast die
+///   volle Fassade und vom Dach nur ein Streifen. Jetzt steht die
+///   Blickrichtung dreifach da: von hoch oben, auf das Dach herab,
+///   gekippte Draufsicht.
+/// * **Kein „ground" mehr im positiven Teil.** „centered on empty
+///   ground" hat den Bodenfleck zurückgeholt: Das Modell malt, was
+///   dasteht, und „ground" steht da. Die Vereinzelung trägt jetzt
+///   „single isolated 3d building model", der Boden gehört
+///   ausschließlich in den Negativ-Prompt.
 const String gameAssetKeywords =
-    'single isolated building centered on empty ground, stylized '
-    'diorama game asset, chunky rounded shapes, warm matte colors, '
-    'soft golden hour light, high angle isometric view, plain grey '
-    'background';
+    'single isolated 3d building model, isometric view from high '
+    'above, looking down onto the roof, tilted top view, stylized '
+    'game asset, chunky rounded shapes, warm matte colors, soft '
+    'golden hour light, plain grey background';
 
 /// Was bei Spielgrafiken in den Negativ-Prompt gehört.
 ///
-/// Die Vereinzelung steht bewusst **auch** im positiven Teil: Gegen
-/// einen langen Stil-Schwanz, der nach Szene klingt, kommt eine
-/// Negativliste allein nicht an.
+/// Die Reihenfolge ist nicht beliebig: Die Bodenbegriffe stehen
+/// vorn, weil sie zweimal zurückgekommen sind – erst als Teller,
+/// dann als ausgefranster Gras- und Erdfleck. „diorama" und
+/// „miniature scene" sind aus dem positiven Teil hierher gewandert;
+/// beide bringen die Bodenplatte gleich mit.
 const String gameAssetNegativeTerms =
-    'village, many houses, group of huts, second building, mud hut, '
-    'dome hut, street, path, trees, bushes, grass, baskets, terrace, '
-    'paving, base plate, platform, pedestal, low wall, fence, steps, '
-    'blue-grey slate, glossy, harsh shadows, front view, eye level, '
+    'grass patch, dirt patch, soil, moss, ground plate, base, disc, '
+    'platter, pedestal, platform, terrain, island, diorama, '
+    'miniature scene, fence, garden, village, many houses, second '
+    'building, street, path, trees, bushes, terrace, paving, low '
+    'wall, steps, onion dome, blue-grey slate, glossy, harsh '
+    'shadows, front view, side view, eye level, low camera angle, '
     'text, watermark, people, blurry, low quality';
 
-/// Ein erprobter Block, an dem sich die Aufteilung ablesen lässt:
-/// 15 Wörter Motiv voran, dann der feste Stil-Schwanz – zusammen 43
+/// Der erprobte Block, an dem sich die Aufteilung ablesen lässt:
+/// 19 Wörter Motiv voran, dann der feste Stil-Schwanz – zusammen 53
 /// Wörter.
 const String gameAssetExample =
     'NAME: bld-02-bakery\n'
-    'PROMPT: medieval bakery with a big domed stone oven, timber '
-    'framed walls, thatched roof, flour sacks, $gameAssetKeywords\n'
+    'PROMPT: medieval bakery, large domed bread oven attached to the '
+    'side wall, timber framed plaster walls, thatched roof, stone '
+    'chimney, $gameAssetKeywords\n'
     'NEGATIV: $gameAssetNegativeTerms';
 
 /// Wie viele Wörter am Anfang dem Motiv gehören.
-const int gameAssetLeadWords = 15;
+///
+/// Von 15 auf 20 erhöht: Das erkennende Merkmal muss ausgeschrieben
+/// dastehen („large domed bread oven attached to the side wall"),
+/// sonst wird daraus ein zweiter Schornstein. In 15 Wörtern ist
+/// dafür kein Platz.
+const int gameAssetLeadWords = 20;
 
 /// Was an der Farbwelt schon stimmt und erhalten bleiben soll.
 const String gameAssetKeep =
     'Beibehalten: warme Farbwelt, kein blaugrauer Schiefer, matte '
-    'Materialien, weiches Licht, gerundete Kanten.';
+    'Materialien, weiches Licht, gerundete Kanten, Fachwerk und '
+    'Reetdach.';
 
 /// Der Spielgrafik-Abschnitt für die Vorlage der Prompt-KI, passend
 /// zur Prompt-Art des Modells.
@@ -450,35 +483,48 @@ String gameAssetBriefing(PromptStyle style) {
         'Stil-Schwanz. Zusammen unter 60 Wörter. Diffusions-Modelle '
         'gewichten nach Position und Menge – ein langer Stil-Teil '
         'überstimmt sonst das Gebäude.\n'
-        '- Das Motiv nennt: um was für ein Gebäude es sich handelt, '
-        'sein auffälligstes Merkmal (bei einer Bäckerei der '
-        'Kuppelofen), die Wände, das Dach und ein bis zwei '
-        'Requisiten. Nicht mehr.\n'
+        '- Das Motiv nennt zuerst die Gebäudeart, dann sofort das '
+        'erkennende Merkmal ausgeschrieben und mit Ort am Bau (bei '
+        'einer Bäckerei: „large domed bread oven attached to the side '
+        'wall"), danach Wände, Dach und ein bis zwei Requisiten. '
+        'Nicht mehr. Ein knapp genanntes Merkmal geht unter – aus '
+        '„big domed stone oven" wurden zwei Schornsteine.\n'
         '- Danach immer genau diese Kette, unverändert:\n'
         '  $gameAssetKeywords\n'
         '- Und immer genau diese Zeile „NEGATIV:":\n'
         '  $gameAssetNegativeTerms\n'
+        '- KEIN Wort über den Boden im PROMPT – auch kein '
+        '„centered on empty ground", kein „standing on grass", kein '
+        '„on the ground". Das Modell malt, was dasteht: Genau so kam '
+        'der Gras- und Erdfleck zurück. Der Boden gehört '
+        'ausschließlich in den NEGATIV-Block, die Vereinzelung trägt '
+        '„single isolated 3d building model".\n'
+        '- Der Blickwinkel braucht alle drei Angaben aus der Kette '
+        '(„isometric view from high above", „looking down onto the '
+        'roof", „tilted top view"). „high angle isometric view" '
+        'allein blieb zu flach: fast die volle Fassade, vom Dach nur '
+        'ein Streifen. Richtig sitzt es, wenn die Dachfläche rund ein '
+        'Drittel des Bildes einnimmt.\n'
+        '- KEIN „diorama" und kein „miniature scene" im PROMPT. Beide '
+        'bringen die Bodenplatte mit; sie stehen jetzt im NEGATIV.\n'
         '- KEINE Mengenangaben („at most 15 stone courses", „three '
         'windows"). Das Modell zählt nicht; es sieht nur „stone '
         'courses" und macht mehr Stein.\n'
         '- KEINE Gradzahlen („camera elevation 35 degrees"). Als '
-        'Winkel versteht es das nicht – „high angle isometric view" '
-        'schon, das steht bereits in der Kette.\n'
+        'Winkel versteht es das nicht – dafür steht die Kamera-Kette '
+        'in der Kette.\n'
         '- KEIN „boulders" oder „rounded boulders". Gemeint war grobes '
         'Mauerwerk, angekommen ist „Gebäude aus Findlingen" – runde '
         'Lehmkuppeln ohne Dach.\n'
-        '- Die Vereinzelung muss im PROMPT stehen („single isolated '
-        'building centered on empty ground"), nicht nur im '
-        'NEGATIV-Block. Gegen einen szenisch klingenden Prompt kommt '
-        'eine Negativliste nicht an.\n'
         '- $gameAssetKeep\n\n'
-        'So sieht ein fertiger Block aus (15 Wörter Motiv, dann die '
-        'Kette – zusammen 43 Wörter):\n\n'
+        'So sieht ein fertiger Block aus ($gameAssetLeadWords Wörter '
+        'Motiv, dann die Kette – zusammen 53 Wörter):\n\n'
         '$gameAssetExample';
   }
   return 'Spielgrafik (Gebäude-Asset):\n'
       '$gameAssetReason\n'
-      '- Nimm diese vier Sätze wörtlich in jeden PROMPT auf:\n'
+      '- Nimm diese ${gameAssetSentences.length} Sätze wörtlich in '
+      'jeden PROMPT auf:\n'
       '${gameAssetSentences.map((s) => '  $s').join('\n')}\n'
       '- $gameAssetKeep';
 }

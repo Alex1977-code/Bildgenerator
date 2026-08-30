@@ -67,7 +67,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Hintergrund, trägt die Adresse ein und wartet, bis er antwortet –
     kein PowerShell-Fenster mehr nötig. Die Liste enthält sowohl die
     vom Assistenten angelegten als auch von Hand eingerichtete
-    Installationen, die neben dem Standardordner gefunden werden
+    Installationen, die neben dem Standardordner gefunden werden.
+    **„Läuft bereits"** steht auf dem Knopf nur, wenn der Server unter
+    dieser Adresse tatsächlich antwortet – und zwar der richtige:
+    Meldet sich dort der jeweils andere Server (beide auf demselben
+    Port), sagt die Statuszeile das und der Startknopf bleibt
+    bedienbar. Nach „Server-Dateien auffrischen" oder einer von Hand
+    geänderten Adresse gilt der Zustand nicht mehr, der Knopf heißt
+    wieder „Server starten"
   - **Vier lokale Modelle zur Auswahl** – der Assistent gleicht den
     VRAM-Bedarf mit der erkannten Grafikkarte ab: **TripoSR**
     (~4–6 GB, Sekunden), **SF3D** (~6 GB, echte UV-Textur – dasselbe
@@ -371,24 +378,31 @@ ankommt:
 
 Der Schalter **„Spielgrafik-Regeln (Gebäude-Assets)"** unter der
 Vorlage ist für Bilder gedacht, die später als Asset auf einen
-Karten-Knoten gesetzt werden. Er nimmt vier Vorgaben in die Vorlage auf
+Karten-Knoten gesetzt werden. Er nimmt die Vorgaben in die Vorlage auf
 und prüft sie beim Massenprompt mit:
 
 - **Genau ein Gebäude je Bild** – sonst lässt sich das Asset nicht auf
   einen Knoten setzen.
-- **Keine Bodenplatte**: keine Terrasse, kein Pflaster, kein Mäuerchen,
-  kein Zaun, keine Treppe, kein Sockel. Der Renderer malt den
-  festgetretenen Erdsaum selbst um jedes Gebäude; eine mitgemalte
-  Platte läge darüber.
+- **Kein Boden unter dem Gebäude** – weder Platte noch Fleck: keine
+  Terrasse, kein Pflaster, kein Mäuerchen, kein Sockel, aber auch kein
+  Gras, keine Erde, kein Moos. Der Renderer malt den festgetretenen
+  Erdsaum selbst um jedes Gebäude; ein mitgemalter Fleck läge darüber
+  und hinterließe beim Freistellen eine harte Kante.
 - **Kamera rund 35° von oben**, deutlich auf das Dach schauend, nicht
-  auf die Fassade. Die Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf
-  TILE 52); flach gesehene Gebäude kippen neben dem Gelände.
-- **Grobes Mauerwerk**: höchstens etwa 15 Steinlagen über die
-  Wandhöhe, große, weich gerundete Findlinge. Das Bild wird im Spiel
-  rund 13-fach verkleinert (eine Bäckerei ist nur etwa 78 Weltpixel
-  hoch) – ein feines Mosaik zerfällt dabei zu Rauschen.
+  auf die Fassade: Die Dachfläche füllt dann rund ein Drittel des
+  Bildes. Die Bodenebene ist auf 0,62 verkürzt (ROWH 32 auf TILE 52);
+  ein flach gesehenes Haus kippt neben dem Gelände und lässt sich
+  nachträglich nicht reparieren.
+- **Das erkennende Merkmal ausgeschrieben und weit vorn** – bei einer
+  Bäckerei `large domed bread oven attached to the side wall`. Knapp
+  genannt geht es unter: Aus `big domed stone oven` wurden zwei
+  Schornsteine.
+- **Grobes Mauerwerk**: große, weich geformte Steine, kein feines
+  Mosaik. Das Bild wird im Spiel rund 13-fach verkleinert (eine
+  Bäckerei ist nur etwa 78 Weltpixel hoch) – ein feines Mosaik
+  zerfällt dabei zu Rauschen.
 
-Bei GPT-Image und Gemini stehen die vier Sätze wörtlich in der Vorlage.
+Bei GPT-Image und Gemini stehen die Sätze wörtlich in der Vorlage.
 **Stable Diffusion bekommt etwas anderes**, und das aus Erfahrung: Die
 erste Fassung übersetzte die Sätze eins zu eins in eine Stichwortkette
 – 47 Wörter. Zusammen mit 12 Motivwörtern blieben dem Gebäude 20 % des
@@ -399,44 +413,60 @@ schädlich:
 - **Mengenangaben** (`at most 15 stone courses over the wall height`).
   Das Modell zählt nicht; es sieht `stone courses` und macht mehr
   Stein.
-- **Gradzahlen** (`camera elevation 35 degrees`). Kein Winkelbegriff –
-  `high angle isometric view` schon.
+- **Gradzahlen** (`camera elevation 35 degrees`). Kein Winkelbegriff.
 - **`rounded boulders`**. Gemeint war grobes Mauerwerk, angekommen ist
   „Gebäude aus Findlingen".
 
-Die Kette ist deshalb auf **28 Wörter** eingedampft und enthält keine
-Zahlen mehr:
+Das zweite Bild traf Stil, Formensprache und Vereinzelung – und
+scheiterte an zwei anderen Stellen, die beide in der Kette selbst
+lagen:
+
+- **Ein Kamera-Schlagwort reicht nicht.** `high angle isometric view`
+  ergab fast die volle Fassade und vom Dach nur einen Streifen. Der
+  Blickwinkel steht jetzt **dreifach** da: von hoch oben, auf das Dach
+  herab, gekippte Draufsicht.
+- **`centered on empty ground` holte den Bodenfleck zurück.** Das
+  Modell malt, was dasteht, und `ground` stand da. Der Boden ist
+  vollständig aus dem positiven Teil verschwunden; die Vereinzelung
+  trägt jetzt `single isolated 3d building model`. Auch `diorama` ist
+  gewandert – es bringt die Bodenplatte gleich mit und steht im
+  Negativ-Block.
+
+Die Kette lautet damit (34 Wörter, keine Zahl außer `3d`):
 
 ```
-single isolated building centered on empty ground, stylized diorama game asset,
+single isolated 3d building model, isometric view from high above,
+looking down onto the roof, tilted top view, stylized game asset,
 chunky rounded shapes, warm matte colors, soft golden hour light,
-high angle isometric view, plain grey background
+plain grey background
 ```
 
-Davor gehören **rund 15 Wörter Motiv**: Gebäudeart, auffälligstes
-Merkmal, Wände, Dach, ein bis zwei Requisiten. Zusammen bleibt der
-Block unter 60 Wörtern – die Grenze, die für SDXL jetzt auch in der
-Prüfung steht (vorher 100). Die Vereinzelung steht bewusst **im
-positiven Prompt** (`single isolated building centered on empty
-ground`): Gegen einen szenisch klingenden Prompt kommt eine
-Negativliste nicht an.
+Davor gehören **rund 20 Wörter Motiv**: Gebäudeart, dann sofort das
+erkennende Merkmal ausgeschrieben und mit Ort am Bau, danach Wände,
+Dach, ein bis zwei Requisiten. Zusammen bleibt der Block unter
+60 Wörtern – die Grenze, die für SDXL jetzt auch in der Prüfung steht
+(vorher 100).
 
 **„Beispiel einfügen"** setzt bei eingeschalteten Spielgrafik-Regeln
 genau diesen erprobten Block ein:
 
 ```
 NAME: bld-02-bakery
-PROMPT: medieval bakery with a big domed stone oven, timber framed walls,
-thatched roof, flour sacks, single isolated building centered on empty ground,
-stylized diorama game asset, chunky rounded shapes, warm matte colors,
-soft golden hour light, high angle isometric view, plain grey background
-NEGATIV: village, many houses, group of huts, second building, mud hut, dome hut,
-street, path, trees, bushes, grass, baskets, terrace, paving, base plate, platform,
-pedestal, low wall, fence, steps, blue-grey slate, glossy, harsh shadows,
-front view, eye level, text, watermark, people, blurry, low quality
+PROMPT: medieval bakery, large domed bread oven attached to the side wall,
+timber framed plaster walls, thatched roof, stone chimney,
+single isolated 3d building model, isometric view from high above,
+looking down onto the roof, tilted top view, stylized game asset,
+chunky rounded shapes, warm matte colors, soft golden hour light,
+plain grey background
+NEGATIV: grass patch, dirt patch, soil, moss, ground plate, base, disc, platter,
+pedestal, platform, terrain, island, diorama, miniature scene, fence, garden,
+village, many houses, second building, street, path, trees, bushes, terrace,
+paving, low wall, steps, onion dome, blue-grey slate, glossy, harsh shadows,
+front view, side view, eye level, low camera angle, text, watermark, people,
+blurry, low quality
 ```
 
-15 Wörter Motiv, 28 Wörter Stil, zusammen 43.
+19 Wörter Motiv, 34 Wörter Stil, zusammen 53.
 
 ## Massenprompt: viele Bilder in einem Lauf
 
@@ -501,13 +531,23 @@ aufhalten, aber die Ergebnisse deutlich verbessern:
   umgekehrt der Hinweis, dass kein einziger Block eine hat, obwohl das
   Modell sie auswertet.
 - Bei eingeschalteten Spielgrafik-Regeln: Bodenplatten, ein möglicher
-  zweiter Baukörper und eine fehlende Aufsicht – für
-  Diffusions-Modelle wird dabei `high angle isometric view` verlangt,
-  für GPT-Image und Gemini die Gradangabe.
-- Ebenfalls nur bei Diffusions-Modellen: Mengenangaben, Gradzahlen und
-  das Wort `boulders` – die drei Formulierungen, die den ersten
-  Bäckerei-Block gekippt haben – sowie Stil-Angaben, die schon in den
-  ersten 15 Wörtern stehen und damit das Motiv verdrängen.
+  zweiter Baukörper, jedes Bodenwort im `PROMPT:` (`empty ground`,
+  `grass`, `soil` …) und eine fehlende Aufsicht – für
+  Diffusions-Modelle wird dabei `isometric view from high above`
+  verlangt, für GPT-Image und Gemini die Gradangabe.
+- Eine Aufsicht, die nur als Schlagwort dasteht: Fehlt die
+  Blickrichtung auf das Dach, wird das gemeldet – genau daran ist das
+  zweite Bäckerei-Bild gescheitert.
+- `NEGATIV:`-Zeilen, die eine der drei Gruppen nicht abdecken:
+  Bodenfleck (`grass`, `dirt`, `soil`, `moss`), Bodenplatte (`plate`,
+  `platform`, `pedestal` …) und flacher Blickwinkel (`front view`,
+  `side view`, `eye level`).
+- Modelle, die den Negativ-Prompt gar nicht auswerten (SDXL Turbo,
+  FLUX): Bodenfleck und zweites Gebäude lassen sich dort nicht
+  ausschließen – für Gebäude-Assets besser SDXL Base oder SD 3.5.
+- Ebenfalls nur bei Diffusions-Modellen: Mengenangaben, Gradzahlen,
+  das Wort `boulders` und `diorama` – sowie Stil-Angaben, die schon in
+  den ersten 20 Wörtern stehen und damit das Motiv verdrängen.
 
 Erst nach dem grünen Haken lässt sich der Lauf starten; jede Änderung
 am Text macht die Prüfung wieder ungültig.

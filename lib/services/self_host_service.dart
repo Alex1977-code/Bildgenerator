@@ -69,6 +69,12 @@ class SelfHostService {
   /// '3d' oder 'image' – der Bild-Server meldet seine Art selbst.
   static String lastKind = '3d';
 
+  /// Dasselbe, aber an **diese** Instanz gebunden. Stehen Bild- und
+  /// 3D-Server auf derselben Adresse, fragen beide Karten
+  /// gleichzeitig – der statische Wert gehört dann womöglich zur
+  /// anderen Abfrage.
+  String kind = '3d';
+
   /// Fragt den /health-Endpunkt ab und liefert eine Kurzinfo,
   /// z. B. „triposr auf cuda (NVIDIA GeForce RTX 4070)“.
   Future<String> health() async {
@@ -85,7 +91,7 @@ class SelfHostService {
     }
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      lastKind = json['kind']?.toString() ?? '3d';
+      lastKind = kind = json['kind']?.toString() ?? '3d';
       // Der Bild-Server nennt sein Modell statt eines Backends.
       lastBackend =
           (json['backend'] ?? json['model'])?.toString() ?? '';

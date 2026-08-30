@@ -96,19 +96,68 @@ void main() {
           t.replaceAll(',', ' ').split(RegExp(r'\s+'))
               .where((w) => w.isNotEmpty).length;
       // Die erste Fassung war 47 Wörter lang und hat das Motiv
-      // ertränkt. Zusammen mit 15 Motivwörtern muss der Block unter
+      // ertränkt. Zusammen mit den Motivwörtern muss der Block unter
       // die 60-Wörter-Grenze von SDXL passen.
-      expect(words(gameAssetKeywords), lessThanOrEqualTo(30));
+      expect(words(gameAssetKeywords), lessThanOrEqualTo(35));
       expect(words(gameAssetKeywords) + gameAssetLeadWords,
           lessThan(promptProfileFor(GenProvider.selfhost, 'sdxl').maxWords));
 
-      // Mengenangaben, Gradzahlen und „boulders" sind raus.
+      // Mengenangaben, Gradzahlen und „boulders" sind raus. („3d" in
+      // „3d building model" ist keine Mengenangabe – geprüft wird
+      // deshalb auf eine Zahl als eigenes Wort.)
       expect(gameAssetKeywords, isNot(contains('boulder')));
-      expect(gameAssetKeywords, isNot(matches(RegExp(r'\d'))));
-      expect(gameAssetKeywords, contains('high angle isometric view'));
+      expect(gameAssetKeywords, isNot(matches(RegExp(r'\b\d+\s'))));
+      expect(gameAssetKeywords, isNot(contains('degree')));
+
+      // Der Blickwinkel braucht alle drei Angaben: Ein Schlagwort
+      // allein („high angle isometric view") blieb zu flach.
+      expect(gameAssetKeywords, contains('isometric view from high above'));
+      expect(gameAssetKeywords, contains('looking down onto the roof'));
+      expect(gameAssetKeywords, contains('tilted top view'));
+
       // Die Vereinzelung steht positiv im Prompt, nicht nur im
       // Negativ-Block.
-      expect(gameAssetKeywords, contains('single isolated building'));
+      expect(gameAssetKeywords, contains('single isolated 3d building'));
+
+      // Und kein Wort über den Boden: „centered on empty ground" hat
+      // den Gras- und Erdfleck zurückgeholt. „background" zählt
+      // nicht, deshalb die Wortgrenze.
+      expect(gameAssetKeywords, isNot(matches(RegExp(r'\bground\b'))));
+      expect(gameAssetKeywords, isNot(contains('diorama')));
+
+      // Was im Negativ-Block stehen muss, steht dort auch.
+      for (final term in [
+        'grass patch',
+        'dirt patch',
+        'moss',
+        'ground plate',
+        'pedestal',
+        'diorama',
+        'front view',
+        'side view',
+        'eye level',
+        'onion dome',
+      ]) {
+        expect(gameAssetNegativeTerms, contains(term), reason: term);
+      }
+    });
+
+    test('Der erprobte Block passt in das SDXL-Budget', () {
+      int words(String t) => t
+          .replaceAll(',', ' ')
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .length;
+      final prompt = gameAssetExample
+          .split('\n')
+          .firstWhere((l) => l.startsWith('PROMPT: '))
+          .substring('PROMPT: '.length);
+      expect(words(prompt),
+          lessThan(promptProfileFor(GenProvider.selfhost, 'sdxl').maxWords));
+      // Das erkennende Merkmal steht ausgeschrieben und weit vorn –
+      // aus „big domed stone oven" wurden sonst zwei Schornsteine.
+      expect(prompt, startsWith('medieval bakery, large domed bread oven '
+          'attached to the side wall'));
     });
 
     test('Die Stichwort-Vorlage warnt vor den drei Stolpersteinen', () {

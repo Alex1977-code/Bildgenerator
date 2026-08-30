@@ -232,7 +232,89 @@ void main() {
       // „boulders" hat die Häuser zu Findlings-Kuppeln gemacht.
       expect(text, contains('boulders'));
       // Und der Stil steht vor dem Motiv.
-      expect(text, contains('ersten 15 Wörtern'));
+      expect(text, contains('ersten $gameAssetLeadWords Wörtern'));
+    });
+
+    test('Der Bodenfleck im PROMPT wird gemeldet', () {
+      // Der Befund am zweiten Bäckerei-Bild: kein Teller mehr, aber
+      // ein ausgefranster Gras- und Erdfleck. Ausgelöst hat ihn
+      // „centered on empty ground" im positiven Teil.
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: medieval bakery with a domed oven, single isolated '
+        'building centered on empty ground, isometric view from high '
+        'above, looking down onto the roof, tilted top view\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('nennen im PROMPT den Boden'));
+      expect(plan.isValid, isTrue);
+    });
+
+    test('Aufsicht nur als Schlagwort reicht nicht', () {
+      // „high angle isometric view" stand im Prompt – zu sehen war
+      // trotzdem fast die volle Fassade.
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: medieval bakery, large domed bread oven attached to '
+        'the side wall, timber framed plaster walls, thatched roof, '
+        'single isolated 3d building model, high angle isometric '
+        'view, stylized game asset, plain grey background\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      // Ein Kamerabegriff steht da – der fehlende Blick aufs Dach
+      // wird trotzdem gemeldet.
+      expect(text, isNot(contains('nennen keine Aufsicht')));
+      expect(text, contains('nur als Schlagwort'));
+    });
+
+    test('„diorama" im PROMPT wird gemeldet', () {
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: medieval bakery, stylized diorama game asset, '
+        'isometric view from high above, looking down onto the roof\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('miniature scene'));
+    });
+
+    test('Fehlende Negativ-Begriffe werden nach Gruppen benannt', () {
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: medieval bakery, large domed bread oven attached to '
+        'the side wall, $gameAssetKeywords\n'
+        'NEGATIV: village, trees, text, watermark\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('Bodenfleck'));
+      expect(text, contains('Bodenplatte'));
+      expect(text, contains('flachen Blickwinkel'));
+    });
+
+    test('Modelle ohne Negativ-Prompt taugen nicht für Gebäude-Assets',
+        () {
+      final plan = parseBatchPrompt(
+        'NAME: bakery\n'
+        'PROMPT: medieval bakery, large domed bread oven attached to '
+        'the side wall, $gameAssetKeywords\n'
+        'NEGATIV: $gameAssetNegativeTerms\n',
+        profile: promptProfileFor(GenProvider.selfhost, 'flux-schnell'),
+        gameAssets: true,
+      );
+      final text = plan.warnings.map((w) => w.message).join(' ');
+      expect(text, contains('wertet den NEGATIV-Block nicht aus'));
+      // Ein Hinweis, kein Abbruch: Der Lauf bleibt möglich.
+      expect(plan.isValid, isTrue);
     });
 
     test('Bei sprachverstehenden Modellen bleibt die Gradzahl richtig',

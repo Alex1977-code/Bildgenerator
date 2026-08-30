@@ -267,7 +267,19 @@ class _ServerUrlCard extends StatefulWidget {
 class _ServerUrlCardState extends State<_ServerUrlCard> {
   late final TextEditingController _ctrl;
   String? _status;
+  /// Ob die letzte Aktion geklappt hat – steuert nur die Farbe der
+  /// Statuszeile.
   bool _ok = false;
+
+  /// Ob unter dieser Adresse gerade **dieser** Server antwortet.
+  ///
+  /// Das ist nicht dasselbe wie [_ok]: „Server-Dateien auffrischen"
+  /// gelingt auch bei totem Server, und dann stand „Läuft bereits"
+  /// auf einem Knopf, mit dem sich der Server hätte starten lassen
+  /// müssen. Gesetzt wird das Feld ausschließlich durch eine
+  /// erfolgreiche /health-Antwort der richtigen Art.
+  bool _running = false;
+
   /// Reine Info (kein Fehler) – dann grau statt rot anzeigen.
   bool _neutral = false;
   bool _checking = false;
@@ -383,6 +395,9 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
             'gerade, einmal beenden und neu starten.';
         _ok = true;
         _neutral = false;
+        // Die Dateien sind neu, der laufende Prozess kennt sie nicht:
+        // Ab hier ist „Server starten" wieder das Richtige.
+        _running = false;
       });
     } catch (e) {
       if (mounted) {
@@ -414,12 +429,30 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
       _status = null;
       _neutral = false;
     });
+    final service = SelfHostService(url);
     try {
-      final info = await SelfHostService(url).health();
+      final info = await service.health();
+      final answering = service.kind;
       if (mounted) {
         setState(() {
-          _status = 'Verbunden – $info.';
-          _ok = true;
+          if (answering != widget.kind) {
+            // Genau der Fall, vor dem die Adress-Warnung steht: Auf
+            // diesem Port sitzt der andere Server. Ein „Verbunden"
+            // wäre hier eine Falschmeldung.
+            _status = 'Auf dieser Adresse antwortet der '
+                '${answering == 'image' ? 'Bild' : '3D'}-Server, nicht '
+                'der ${_isImage ? 'Bild' : '3D'}-Server. Zwei Server '
+                'können denselben Port nicht belegen – dem hier eine '
+                'eigene Adresse geben '
+                '(http://127.0.0.1:${setup.defaultPort(widget.kind)}).';
+            _ok = false;
+            _running = false;
+            _neutral = false;
+          } else {
+            _status = 'Verbunden – $info.';
+            _ok = true;
+            _running = true;
+          }
         });
       }
     } on GenerationException catch (e) {
@@ -427,6 +460,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
         setState(() {
           _status = e.message;
           _ok = false;
+          _running = false;
         });
       }
     } finally {
@@ -441,6 +475,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
       _selected = value ?? '';
       _status = null;
       _ok = false;
+      _running = false;
       _neutral = false;
     });
     final entry = _current;
@@ -463,6 +498,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
     setState(() {
       _starting = true;
       _ok = false;
+      _running = false;
       _neutral = true;
       _status = '${entry.label} wird gestartet …';
     });
@@ -491,6 +527,7 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
           setState(() {
             _status = 'Verbunden – $info.';
             _ok = true;
+            _running = true;
             _neutral = false;
           });
           return;
@@ -605,6 +642,13 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
             const SizedBox(height: 12),
             TextField(
               controller: _ctrl,
+              // Eine getippte Adresse ist ungeprüft: Was für die alte
+              // galt, gilt für die neue nicht.
+              onChanged: (_) => setState(() {
+                _running = false;
+                _ok = false;
+                _status = null;
+              }),
               decoration: InputDecoration(
                 labelText: 'Server-Adresse',
                 hintText:
@@ -643,23 +687,25 @@ class _ServerUrlCardState extends State<_ServerUrlCard> {
               runSpacing: 8,
               children: [
                 if (_current != null)
-                  // Läuft der Server schon (grüner Haken von
-                  // „Speichern & testen"), wäre ein zweiter Start
-                  // sinnlos: Er käme auf demselben Port nicht hoch.
-                  // Deshalb wird der Knopf dann still gestellt.
+                  // Still gestellt wird der Knopf nur, wenn der Server
+                  // tatsächlich antwortet – ein zweiter Start käme auf
+                  // demselben Port nicht hoch. Maßgeblich ist dafür
+                  // die /health-Antwort, nicht der Erfolg irgendeiner
+                  // anderen Aktion: „Server-Dateien auffrischen"
+                  // gelingt auch bei totem Server.
                   FilledButton.icon(
-                    onPressed: busy || _ok ? null : _startSelected,
+                    onPressed: busy || _running ? null : _startSelected,
                     icon: _starting
                         ? const SizedBox(
                             width: 16,
                             height: 16,
                             child:
                                 CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(_ok ? Icons.check : Icons.play_arrow,
+                        : Icon(_running ? Icons.check : Icons.play_arrow,
                             size: 18),
                     label: Text(_starting
                         ? 'Startet …'
-                        : _ok
+                        : _running
                             ? 'Läuft bereits'
                             : 'Server starten'),
                   ),
