@@ -19,7 +19,11 @@ Selbst-Hosten, dessen Community-Lizenz die EU ausschließt).
 ## Voraussetzungen
 
 - NVIDIA-GPU mit aktuellem Treiber
-- Python 3.10 oder 3.11 und Git
+- **Python 3.11** und Git. Wichtig: **nicht Python 3.12 oder neuer** –
+  TripoSR pinnt `transformers==4.35.0` (Anfang 2024), und das dazu
+  passende `tokenizers 0.14.1` hat für 3.12 kein fertiges Paket. pip
+  versucht dann, es mit Rust aus dem Quellcode zu bauen, was
+  regelmäßig scheitert.
 - Windows: TripoSR läuft nativ (siehe unten); für TRELLIS ist
   **WSL2 (Ubuntu)** dringend zu empfehlen.
 
@@ -33,9 +37,11 @@ anlegen. Ein eigener Ordner ist Pflicht, kein Systemordner.
 
 Vorab einmalig installieren:
 
-- **Python 3.10 oder 3.11** von python.org (beim Setup „Add python.exe
-  to PATH" ankreuzen) – die Version aus dem Microsoft Store macht
-  häufiger Ärger.
+- **Python 3.11** von python.org (beim Setup „Add python.exe to PATH"
+  ankreuzen). Nicht 3.12+ (siehe Voraussetzungen oben) und nicht die
+  Version aus dem Microsoft Store. Eine vorhandene 3.12 kann parallel
+  installiert bleiben – die Umgebung wird unten gezielt mit
+  `py -3.11` angelegt.
 - **Git** von git-scm.com
 - **Visual Studio Build Tools** mit der Arbeitslast „Desktopentwicklung
   mit C++" – TripoSR kompiliert beim Installieren das Paket
@@ -51,7 +57,7 @@ cd C:\KI
 # 2) Repo holen und Umgebung anlegen
 git clone https://github.com/VAST-AI-Research/TripoSR.git
 cd TripoSR
-python -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -70,10 +76,10 @@ Vor der Eingabezeile steht danach `(.venv)`. Weiter:
 #    pytorch.org/get-started/locally nachsehen)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# 4) TripoSR- und Server-Abhängigkeiten
+# 4) Version prüfen (muss 3.11.x zeigen), dann Abhängigkeiten
+python --version
 pip install -r requirements.txt
-pip install rembg onnxruntime
-pip install fastapi uvicorn pydantic pillow
+pip install fastapi uvicorn pydantic
 
 # 5) Server-Skript herunterladen und starten
 curl.exe -L -o local3d_server.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/local3d_server.py
@@ -98,15 +104,14 @@ python local3d_server.py --backend triposr --port 8765
 mkdir -p ~/ki && cd ~/ki
 git clone https://github.com/VAST-AI-Research/TripoSR.git
 cd TripoSR
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 
 # PyTorch MIT CUDA (Version passend zur GPU, siehe pytorch.org)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 
 pip install -r requirements.txt
-pip install rembg onnxruntime
-pip install fastapi uvicorn pydantic pillow
+pip install fastapi uvicorn pydantic
 
 curl -L -o local3d_server.py https://raw.githubusercontent.com/Alex1977-code/Bildgenerator/claude/image-generator-text-descriptions-hxsqas/server/local3d_server.py
 python local3d_server.py --backend triposr --port 8765
@@ -165,6 +170,13 @@ geladenen Web-App. Für Adressen mit LAN-IP blockieren Browser dagegen
 - **Fehler beim Bauen von `torchmcubes`** → die Visual Studio Build
   Tools mit „Desktopentwicklung mit C++" fehlen; nach der Installation
   eine neue PowerShell öffnen und `pip install -r requirements.txt`
+  wiederholen.
+- **`tokenizers` bricht mit „Rust not found" / `metadata-generation-failed`
+  ab** → die Umgebung läuft auf Python 3.12 oder neuer. Umgebung
+  löschen (`Remove-Item -Recurse -Force .venv`) und mit
+  `py -3.11 -m venv .venv` neu anlegen.
+- **`Microsoft Visual C++ 14.0 or greater is required`** → siehe
+  `torchmcubes` unten; Build Tools installieren und den Schritt
   wiederholen.
 - **`python` öffnet den Microsoft Store** → Python von python.org
   installieren (mit „Add python.exe to PATH") oder unter
