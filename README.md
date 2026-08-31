@@ -851,6 +851,80 @@ Verglichen wird ebenenweise, nicht als Textanfang: Ein Ordner „Burg"
 schließt „Burgenspiel" **nicht** ein — beim Umbenennen von „Burg" bleibt
 „Burgenspiel" unberührt.
 
+## Passende Gegenstände zu einer Figur
+
+Eine Figur allein ist noch kein Spielinhalt – es fehlen Schwert, Helm,
+Rucksack, Laterne. Einzeln erzeugt passen die aber weder im Stil noch
+in der Größe zusammen: Das Schwert wird so lang wie die Figur, der Helm
+passt auf einen Kürbis. Und man merkt es erst, wenn beides zusammen im
+Spiel steht.
+
+Neben jedem fertigen Modell steht deshalb ein Knopf **„Passende
+Gegenstände"**. Er öffnet eine Auswahl mit rund zwanzig Arten in vier
+Gruppen (Waffe, Am Körper, Ausrüstung, Umgebung).
+
+### Zwei Dinge, die den Unterschied machen
+
+**Die Figur als Stilvorlage.** Auf Wunsch wird eine Ansicht der
+fertigen Figur gerendert und als Referenzbild mitgeschickt. Farben und
+Formensprache trifft das Bild-Modell damit deutlich genauer als über
+eine Beschreibung. Der Prompt sagt dann ausdrücklich „only the object
+itself, no character in the image" – doppelt zum Negativ-Prompt, weil
+Modelle wie SDXL Turbo und FLUX den gar nicht auswerten und sonst
+nichts davon hören. Ohne Referenz wandert stattdessen der Anfang der
+Figurbeschreibung in den Text.
+
+**Das Größenverhältnis im Prompt.** Ein Bildmodell kennt keinen
+Maßstab: „Schwert" allein füllt das Bild. Erst „sized about half the
+character's full height" bringt die Proportion ins Bild – und aus dem
+Bild ins 3D-Modell. Jede Art trägt dafür ein Verhältnis **und einen
+Bezug**:
+
+| Bezug | Gilt für | Beispiel |
+| --- | --- | --- |
+| Figurenhöhe | Waffen, Rucksack, Truhe | Schwert 0,55 × → 2,75 Studs |
+| Kopfhöhe | Helm, Hut, Krone, Maske, Amulett | Helm 1,25 × Kopf → 1,56 Studs |
+| Handlänge | Trank, Laterne, Buch, Schlüssel | Trank 1,1 × Hand → 0,6 Studs |
+
+Der Bezug ist der Punkt: Ein Helm als Anteil der *Figurenhöhe* käme bei
+über sechs Studs heraus. In der Auswahl steht neben jedem Eintrag, was
+dabei herauskommt („etwa 2,75 Studs – 0,55 × Figurenhöhe · in der
+Hand").
+
+### Vorauswahl aus der Figurbeschreibung
+
+Vorgeschlagen (★) wird, was zur Beschreibung passt: Ein Ritter bekommt
+Schwert, Schild und Helm, ein Zauberer Stab, Hut und Buch. Erkannt wird
+über Stichwörter, deutsch wie englisch. Findet sich nichts – ein Tier,
+ein Fantasiewesen ohne Rolle –, kommt eine Grundausstattung statt einer
+leeren Liste.
+
+### Der Lauf
+
+Jeder Gegenstand entsteht in einem **eigenen Lauf**, nacheinander, mit
+Fortschrittsanzeige und einem „Nach diesem beenden". Beim ersten
+echten Fehler bricht die Reihe ab: Stimmt etwas grundsätzlich nicht
+(Schlüssel, Guthaben, Server), wären die restlichen Läufe nur weitere
+Fehlschläge – bei einem bezahlten Anbieter auch weitere Kosten.
+
+Für den Lauf werden **Rigging und T-Pose abgeschaltet** und die
+Ansichten geleert; sonst käme ein Schwert mit Armen zurück oder das
+Schwert erbte die Ansichten des Helms. Danach steht alles wieder wie
+vorher.
+
+**„Prompts kopieren"** gibt es alternativ: Die Blöcke sind im Format
+des Massenprompts (`NAME:` / `PROMPT:` / `NEGATIV:`) und lassen sich so
+im Bild-Tab in einem Lauf zu Bildern machen.
+
+### Anbau in Roblox
+
+Zu jeder Art gehört, wie sie an die Figur kommt. Die Werte stammen aus
+der offiziellen Aufzählung `AccessoryType` (Hat, Hair, Face, Neck,
+Shoulder, Front, Back, Waist) – ein erfundener Wert wäre in Studio
+schlicht nicht auswählbar, ein Test prüft das. Was dort nicht
+hineinpasst, ist kein Accessoire, sondern ein Werkzeug: ein `Tool` mit
+einem Teil namens `Handle`, das die Figur in die Hand nimmt.
+
 ## Skelett nachträglich einbauen und der Dummy im Rig-Editor
 
 Bisher bekam ein Modell sein Skelett nur im selben Lauf, in dem es
@@ -1725,6 +1799,7 @@ lib/
 │   ├── generators.dart        # OpenAI- & Stability-Anbindung (austauschbar)
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
+│   ├── item_prompt.dart       # Gegenstände zur Figur: Maßstab + Prompt
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
 │   ├── quality_preset.dart    # Schritte, Prompt-Treue, Detail-Durchgang
 │   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes

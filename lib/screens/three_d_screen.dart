@@ -23,6 +23,7 @@ import '../services/fal_service.dart';
 import '../services/generators.dart' show GenerationException;
 import '../services/glb_preview.dart';
 import '../services/history_service.dart';
+import '../services/item_prompt.dart';
 import '../services/local_3d.dart';
 import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
@@ -774,6 +775,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String? _usageInfo;
   final List<ThreeDResult> _results = [];
 
+  /// Stilvorlage für die Gegenstände: ein gerendertes Bild der Figur.
+  /// Nur gesetzt, solange ein Gegenstands-Lauf läuft.
+  ReferenceImage? _itemStyleImage;
+
+  /// Läuft gerade eine Reihe von Gegenständen? Dann zeigt die
+  /// Oberfläche den Fortschritt und einen Abbruch.
+  bool _itemRun = false;
+  int _itemDone = 0;
+  int _itemTotal = 0;
+  String _itemCurrent = '';
+
   /// Kopierbare Anleitungen für eine externe Prompt-KI (ChatGPT,
   /// Claude & Co.): enthalten alle Regeln, damit der erzeugte Prompt
   /// perfekt zu unserer 3D-Pipeline passt. (Titel, Kurzbeschreibung,
@@ -1158,6 +1170,132 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Grenzen des Ziels einhält. Das vorhandene Netz direkt zu
   /// reduzieren kann die App nicht, ohne UV-Nähte und Textur zu
   /// zerstören – ein neues bauen zu lassen schon.
+  /// Passende Gegenstände zu einer erzeugten Figur.
+  ///
+  /// Eine Figur allein ist noch kein Spielinhalt – es fehlen Schwert,
+  /// Helm, Laterne. Einzeln erzeugt passen die aber weder im Stil noch
+  /// in der Größe: Das Schwert wird so lang wie die Figur, der Helm
+  /// passt auf einen Kürbis. Deshalb geht hier beides mit: eine
+  /// gerenderte Ansicht der Figur als Stilvorlage und ein
+  /// Größenverhältnis im Prompt.
+  Future<void> _generateItems(ThreeDResult result) async {
+    if (!result.usableInApp) {
+      _showSnack('Für die Stilvorlage wird eine GLB gerendert – diese '
+          'Datei ist ${modelFormatLabel(result.format)}.');
+      return;
+    }
+    final figurePrompt = _promptCtrl.text.trim().isEmpty
+        ? result.label
+        : _promptCtrl.text.trim();
+    final choice = await showDialog<_ItemChoice>(
+      context: context,
+      builder: (_) => _ItemDialog(
+        figurePrompt: figurePrompt,
+        figureStuds: robloxCharacterStuds,
+        robloxDefault: _robloxMode,
+      ),
+    );
+    if (choice == null || !mounted || choice.kinds.isEmpty) return;
+
+    // Stilvorlage rendern: die Vorderansicht der fertigen Figur.
+    ReferenceImage? style;
+    if (choice.useReference) {
+      setState(() {
+        _running = true;
+        _stage = 'Stilvorlage wird aus der Figur gerendert …';
+      });
+      try {
+        final views = await renderGlbViews(result.glbBytes, size: 1024);
+        final front = views['front'] ?? views.values.firstOrNull;
+        if (front != null) {
+          style = ReferenceImage(bytes: front, name: 'figur_stil.png');
+        }
+      } catch (_) {
+        // Ohne Stilvorlage geht es auch – der Stil steht dann nur im
+        // Text. Ein Fehlschlag hier darf den Lauf nicht abbrechen.
+      } finally {
+        if (mounted) {
+          setState(() {
+            _running = false;
+            _stage = null;
+          });
+        }
+      }
+      if (!mounted) return;
+      if (style == null) {
+        _showSnack('Die Stilvorlage ließ sich nicht rendern – die '
+            'Gegenstände entstehen nach der Beschreibung.');
+      }
+    }
+
+    // Ein Gegenstand hat kein Skelett und keine T-Pose; beides muss
+    // für den Lauf aus, sonst kommt ein Schwert mit Armen zurück.
+    final savedPrompt = _promptCtrl.text;
+    final savedNegative = _negative3dCtrl.text;
+    final savedRigging = _rigging;
+    final savedTPose = _tPose;
+    final savedImageMode = _imageMode;
+    setState(() {
+      _itemRun = true;
+      _itemDone = 0;
+      _itemTotal = choice.kinds.length;
+      _itemStyleImage = style;
+      _rigging = false;
+      _tPose = false;
+      _imageMode = false;
+    });
+    try {
+      for (final kind in choice.kinds) {
+        if (!mounted || !_itemRun) break;
+        final (prompt, negative) = itemPromptParts(
+          kind: kind,
+          figurePrompt: figurePrompt,
+          roblox: choice.roblox,
+          withReference: style != null,
+        );
+        setState(() {
+          _itemCurrent = kind.label;
+          _promptCtrl.text = prompt;
+          _negative3dCtrl.text = negative;
+          // Jeder Gegenstand fängt bei den Ansichten von vorn an –
+          // sonst erbte das Schwert die Ansichten des Helms.
+          for (final key in _views.keys.toList()) {
+            _views[key] = null;
+          }
+        });
+        await _generate();
+        if (!mounted) break;
+        setState(() => _itemDone++);
+        if (_error != null) {
+          // Beim ersten echten Fehler abbrechen: Läuft etwas
+          // grundsätzlich schief (Guthaben, Schlüssel, Server), wären
+          // die restlichen Läufe nur weitere Fehlschläge – bei einem
+          // bezahlten Anbieter auch weitere Kosten.
+          _showSnack('Abgebrochen bei „${kind.label}": $_error');
+          break;
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _itemRun = false;
+          _itemCurrent = '';
+          _itemStyleImage = null;
+          _promptCtrl.text = savedPrompt;
+          _negative3dCtrl.text = savedNegative;
+          _rigging = savedRigging;
+          _tPose = savedTPose;
+          _imageMode = savedImageMode;
+        });
+      }
+    }
+    if (mounted && _itemDone > 0) {
+      _showSnack('$_itemDone von ${choice.kinds.length} '
+          '${choice.kinds.length == 1 ? 'Gegenstand' : 'Gegenständen'} '
+          'erzeugt – sie stehen oben in der Liste und in der Galerie.');
+    }
+  }
+
   Future<void> _useModelAsReference(ThreeDResult result) async {
     if (!result.usableInApp) {
       _showSnack('Ansichten lassen sich nur aus einer GLB rendern – '
@@ -1450,6 +1588,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             for (final entry in _views.entries)
               if (entry.value != null) entry.key: entry.value!,
           },
+          // Beim Erzeugen der Gegenstände zu einer Figur: ein
+          // gerendertes Bild der Figur als Stilvorlage. Farben und
+          // Formensprache trifft das Modell damit deutlich genauer
+          // als über eine Beschreibung.
+          styleReferences:
+              _itemStyleImage == null ? const [] : [_itemStyleImage!],
         );
         if (cancelled()) throw GenerationException('Abgebrochen.');
         setState(() {
@@ -5908,6 +6052,43 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
         ],
         const SizedBox(height: 8),
+        if (_itemRun)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Card(
+              margin: EdgeInsets.zero,
+              color: theme.colorScheme.secondaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Gegenstände: $_itemDone von $_itemTotal fertig'
+                        '${_itemCurrent.isEmpty ? '' : ' – gerade '
+                            '„$_itemCurrent"'}.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                    TextButton(
+                      // Der laufende Einzelauftrag wird noch zu Ende
+                      // gebracht; danach ist Schluss. Mitten in einem
+                      // bezahlten Lauf abzubrechen brächte nichts
+                      // zurück.
+                      onPressed: () => setState(() => _itemRun = false),
+                      child: const Text('Nach diesem beenden'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (_results.isEmpty)
           Padding(
             padding: const EdgeInsets.all(24),
@@ -6010,6 +6191,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           : null,
                     ),
                     IconButton(
+                      tooltip: 'Passende Gegenstände zu dieser Figur '
+                          'erzeugen',
+                      icon: const Icon(Icons.category_outlined),
+                      onPressed: _running || _itemRun
+                          ? null
+                          : () => _generateItems(result),
+                    ),
+                    IconButton(
                       tooltip: 'Erstellungsnachweis (PDF)',
                       icon: const Icon(Icons.workspace_premium_outlined),
                       onPressed: () => _exportModelProvenance(result),
@@ -6040,4 +6229,180 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       ),
     );
   }
+}
+
+/// Was im Gegenstands-Dialog gewählt wurde.
+class _ItemChoice {
+  const _ItemChoice(this.kinds, this.useReference, this.roblox);
+
+  final List<ItemKind> kinds;
+
+  /// Eine gerenderte Ansicht der Figur als Stilvorlage mitgeben.
+  final bool useReference;
+
+  /// Die Roblox-Bausteine statt der allgemeinen anhängen.
+  final bool roblox;
+}
+
+/// Auswahl der Gegenstände, die zu einer Figur entstehen sollen.
+///
+/// Vorausgewählt ist, was zur Figurbeschreibung passt – ein Ritter
+/// bekommt Schwert, Schild und Helm vorgeschlagen, ein Zauberer Stab,
+/// Hut und Buch. Neben jedem Eintrag steht die Größe, die er bekommen
+/// wird: Genau daran scheitern einzeln erzeugte Gegenstände, und man
+/// sieht es erst, wenn beides zusammen im Spiel steht.
+class _ItemDialog extends StatefulWidget {
+  const _ItemDialog({
+    required this.figurePrompt,
+    required this.figureStuds,
+    required this.robloxDefault,
+  });
+
+  final String figurePrompt;
+  final double figureStuds;
+  final bool robloxDefault;
+
+  @override
+  State<_ItemDialog> createState() => _ItemDialogState();
+}
+
+class _ItemDialogState extends State<_ItemDialog> {
+  late final Set<String> _chosen = {
+    for (final kind in suggestedItems(widget.figurePrompt)) kind.id,
+  };
+  bool _reference = true;
+  late bool _roblox = widget.robloxDefault;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final vorschlag = {
+      for (final kind in suggestedItems(widget.figurePrompt)) kind.id,
+    };
+    return AlertDialog(
+      title: const Text('Passende Gegenstände erzeugen'),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Vorausgewählt ist, was zur Beschreibung der Figur '
+                'passt. Jeder Gegenstand entsteht in einem eigenen '
+                'Lauf – bei einem bezahlten Anbieter kostet jeder '
+                'einzeln.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                value: _reference,
+                onChanged: (v) => setState(() => _reference = v),
+                title: const Text('Figur als Stilvorlage'),
+                subtitle: const Text(
+                    'Eine gerenderte Ansicht der Figur geht als '
+                    'Referenzbild mit – trifft Farben und Formen '
+                    'deutlich genauer als eine Beschreibung. Braucht '
+                    'ein referenzbildfähiges Bild-Modell (OpenAI oder '
+                    'Gemini).'),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                value: _roblox,
+                onChanged: (v) => setState(() => _roblox = v),
+                title: const Text('Roblox-Regeln anhängen'),
+                subtitle: const Text(
+                    'Dieselben Bausteine wie bei der Roblox-Vorlage: '
+                    'ein Netz, geschlossene Hülle, sichtbare '
+                    'Wandstärke.'),
+              ),
+              const Divider(),
+              for (final group in itemGroups) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 2),
+                  child:
+                      Text(group, style: theme.textTheme.labelLarge),
+                ),
+                for (final kind in itemKinds.where((k) => k.group == group))
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    value: _chosen.contains(kind.id),
+                    onChanged: (v) => setState(() {
+                      if (v == true) {
+                        _chosen.add(kind.id);
+                      } else {
+                        _chosen.remove(kind.id);
+                      }
+                    }),
+                    title: Row(
+                      children: [
+                        Text(kind.label),
+                        if (vorschlag.contains(kind.id)) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.star,
+                              size: 13, color: theme.colorScheme.primary),
+                        ],
+                      ],
+                    ),
+                    subtitle: Text(
+                      '${itemScaleNote(kind, widget.figureStuds)} · '
+                      '${kind.carry}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        TextButton.icon(
+          onPressed: _chosen.isEmpty
+              ? null
+              : () {
+                  final block = itemBatchPrompt(
+                    kinds: _selected,
+                    figurePrompt: widget.figurePrompt,
+                    figureName: '',
+                    roblox: _roblox,
+                    withReference: _reference,
+                    accessoryTail:
+                        _roblox ? robloxAccessoryTail : '',
+                    accessoryNegative:
+                        _roblox ? robloxAccessoryNegative : '',
+                  );
+                  Clipboard.setData(ClipboardData(text: block));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Prompts kopiert – sie passen so '
+                            'in den Massenprompt im Bild-Tab.')),
+                  );
+                },
+          icon: const Icon(Icons.copy_all, size: 18),
+          label: const Text('Prompts kopieren'),
+        ),
+        FilledButton(
+          onPressed: _chosen.isEmpty
+              ? null
+              : () => Navigator.of(context)
+                  .pop(_ItemChoice(_selected, _reference, _roblox)),
+          child: Text('${_chosen.length} erzeugen'),
+        ),
+      ],
+    );
+  }
+
+  /// Die gewählten Arten in der Reihenfolge des Katalogs – so
+  /// entstehen sie immer in derselben Ordnung, egal wie geklickt wurde.
+  List<ItemKind> get _selected =>
+      [for (final kind in itemKinds) if (_chosen.contains(kind.id)) kind];
 }

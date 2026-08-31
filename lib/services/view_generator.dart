@@ -157,6 +157,7 @@ Future<GeneratedViews> generateViewsFromText({
   bool frontOnly = false,
   bool threeQuarterFront = false,
   Map<String, ReferenceImage> existing = const {},
+  List<ReferenceImage> styleReferences = const [],
 }) async {
   final neededKeys =
       frontOnly ? const ['front'] : const ['front', 'left', 'right', 'back'];
@@ -166,9 +167,14 @@ Future<GeneratedViews> generateViewsFromText({
   }
 
   // Nur die gedrehten Zusatz-Ansichten brauchen Referenzbilder – die
-  // reine Vorderansicht (Stability-3D) erzeugt jeder Provider.
+  // reine Vorderansicht (Stability-3D) erzeugt jeder Provider. Ein
+  // Stilbild für die Vorderansicht ist dagegen freiwillig: Kann der
+  // Provider keine Referenzen, entsteht die Ansicht eben ohne – der
+  // Stil steht dann nur im Text.
   final (provider, apiKey, generator) =
       _requireProvider(settings, needsReferences: !frontOnly);
+  final style =
+      provider.supportsReferences ? styleReferences : const <ReferenceImage>[];
   var totalTokens = 0;
   var hasTokens = false;
 
@@ -227,10 +233,16 @@ Future<GeneratedViews> generateViewsFromText({
   final trueAlpha = provider == GenProvider.openai || provider.isLocal;
   final front = existing['front'] ??
       await generateOne(
-          'Vorn',
-          _frontPrompt(description, pose,
-              threeQuarter: threeQuarterFront && frontOnly,
-              trueAlpha: trueAlpha));
+        'Vorn',
+        _frontPrompt(description, pose,
+            threeQuarter: threeQuarterFront && frontOnly,
+            trueAlpha: trueAlpha),
+        // Vorlage für den Stil: Bei den Gegenständen zu einer Figur
+        // ist das ein gerendertes Bild der Figur. Farben und
+        // Formensprache trifft das Modell damit deutlich genauer als
+        // über eine Beschreibung.
+        references: style,
+      );
   final views = <String, ReferenceImage>{'front': front};
   if (!frontOnly) {
     const labels = {'left': 'Links', 'right': 'Rechts', 'back': 'Hinten'};
