@@ -61,6 +61,29 @@ void main() {
       expect(gebaeude.children.single.directCount, 2);
     });
 
+    test('Ein leerer Ordner ist da, zählt aber nichts', () {
+      // Ohne das wäre ein frisch angelegtes Projekt unsichtbar, bis
+      // das erste Bild darin landet – man legt einen Ordner an und
+      // nichts passiert.
+      final tree = buildProjectTree(['Spiel/Figuren'],
+          empty: ['Spiel/Gebäude/Türme']);
+      final spiel = tree.single;
+      expect(spiel.totalCount, 1);
+      expect(spiel.children.map((c) => c.name), ['Figuren', 'Gebäude']);
+      final tuerme =
+          spiel.children.last.children.single;
+      expect(tuerme.name, 'Türme');
+      expect(tuerme.directCount, 0);
+      expect(tuerme.totalCount, 0);
+    });
+
+    test('Ein leerer Ordner neben einem gefüllten mit gleichem Namen '
+        'verschmilzt', () {
+      final tree =
+          buildProjectTree(['Burg'], empty: ['Burg']);
+      expect(tree.single.directCount, 1);
+    });
+
     test('Nicht einsortierte Einträge tauchen im Baum nicht auf', () {
       expect(buildProjectTree(['', '  ', '///']), isEmpty);
     });

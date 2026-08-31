@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/models.dart';
@@ -31,6 +32,7 @@ class HistoryService extends ChangeNotifier {
     } catch (_) {
       // Ohne gespeicherten Verlauf starten.
     }
+    await _loadProjects();
     notifyListeners();
   }
 
@@ -144,6 +146,73 @@ class HistoryService extends ChangeNotifier {
   List<String> get projectPaths =>
       [for (final entry in _entries) entry.project];
 
+  /// Angelegte, aber (noch) leere Projekte.
+  ///
+  /// Der Ordnerbaum entsteht sonst allein aus den Pfaden der Einträge –
+  /// ein frisch angelegtes Projekt wäre damit unsichtbar, bis das
+  /// erste Bild darin landet. Man legt einen Ordner an, und nichts
+  /// passiert. Deshalb werden angelegte Ordner eigens gemerkt.
+  Set<String> get emptyProjects {
+    final belegt = <String>{
+      for (final entry in _entries)
+        for (final level in projectTrail(entry.project)) level,
+    };
+    return {
+      for (final path in _projects)
+        if (!belegt.contains(path)) path,
+    };
+  }
+
+  final Set<String> _projects = {};
+
+  /// Legt ein Projekt an, ohne etwas hineinzulegen.
+  Future<void> createProject(String path) async {
+    final clean = normalizeProject(path);
+    if (clean.isEmpty || !_projects.add(clean)) return;
+    await _saveProjects();
+    notifyListeners();
+  }
+
+  /// Vergisst ein angelegtes Projekt samt seinen Unterordnern –
+  /// aufgerufen beim Auflösen und Umbenennen.
+  Future<void> _forgetProject(String path, {String? renamedTo}) async {
+    final old = normalizeProject(path);
+    if (old.isEmpty) return;
+    final betroffen = [
+      for (final p in _projects)
+        if (projectIsInside(p, old)) p,
+    ];
+    if (betroffen.isEmpty) return;
+    for (final p in betroffen) {
+      _projects.remove(p);
+      if (renamedTo != null) {
+        final neu = reparentProject(p, old, renamedTo);
+        if (neu.isNotEmpty) _projects.add(neu);
+      }
+    }
+    await _saveProjects();
+  }
+
+  Future<void> _saveProjects() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('galerieProjekte', _projects.toList());
+    } catch (_) {
+      // Ohne Ablage gilt die Liste für diese Sitzung.
+    }
+  }
+
+  Future<void> _loadProjects() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _projects
+        ..clear()
+        ..addAll(prefs.getStringList('galerieProjekte') ?? const []);
+    } catch (_) {
+      // Beim Test ohne Ablage bleibt die Liste leer.
+    }
+  }
+
   /// Einträge in ein Projekt verschieben (leerer Pfad = wieder heraus).
   ///
   /// Verschoben wird nur der Pfad im Eintrag; die Dateien bleiben, wo
@@ -168,6 +237,7 @@ class HistoryService extends ChangeNotifier {
   Future<void> renameProject(String from, String replacement) async {
     final old = normalizeProject(from);
     if (old.isEmpty) return;
+    await _forgetProject(old, renamedTo: normalizeProject(replacement));
     var changed = false;
     for (var i = 0; i < _entries.length; i++) {
       final path = _entries[i].project;
@@ -177,7 +247,12 @@ class HistoryService extends ChangeNotifier {
         changed = true;
       }
     }
-    if (changed) await _persistIndex();
+    if (changed) {
+      await _persistIndex();
+    } else {
+      // Auch ein leerer Ordner soll den neuen Namen tragen.
+      notifyListeners();
+    }
   }
 
   /// Einen Ordner auflösen: Die Einträge bleiben, sie liegen danach

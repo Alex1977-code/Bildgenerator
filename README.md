@@ -874,14 +874,21 @@ beliebig tiefer Ordnerstruktur: „Burgenspiel", „Burgenspiel/Gebäude",
 das der Unterschied zwischen einer Wand aus Kacheln und einer Ablage,
 in der man etwas wiederfindet.
 
-**So geht es.** Eine Kachel **lange drücken** (Maus: gedrückt halten)
-markiert sie; danach markiert jeder weitere Klick, statt zu öffnen.
-Über der Liste steht dann „*n* ausgewählt" mit **„Einsortieren …"** —
-dort ein vorhandenes Projekt wählen, ein **neues anlegen**, einen
-**Unterordner im gerade geöffneten Ordner** anlegen oder auf „Ohne
-Projekt" wieder heraussortieren. „Alle markieren" nimmt alles, was
-gerade angezeigt wird — zusammen mit der Suche also z. B. alle `burg-`
-auf einmal.
+**Ein Projekt anlegen.** In der Ordnerleiste steht **„Neues Projekt"**
+(im Ordner: „Neuer Unterordner"). Das legt ihn an, auch wenn noch
+nichts darin liegt, und wechselt gleich hinein — wer einen Ordner
+anlegt, will ihn benutzen. Angelegte Ordner bleiben gespeichert.
+
+**Kacheln markieren.** Der Knopf **„Auswählen"** über der Liste
+schaltet den Auswahlmodus ein: Jede Kachel trägt dann ein Kästchen,
+ein Tipp markiert sie. (Langes Drücken geht weiterhin, aber darauf
+muss man erst kommen.) Oben stehen dann **„Alle"**,
+**„Einsortieren …"** und **„Fertig"**. Zusammen mit der Suche lassen
+sich so z. B. alle `burg-` auf einmal einsortieren.
+
+Unter „Einsortieren …" steht jedes vorhandene Projekt, ein neues, ein
+Unterordner im gerade geöffneten Ordner — oder „Ohne Projekt", um
+wieder herauszusortieren.
 
 **Die Ordnerleiste** ganz oben zeigt den Weg („Alle › Burgenspiel ›
 Gebäude") und darunter die Unterordner der aktuellen Ebene mit ihrer

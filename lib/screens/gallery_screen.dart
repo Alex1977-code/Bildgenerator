@@ -91,7 +91,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// verhalten sich die Kacheln wie bisher (Klick öffnet).
   final Set<String> _selected = {};
 
-  bool get _selecting => _selected.isNotEmpty;
+  /// Auswahlmodus. Getrennt von „ist etwas ausgewählt": Sonst ließe
+  /// er sich nur über langes Drücken einschalten – und ein Knopf, den
+  /// niemand findet, ist keiner. Auf dem Bildschirm gibt es dafür
+  /// keinen Hinweis, und mit der Maus kommt kaum jemand auf die Idee.
+  bool _selectMode = false;
+
+  bool get _selecting => _selectMode || _selected.isNotEmpty;
 
   @override
   void dispose() {
@@ -250,6 +256,29 @@ class _GalleryScreenState extends State<GalleryScreen> {
     setState(_selected.clear);
   }
 
+  /// Ein Projekt anlegen – ohne dass vorher etwas ausgewählt sein
+  /// muss.
+  ///
+  /// Vorher ging das nur über „Einsortieren …", und das erschien erst
+  /// nach einer Auswahl: Wer einfach einen Ordner anlegen wollte, fand
+  /// keinen Weg.
+  Future<void> _createProject(HistoryService history) async {
+    final drin = _folder.isEmpty ? '' : ' in „$_folder"';
+    final name = await _askName('Neues Projekt$drin');
+    if (name == null || !mounted) return;
+    final known = <String>{
+      for (final path in [...history.projectPaths, ...history.emptyProjects])
+        for (final level in projectTrail(path)) level,
+    };
+    final path = uniqueProject(
+        _folder.isEmpty ? name : '$_folder/$name', known);
+    await history.createProject(path);
+    if (!mounted) return;
+    // Gleich hineinwechseln: Wer einen Ordner anlegt, will ihn
+    // benutzen.
+    setState(() => _folder = path);
+  }
+
   /// Ordner umbenennen, auflösen oder eine Ebene höher schieben.
   Future<void> _folderMenu(HistoryService history, String path) async {
     final action = await showDialog<String>(
@@ -296,7 +325,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Die Ordnerleiste: Krümelpfad zurück und die Unterordner der
   /// aktuellen Ebene.
   Widget _folderBar(HistoryService history, ThemeData theme) {
-    final tree = buildProjectTree(history.projectPaths);
+    final tree = buildProjectTree(history.projectPaths,
+        empty: history.emptyProjects);
     List<ProjectNode> level = tree;
     for (final step in projectParts(_folder)) {
       final next = level.where((n) => n.name == step).toList();
@@ -363,8 +393,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 ),
             ],
           ),
-          if (level.isNotEmpty || (_folder.isEmpty && unsorted > 0))
-            Padding(
+          Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Wrap(
                 spacing: 8,
@@ -385,6 +414,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       avatar: const Icon(Icons.inbox_outlined, size: 18),
                       label: Text('Ohne Projekt  $unsorted'),
                     ),
+                  ActionChip(
+                    avatar: const Icon(Icons.create_new_folder_outlined,
+                        size: 18),
+                    label: Text(_folder.isEmpty
+                        ? 'Neues Projekt'
+                        : 'Neuer Unterordner'),
+                    onPressed: () => _createProject(history),
+                  ),
                 ],
               ),
             ),
@@ -471,18 +508,32 @@ class _GalleryScreenState extends State<GalleryScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    '${_selected.length} ausgewählt',
+                    _selected.isEmpty
+                        ? 'Kacheln antippen zum Markieren'
+                        : '${_selected.length} ausgewählt',
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () => _sortSelected(history),
+                  onPressed: () => setState(() => _selected
+                    ..clear()
+                    ..addAll([for (final e in entries) e.id])),
+                  icon: const Icon(Icons.select_all, size: 18),
+                  label: const Text('Alle'),
+                ),
+                TextButton.icon(
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _sortSelected(history),
                   icon: const Icon(Icons.drive_file_move_outline, size: 18),
                   label: const Text('Einsortieren …'),
                 ),
                 TextButton(
-                  onPressed: () => setState(_selected.clear),
-                  child: const Text('Auswahl aufheben'),
+                  onPressed: () => setState(() {
+                    _selected.clear();
+                    _selectMode = false;
+                  }),
+                  child: const Text('Fertig'),
                 ),
               ],
             ),
@@ -507,10 +558,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
               ),
               if (entries.isNotEmpty && !_selecting)
                 TextButton.icon(
-                  onPressed: () => setState(() => _selected
-                      .addAll([for (final e in entries) e.id])),
-                  icon: const Icon(Icons.checklist, size: 18),
-                  label: const Text('Alle markieren'),
+                  onPressed: () => setState(() => _selectMode = true),
+                  icon: const Icon(Icons.check_box_outlined, size: 18),
+                  label: const Text('Auswählen'),
                 ),
               if (entries.isNotEmpty)
                 TextButton.icon(
@@ -749,9 +799,31 @@ class _GalleryTile extends StatelessWidget {
                         Container(
                           color: theme.colorScheme.primary.withValues(
                               alpha: 0.28),
-                          alignment: Alignment.center,
-                          child: Icon(Icons.check_circle,
-                              size: 40, color: theme.colorScheme.primary),
+                        ),
+                      // Im Auswahlmodus trägt jede Kachel ein
+                      // Kästchen – gefüllt oder leer. Ohne das musste
+                      // man raten, ob und wie sich eine Kachel
+                      // markieren lässt.
+                      if (selecting)
+                        Positioned(
+                          left: 6,
+                          bottom: 6,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? theme.colorScheme.primary
+                                  : Colors.black45,
+                              shape: BoxShape.circle,
+                            ),
+                            padding: const EdgeInsets.all(3),
+                            child: Icon(
+                              selected
+                                  ? Icons.check
+                                  : Icons.check_box_outline_blank,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
                       if (isModel) ...[
                         Positioned(

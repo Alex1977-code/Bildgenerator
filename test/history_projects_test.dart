@@ -6,6 +6,7 @@ import 'package:bildgenerator/models/models.dart';
 import 'package:bildgenerator/services/history/history_store_base.dart';
 import 'package:bildgenerator/services/history/history_store_memory.dart';
 import 'package:bildgenerator/services/history_service.dart';
+import 'package:bildgenerator/services/project_tree.dart';
 
 HistoryEntry _entry(String id, {String project = ''}) => HistoryEntry(
       id: id,
@@ -119,6 +120,55 @@ void main() {
     expect(store.saves, vorher);
     await service.renameProject('Gibtsnicht', 'Egal');
     expect(store.saves, vorher);
+  });
+
+  group('Leere Projekte', () {
+    test('Ein angelegtes Projekt ist da, bevor etwas darin liegt',
+        () async {
+      // Sonst legt man einen Ordner an und nichts passiert – der Baum
+      // entsteht ja aus den Pfaden der Einträge.
+      final service = await _serviceWith([_entry('a')]);
+      await service.createProject('Burgenspiel/Türme');
+      expect(service.emptyProjects, contains('Burgenspiel/Türme'));
+      final tree = buildProjectTree(service.projectPaths,
+          empty: service.emptyProjects);
+      expect(tree.single.name, 'Burgenspiel');
+    });
+
+    test('Sobald etwas darin liegt, zählt es normal', () async {
+      final service = await _serviceWith([_entry('a')]);
+      await service.createProject('Spiel');
+      await service.moveToProject(service.entries, 'Spiel');
+      // Nicht mehr leer – sonst stünde es doppelt im Baum.
+      expect(service.emptyProjects, isEmpty);
+    });
+
+    test('Der Pfad wird beim Anlegen aufgeräumt', () async {
+      final service = await _serviceWith([]);
+      await service.createProject('  Spiel // Figuren ');
+      expect(service.emptyProjects, {'Spiel/Figuren'});
+      // Zweimal dasselbe legt nichts doppelt an.
+      await service.createProject('Spiel/Figuren');
+      expect(service.emptyProjects.length, 1);
+      // Ein leerer Name legt gar nichts an.
+      await service.createProject('  ');
+      expect(service.emptyProjects.length, 1);
+    });
+
+    test('Umbenennen nimmt auch leere Ordner mit', () async {
+      final service = await _serviceWith([]);
+      await service.createProject('Burg/Turm');
+      await service.renameProject('Burg', 'Festung');
+      expect(service.emptyProjects, contains('Festung/Turm'));
+      expect(service.emptyProjects, isNot(contains('Burg/Turm')));
+    });
+
+    test('Auflösen entfernt den leeren Ordner', () async {
+      final service = await _serviceWith([]);
+      await service.createProject('Spiel/Weg');
+      await service.dissolveProject('Spiel/Weg');
+      expect(service.emptyProjects, isNot(contains('Spiel/Weg')));
+    });
   });
 
   test('Ein Modell behält beim Verschieben sein Vorschaubild', () async {

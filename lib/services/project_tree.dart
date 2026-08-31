@@ -92,7 +92,14 @@ bool projectIsInside(String path, String folder) {
 /// [paths] ist ein Pfad je Eintrag (mehrfach vorkommende Pfade zählen
 /// mit). Ordner, die es nur als Zwischenebene gibt, entstehen dabei
 /// von selbst.
-List<ProjectNode> buildProjectTree(Iterable<String> paths) {
+///
+/// [empty] sind Ordner, die es geben soll, **ohne** dass etwas darin
+/// liegt. Ohne sie wäre ein frisch angelegtes Projekt unsichtbar, bis
+/// das erste Bild darin landet – man legt einen Ordner an und nichts
+/// passiert. Sie zählen nicht mit: Ein leerer Ordner enthält null
+/// Einträge, nicht einen.
+List<ProjectNode> buildProjectTree(Iterable<String> paths,
+    {Iterable<String> empty = const []}) {
   // Erst jede Ebene zählen, dann daraus den Baum falten.
   final direct = <String, int>{};
   final known = <String>{};
@@ -101,6 +108,11 @@ List<ProjectNode> buildProjectTree(Iterable<String> paths) {
     if (path.isEmpty) continue;
     direct[path] = (direct[path] ?? 0) + 1;
     for (final level in projectTrail(path)) {
+      known.add(level);
+    }
+  }
+  for (final raw in empty) {
+    for (final level in projectTrail(normalizeProject(raw))) {
       known.add(level);
     }
   }
