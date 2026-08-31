@@ -7,6 +7,7 @@ import 'screens/generator_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/three_d_screen.dart';
 import 'services/history_service.dart';
+import 'services/model_relay.dart';
 import 'services/prompt_relay.dart';
 import 'services/settings_service.dart';
 
@@ -36,6 +37,7 @@ class BildgeneratorApp extends StatelessWidget {
         ChangeNotifierProvider<SettingsService>.value(value: settings),
         ChangeNotifierProvider<HistoryService>.value(value: history),
         ChangeNotifierProvider<PromptRelay>(create: (_) => PromptRelay()),
+        ChangeNotifierProvider<ModelRelay>(create: (_) => ModelRelay()),
       ],
       child: Consumer<SettingsService>(
         builder: (context, settings, _) => MaterialApp(
@@ -77,6 +79,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   PromptRelay? _relay;
+  ModelRelay? _modelRelay;
 
   @override
   void didChangeDependencies() {
@@ -86,6 +89,11 @@ class _HomeShellState extends State<HomeShell> {
       _relay?.removeListener(_onPromptRelay);
       _relay = relay..addListener(_onPromptRelay);
     }
+    final models = context.read<ModelRelay>();
+    if (!identical(_modelRelay, models)) {
+      _modelRelay?.removeListener(_onModelRelay);
+      _modelRelay = models..addListener(_onModelRelay);
+    }
   }
 
   void _onPromptRelay() {
@@ -93,9 +101,15 @@ class _HomeShellState extends State<HomeShell> {
     if (mounted) setState(() => _index = 0);
   }
 
+  void _onModelRelay() {
+    // Eine Figur aus der Galerie soll Zubehör bekommen → in den 3D-Tab.
+    if (mounted) setState(() => _index = 1);
+  }
+
   @override
   void dispose() {
     _relay?.removeListener(_onPromptRelay);
+    _modelRelay?.removeListener(_onModelRelay);
     super.dispose();
   }
 

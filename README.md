@@ -935,6 +935,21 @@ werden entsprechend anders behandelt:
 - **„rider" steht im Negativ-Prompt.** Sonst kommt das Pferd mit
   Reiter, und der steckt danach im Netz.
 
+### Wo die Gegenstände zu finden sind
+
+An zwei Stellen, und die zweite ist die wichtigere:
+
+- **Im 3D-Tab** am frischen Ergebnis, über das ⋮-Menü neben „Export".
+- **In der Galerie** an jedem gespeicherten Modell: öffnen, dann der
+  Würfel-Knopf in der Werkzeugleiste. Die App wechselt in den 3D-Tab
+  und öffnet die Auswahl.
+
+Der zweite Weg war zuerst nicht da, und das war ein Fehler: Die
+Ergebnisliste des 3D-Tabs lebt nur im Arbeitsspeicher. Nach einem
+Neustart stand die Figur zwar noch in der Galerie, aber Zubehör dazu
+gab es nur, wenn man sie noch einmal erzeugte. Gesucht wird die
+Funktion am fertigen Modell – dort steht sie jetzt.
+
 ### Anprobe: Figur und Gegenstand zusammen
 
 Neben jedem erzeugten Gegenstand steht **„Anprobe"**. Dort stehen Figur
@@ -1910,6 +1925,7 @@ lib/
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
 │   ├── item_fit.dart          # Anprobe: Anbaupunkt, Maßstab, Transform
+│   ├── model_relay.dart       # Modell aus der Galerie in den 3D-Tab
 │   ├── item_prompt.dart       # Gegenstände zur Figur: Maßstab + Prompt
 │   ├── roblox_accessory.dart  # Accessory/Tool/Seat + Größengrenzen
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie

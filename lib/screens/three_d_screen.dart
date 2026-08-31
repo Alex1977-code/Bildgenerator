@@ -30,6 +30,7 @@ import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
+import '../services/model_relay.dart';
 import '../services/model_views.dart';
 import '../services/model_refine.dart';
 import '../services/glb_textures.dart';
@@ -1106,8 +1107,51 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   int get _promptSuffixChars =>
       tPoseExtraChars(_promptCtrl.text, wanted: _rigging || _tPose);
 
+  ModelRelay? _modelRelay;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final relay = context.read<ModelRelay>();
+    if (!identical(_modelRelay, relay)) {
+      _modelRelay?.removeListener(_onRelayedModel);
+      _modelRelay = relay..addListener(_onRelayedModel);
+    }
+    // Wartet schon eines (der Tab war beim Absenden nicht gebaut),
+    // gleich abholen.
+    if (relay.hasPending) _onRelayedModel();
+  }
+
+  /// Eine Figur aus der Galerie ist eingetroffen: als Ergebnis
+  /// aufnehmen und gleich den Gegenstands-Dialog öffnen. Genau dafür
+  /// wurde sie herübergereicht – ein stiller Eintrag in der Liste
+  /// wäre eine Sackgasse.
+  void _onRelayedModel() {
+    if (!mounted) return;
+    final pending = context.read<ModelRelay>().takePending();
+    if (pending == null) return;
+    final result = ThreeDResult(
+      glbBytes: pending.glb,
+      label: pending.label,
+      providerLabel: 'aus der Galerie',
+      rigged: false,
+      textured: false,
+    );
+    setState(() {
+      _results.insert(0, result);
+      if (pending.prompt.trim().isNotEmpty &&
+          _promptCtrl.text.trim().isEmpty) {
+        _promptCtrl.text = pending.prompt.trim();
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_running && !_itemRun) _generateItems(result);
+    });
+  }
+
   @override
   void dispose() {
+    _modelRelay?.removeListener(_onRelayedModel);
     _cancelRequested = true;
     _runTicker?.cancel();
     _promptCtrl.dispose();
@@ -6315,52 +6359,90 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 onTap: result.usableInApp
                     ? () => _openModelPreview(result)
                     : null,
+                // Zwei sichtbare Knöpfe statt sechs stummer Symbole.
+                // Was selten gebraucht wird, steht beschriftet im Menü:
+                // Auf dem Handy gibt es keine Tooltips, dort war die
+                // Symbolreihe schlicht nicht zu entziffern – und sie
+                // wechselte je nach Art des Ergebnisses auch noch die
+                // Bedeutung derselben Position.
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      tooltip: result.usableInApp
-                          ? '3D-Ansicht (frei drehbar)'
-                          : 'Die Ansicht liest GLB – '
-                              '${modelFormatLabel(result.format)} nicht',
-                      icon: const Icon(Icons.threed_rotation),
-                      onPressed: result.usableInApp
-                          ? () => _openModelPreview(result)
-                          : null,
-                    ),
-                    if (result.itemKindId != null) ...[
-                      IconButton(
-                        tooltip: 'Anprobe an der Figur – Größe und '
-                            'Drehung anpassen',
-                        icon: const Icon(Icons.straighten),
-                        onPressed: result.usableInApp
-                            ? () => _fitItem(result)
-                            : null,
-                      ),
-                      IconButton(
-                        tooltip: 'Für Roblox ausliefern (Accessory '
-                            'bzw. Tool mit Handle)',
-                        icon: const Icon(Icons.extension_outlined),
-                        onPressed: () => _exportRobloxItem(result),
-                      ),
-                    ] else
-                      IconButton(
-                        tooltip: 'Passende Gegenstände zu dieser Figur '
-                            'erzeugen',
-                        icon: const Icon(Icons.category_outlined),
-                        onPressed: _running || _itemRun
-                            ? null
-                            : () => _generateItems(result),
-                      ),
-                    IconButton(
-                      tooltip: 'Erstellungsnachweis (PDF)',
-                      icon: const Icon(Icons.workspace_premium_outlined),
-                      onPressed: () => _exportModelProvenance(result),
-                    ),
                     FilledButton.tonalIcon(
                       onPressed: () => _showExportMenu(result),
                       icon: const Icon(Icons.download, size: 18),
                       label: const Text('Export'),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Weitere Schritte',
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (value) => switch (value) {
+                        'ansicht' => _openModelPreview(result),
+                        'gegenstaende' => _generateItems(result),
+                        'anprobe' => _fitItem(result),
+                        'roblox' => _exportRobloxItem(result),
+                        'nachweis' => _exportModelProvenance(result),
+                        _ => null,
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'ansicht',
+                          enabled: result.usableInApp,
+                          child: const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.threed_rotation),
+                            title: Text('3D-Ansicht'),
+                            subtitle: Text('Frei drehen, Skelett, '
+                                'Animationen'),
+                          ),
+                        ),
+                        if (result.itemKindId == null)
+                          PopupMenuItem(
+                            value: 'gegenstaende',
+                            enabled: !_running && !_itemRun,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.category_outlined),
+                              title: Text('Passende Gegenstände'),
+                              subtitle: Text('Schwert, Helm, Reittier – '
+                                  'im Stil dieser Figur'),
+                            ),
+                          )
+                        else ...[
+                          PopupMenuItem(
+                            value: 'anprobe',
+                            enabled: result.usableInApp,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.straighten),
+                              title: Text('Anprobe an der Figur'),
+                              subtitle:
+                                  Text('Größe und Drehung anpassen'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'roblox',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.extension_outlined),
+                              title: Text('Für Roblox ausliefern'),
+                              subtitle: Text('GLB, Lua-Skript und '
+                                  'Anleitung'),
+                            ),
+                          ),
+                        ],
+                        const PopupMenuItem(
+                          value: 'nachweis',
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading:
+                                Icon(Icons.workspace_premium_outlined),
+                            title: Text('Erstellungsnachweis'),
+                            subtitle: Text('PDF mit Zeitpunkt und '
+                                'Prüfsumme'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

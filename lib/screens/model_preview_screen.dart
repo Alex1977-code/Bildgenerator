@@ -19,6 +19,7 @@ import '../services/rig_detect.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
+import '../services/model_relay.dart';
 import '../services/model_import.dart';
 import '../services/model_refine.dart' show rotateGlbQuarterTurns;
 import '../services/obj_export.dart';
@@ -269,6 +270,22 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               icon: const Icon(Icons.auto_fix_high),
               onPressed: _addRig,
             ),
+          // Zubehör zu dieser Figur. Steht auch hier, nicht nur an der
+          // Ergebnisliste des 3D-Tabs: Die lebt nur im
+          // Arbeitsspeicher, und nach einem Neustart sucht man die
+          // Funktion am fertigen Modell in der Galerie – zu Recht.
+          IconButton(
+            tooltip: 'Passende Gegenstände zu dieser Figur erzeugen',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () {
+              context.read<ModelRelay>().send(
+                    glb: widget.glbBytes,
+                    label: widget.title,
+                    prompt: widget.provenance?.description ?? '',
+                  );
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+          ),
           // Importierte Dateien aus Blender/CAD stehen oft z-up und
           // liegen dadurch auf der Seite – hier lässt sich das
           // dauerhaft geraderücken (wirkt auch im Export).
