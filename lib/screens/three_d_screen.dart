@@ -1928,13 +1928,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (!mounted) return;
     // Läuft gerade eine Reihe von Gegenständen, gehört die Art zum
     // Ergebnis – daran hängen Anprobe und Roblox-Export.
-    final itemKindId = _itemRun ? _itemKind?.id : null;
+    final itemKind = _itemRun ? _itemKind : null;
+    final itemKindId = itemKind?.id;
+    // Als Bezeichnung setzt der Lauf den Prompt ein. Bei einer Figur
+    // ist das brauchbar, bei einem Gegenstand nicht: Dessen Prompt ist
+    // eine Aufzählung von über 400 Zeichen, und die stand danach in
+    // der Liste, in der Galerie und – schlimmer – als `Tool.Name` im
+    // Lua-Skript für Roblox. Der Gegenstand heißt nach seiner Art; der
+    // Prompt bleibt als Angabe daneben erhalten.
+    final anzeige = itemKind == null ? label : itemKind.label;
     setState(() {
       _results.insert(
         0,
         ThreeDResult(
           glbBytes: glbBytes,
-          label: label,
+          label: anzeige,
           providerLabel: providerLabel,
           thumbnailBytes: thumbnail,
           rigged: rigged,
@@ -1957,9 +1965,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     context.read<HistoryService>().addModel(
       glbBytes: glbBytes,
       thumbnail: thumbnail,
-      label: label,
+      label: anzeige,
       providerLabel: providerLabel,
       params: {
+        if (itemKind != null) 'Gegenstand': itemKind.label,
+        if (itemKind != null) 'Prompt': label,
         'Texturiert': textured ? 'ja' : 'nein',
         'Rigging': rigged ? 'ja' : 'nein',
         if (format != ModelFormat.glb) 'Format': modelFormatLabel(format),

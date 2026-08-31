@@ -203,6 +203,44 @@ Future<AccessoryFit> checkAccessoryFit(Uint8List glb, ItemKind kind,
       studsPerUnit: studsPerUnit);
 }
 
+/// Die Länge, ab der eine Bezeichnung kein Name mehr ist, sondern
+/// eine Beschreibung.
+const robloxMaxNameLength = 40;
+
+/// Ein Name, mit dem Roblox etwas anfangen kann.
+///
+/// Die Bezeichnung eines Ergebnisses ist in dieser App der Prompt. Bei
+/// einem Gegenstand sind das mehrere hundert Zeichen mit Kommas und
+/// Anführungszeichen („one-handed sword with a straight blade, simple
+/// crossguard …"). Ungeprüft landete das als `Tool.Name` im Rucksack
+/// der Figur – und das Anführungszeichen darin beendete die
+/// Lua-Zeichenkette mittendrin, das Skript ließ sich gar nicht mehr
+/// ausführen.
+///
+/// Deshalb: Zeilenumbrüche und Steuerzeichen zu Leerzeichen,
+/// Anführungszeichen und Backslashes raus, und alles, was nach einer
+/// Aufzählung aussieht (ein Komma) oder länger als
+/// [robloxMaxNameLength] ist, gilt als Beschreibung – dann greift
+/// [fallback], in der Regel die Art des Gegenstands.
+String robloxInstanceName(String raw, {required String fallback}) {
+  final name = _flacherName(raw);
+  final istBeschreibung =
+      name.contains(',') || name.length > robloxMaxNameLength;
+  if (name.isEmpty || istBeschreibung) {
+    final ersatz = _flacherName(fallback);
+    return ersatz.isEmpty ? 'Gegenstand' : ersatz;
+  }
+  return name;
+}
+
+/// Eine Zeile ohne Umbrüche, ohne Anführungszeichen, ohne Backslash –
+/// damit lässt sie sich gefahrlos in eine Lua-Zeichenkette setzen.
+String _flacherName(String raw) => raw
+    .replaceAll(RegExp(r'[\x00-\x1f]'), ' ')
+    .replaceAll(RegExp(r'["\\]'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
 /// Lua-Skript, das aus einem importierten Mesh die richtige Hülle
 /// baut – in Studio in die Befehlszeile einfügen und ausführen.
 ///
@@ -213,7 +251,7 @@ Future<AccessoryFit> checkAccessoryFit(Uint8List glb, ItemKind kind,
 /// Schritte, bei denen jeder Tippfehler im Namen dazu führt, dass das
 /// Teil beim Anziehen im Boden landet – ohne Fehlermeldung.
 String robloxItemLua(ItemKind kind, {String meshName = ''}) {
-  final name = meshName.trim().isEmpty ? kind.label : meshName.trim();
+  final name = robloxInstanceName(meshName, fallback: kind.label);
   final attachment = robloxAttachmentFor(kind.robloxAccessoryType);
   final kopf = '-- 3DGenerator: "${kind.label}" in Roblox anlegen\n'
       '-- Das importierte Mesh (MeshPart) im Arbeitsbereich auswaehlen\n'
@@ -270,7 +308,7 @@ String robloxItemLua(ItemKind kind, {String meshName = ''}) {
         'teil.Parent = werkzeug\n'
         'werkzeug.Parent = game.StarterPack\n'
         '\n'
-        'print("Fertig: Tool \\\\"$name\\\\" liegt in StarterPack. Griff "\n'
+        'print("Fertig: Tool \\"$name\\" liegt in StarterPack. Griff "\n'
         '\t.. "bei Bedarf ueber werkzeug.Grip nachjustieren.")\n';
   }
 
@@ -296,7 +334,7 @@ String robloxItemLua(ItemKind kind, {String meshName = ''}) {
       '\n'
       'zubehoer.Parent = game.Workspace\n'
       '\n'
-      'print("Fertig: Accessory \\\\"$name\\\\" '
+      'print("Fertig: Accessory \\"$name\\" '
       '(${kind.robloxAccessoryType}) mit "\n'
       '\t.. "$attachment. Lage im Accessory Fitting Tool feinjustieren.")\n';
 }

@@ -1104,6 +1104,17 @@ beim `Tool`: Ohne ein Teil namens genau `Handle` nimmt die Figur nichts
 in die Hand. Die Namen stammen aus der offiziellen Tabelle, ein Test
 schreibt sie fest.
 
+Der **Name des Gegenstands** selbst ist die Art – „Schwert", „Helm",
+„Reitpferd". Das ist bewusst kurz: Er steht im Rucksack der Figur und
+im Explorer von Studio. Die Bezeichnung eines Laufs ist in dieser App
+sonst der Prompt, und der ist bei einem Gegenstand eine Aufzählung von
+mehreren hundert Zeichen mit Anführungszeichen darin – als Name
+unbrauchbar, und im Lua-Skript hätte das Anführungszeichen die
+Zeichenkette mittendrin beendet. Ein selbst vergebener kurzer Name
+bleibt stehen; alles, was nach einer Beschreibung aussieht (ein Komma
+oder mehr als 40 Zeichen), weicht der Art. Der volle Prompt bleibt in
+der Galerie neben dem Modell stehen.
+
 ### Größenprüfung vor dem Hochladen
 
 Starre Accessoires haben je Art feste Höchstmaße in Studs. Die App

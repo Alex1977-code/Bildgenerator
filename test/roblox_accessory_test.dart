@@ -131,6 +131,54 @@ void main() {
     });
   });
 
+  group('Der Name im Lua-Skript', () {
+    // Aus der echten Auslieferung: In schwert.lua stand der komplette
+    // Tripo-Prompt als werkzeug.Name – 461 Zeichen, mit
+    // Anführungszeichen mittendrin. Das Tool hieße im Rucksack so, und
+    // das Skript ließe sich wegen der abgebrochenen Zeichenkette gar
+    // nicht erst ausführen.
+    const prompt = 'one-handed sword with a straight blade, simple '
+        'crossguard and wrapped grip, "hero" proportions, even neutral '
+        'lighting, plain flat background';
+
+    test('Ein Prompt wird nicht zum Namen', () {
+      final lua = robloxItemLua(itemKindById('schwert')!, meshName: prompt);
+      expect(lua, contains('werkzeug.Name = "Schwert"'));
+      expect(lua, isNot(contains('crossguard')));
+    });
+
+    test('Ein echter Name bleibt stehen', () {
+      final lua =
+          robloxItemLua(itemKindById('schwert')!, meshName: 'Flammenklinge');
+      expect(lua, contains('werkzeug.Name = "Flammenklinge"'));
+    });
+
+    test('Anführungszeichen und Umbrüche kommen nicht ins Skript', () {
+      final lua = robloxItemLua(itemKindById('hut')!,
+          meshName: 'Kappe "gut"\nschief\\');
+      expect(lua, contains('zubehoer.Name = "Kappe gut schief"'));
+      // Keine Zeile mit einem Anführungszeichen, das die Zeichenkette
+      // vorzeitig beendet: nach dem Entschärfen ist jedes " im Skript
+      // entweder ein Begrenzer oder mit genau einem \ maskiert.
+      expect(lua, isNot(contains(r'\\"')));
+    });
+
+    test('robloxInstanceName trennt Name von Beschreibung', () {
+      expect(robloxInstanceName('Schwert', fallback: 'X'), 'Schwert');
+      expect(robloxInstanceName('  ', fallback: 'Axt'), 'Axt');
+      expect(robloxInstanceName('a, b', fallback: 'Axt'), 'Axt');
+      expect(robloxInstanceName('x' * 41, fallback: 'Axt'), 'Axt');
+      expect(robloxInstanceName('x' * 40, fallback: 'Axt'), 'x' * 40);
+      expect(robloxInstanceName('"', fallback: '"'), 'Gegenstand');
+    });
+
+    test('Auch das Reittier bekommt einen kurzen Namen', () {
+      final lua =
+          robloxItemLua(itemKindById('reitpferd')!, meshName: prompt);
+      expect(lua, contains('modell.Name = "Reitpferd"'));
+    });
+  });
+
   group('Die Beilage', () {
     test('Nennt den Attachment-Namen und warnt vor dem falschen', () {
       final text = robloxItemReadme(itemKindById('rucksack')!);
@@ -154,6 +202,7 @@ void main() {
       expect(boot, isNot(contains('Skelett')));
       expect(text, contains('Kein Accessoire'));
     });
+
 
     test('Die Größenprüfung wird angehängt, wenn es sie gibt', () {
       final fit =
