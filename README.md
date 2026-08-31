@@ -903,9 +903,9 @@ Anker ist immer die zuletzt angetippte Kachel; ist sie inzwischen aus
 der Ansicht verschwunden, markiert der Umschalt-Klick nur sich selbst,
 statt einen Bereich zu raten.
 
-Unter „Einsortieren …" steht jedes vorhandene Projekt, ein neues, ein
-Unterordner im gerade geöffneten Ordner — oder „Ohne Projekt", um
-wieder herauszusortieren.
+Unter „Einsortieren …" steht jedes vorhandene Projekt — auch ein eben
+angelegter, noch leerer Ordner —, ein neues, ein Unterordner im gerade
+geöffneten Ordner, oder „Ohne Projekt", um wieder herauszusortieren.
 
 **„Ohne Projekt"** in der Ordnerleiste ist ein Filter: Ein Klick zeigt
 nur noch die Einträge, die in keinem Projekt liegen — genau die, die

@@ -192,6 +192,17 @@ class _GalleryScreenState extends State<GalleryScreen> {
     return name.isEmpty ? null : name;
   }
 
+  /// Alle Ordner, die es gibt – jede Ebene einzeln.
+  ///
+  /// Ein Ordner entsteht auf zwei Wegen: weil ein Eintrag darin liegt,
+  /// oder weil jemand ihn angelegt hat und er noch leer ist. Wer nur
+  /// die Pfade der Einträge nimmt, übersieht genau die zweite Sorte –
+  /// der eben angelegte Ordner fehlte dann in „Einsortieren …".
+  Set<String> _knownProjects(HistoryService history) => {
+        for (final path in [...history.projectPaths, ...history.emptyProjects])
+          for (final level in projectTrail(path)) level,
+      };
+
   /// Die ausgewählten Einträge in einen Ordner legen. Zur Auswahl
   /// stehen alle vorhandenen Ordner, „hierher" und ein neuer.
   Future<void> _sortSelected(HistoryService history) async {
@@ -200,10 +211,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         if (_selected.contains(entry.id)) entry,
     ];
     if (selected.isEmpty) return;
-    final known = <String>{
-      for (final path in history.projectPaths)
-        for (final level in projectTrail(path)) level,
-    };
+    final known = _knownProjects(history);
     final options = known.toList()..sort();
     final target = await showDialog<String>(
       context: context,
@@ -307,10 +315,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final drin = _folder.isEmpty ? '' : ' in „$_folder"';
     final name = await _askName('Neues Projekt$drin');
     if (name == null || !mounted) return;
-    final known = <String>{
-      for (final path in [...history.projectPaths, ...history.emptyProjects])
-        for (final level in projectTrail(path)) level,
-    };
+    final known = _knownProjects(history);
     final path = uniqueProject(
         _folder.isEmpty ? name : '$_folder/$name', known);
     await history.createProject(path);
