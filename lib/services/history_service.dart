@@ -5,6 +5,7 @@ import '../models/models.dart';
 import 'history/history_store_base.dart';
 import 'history/history_store_memory.dart'
     if (dart.library.io) 'history/history_store_io.dart' as store_impl;
+import 'project_tree.dart';
 
 /// Verwaltet den Verlauf generierter Bilder (Galerie).
 class HistoryService extends ChangeNotifier {
@@ -137,6 +138,62 @@ class HistoryService extends ChangeNotifier {
       _rememberInCache(entry.id, bytes);
     }
     return bytes;
+  }
+
+  /// Alle vergebenen Projektpfade – Grundlage für den Ordnerbaum.
+  List<String> get projectPaths =>
+      [for (final entry in _entries) entry.project];
+
+  /// Einträge in ein Projekt verschieben (leerer Pfad = wieder heraus).
+  ///
+  /// Verschoben wird nur der Pfad im Eintrag; die Dateien bleiben, wo
+  /// sie liegen. Ein falsch einsortiertes Bild ist damit ein Klick
+  /// zurück, ohne dass etwas kopiert oder verloren gehen kann.
+  Future<void> moveToProject(
+      Iterable<HistoryEntry> entries, String project) async {
+    final target = normalizeProject(project);
+    final ids = {for (final entry in entries) entry.id};
+    var changed = false;
+    for (var i = 0; i < _entries.length; i++) {
+      if (ids.contains(_entries[i].id) && _entries[i].project != target) {
+        _entries[i] = _entries[i].withProject(target);
+        changed = true;
+      }
+    }
+    if (changed) await _persistIndex();
+  }
+
+  /// Einen Ordner samt Unterordnern umbenennen oder verschieben.
+  /// Leeres [replacement] holt alles auf die oberste Ebene.
+  Future<void> renameProject(String from, String replacement) async {
+    final old = normalizeProject(from);
+    if (old.isEmpty) return;
+    var changed = false;
+    for (var i = 0; i < _entries.length; i++) {
+      final path = _entries[i].project;
+      final moved = reparentProject(path, old, replacement);
+      if (moved != path) {
+        _entries[i] = _entries[i].withProject(moved);
+        changed = true;
+      }
+    }
+    if (changed) await _persistIndex();
+  }
+
+  /// Einen Ordner auflösen: Die Einträge bleiben, sie liegen danach
+  /// eine Ebene höher. Löschen tut dieser Weg nichts – dafür ist
+  /// [delete] da, und das soll man nicht versehentlich auslösen, wenn
+  /// man nur aufräumen wollte.
+  Future<void> dissolveProject(String path) =>
+      renameProject(path, parentProject(path));
+
+  Future<void> _persistIndex() async {
+    try {
+      await _store.saveIndex(_entries);
+    } catch (_) {
+      // Ohne Persistenz gilt die Änderung für diese Sitzung.
+    }
+    notifyListeners();
   }
 
   Future<void> delete(HistoryEntry entry) async {

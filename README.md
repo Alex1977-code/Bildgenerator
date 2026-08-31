@@ -651,6 +651,45 @@ wird `bld-02-bakery.png`. Ohne eigenen Namen bleibt es bei der
 Kennung. Zeichen, die Windows in Dateinamen nicht erlaubt, werden
 ersetzt.
 
+## Galerie: Projekte und Ordner
+
+Bilder und Modelle lassen sich in **Projekte** einsortieren, mit
+beliebig tiefer Ordnerstruktur: „Burgenspiel", „Burgenspiel/Gebäude",
+„Burgenspiel/Gebäude/Türme". Nach einem Massenlauf mit 43 Blöcken ist
+das der Unterschied zwischen einer Wand aus Kacheln und einer Ablage,
+in der man etwas wiederfindet.
+
+**So geht es.** Eine Kachel **lange drücken** (Maus: gedrückt halten)
+markiert sie; danach markiert jeder weitere Klick, statt zu öffnen.
+Über der Liste steht dann „*n* ausgewählt" mit **„Einsortieren …"** —
+dort ein vorhandenes Projekt wählen, ein **neues anlegen**, einen
+**Unterordner im gerade geöffneten Ordner** anlegen oder auf „Ohne
+Projekt" wieder heraussortieren. „Alle markieren" nimmt alles, was
+gerade angezeigt wird — zusammen mit der Suche also z. B. alle `burg-`
+auf einmal.
+
+**Die Ordnerleiste** ganz oben zeigt den Weg („Alle › Burgenspiel ›
+Gebäude") und darunter die Unterordner der aktuellen Ebene mit ihrer
+Anzahl. Ein Klick geht hinein, ein Klick auf eine Ebene im Weg zurück.
+Ein Ordner zeigt **alles, was darin oder darunter liegt** — wer
+„Burgenspiel" öffnet, sieht auch die Türme. Über das **⋯** neben dem
+Weg (oder langes Drücken auf eine Ebene) lässt sich ein Ordner
+**umbenennen** — Unterordner wandern mit — oder **auflösen**: Der
+Inhalt rutscht eine Ebene höher. Auflösen löscht nichts; zum Löschen
+gibt es weiterhin nur den Papierkorb an der einzelnen Kachel.
+
+**Es sind keine echten Ordner auf der Platte.** Der Eintrag merkt sich
+nur seinen Pfad, die Datei bleibt liegen, wo die App sie abgelegt hat.
+Deshalb kann Umsortieren nichts verlieren und ist immer einen Klick
+zurückzunehmen. Beim Herunterladen taucht der Ordner nicht auf —
+Browser und Teilen-Menü nehmen ohnehin nur einen Dateinamen. Die
+Einsortierung bleibt gespeichert (in der Web-Version nur für die
+laufende Sitzung, wie der übrige Verlauf).
+
+Verglichen wird ebenenweise, nicht als Textanfang: Ein Ordner „Burg"
+schließt „Burgenspiel" **nicht** ein — beim Umbenennen von „Burg" bleibt
+„Burgenspiel" unberührt.
+
 ## Aus den eigenen Läufen lernen
 
 Die App merkt sich zu jedem 3D-Modell, mit welchen Einstellungen es
@@ -1458,6 +1497,7 @@ lib/
 │   ├── generators.dart        # OpenAI- & Stability-Anbindung (austauschbar)
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
+│   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
 │   └── exporter.dart          # Speichern/Teilen/Download je Plattform
 └── widgets/common.dart        # Schachbrett-Transparenzvorschau u. a.
 ```

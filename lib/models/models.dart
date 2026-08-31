@@ -213,6 +213,7 @@ class HistoryEntry {
     this.kind = 'image',
     this.thumbFileName,
     this.name = '',
+    this.project = '',
   });
 
   final String id;
@@ -236,8 +237,30 @@ class HistoryEntry {
   /// Galerie zu finden. Leer = ohne Namen erzeugt.
   final String name;
 
+  /// Projektpfad in der Galerie, etwa „Burgenspiel/Gebäude". Leer =
+  /// noch nicht einsortiert. Die Ebenen trennt ein Schrägstrich; der
+  /// Pfad ist nur eine Ordnung in der Anzeige, keine Ordnerstruktur
+  /// auf der Platte – so lässt sich ein Bild jederzeit umsortieren,
+  /// ohne dass Dateien verschoben werden.
+  final String project;
+
   /// Was in der Galerie über dem Bild steht.
   String get title => name.isNotEmpty ? name : prompt;
+
+  /// Dieselbe Datei in einem anderen Projekt.
+  HistoryEntry withProject(String path) => HistoryEntry(
+        id: id,
+        prompt: prompt,
+        providerLabel: providerLabel,
+        createdAt: createdAt,
+        params: params,
+        format: format,
+        fileName: fileName,
+        kind: kind,
+        thumbFileName: thumbFileName,
+        name: name,
+        project: path,
+      );
 
   bool get isModel => kind == 'model';
 
@@ -271,6 +294,7 @@ class HistoryEntry {
         'kind': kind,
         'thumbFileName': thumbFileName,
         'name': name,
+        if (project.isNotEmpty) 'project': project,
       };
 
   static HistoryEntry fromJson(Map<String, dynamic> json) => HistoryEntry(
@@ -287,6 +311,7 @@ class HistoryEntry {
         kind: json['kind'] as String? ?? 'image',
         thumbFileName: json['thumbFileName'] as String?,
         name: json['name'] as String? ?? '',
+        project: json['project'] as String? ?? '',
       );
 
   static String encodeList(List<HistoryEntry> entries) =>
