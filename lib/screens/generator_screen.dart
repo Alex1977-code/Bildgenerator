@@ -15,6 +15,7 @@ import '../services/generators.dart';
 import '../services/history_service.dart';
 import '../services/model_catalog.dart';
 import '../services/cost_estimator.dart';
+import '../services/prompt_drop.dart';
 import '../services/prompt_relay.dart';
 import '../services/quality_preset.dart';
 import '../services/provenance.dart';
@@ -73,6 +74,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   String? _usageInfo;
   bool _generating = false;
   bool _dragOverReferences = false;
+
+  /// Liegt gerade eine Datei über dem Prompt-Feld?
+  bool _dragOverPrompt = false;
   String? _error;
   PromptRelay? _relay;
 
@@ -1438,12 +1442,36 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             'Diffusion liest alles als eine Stichwortliste – für die '
             'eigene GPU besser ein durchgehender, dichter Satz.',
     ];
-    return Card(
+    return DropTarget(
+      enable: !_generating &&
+          widget.isActive &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
+      onDragEntered: (_) => setState(() => _dragOverPrompt = true),
+      onDragExited: (_) => setState(() => _dragOverPrompt = false),
+      onDragDone: (detail) => _dropPromptFiles(detail.files, _promptCtrl),
+      child: Card(
+      shape: _dragOverPrompt
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                  color: theme.colorScheme.primary, width: 2),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_dragOverPrompt)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Text- oder Markdown-Datei hier ablegen – der Inhalt '
+                  'wird angehängt.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.primary),
+                ),
+              ),
             TextField(
               controller: _promptCtrl,
               minLines: 2,
@@ -1526,7 +1554,46 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           ],
         ),
       ),
+    ),
     );
+  }
+
+  /// Abgelegte Text- und Markdown-Dateien in ein Prompt-Feld
+  /// übernehmen.
+  ///
+  /// Prompts entstehen selten in der App – sie kommen aus einer
+  /// Prompt-KI oder einer Datei mit den Beschreibungen eines ganzen
+  /// Spiel-Sets. Bei einem Massenprompt über mehrere Bildschirmseiten
+  /// ist Kopieren-und-Einfügen fehleranfällig.
+  Future<void> _dropPromptFiles(
+      List<XFile> files, TextEditingController target) async {
+    setState(() => _dragOverPrompt = false);
+    final messenger = ScaffoldMessenger.of(context);
+    final accepted = <String>[];
+    final rejected = <String>[];
+    var text = target.text;
+    for (final file in files) {
+      if (!isPromptTextFile(file.name)) {
+        rejected.add(file.name);
+        continue;
+      }
+      try {
+        text = appendPromptText(text, await file.readAsString());
+        accepted.add(file.name);
+      } catch (e) {
+        rejected.add('${file.name} ($e)');
+      }
+    }
+    if (!mounted) return;
+    if (accepted.isNotEmpty) {
+      setState(() {
+        target.text = text;
+        target.selection =
+            TextSelection.collapsed(offset: text.length);
+      });
+    }
+    messenger.showSnackBar(SnackBar(
+        content: Text(promptDropSummary(accepted, rejected))));
   }
 
   Widget _buildReferenceCard(bool supportsReferences) {

@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +7,7 @@ import '../services/glb_preview.dart';
 import '../services/item_fit.dart';
 import '../services/item_prompt.dart';
 import '../services/roblox_accessory.dart';
+import '../widgets/mesh_painter.dart';
 
 /// Figur und Gegenstand zusammen – und der Gegenstand daran anpassbar.
 ///
@@ -48,6 +48,11 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
   double _figureHeight = 1;
   double _itemLongest = 1;
   AccessoryFit? _fit;
+
+  /// Deckkraft der Figur. Voreingestellt halb durchsichtig: So ist
+  /// zu sehen, wo am Körper man ist, und der Gegenstand bleibt auch
+  /// dann erkennbar, wenn er dahinter oder darin liegt.
+  double _figureOpacity = 0.5;
 
   double _rotX = -0.2;
   double _rotY = 0.6;
@@ -165,6 +170,40 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
     return (minX, maxX, minY, maxY, minZ, maxZ);
   }
 
+  /// Die Punkte des Gegenstands an ihrem Platz – für die Anzeige.
+  Float32List _placedPositions(PreviewMesh item) {
+    final p = _world;
+    final out = Float32List(item.positions.length);
+    for (var i = 0; i + 2 < item.positions.length; i += 3) {
+      final (x, y, z) = applyPlacement(p, item.positions[i],
+          item.positions[i + 1], item.positions[i + 2]);
+      out[i] = x;
+      out[i + 1] = y;
+      out[i + 2] = z;
+    }
+    return out;
+  }
+
+  /// Die Normalen dazu: nur drehen, nicht verschieben und nicht
+  /// skalieren – eine Richtung hat keinen Ort, und eine skalierte
+  /// Normale wäre kein Einheitsvektor mehr.
+  Float32List _placedNormals(PreviewMesh item) {
+    final only = ItemPlacement(
+      rotX: _placement.rotX,
+      rotY: _placement.rotY,
+      rotZ: _placement.rotZ,
+    );
+    final out = Float32List(item.normals.length);
+    for (var i = 0; i + 2 < item.normals.length; i += 3) {
+      final (x, y, z) = applyPlacement(only, item.normals[i],
+          item.normals[i + 1], item.normals[i + 2]);
+      out[i] = x;
+      out[i + 1] = y;
+      out[i + 2] = z;
+    }
+    return out;
+  }
+
   /// Die Platzierung inklusive Anbaupunkt: Die Regler verschieben
   /// gegenüber dem Gelenk, nicht gegenüber dem Ursprung.
   ItemPlacement get _world => _placement.copyWith(
@@ -175,15 +214,11 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
 
   void _apply() {
     try {
-      Navigator.of(context).pop(applyPlacementToGlb(
-        widget.itemGlb,
-        // Für die Datei zählt nur die Größe und die Drehung: Wohin am
-        // Körper der Gegenstand gehört, entscheidet in Roblox das
-        // Attachment und in Blender der Nutzer. Die Verschiebung zum
-        // Gelenk gehört deshalb nicht in die Datei – sonst schwebt das
-        // Accessoire beim Anziehen um die eigene Anbauhöhe daneben.
-        _placement.copyWith(offsetX: 0, offsetY: 0, offsetZ: 0),
-      ));
+      // Alles drei kommt in die Datei: Größe, Drehung und der Versatz
+      // zum Anbaupunkt. Der Versatz ist genau das, was das Attachment
+      // in Roblox braucht – ohne ihn wäre die Anprobe Zierde.
+      Navigator.of(context).pop(
+          applyPlacementToGlb(widget.itemGlb, _placement));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Übernehmen fehlgeschlagen: '
@@ -245,15 +280,17 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
                             painter: _FitPainter(
                               figure: figure,
                               item: item,
+                              itemPositions: _placedPositions(item),
+                              itemNormals: _placedNormals(item),
                               placement: _world,
                               anchor: _anchor,
+                              figureOpacity: _figureOpacity,
                               rotX: _rotX,
                               rotY: _rotY,
                               zoom: _zoom,
                               background: theme
                                   .colorScheme.surfaceContainerHighest,
-                              figureColor: theme.colorScheme.outline,
-                              itemColor: theme.colorScheme.primary,
+                              markColor: theme.colorScheme.primary,
                             ),
                             size: Size.infinite,
                           ),
@@ -291,6 +328,9 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
                   ),
                 ),
               ),
+            _slider(theme, 'Figur sichtbar', _figureOpacity, 0.0, 1.0,
+                (v) => _figureOpacity = v,
+                format: (v) => '${(v * 100).round()} %'),
             _slider(theme, 'Größe', _placement.scale, 0.05, 3.0,
                 (v) => _placement = _placement.copyWith(scale: v),
                 format: (v) => '×${v.toStringAsFixed(2)}'),
@@ -313,13 +353,43 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
                 (v) => _placement = _placement.copyWith(rotZ: v),
                 format: _grad),
             const SizedBox(height: 4),
-            Text(
-              'Übernommen werden Größe und Drehung – sie stecken danach '
-              'in der Datei des Gegenstands. Die Verschiebung gilt nur '
-              'für diese Anprobe: Wohin am Körper das Teil gehört, '
-              'entscheidet in Roblox das Attachment.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
+            Card(
+              margin: EdgeInsets.zero,
+              color: theme.colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Was „Übernehmen" tut',
+                        style: theme.textTheme.labelLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Größe, Drehung und Versatz werden in die Punkte '
+                      'des Gegenstands gerechnet und als neue Fassung '
+                      'gespeichert – in der Ergebnisliste und in der '
+                      'Galerie als „(angepasst)". Das ursprüngliche '
+                      'Modell bleibt daneben erhalten, nichts wird '
+                      'überschrieben.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Der Versatz ist der zum Anbaupunkt. In Roblox '
+                      'fällt das Attachment im Handle mit dem Punkt am '
+                      'Körper zusammen – der Abstand, den du hier '
+                      'einstellst, ist also genau der Abstand am '
+                      'fertigen Avatar. Die Figur hier ist eine '
+                      'Näherung: Ihr Kopfgelenk liegt nicht auf den '
+                      'Millimeter dort, wo Roblox sein '
+                      'HatAttachment hat. Für den Feinschliff gibt es '
+                      'in Studio das Accessory Fitting Tool.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.outline),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -327,7 +397,7 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
               child: FilledButton.icon(
                 onPressed: _apply,
                 icon: const Icon(Icons.check),
-                label: const Text('Größe und Drehung übernehmen'),
+                label: const Text('Größe, Drehung und Lage übernehmen'),
               ),
             ),
           ],
@@ -369,144 +439,100 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
 
 /// Zeichnet Figur und Gegenstand im selben Maßstab.
 ///
-/// Flächig, ohne Textur: Beim Anpassen zählt die Silhouette – wo sitzt
-/// es, wie groß, steht es richtig herum. Eine Textur würde genau das
-/// überdecken. Beide Netze werden in einer gemeinsamen Tiefensortierung
-/// gezeichnet, sonst läge der Gegenstand immer vor oder immer hinter
-/// der Figur.
+/// Beide über denselben Renderer wie der Viewer – mit Textur, Licht
+/// und allem. Die erste Fassung zeichnete flache Silhouetten; an
+/// einer grauen Fläche ließ sich aber nicht erkennen, wo an der Figur
+/// man eigentlich ist. Die Figur lässt sich stattdessen **durchsichtig
+/// stellen**: Dann sieht man den Gegenstand auch, wenn er dahinter
+/// oder darin liegt.
+///
+/// Beide Netze bekommen denselben Mittelpunkt und dieselbe
+/// Ausdehnung übergeben – sonst zeichnete jedes für sich
+/// formatfüllend, und ein Schwert sähe so groß aus wie die Figur.
 class _FitPainter extends CustomPainter {
   _FitPainter({
     required this.figure,
     required this.item,
+    required this.itemPositions,
+    required this.itemNormals,
     required this.placement,
     required this.anchor,
+    required this.figureOpacity,
     required this.rotX,
     required this.rotY,
     required this.zoom,
     required this.background,
-    required this.figureColor,
-    required this.itemColor,
+    required this.markColor,
   });
 
   final PreviewMesh figure;
   final PreviewMesh item;
+
+  /// Der Gegenstand, bereits an seinen Platz gerechnet.
+  final Float32List itemPositions;
+  final Float32List itemNormals;
+
   final ItemPlacement placement;
   final (double, double, double) anchor;
+  final double figureOpacity;
   final double rotX, rotY, zoom;
-  final Color background, figureColor, itemColor;
+  final Color background, markColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = background);
-    final cosY = math.cos(rotY), sinY = math.sin(rotY);
-    final cosX = math.cos(rotX), sinX = math.sin(rotX);
-    final scale =
-        0.42 * math.min(size.width, size.height) / figure.extent * zoom;
-    final cx = size.width / 2, cy = size.height / 2;
-    final centerX = figure.center[0],
-        centerY = figure.center[1],
-        centerZ = figure.center[2];
+    // Gemeinsamer Bezug: die Figur. Sie gibt Maßstab und Mitte vor.
+    final center = figure.center;
+    final extent = figure.extent;
 
-    (double, double, double) project(double x0, double y0, double z0) {
-      final x = x0 - centerX, y = y0 - centerY, z = z0 - centerZ;
-      final x1 = x * cosY + z * sinY;
-      final z1 = -x * sinY + z * cosY;
-      final y2 = y * cosX - z1 * sinX;
-      final z2 = y * sinX + z1 * cosX;
-      return (cx + x1 * scale, cy - y2 * scale, z2);
-    }
+    MeshPainter(
+      mesh: figure,
+      positions: figure.positions,
+      normals: figure.normals,
+      skeleton: null,
+      skeletonParents: null,
+      rotX: rotX,
+      rotY: rotY,
+      zoom: zoom,
+      background: background,
+      viewCenter: center,
+      viewExtent: extent,
+      opacity: figureOpacity,
+    ).paint(canvas, size);
 
-    // Alle Dreiecke beider Netze in einen Topf – nur so stimmt die
-    // Verdeckung zwischen Figur und Gegenstand. Gezeichnet wird alles
-    // in **einem** `drawVertices`-Aufruf: Ein Pfad je Dreieck wären
-    // bei zwei Modellen zu je zehntausend Dreiecken zwanzigtausend
-    // Zeichenbefehle pro Bild – das ruckelt beim Ziehen sichtbar.
-    final tris = <(double, int, int, int)>[];
-    final vx = <double>[];
-    final vy = <double>[];
-    final vz = <double>[];
-    final tint = <Color>[];
-
-    void collect(PreviewMesh mesh, Color color,
-        {ItemPlacement? transform}) {
-      final base = vx.length;
-      final positions = mesh.positions;
-      for (var i = 0; i + 2 < positions.length; i += 3) {
-        var x = positions[i], y = positions[i + 1], z = positions[i + 2];
-        if (transform != null) {
-          final moved = applyPlacement(transform, x, y, z);
-          x = moved.$1;
-          y = moved.$2;
-          z = moved.$3;
-        }
-        final (px, py, pz) = project(x, y, z);
-        vx.add(px);
-        vy.add(py);
-        vz.add(pz);
-        tint.add(color);
-      }
-      final indices = mesh.indices;
-      for (var t = 0; t + 2 < indices.length; t += 3) {
-        final a = base + indices[t],
-            b = base + indices[t + 1],
-            c = base + indices[t + 2];
-        // Rückseiten weglassen: halbiert die Fläche und macht die
-        // Silhouette klarer.
-        final area = (vx[b] - vx[a]) * (vy[c] - vy[a]) -
-            (vx[c] - vx[a]) * (vy[b] - vy[a]);
-        if (area <= 0) continue;
-        tris.add((vz[a] + vz[b] + vz[c], a, b, c));
-      }
-    }
-
-    collect(figure, figureColor);
-    collect(item, itemColor, transform: placement);
-    // Maler-Algorithmus: Entferntes zuerst. `drawVertices` zeichnet in
-    // der übergebenen Reihenfolge, also genügt es, die Dreiecke
-    // sortiert einzutragen.
-    tris.sort((a, b) => a.$1.compareTo(b.$1));
-
-    if (tris.isNotEmpty) {
-      final points = Float32List(tris.length * 6);
-      final colors = Int32List(tris.length * 3);
-      for (var t = 0; t < tris.length; t++) {
-        final (_, a, b, c) = tris[t];
-        // Schattierung aus der Flächennormalen im Blickraum: Flächen,
-        // die zum Betrachter zeigen, werden heller. Ohne das wäre das
-        // Modell eine flache Silhouette ohne erkennbare Form.
-        final ux = vx[b] - vx[a], uy = vy[b] - vy[a], uz = vz[b] - vz[a];
-        final wx = vx[c] - vx[a], wy = vy[c] - vy[a], wz = vz[c] - vz[a];
-        final nx = uy * wz - uz * wy;
-        final ny = uz * wx - ux * wz;
-        final nz = ux * wy - uy * wx;
-        final len = math.sqrt(nx * nx + ny * ny + nz * nz);
-        final facing = len <= 0 ? 0.0 : (nz / len).abs();
-        final color = Color.lerp(tint[a], Colors.white, 0.45 * facing)!
-            .toARGB32();
-        for (final (slot, v) in [(0, a), (1, b), (2, c)]) {
-          points[t * 6 + slot * 2] = vx[v];
-          points[t * 6 + slot * 2 + 1] = vy[v];
-          colors[t * 3 + slot] = color;
-        }
-      }
-      canvas.drawVertices(
-        ui.Vertices.raw(ui.VertexMode.triangles, points, colors: colors),
-        // srcOver, nicht dstOver: Die Vertex-Farben sollen über der
-        // Farbe des Pinsels liegen. Umgekehrt läge der voreingestellte
-        // schwarze Pinsel obenauf und alles wäre schwarz.
-        BlendMode.srcOver,
-        Paint(),
-      );
-    }
+    MeshPainter(
+      mesh: item,
+      positions: itemPositions,
+      normals: itemNormals,
+      skeleton: null,
+      skeletonParents: null,
+      rotX: rotX,
+      rotY: rotY,
+      zoom: zoom,
+      // Kein zweiter Hintergrund – sonst wäre die Figur wieder weg.
+      background: null,
+      viewCenter: center,
+      viewExtent: extent,
+    ).paint(canvas, size);
 
     // Der Anbaupunkt als Kreuz – so ist zu sehen, woran der
     // Gegenstand hängt.
-    final (ax, ay, _) = project(anchor.$1, anchor.$2, anchor.$3);
+    final cosY = math.cos(rotY), sinY = math.sin(rotY);
+    final cosX = math.cos(rotX), sinX = math.sin(rotX);
+    final scale =
+        0.42 * math.min(size.width, size.height) / extent * zoom;
+    final x = anchor.$1 - center[0];
+    final y = anchor.$2 - center[1];
+    final z = anchor.$3 - center[2];
+    final x1 = x * cosY + z * sinY;
+    final z1 = -x * sinY + z * cosY;
+    final y2 = y * cosX - z1 * sinX;
+    final ax = size.width / 2 + x1 * scale;
+    final ay = size.height / 2 - y2 * scale;
     final mark = Paint()
-      ..color = itemColor
+      ..color = markColor
       ..strokeWidth = 1.5;
-    canvas.drawLine(Offset(ax - 7, ay), Offset(ax + 7, ay), mark);
-    canvas.drawLine(Offset(ax, ay - 7), Offset(ax, ay + 7), mark);
+    canvas.drawLine(Offset(ax - 8, ay), Offset(ax + 8, ay), mark);
+    canvas.drawLine(Offset(ax, ay - 8), Offset(ax, ay + 8), mark);
   }
 
   @override

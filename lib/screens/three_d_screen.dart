@@ -37,6 +37,7 @@ import '../services/glb_textures.dart';
 import '../services/model_format.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
+import '../services/prompt_drop.dart';
 import '../services/provenance.dart';
 import '../services/replicate_service.dart';
 import '../services/rodin_service.dart';
@@ -1356,7 +1357,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         });
       }
     }
-    if (mounted && _itemDone > 0) {
+    if (!mounted || _itemDone == 0) return;
+    // Gleich in die Anprobe: Ein Gegenstand, den man zur Figur erzeugt
+    // hat, will an die Figur gehalten werden – erst dort zeigt sich,
+    // ob Größe und Lage stimmen. Ihn nur in der Liste abzulegen hieße,
+    // den entscheidenden Schritt zu verstecken.
+    final neue = [
+      for (final r in _results.take(_itemDone).toList().reversed)
+        if (r.itemKindId != null && r.usableInApp) r,
+    ];
+    for (final r in neue) {
+      if (!mounted) break;
+      await _fitItem(r);
+    }
+    if (mounted) {
       _showSnack('$_itemDone von ${choice.kinds.length} '
           '${choice.kinds.length == 1 ? 'Gegenstand' : 'Gegenständen'} '
           'erzeugt – sie stehen oben in der Liste und in der Galerie.');
@@ -1515,6 +1529,51 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   /// Öffnet abgelegte 3D-Dateien (GLB/STL/OBJ) direkt im Viewer;
   /// Bilddateien bleiben den Ansichten-Kacheln überlassen.
+  /// Abgelegte Dateien verteilen: 3D-Dateien in den Viewer,
+  /// Text- und Markdown-Dateien in die Beschreibung.
+  ///
+  /// Beides über dasselbe Ziel, weil man beim Ablegen nicht zielen
+  /// will – die Endung sagt eindeutig, was gemeint ist.
+  Future<void> _onDropped(List<XFile> files) async {
+    final texte = [
+      for (final f in files) if (isPromptTextFile(f.name)) f,
+    ];
+    if (texte.isNotEmpty) await _dropPromptFiles(texte);
+    final rest = [
+      for (final f in files) if (!isPromptTextFile(f.name)) f,
+    ];
+    if (rest.isNotEmpty) await _openDroppedModel(rest);
+  }
+
+  /// Text- und Markdown-Dateien an die Beschreibung anhängen.
+  Future<void> _dropPromptFiles(List<XFile> files) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final accepted = <String>[];
+    final rejected = <String>[];
+    var text = _promptCtrl.text;
+    for (final file in files) {
+      try {
+        text = appendPromptText(text, await file.readAsString());
+        accepted.add(file.name);
+      } catch (e) {
+        rejected.add('${file.name} ($e)');
+      }
+    }
+    if (!mounted) return;
+    if (accepted.isNotEmpty) {
+      setState(() {
+        _promptCtrl.text = text;
+        _promptCtrl.selection =
+            TextSelection.collapsed(offset: text.length);
+        // Eine Beschreibung gehört in den Text-Modus – im Bild-Modus
+        // läge sie unbeachtet da.
+        _imageMode = false;
+      });
+    }
+    messenger.showSnackBar(SnackBar(
+        content: Text(promptDropSummary(accepted, rejected))));
+  }
+
   Future<void> _openDroppedModel(List<XFile> files) async {
     for (final file in files) {
       final name = file.name.toLowerCase();
@@ -4137,7 +4196,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     return DropTarget(
       enable: widget.isActive &&
           (ModalRoute.of(context)?.isCurrent ?? true),
-      onDragDone: (detail) => _openDroppedModel(detail.files),
+      onDragDone: (detail) => _onDropped(detail.files),
       // Auf breiten Bildschirmen begrenzte Inhaltsbreite: Optionen und
       // ihre Schalter bleiben beieinander, die Seite wirkt aufgeräumt.
       // Der Scrollbereich läuft dabei über die VOLLE Breite (Padding

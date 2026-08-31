@@ -254,10 +254,46 @@ void main() {
     test('Ohne Änderung bleibt die Datei, wie sie war', () {
       final glb = _boxGlb();
       expect(applyPlacementToGlb(glb, const ItemPlacement()), same(glb));
-      // Eine reine Verschiebung ändert die Datei ebenfalls nicht –
-      // sie gehört nicht hinein.
-      expect(applyPlacementToGlb(glb, const ItemPlacement(offsetY: 3)),
-          same(glb));
+    });
+
+    test('Der Versatz wandert mit in die Datei', () async {
+      // Er war zuerst ausgenommen – aus der Überlegung, das
+      // Accessoire schwebte sonst um die Anbauhöhe daneben. Falsch
+      // herum gedacht: In Roblox fällt das Attachment im Handle mit
+      // dem Punkt am Körper zusammen, der Abstand des Netzes zu
+      // seinem Ursprung IST der Abstand zum Körperpunkt. Ohne ihn
+      // wäre die Anprobe Zierde gewesen.
+      final glb = _boxGlb(size: 1);
+      final out = applyPlacementToGlb(
+          glb, const ItemPlacement(offsetY: 3, offsetX: -1));
+      final mesh = await parseGlbForPreview(out);
+      var minY = double.infinity, minX = double.infinity;
+      for (var i = 0; i + 2 < mesh.positions.length; i += 3) {
+        minX = math.min(minX, mesh.positions[i]);
+        minY = math.min(minY, mesh.positions[i + 1]);
+      }
+      expect(minY, closeTo(3, 1e-5));
+      expect(minX, closeTo(-1, 1e-5));
+    });
+
+    test('Erst skalieren, dann drehen, dann verschieben', () async {
+      // Dieselbe Reihenfolge wie in der Vorschau – sonst sitzt das
+      // Teil in der Datei anders als auf dem Bildschirm.
+      final glb = _boxGlb(size: 2);
+      const p = ItemPlacement(scale: 0.5, offsetY: 10);
+      final out = applyPlacementToGlb(glb, p);
+      final mesh = await parseGlbForPreview(out);
+      var minY = double.infinity, maxY = double.negativeInfinity;
+      for (var i = 1; i < mesh.positions.length; i += 3) {
+        minY = math.min(minY, mesh.positions[i]);
+        maxY = math.max(maxY, mesh.positions[i]);
+      }
+      // Erst halbiert (0..1), dann um 10 verschoben.
+      expect(minY, closeTo(10, 1e-5));
+      expect(maxY, closeTo(11, 1e-5));
+      // Und die Vorschau rechnet dasselbe.
+      final (_, vy, _) = applyPlacement(p, 0, 2, 0);
+      expect(vy, closeTo(11, 1e-9));
     });
 
     test('Die Datei bleibt eine gültige GLB', () async {

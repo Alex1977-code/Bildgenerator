@@ -302,7 +302,7 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             '(„Decimate"). In der App selbst lassen sich die Dreiecke '
             'nicht senken, ohne UV-Nähte und damit die Textur zu '
             'zerstören. Achtung bei Quad-Netzen: Jedes Viereck wird zu '
-            'zwei Dreiecken.\$sum'));
+            'zwei Dreiecken.$sum'));
   } else if (largest > goal) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,

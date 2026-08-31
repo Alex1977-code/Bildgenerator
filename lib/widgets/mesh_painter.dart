@@ -24,6 +24,9 @@ class MeshPainter extends CustomPainter {
     required this.rotY,
     required this.zoom,
     required this.background,
+    this.viewCenter,
+    this.viewExtent,
+    this.opacity = 1.0,
   });
 
   final PreviewMesh mesh;
@@ -34,24 +37,48 @@ class MeshPainter extends CustomPainter {
   final double rotX;
   final double rotY;
   final double zoom;
-  final Color background;
+
+  /// Hintergrundfarbe – null zeichnet keinen, damit sich zwei Netze
+  /// übereinanderlegen lassen.
+  final Color? background;
+
+  /// Mittelpunkt und Ausdehnung, nach denen die Ansicht ausgerichtet
+  /// wird. Ohne Angabe die des eigenen Netzes; gesetzt, wenn zwei
+  /// Modelle **im selben Maßstab** nebeneinanderstehen sollen – sonst
+  /// würde jedes für sich formatfüllend gezeichnet und ein Schwert
+  /// sähe so groß aus wie die Figur.
+  final List<double>? viewCenter;
+  final double? viewExtent;
+
+  /// Deckkraft des ganzen Netzes. Unter 1 wird über eine Ebene
+  /// gezeichnet – so lässt sich die Figur durchscheinend zeigen und
+  /// der Gegenstand darin erkennen.
+  final double opacity;
 
   static final Float64List _identityMatrix = Float64List.fromList(
       [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = background);
+    final bg = background;
+    if (bg != null) canvas.drawRect(Offset.zero & size, Paint()..color = bg);
+    final faded = opacity < 0.999;
+    if (faded) {
+      canvas.saveLayer(
+        Offset.zero & size,
+        Paint()
+          ..color = Color.fromRGBO(0, 0, 0, opacity.clamp(0.0, 1.0)),
+      );
+    }
 
     final cosY = math.cos(rotY), sinY = math.sin(rotY);
     final cosX = math.cos(rotX), sinX = math.sin(rotX);
     final scale = 0.42 * math.min(size.width, size.height) /
-        mesh.extent *
+        (viewExtent ?? mesh.extent) *
         zoom;
     final cx = size.width / 2, cy = size.height / 2;
-    final centerX = mesh.center[0],
-        centerY = mesh.center[1],
-        centerZ = mesh.center[2];
+    final view = viewCenter ?? mesh.center;
+    final centerX = view[0], centerY = view[1], centerZ = view[2];
 
     (double, double, double) project(double x0, double y0, double z0) {
       final x = x0 - centerX;
@@ -240,10 +267,14 @@ class MeshPainter extends CustomPainter {
         canvas.drawCircle(Offset(jx[j], jy[j]), 3.2, jointPaint);
       }
     }
+
+    if (faded) canvas.restore();
   }
 
   @override
   bool shouldRepaint(MeshPainter oldDelegate) =>
+      oldDelegate.opacity != opacity ||
+      oldDelegate.viewExtent != viewExtent ||
       oldDelegate.mesh != mesh ||
       oldDelegate.positions != positions ||
       oldDelegate.normals != normals ||

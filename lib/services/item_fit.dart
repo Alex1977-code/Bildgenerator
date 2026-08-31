@@ -192,7 +192,7 @@ List<double> placementMatrix(ItemPlacement p) {
 
 int _pad4(int n) => (n + 3) & ~3;
 
-/// Schreibt Größe und Drehung in die GLB des Gegenstands.
+/// Schreibt Größe, Drehung **und Versatz** in die GLB des Gegenstands.
 ///
 /// **Bevorzugt ins Netz gebacken.** Eine Wurzel-Matrix am Knoten sehen
 /// nur Programme, die Knoten-Transformationen auswerten – die
@@ -200,6 +200,15 @@ int _pad4(int n) => (n + 3) & ~3;
 /// die alte Größe gemeldet: Man stellt das Schwert auf 40 % und die
 /// Prüfung meldet unverändert „zu groß". Ins Netz gebacken sehen
 /// Vorschau, Prüfung und Import dasselbe.
+///
+/// **Der Versatz gehört dazu.** Er war zuerst ausgenommen, aus der
+/// Überlegung, das Accessoire würde sonst um die Anbauhöhe daneben
+/// schweben. Das war falsch herum gedacht: In Roblox fällt das
+/// `Attachment` im `Handle` mit dem Punkt am Körper zusammen. Der
+/// Abstand des Netzes zu seinem eigenen Ursprung **ist** damit der
+/// Abstand zum Körperpunkt – genau das, was in der Anprobe eingestellt
+/// wird. Ohne ihn wäre die Anprobe Zierde gewesen: Man hätte etwas
+/// hingeschoben, und in Studio läge es woanders.
 ///
 /// **Der Rückfall auf die Wurzel-Matrix** greift bei Modellen mit
 /// Skelett (Reittiere, Fahrzeuge): Dort müssten die Bind-Matrizen
@@ -214,6 +223,9 @@ Uint8List applyPlacementToGlb(Uint8List glb, ItemPlacement placement) {
       rotX: placement.rotX,
       rotY: placement.rotY,
       rotZ: placement.rotZ,
+      offsetX: placement.offsetX,
+      offsetY: placement.offsetY,
+      offsetZ: placement.offsetZ,
     );
   } on Exception {
     // Skelett oder eigene Knoten-Transformationen – dann der Weg über

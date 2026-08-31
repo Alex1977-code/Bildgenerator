@@ -824,9 +824,16 @@ Future<Uint8List> mirrorSymmetrizeGlb(Uint8List glb) async {
 /// dasselbe.
 ///
 /// Die Reihenfolge ist dieselbe wie bei der Anzeige: erst skalieren,
-/// dann um x, y, z drehen. Normalen werden mitgedreht (bei
-/// gleichmäßiger Skalierung bleibt ihre Richtung erhalten), Tangenten
-/// ebenso, das w der Tangente bleibt.
+/// dann um x, y, z drehen, zuletzt verschieben. Normalen werden
+/// mitgedreht (bei gleichmäßiger Skalierung bleibt ihre Richtung
+/// erhalten) und **nicht** verschoben – eine Richtung hat keinen Ort.
+/// Tangenten ebenso, das w der Tangente bleibt.
+///
+/// Der Versatz ist der zum **Anbaupunkt**, nicht zum Weltursprung: In
+/// Roblox fällt das Attachment im Handle mit dem Punkt am Körper
+/// zusammen, der Abstand des Netzes zu seinem eigenen Ursprung ist
+/// also genau der Abstand zum Körperpunkt. Was in der Anprobe zu
+/// sehen ist, sitzt damit auch in Studio so.
 ///
 /// Wirft, wenn das Modell ein Skelett trägt oder die Mesh-Knoten eigene
 /// Transformationen haben – dann müssten Bind-Matrizen mitgerechnet
@@ -837,8 +844,19 @@ Uint8List bakeScaleAndRotationIntoGlb(
   double rotX = 0,
   double rotY = 0,
   double rotZ = 0,
+  double offsetX = 0,
+  double offsetY = 0,
+  double offsetZ = 0,
 }) {
-  if (scale == 1 && rotX == 0 && rotY == 0 && rotZ == 0) return glb;
+  if (scale == 1 &&
+      rotX == 0 &&
+      rotY == 0 &&
+      rotZ == 0 &&
+      offsetX == 0 &&
+      offsetY == 0 &&
+      offsetZ == 0) {
+    return glb;
+  }
   if (scale <= 0) throw Exception('Die Größe muss über null liegen.');
   final (json, bin) = _parseGlb(glb);
   if ((json['skins'] as List?)?.isNotEmpty ?? false) {
@@ -885,6 +903,12 @@ Uint8List bakeScaleAndRotationIntoGlb(
       v[1] *= scale;
       v[2] *= scale;
       rotate(v);
+      // Zuletzt verschieben – die Reihenfolge muss dieselbe sein wie
+      // in der Vorschau, sonst sitzt das Teil in der Datei anders als
+      // auf dem Bildschirm.
+      v[0] += offsetX;
+      v[1] += offsetY;
+      v[2] += offsetZ;
     }, write: true);
     _refreshMinMax(json, bin, a);
   }

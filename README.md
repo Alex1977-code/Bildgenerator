@@ -842,6 +842,30 @@ Schätzung aus dem Leistungsverhältnis der Karten, keine Messung – die
 kommt, wenn die 3080 eingebaut ist. Die Live-Vorschau zeigt währenddessen
 alle fünf Schritte, wie das Bild entsteht.
 
+## Prompts per Drag & Drop
+
+Prompts entstehen selten in der App: Sie kommen aus einer Prompt-KI,
+einem Notizzettel, einer Markdown-Datei mit den Beschreibungen eines
+ganzen Spiel-Sets. Deshalb nehmen **beide Prompt-Felder** – im Bild-
+und im 3D-Tab – jetzt **.txt- und .md-Dateien per Drag & Drop**
+entgegen (auch .markdown, .text, .prompt).
+
+- Der Inhalt wird **angehängt**, nicht ersetzt: Wer schon getippt hat,
+  verliert nichts. Getrennt wird mit einer Leerzeile – im Massenprompt
+  ist das die Blockgrenze.
+- Aufgeräumt wird beim Einlesen: eine **BOM** am Anfang fliegt raus
+  (sonst steht ein unsichtbares Zeichen vor dem ersten Wort),
+  **Windows-Zeilenenden** werden vereinheitlicht (ein `\r` macht aus
+  einer Leerzeile eine Zeile mit Inhalt und zerlegt den Massenprompt
+  falsch), und ein **umschließender Codeblock** aus Markdown fällt weg
+  – Prompt-KIs geben ihre Ergebnisse gern in ``` aus.
+- Gedeutet wird nichts: kein Erraten von Feldern, kein Umschreiben.
+  Was in der Datei steht, steht danach im Feld.
+- Im 3D-Tab teilt sich das Ablegen mit den Modelldateien dasselbe
+  Ziel: Die Endung entscheidet, ob etwas in den Viewer oder in die
+  Beschreibung geht. Eine abgelegte Beschreibung schaltet zugleich auf
+  „Aus Text" – im Bild-Modus läge sie unbeachtet da.
+
 ## Galerie: Projekte und Ordner
 
 Bilder und Modelle lassen sich in **Projekte** einsortieren, mit
@@ -998,8 +1022,27 @@ Der erste Vorschlag setzt die Größe auf das, was die Maßtabelle für
 diese Figur vorsieht – hat das Bildmodell die Proportion getroffen,
 ändert sich fast nichts.
 
-**Übernommen werden nur Größe und Drehung** – und zwar **ins Netz
-gebacken**, nicht als Matrix am Wurzelknoten. Der Unterschied ist
+### Was „Übernehmen" genau tut
+
+**Größe, Drehung und Versatz** werden in die Punkte des Gegenstands
+gerechnet und als **neue Fassung gespeichert** – in der Ergebnisliste
+und in der Galerie als „… (angepasst)". Das ursprüngliche Modell
+bleibt daneben erhalten, nichts wird überschrieben.
+
+**Der Versatz gehört dazu**, und das war zuerst falsch gebaut. Er war
+ausgenommen, aus der Überlegung, das Accessoire schwebte sonst um die
+Anbauhöhe daneben. Falsch herum gedacht: In Roblox fällt das
+`Attachment` im `Handle` mit dem Punkt am Körper zusammen – der
+Abstand des Netzes zu seinem eigenen Ursprung **ist** der Abstand zum
+Körperpunkt. Ohne ihn wäre die Anprobe Zierde gewesen: Man schiebt
+etwas hin, und in Studio liegt es woanders.
+
+Die Figur in der Anprobe ist dabei eine **Näherung**: Ihr Kopfgelenk
+liegt nicht auf den Millimeter dort, wo Roblox sein `HatAttachment`
+hat. Für den Feinschliff gibt es in Studio das Accessory Fitting Tool.
+
+Übernommen wird **ins Netz gebacken**, nicht als Matrix am
+Wurzelknoten. Der Unterschied ist
 keiner der Eleganz: Eine Knoten-Matrix sehen nur Programme, die
 Knoten-Transformationen auswerten. Die Größenprüfung dieser App liest
 die Positionen roh und hätte weiter die alte Größe gemeldet – man
@@ -1018,9 +1061,18 @@ Sonst lieferte der Download dort weiter das unangepasste Modell,
 während der Export hier das neue liefert – zwei Dateien gleichen
 Namens mit verschiedener Größe.
 
-Gezeichnet wird ohne Textur. Beim Anpassen zählt die Silhouette – wo
-sitzt es, wie groß, steht es richtig herum; eine Textur würde genau das
-überdecken.
+Gezeichnet wird mit demselben Renderer wie im Viewer – **mit Textur
+und Licht**. Die erste Fassung zeigte flache Silhouetten; an einer
+grauen Fläche ließ sich aber nicht erkennen, wo an der Figur man
+gerade ist. Stattdessen gibt es den Regler **„Figur sichtbar"**: Die
+Figur lässt sich durchscheinend stellen, dann ist der Gegenstand auch
+zu sehen, wenn er dahinter oder darin liegt.
+
+Nach einem Gegenstands-Lauf öffnet sich die Anprobe **von selbst** –
+für jeden neu erzeugten Gegenstand nacheinander. Ein Gegenstand, den
+man zur Figur erzeugt hat, will an die Figur gehalten werden; ihn nur
+in der Liste abzulegen hieße, den entscheidenden Schritt zu
+verstecken.
 
 ### Anbau in Roblox: fertig ausliefern
 
@@ -1959,6 +2011,7 @@ lib/
 │   ├── item_prompt.dart       # Gegenstände zur Figur: Maßstab + Prompt
 │   ├── roblox_accessory.dart  # Accessory/Tool/Seat + Größengrenzen
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
+│   ├── prompt_drop.dart       # Text-/MD-Dateien ins Prompt-Feld
 │   ├── quality_preset.dart    # Schritte, Prompt-Treue, Detail-Durchgang
 │   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes
 │   ├── rig_dummy.dart         # Soll-Gelenke der Dummy-Zeichnung
