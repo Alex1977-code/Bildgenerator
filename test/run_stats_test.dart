@@ -241,6 +241,38 @@ void main() {
     test('Ein gewählter Figurtyp gewinnt gegen den Wortvergleich', () {
       expect(motifOf('ein Haus', figureType: 'biped'), 'figur');
     });
+
+    test('Gegenstände zählen für sich, Reittiere noch einmal getrennt',
+        () {
+      // Ein Schwert ist weder Figur noch Gebäude: klein, ohne
+      // Gliedmaßen, ganz anders gut oder schlecht. In denselben Topf
+      // geworfen verwässert es die Empfehlungen für Figuren.
+      expect(motifOf('a sword', itemKind: 'schwert'), 'gegenstand');
+      expect(motifOf('a helmet', itemKind: 'helm'), 'gegenstand');
+      // Reittiere und Fahrzeuge sind Figuren für sich – mit Skelett,
+      // aber größer als alles andere.
+      expect(motifOf('an ostrich', itemKind: 'reitvogel'), 'fortbewegung');
+      expect(motifOf('a cart', itemKind: 'karren'), 'fortbewegung');
+      // Die Art gewinnt gegen alles andere.
+      expect(motifOf('ein Haus', figureType: 'biped', itemKind: 'schild'),
+          'gegenstand');
+      // Ohne Art bleibt alles wie bisher.
+      expect(motifOf('ein Fass', itemKind: ''), 'objekt');
+    });
+
+    test('Jede Klasse hat einen Klartext', () {
+      for (final motif in [
+        'figur',
+        'gebaeude',
+        'fahrzeug',
+        'gegenstand',
+        'fortbewegung',
+        'objekt',
+      ]) {
+        expect(motifLabel(motif), isNotEmpty);
+      }
+      expect(motifLabel('gegenstand'), 'Gegenstände');
+    });
   });
 
   test('Zahlenwerte werden auf Stufen gerundet', () {

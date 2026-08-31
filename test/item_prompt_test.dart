@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/services/item_prompt.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
     show robloxAccessoryTail, robloxAccessoryNegative;
+import 'package:bildgenerator/services/run_stats.dart'
+    show rideableItemKinds;
 
 void main() {
   group('Der Katalog', () {
@@ -197,6 +199,55 @@ void main() {
         figureName: '  ',
       );
       expect(block, contains('NAME: item-trank'));
+    });
+  });
+
+  group('Fortbewegung', () {
+    test('Reittiere und Fahrzeuge brauchen ein Skelett', () {
+      // Ohne Skelett kann der Strauß nicht laufen und die Räder
+      // drehen sich nicht.
+      expect(itemKindById('reitvogel')!.rigType, 'bird');
+      expect(itemKindById('reitpferd')!.rigType, 'quadruped');
+      expect(itemKindById('auto')!.rigType, 'vehicle');
+      expect(itemKindById('reitvogel')!.needsRig, isTrue);
+      expect(itemKindById('schwert')!.needsRig, isFalse);
+    });
+
+    test('Sie sind weder Accessoire noch Werkzeug', () {
+      final vogel = itemKindById('reitvogel')!;
+      expect(vogel.rideable, isTrue);
+      expect(vogel.handHeld, isFalse);
+      expect(vogel.robloxAccessoryType, isNull);
+      expect(robloxAttachNote(vogel), contains('Seat'));
+      expect(robloxAttachNote(itemKindById('auto')!),
+          contains('VehicleSeat'));
+    });
+
+    test('„rider" steht im Negativ-Prompt', () {
+      // Sonst kommt das Pferd mit Reiter, und der steckt danach im
+      // Netz.
+      final (_, negativ) = itemPromptParts(
+          kind: itemKindById('reitpferd')!, figurePrompt: 'a knight');
+      expect(negativ, startsWith('rider'));
+    });
+
+    test('Der Größensatz spricht vom Aufsitzen, nicht von Vielfachen',
+        () {
+      // „1,5-mal so hoch wie die Figur" sagt nichts Brauchbares –
+      // entscheidend ist die Sitzhöhe.
+      final satz = itemScaleSentence(itemKindById('reitvogel')!);
+      expect(satz, contains('ride'));
+      expect(satz, contains('hip height'));
+    });
+
+    test('Die Liste in der Statistik deckt sich mit dem Katalog', () {
+      // Zwei Listen, die auseinanderlaufen könnten: hier die Arten,
+      // dort die Motivklasse „fortbewegung".
+      final ausKatalog = {
+        for (final kind in itemKinds)
+          if (kind.rideable) kind.id,
+      };
+      expect(rideableItemKinds, ausKatalog);
     });
   });
 

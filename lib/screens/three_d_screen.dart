@@ -24,6 +24,7 @@ import '../services/generators.dart' show GenerationException;
 import '../services/glb_preview.dart';
 import '../services/history_service.dart';
 import '../services/item_prompt.dart';
+import '../services/roblox_accessory.dart';
 import '../services/local_3d.dart';
 import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
@@ -59,6 +60,7 @@ import '../widgets/common.dart';
 import '../widgets/cost_quality_panel.dart';
 import '../widgets/generation_progress.dart';
 import 'image_detail_screen.dart';
+import 'item_fit_screen.dart';
 import 'model_preview_screen.dart';
 
 /// 3D-Bereich: Figuren und Objekte aus Text oder Bild generieren
@@ -786,6 +788,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   int _itemTotal = 0;
   String _itemCurrent = '';
 
+  /// Die Art, die gerade erzeugt wird.
+  ItemKind? _itemKind;
+
+  /// Die Figur, zu der die Gegenstände gehören – Vorlage für die
+  /// Anprobe.
+  Uint8List? _itemFigureGlb;
+
   /// Kopierbare Anleitungen für eine externe Prompt-KI (ChatGPT,
   /// Claude & Co.): enthalten alle Regeln, damit der erzeugte Prompt
   /// perfekt zu unserer 3D-Pipeline passt. (Titel, Kurzbeschreibung,
@@ -1233,6 +1242,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final savedPrompt = _promptCtrl.text;
     final savedNegative = _negative3dCtrl.text;
     final savedRigging = _rigging;
+    final savedRigType = _rigType;
     final savedTPose = _tPose;
     final savedImageMode = _imageMode;
     setState(() {
@@ -1240,6 +1250,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _itemDone = 0;
       _itemTotal = choice.kinds.length;
       _itemStyleImage = style;
+      _itemFigureGlb = result.glbBytes;
       _rigging = false;
       _tPose = false;
       _imageMode = false;
@@ -1255,6 +1266,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         );
         setState(() {
           _itemCurrent = kind.label;
+          _itemKind = kind;
+          // Reittiere und Fahrzeuge sind Figuren für sich: Ohne
+          // Skelett kann der Strauß nicht laufen und die Räder drehen
+          // sich nicht. Alles andere bleibt starr.
+          _rigging = kind.needsRig;
+          if (kind.needsRig) _rigType = kind.rigType!;
           _promptCtrl.text = prompt;
           _negative3dCtrl.text = negative;
           // Jeder Gegenstand fängt bei den Ansichten von vorn an –
@@ -1280,10 +1297,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         setState(() {
           _itemRun = false;
           _itemCurrent = '';
+          _itemKind = null;
           _itemStyleImage = null;
           _promptCtrl.text = savedPrompt;
           _negative3dCtrl.text = savedNegative;
           _rigging = savedRigging;
+          _rigType = savedRigType;
           _tPose = savedTPose;
           _imageMode = savedImageMode;
         });
@@ -1294,6 +1313,96 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           '${choice.kinds.length == 1 ? 'Gegenstand' : 'Gegenständen'} '
           'erzeugt – sie stehen oben in der Liste und in der Galerie.');
     }
+  }
+
+  /// Anprobe: Gegenstand und Figur zusammen ansehen und den
+  /// Gegenstand daran anpassen.
+  ///
+  /// Als Figur dient die, zu der die Reihe erzeugt wurde; ist die
+  /// nicht mehr da (App neu gestartet), das jüngste Modell ohne
+  /// Gegenstandsart.
+  Future<void> _fitItem(ThreeDResult result) async {
+    final kind = itemKindById(result.itemKindId ?? '');
+    if (kind == null) return;
+    final figure = _itemFigureGlb ??
+        _results
+            .where((r) => r.itemKindId == null && r.usableInApp)
+            .map((r) => r.glbBytes)
+            .firstOrNull;
+    if (figure == null) {
+      _showSnack('Für die Anprobe fehlt eine Figur – erst eine Figur '
+          'erzeugen oder öffnen.');
+      return;
+    }
+    final navigator = Navigator.of(context);
+    final angepasst = await navigator.push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => ItemFitScreen(
+          figureGlb: figure,
+          itemGlb: result.glbBytes,
+          kind: kind,
+          itemLabel: kind.label,
+        ),
+      ),
+    );
+    if (angepasst == null || !mounted) return;
+    setState(() => result.glbBytes = angepasst);
+    _showSnack('Größe und Drehung übernommen. Der Export liefert jetzt '
+        'die angepasste Fassung.');
+  }
+
+  /// Den Gegenstand so ausliefern, dass Roblox ihn erkennt: GLB,
+  /// Lua-Skript für die richtige Hülle und eine Beilage.
+  Future<void> _exportRobloxItem(ThreeDResult result) async {
+    final kind = itemKindById(result.itemKindId ?? '');
+    if (kind == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    AccessoryFit? fit;
+    try {
+      fit = await checkAccessoryFit(result.glbBytes, kind);
+    } catch (_) {
+      // Ohne Messung geht es auch – dann fehlt in der Beilage nur der
+      // Größenabsatz.
+    }
+    if (!mounted) return;
+    final base = 'roblox_${kind.id}_'
+        '${DateTime.now().millisecondsSinceEpoch}';
+    final messages = <String>[];
+    try {
+      for (final (name, bytes, type) in [
+        ('$base.glb', result.glbBytes, 'model/gltf-binary'),
+        (
+          '$base.lua',
+          Uint8List.fromList(utf8.encode(
+              robloxItemLua(kind, meshName: result.label))),
+          'text/plain',
+        ),
+        (
+          '${base}_anleitung.md',
+          Uint8List.fromList(
+              utf8.encode(robloxItemReadme(kind, fit: fit))),
+          'text/markdown',
+        ),
+      ]) {
+        final message = await exportImageBytes(bytes, name, type);
+        if (message != null) messages.add(message);
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Export fehlgeschlagen: '
+              '${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
+    if (!mounted) return;
+    final warnung = fit != null && !fit.ok
+        ? ' Achtung: ${fit.text}'
+        : '';
+    messenger.showSnackBar(SnackBar(
+      content: Text(messages.isEmpty
+          ? 'GLB, Lua-Skript und Anleitung abgelegt.$warnung'
+          : '${messages.first}$warnung'),
+      duration: const Duration(seconds: 6),
+    ));
   }
 
   Future<void> _useModelAsReference(ThreeDResult result) async {
@@ -1695,6 +1804,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     String providerTaskId = '',
   }) {
     if (!mounted) return;
+    // Läuft gerade eine Reihe von Gegenständen, gehört die Art zum
+    // Ergebnis – daran hängen Anprobe und Roblox-Export.
+    final itemKindId = _itemRun ? _itemKind?.id : null;
     setState(() {
       _results.insert(
         0,
@@ -1711,6 +1823,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           limitNote: limitNote,
           rigNote: rigNote,
           providerTaskId: providerTaskId,
+          itemKindId: itemKindId,
         ),
       );
     });
@@ -1764,10 +1877,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (!mounted) return;
     await context.read<SettingsService>().recordRun(RunRecord(
           at: DateTime.now(),
-          motif: motifOf(_promptCtrl.text,
-              figureType: _rigging ? _rigType : null),
+          motif: _motif,
           provider: providerLabel,
           settings: {
+            // Die Art gehört dazu: Erst damit lässt sich sehen, dass
+            // Schilde gut werden und Bögen misslingen – über alle
+            // Gegenstände gemittelt bliebe das unsichtbar.
+            if (_itemKind != null) 'art': _itemKind!.id,
             'rigging': _rigging ? 'an' : 'aus',
             'textur': _texture ? 'an' : 'aus',
             'symmetrie': _refineSymmetrize ? 'an' : 'aus',
@@ -1897,8 +2013,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   /// Die Motivklasse des aktuellen Prompts – danach werden die
   /// Empfehlungen getrennt gerechnet.
-  String get _motif =>
-      motifOf(_promptCtrl.text, figureType: _rigging ? _rigType : null);
+  String get _motif => motifOf(
+        _promptCtrl.text,
+        figureType: _rigging ? _rigType : null,
+        itemKind: _itemKind?.id,
+      );
 
   Future<void> _runLocal(
     SettingsService settings,
@@ -6190,14 +6309,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           ? () => _openModelPreview(result)
                           : null,
                     ),
-                    IconButton(
-                      tooltip: 'Passende Gegenstände zu dieser Figur '
-                          'erzeugen',
-                      icon: const Icon(Icons.category_outlined),
-                      onPressed: _running || _itemRun
-                          ? null
-                          : () => _generateItems(result),
-                    ),
+                    if (result.itemKindId != null) ...[
+                      IconButton(
+                        tooltip: 'Anprobe an der Figur – Größe und '
+                            'Drehung anpassen',
+                        icon: const Icon(Icons.straighten),
+                        onPressed: result.usableInApp
+                            ? () => _fitItem(result)
+                            : null,
+                      ),
+                      IconButton(
+                        tooltip: 'Für Roblox ausliefern (Accessory '
+                            'bzw. Tool mit Handle)',
+                        icon: const Icon(Icons.extension_outlined),
+                        onPressed: () => _exportRobloxItem(result),
+                      ),
+                    ] else
+                      IconButton(
+                        tooltip: 'Passende Gegenstände zu dieser Figur '
+                            'erzeugen',
+                        icon: const Icon(Icons.category_outlined),
+                        onPressed: _running || _itemRun
+                            ? null
+                            : () => _generateItems(result),
+                      ),
                     IconButton(
                       tooltip: 'Erstellungsnachweis (PDF)',
                       icon: const Icon(Icons.workspace_premium_outlined),

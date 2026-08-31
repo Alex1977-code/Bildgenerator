@@ -314,17 +314,59 @@ class RunStats {
         'schaerfen' => 'Textur schärfen',
         'rigging' => 'Rigging',
         'pose' => 'Pose',
+        'art' => 'Gegenstandsart',
+        'quelle' => 'Quelle',
+        'vorlage' => 'Vorlage',
         _ => setting,
       };
 }
+
+/// Gegenstandsarten, die bestiegen werden – sie zählen zur Klasse
+/// „fortbewegung".
+///
+/// Steht hier und nicht in `item_prompt.dart`, damit die Statistik
+/// ohne den ganzen Katalog auskommt; ein Test hält beide Listen
+/// zusammen.
+const rideableItemKinds = <String>{
+  'reitpferd',
+  'reitvogel',
+  'reitechse',
+  'karren',
+  'auto',
+  'boot',
+  'gleiter',
+};
+
+/// Klartext für eine Motivklasse – für Überschriften und Hinweise.
+String motifLabel(String motif) => switch (motif) {
+      'figur' => 'Figuren',
+      'gebaeude' => 'Gebäude',
+      'fahrzeug' => 'Fahrzeuge',
+      'gegenstand' => 'Gegenstände',
+      'fortbewegung' => 'Reittiere und Fahrzeuge',
+      _ => 'Objekte',
+    };
 
 /// Ordnet einen Prompt grob einer Motivklasse zu – damit die
 /// Empfehlungen nicht Gebäude und Figuren in einen Topf werfen.
 ///
 /// Absichtlich ein Wortvergleich und kein Klassifikator: Die Klassen
-/// sind vier, die Wörter eindeutig, und ein gelerntes Modell hätte
+/// sind wenige, die Wörter eindeutig, und ein gelerntes Modell hätte
 /// hier nichts zu holen.
-String motifOf(String prompt, {String? figureType}) {
+///
+/// [itemKind] ist die Kennung einer Gegenstandsart, wenn der Lauf aus
+/// der Gegenstands-Reihe stammt. Ein Schwert ist weder Figur noch
+/// Gebäude: Es ist klein, hat keine Gliedmaßen und wird ganz anders
+/// gut oder schlecht. In denselben Topf geworfen verwässert es die
+/// Empfehlungen für Figuren – deshalb eine eigene Klasse. Reittiere
+/// und Fahrzeuge bekommen noch eine eigene: Sie sind Figuren für
+/// sich, mit Skelett, aber größer als alles andere.
+String motifOf(String prompt, {String? figureType, String? itemKind}) {
+  if (itemKind != null && itemKind.trim().isNotEmpty) {
+    return rideableItemKinds.contains(itemKind)
+        ? 'fortbewegung'
+        : 'gegenstand';
+  }
   if (figureType != null && figureType.trim().isNotEmpty) return 'figur';
   final text = prompt.toLowerCase();
   bool has(List<String> words) => words.any(text.contains);

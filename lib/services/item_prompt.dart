@@ -51,6 +51,10 @@ class ItemKind {
     required this.carry,
     this.robloxAccessoryType,
     this.words = const [],
+    this.rigType,
+    this.rideable = false,
+    this.scaleClause,
+    this.extraNegative = '',
   });
 
   /// Kennung, wie sie in Dateinamen und Verlauf landet.
@@ -89,7 +93,45 @@ class ItemKind {
   /// nahelegen – deutsch und englisch, weil beides vorkommt.
   final List<String> words;
 
-  bool get handHeld => robloxAccessoryType == null;
+  /// Figurtyp für das Auto-Rigging – null heißt: starres Teil ohne
+  /// Skelett.
+  ///
+  /// Ein Reittier ist kein Gegenstand, sondern eine Figur für sich:
+  /// Ein Strauß, auf dem man reiten soll, muss laufen können, und
+  /// dafür braucht er ein Skelett. Ein Fahrzeug ebenso, damit sich
+  /// die Räder drehen.
+  final String? rigType;
+
+  /// Eigener Größensatz für den Prompt statt des gerechneten.
+  ///
+  /// Bei einem Reittier sagt „1,5-mal so hoch wie die Figur" nichts
+  /// Brauchbares – entscheidend ist, dass der **Rücken auf Hüfthöhe**
+  /// sitzt und die Figur daraufpasst.
+  final String? scaleClause;
+
+  /// Zusätzliche Wörter für den Negativ-Prompt. Bei Reittieren steht
+  /// dort „rider" – sonst kommt das Pferd mit Reiter, und der Reiter
+  /// steckt danach im Netz.
+  final String extraNegative;
+
+  /// Etwas, auf dem die Figur sitzt oder fährt.
+  ///
+  /// Nicht dasselbe wie [needsRig]: Ein Ruderboot wird bestiegen,
+  /// braucht aber kein Skelett – da bewegt sich nichts. Ein Strauß
+  /// braucht eines, sonst kann er nicht laufen.
+  final bool rideable;
+
+  /// Braucht ein Skelett (Reittier, Fahrzeug mit Rädern)?
+  bool get needsRig => rigType != null;
+
+  /// Ein Lebewesen zum Reiten – dafür ist der Sitz in Roblox ein
+  /// `Seat`, bei allem Fahrbaren ein `VehicleSeat` (der bringt die
+  /// Steuerung mit).
+  bool get animalMount => rigType == 'quadruped' || rigType == 'bird';
+
+  /// Wird in die Hand genommen statt angezogen? Reittiere und
+  /// Fahrzeuge sind weder das eine noch das andere.
+  bool get handHeld => robloxAccessoryType == null && !rideable;
 }
 
 /// Alle Gegenstandsarten.
@@ -361,6 +403,129 @@ const itemKinds = <ItemKind>[
     words: ['wirt', 'innkeeper', 'händler', 'merchant', 'fass',
         'barrel', 'pirat', 'pirate', 'brauer', 'lager'],
   ),
+  // ---- Fortbewegung: Reittiere und Fahrzeuge -------------------
+  // Diese sind keine Gegenstände, sondern Figuren für sich: Sie
+  // brauchen ein Skelett (sonst kann der Strauß nicht laufen und die
+  // Räder drehen sich nicht) und einen Sitzplatz statt eines
+  // Attachments.
+  ItemKind(
+    id: 'reitpferd',
+    rideable: true,
+    label: 'Reitpferd',
+    group: 'Fortbewegung',
+    core: 'saddled riding horse standing on all four legs, sturdy '
+        'body, a saddle with stirrups on its back, reins on the head, '
+        'no rider',
+    share: 1.5,
+    scaleRef: ItemScaleRef.figur,
+    scaleClause: "large enough for the character to ride: the back "
+        "with the saddle at about hip height of the character, the "
+        "body about one and a half times the character's height long",
+    carry: 'zum Aufsitzen – Sattel etwa auf Hüfthöhe der Figur',
+    rigType: 'quadruped',
+    extraNegative: 'rider, person on top, saddled person, human',
+    words: ['ritter', 'knight', 'reiter', 'rider', 'pferd', 'horse',
+        'cowboy', 'nomade', 'bote', 'messenger'],
+  ),
+  ItemKind(
+    id: 'reitvogel',
+    rideable: true,
+    label: 'Reitvogel (Strauß)',
+    group: 'Fortbewegung',
+    core: 'large flightless riding bird like an ostrich, long strong '
+        'legs, round feathered body, small head on a long neck, a '
+        'saddle strapped to its back, no rider',
+    share: 1.4,
+    scaleRef: ItemScaleRef.figur,
+    scaleClause: "large enough for the character to ride: the saddle "
+        "on its back at about hip height of the character",
+    carry: 'zum Aufsitzen – braucht ein Vogel-Skelett (zwei Beine)',
+    rigType: 'bird',
+    extraNegative: 'rider, person on top, human, flying, wings spread '
+        'wide',
+    words: ['reiten', 'ride', 'wüste', 'desert', 'strauß', 'ostrich',
+        'vogel', 'bird', 'abenteurer', 'adventurer', 'bote'],
+  ),
+  ItemKind(
+    id: 'reitechse',
+    rideable: true,
+    label: 'Reitechse',
+    group: 'Fortbewegung',
+    core: 'large riding lizard on four legs, broad scaly back with a '
+        'saddle, thick tail, no rider',
+    share: 1.6,
+    scaleRef: ItemScaleRef.figur,
+    scaleClause: "large enough for the character to ride: the saddled "
+        "back at about hip height of the character",
+    carry: 'zum Aufsitzen',
+    rigType: 'quadruped',
+    extraNegative: 'rider, person on top, human',
+    words: ['echse', 'lizard', 'drache', 'dragon', 'ork', 'orc',
+        'dschungel', 'jungle', 'reiten', 'ride'],
+  ),
+  ItemKind(
+    id: 'karren',
+    rideable: true,
+    label: 'Karren / Kutsche',
+    group: 'Fortbewegung',
+    core: 'wooden cart with two large spoked wheels, an open loading '
+        'bed and two draft poles at the front',
+    share: 1.8,
+    scaleRef: ItemScaleRef.figur,
+    carry: 'zum Ziehen oder Fahren – Räder als eigene runde Volumen',
+    rigType: 'vehicle',
+    extraNegative: 'rider, person, horse, animal',
+    words: ['händler', 'merchant', 'bauer', 'farmer', 'karren',
+        'cart', 'kutsche', 'wagen', 'wagon', 'markt'],
+  ),
+  ItemKind(
+    id: 'auto',
+    rideable: true,
+    label: 'Fahrzeug (4 Räder)',
+    group: 'Fortbewegung',
+    core: 'small blocky vehicle with four round wheels, an open '
+        'driver seat, a simple steering wheel and a short hood',
+    share: 2.0,
+    scaleRef: ItemScaleRef.figur,
+    carry: 'zum Einsteigen – der Sitz etwa auf Kniehöhe der Figur',
+    rigType: 'vehicle',
+    extraNegative: 'driver, person, passenger',
+    words: ['fahrer', 'driver', 'auto', 'car', 'rennfahrer', 'racer',
+        'mechaniker', 'mechanic', 'stadt', 'city'],
+  ),
+  ItemKind(
+    id: 'boot',
+    rideable: true,
+    label: 'Boot',
+    group: 'Fortbewegung',
+    core: 'small wooden rowing boat with a raised bow, plank benches '
+        'and two oarlocks',
+    share: 2.2,
+    scaleRef: ItemScaleRef.figur,
+    scaleClause: "large enough for the character to sit inside: about "
+        "twice the character's height long",
+    carry: 'zum Einsteigen – ohne Skelett, ein starres Teil',
+    extraNegative: 'rower, person, passenger, water, waves',
+    words: ['fischer', 'fisher', 'pirat', 'pirate', 'boot', 'boat',
+        'see', 'lake', 'segler', 'sailor', 'insel', 'island'],
+  ),
+  ItemKind(
+    id: 'gleiter',
+    rideable: true,
+    label: 'Gleiter / Flugzeug',
+    group: 'Fortbewegung',
+    core: 'small single-seat glider aircraft with broad straight '
+        'wings, an open cockpit and a tail fin',
+    share: 2.4,
+    scaleRef: ItemScaleRef.figur,
+    scaleClause: "large enough for the character to sit in: wingspan "
+        "about two and a half times the character's height",
+    carry: 'zum Einsteigen – Flügel als eigene Volumen',
+    extraNegative: 'pilot, person, sky, clouds',
+    words: ['pilot', 'flieger', 'flugzeug', 'plane', 'gleiter',
+        'glider', 'erfinder', 'inventor', 'himmel', 'sky'],
+  ),
+
   ItemKind(
     id: 'fahne',
     label: 'Banner',
@@ -474,6 +639,11 @@ String itemScaleClause(ItemKind kind) {
   return 'sized about ${_englishFraction(share)} of $bezug';
 }
 
+/// Der Größensatz, der wirklich in den Prompt geht: der eigene, wenn
+/// die Art einen hat, sonst der gerechnete.
+String itemScaleSentence(ItemKind kind) =>
+    kind.scaleClause ?? itemScaleClause(kind);
+
 String _englishFraction(double share) {
   if (share >= 1.15) return share.toStringAsFixed(1);
   if ((share - 0.5).abs() < 0.06) return 'half';
@@ -553,7 +723,13 @@ String figureStyleHint(String figurePrompt, {int maxChars = 180}) {
           'itself, no character in the image'
       : 'in the same art style and colour palette as this character: '
           '${figureStyleHint(figurePrompt)}';
-  return ('${kind.core}, ${itemScaleClause(kind)}, $stil, $tail', negative);
+  final full = kind.extraNegative.isEmpty
+      ? negative
+      : '${kind.extraNegative}, $negative';
+  return (
+    '${kind.core}, ${itemScaleSentence(kind)}, $stil, $tail',
+    full,
+  );
 }
 
 /// Derselbe Prompt im Format der kopierbaren Vorlagen
@@ -617,6 +793,20 @@ String itemBatchPrompt({
 /// ein `Tool` mit einem Teil namens `Handle`, das die Figur in die
 /// Hand nimmt.
 String robloxAttachNote(ItemKind kind) {
+  if (kind.rideable) {
+    // Ein Reittier oder Fahrzeug ist kein Accessoire: Es wird nicht
+    // angezogen, sondern bestiegen. In Roblox ist das ein Modell mit
+    // einem Sitz – `VehicleSeat` für Fahrbares (er bringt die
+    // Steuerung mit), `Seat` für ein Reittier, dessen Bewegung ein
+    // Skript macht.
+    final sitz = kind.animalMount ? 'Seat' : 'VehicleSeat';
+    final skelett = kind.needsRig
+        ? ' Das Skelett (${kind.rigType}) steckt schon im Modell – '
+            'darüber laufen Lauf- bzw. Radanimation.'
+        : ' Ein starres Teil – hier bewegt sich nichts.';
+    return 'Kein Accessoire: als eigenes Modell anlegen und einen '
+        '`$sitz` an der Sitzposition einschweißen.$skelett';
+  }
   final type = kind.robloxAccessoryType;
   if (type == null) {
     return 'In die Hand: als `Tool` mit einem Teil namens `Handle` '

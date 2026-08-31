@@ -375,6 +375,7 @@ class ThreeDResult {
     this.limitNote = '',
     this.rigNote = '',
     this.providerTaskId = '',
+    this.itemKindId,
   });
 
   Uint8List glbBytes;
@@ -408,6 +409,14 @@ class ThreeDResult {
   /// Rig-Anzeige und ohne Animationen und weiß nicht, ob die App
   /// nicht gefragt oder der Dienst abgelehnt hat.
   final String rigNote;
+
+  /// Kennung der Gegenstandsart, wenn dieses Ergebnis aus einem
+  /// Gegenstands-Lauf stammt (`schwert`, `helm`, `reitvogel` …).
+  ///
+  /// Daran hängen die Anprobe an der Figur und der Roblox-Export mit
+  /// der richtigen Hülle – ohne die Art wüsste die App nicht, ob ein
+  /// Accessoire, ein Werkzeug oder ein Reittier vor ihr steht.
+  final String? itemKindId;
 
   /// Auftragskennung beim Anbieter, solange sie gilt.
   ///

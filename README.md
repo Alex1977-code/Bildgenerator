@@ -916,14 +916,102 @@ vorher.
 des Massenprompts (`NAME:` / `PROMPT:` / `NEGATIV:`) und lassen sich so
 im Bild-Tab in einem Lauf zu Bildern machen.
 
-### Anbau in Roblox
+### Fortbewegung: Reittiere und Fahrzeuge
 
-Zu jeder Art gehört, wie sie an die Figur kommt. Die Werte stammen aus
-der offiziellen Aufzählung `AccessoryType` (Hat, Hair, Face, Neck,
-Shoulder, Front, Back, Waist) – ein erfundener Wert wäre in Studio
-schlicht nicht auswählbar, ein Test prüft das. Was dort nicht
-hineinpasst, ist kein Accessoire, sondern ein Werkzeug: ein `Tool` mit
-einem Teil namens `Handle`, das die Figur in die Hand nimmt.
+In der Gruppe **Fortbewegung** stehen Dinge, die bestiegen werden:
+Reitpferd, Reitvogel (Strauß), Reitechse, Karren, Fahrzeug, Boot,
+Gleiter. Die sind keine Gegenstände, sondern Figuren für sich – und
+werden entsprechend anders behandelt:
+
+- **Sie bekommen ein Skelett.** Ein Strauß, auf dem man reiten soll,
+  muss laufen können; ein Karren braucht drehende Räder. Für den Lauf
+  schaltet die App das Auto-Rigging an und wählt den passenden Typ
+  (Vogel, Vierbeiner, Fahrzeug). Boot und Gleiter bleiben starr – da
+  bewegt sich nichts.
+- **Der Größensatz spricht vom Aufsitzen.** „1,5-mal so hoch wie die
+  Figur" sagt nichts Brauchbares; im Prompt steht deshalb, dass der
+  Sattel auf Hüfthöhe der Figur sitzen soll und die Figur darauf passen
+  muss.
+- **„rider" steht im Negativ-Prompt.** Sonst kommt das Pferd mit
+  Reiter, und der steckt danach im Netz.
+
+### Anprobe: Figur und Gegenstand zusammen
+
+Neben jedem erzeugten Gegenstand steht **„Anprobe"**. Dort stehen Figur
+und Gegenstand im selben Maßstab nebeneinander – die Figur grau, der
+Gegenstand farbig, mit einem Kreuz am Anbaupunkt.
+
+**Der Anbaupunkt kommt aus dem Skelett der Figur**: das Schwert an
+`Hand_R`, der Helm an `Head`, der Rucksack an `Chest`. Hat die Figur
+kein Skelett, wird der Punkt aus der Bounding Box geschätzt (Kopf oben
+mittig, Hand seitlich auf 55 % Höhe) – die Anzeige sagt, welcher der
+beiden Fälle gilt. Ohne diesen Rückfall stünde jedes ungeriggte Modell
+im Boden.
+
+Regler für Größe, Höhe, Vor/Zurück, Seitlich und die drei Drehachsen.
+Der erste Vorschlag setzt die Größe auf das, was die Maßtabelle für
+diese Figur vorsieht – hat das Bildmodell die Proportion getroffen,
+ändert sich fast nichts.
+
+**Übernommen werden nur Größe und Drehung.** Sie werden als
+Wurzel-Transformation in die GLB des Gegenstands geschrieben; die
+Netzdaten bleiben Byte für Byte unangetastet, und zweimal anwenden
+stapelt nicht, sondern ersetzt. Die Verschiebung gilt nur für die
+Anprobe: Wohin am Körper das Teil gehört, entscheidet in Roblox das
+Attachment – stünde sie in der Datei, schwebte das Accessoire beim
+Anziehen um die Anbauhöhe daneben.
+
+Gezeichnet wird ohne Textur. Beim Anpassen zählt die Silhouette – wo
+sitzt es, wie groß, steht es richtig herum; eine Textur würde genau das
+überdecken.
+
+### Anbau in Roblox: fertig ausliefern
+
+Neben der Anprobe steht **„Für Roblox ausliefern"**. Das legt drei
+Dateien ab: das GLB, ein **Lua-Skript** und eine Anleitung.
+
+Ein Mesh allein ist in Roblox kein Hut und kein Schwert. Der
+3D-Importer legt eine `MeshPart` in den Arbeitsbereich, mehr nicht. Das
+Skript baut daraus in einem Schritt die richtige Hülle:
+
+| Art | Was entsteht |
+| --- | --- |
+| Getragen | `Accessory` mit `AccessoryType`, Teil `Handle`, darin ein `Attachment` mit dem passenden Namen |
+| In der Hand | `Tool` mit einem Teil namens `Handle` |
+| Zum Aufsitzen | `Model` mit `Seat` (Reittier) bzw. `VehicleSeat` (Fahrbares) |
+
+**Am Namen hängt alles.** Das `Attachment` muss `HatAttachment`,
+`BodyBackAttachment`, `WaistCenterAttachment` … heißen – je nach
+`AccessoryType`. Ein anderer Name führt zu **keiner Fehlermeldung**:
+Das Teil sitzt beim Anziehen einfach irgendwo, meist im Boden. Ebenso
+beim `Tool`: Ohne ein Teil namens genau `Handle` nimmt die Figur nichts
+in die Hand. Die Namen stammen aus der offiziellen Tabelle, ein Test
+schreibt sie fest.
+
+### Größenprüfung vor dem Hochladen
+
+Starre Accessoires haben je Art feste Höchstmaße in Studs. Die App
+misst den Gegenstand und vergleicht:
+
+| AccessoryType | Breite | Höhe | Tiefe |
+| --- | --- | --- | --- |
+| Hat | 1,87 | 2,50 | 1,87 |
+| Hair | 1,87 | 3,12 | 2,18 |
+| Face | 1,87 | 1,25 | 1,25 |
+| Neck | 2,95 | 3,68 | 2,16 |
+| Shoulder | 2,67 | 4,40 | 3,09 |
+| Front | 2,95 | 3,68 | 3,24 |
+| Back | 9,86 | 8,59 | 4,87 |
+| Waist | 3,94 | 4,29 | 7,57 |
+
+(Body Scale `Normal`, Mannequin rund 5,75–6,5 Studs hoch. Für `Slender`
+und `Classic` sind die Grenzen kleiner – wer darunter bleibt, ist
+überall auf der sicheren Seite.)
+
+Passt etwas nicht, steht dabei, **auf wie viel Prozent** es
+verkleinert werden muss – schon in der Anprobe, nicht erst beim
+abgelehnten Upload. Für Werkzeuge gibt es keine Tabelle; da zählt, dass
+es zur Figur passt.
 
 ## Skelett nachträglich einbauen und der Dummy im Rig-Editor
 
@@ -998,6 +1086,16 @@ Die App merkt sich zu jedem 3D-Modell, mit welchen Einstellungen es
 entstanden ist und wie gut es geworden ist, und leitet daraus
 Empfehlungen ab — getrennt nach Motivklasse, weil sich die Anbieter bei
 Gebäuden anders schlagen als bei Figuren.
+
+**Getrennt gezählt wird nach Motivklasse**: Figuren, Gebäude,
+Fahrzeuge, Objekte – und seit den Gegenständen zwei weitere:
+**Gegenstände** (Schwert, Helm, Laterne) und **Fortbewegung**
+(Reittiere, Fahrzeuge zum Aufsitzen). Ein Schwert ist weder Figur noch
+Gebäude: klein, ohne Gliedmaßen, ganz anders gut oder schlecht. In
+denselben Topf geworfen verwässert es die Empfehlungen für Figuren.
+Bei den Gegenständen wird zusätzlich die **Art** mitgeschrieben – erst
+damit lässt sich sehen, dass Schilde gut werden und Bögen misslingen;
+über alle Gegenstände gemittelt bliebe das unsichtbar.
 
 **Die Bewertung kommt aus zwei Quellen.** Aus der messbaren
 Beschaffenheit des Netzes — wasserdicht, einheitliche Wicklung, keine
@@ -1799,7 +1897,9 @@ lib/
 │   ├── generators.dart        # OpenAI- & Stability-Anbindung (austauschbar)
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
+│   ├── item_fit.dart          # Anprobe: Anbaupunkt, Maßstab, Transform
 │   ├── item_prompt.dart       # Gegenstände zur Figur: Maßstab + Prompt
+│   ├── roblox_accessory.dart  # Accessory/Tool/Seat + Größengrenzen
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
 │   ├── quality_preset.dart    # Schritte, Prompt-Treue, Detail-Durchgang
 │   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes
