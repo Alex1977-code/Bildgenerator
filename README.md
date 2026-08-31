@@ -878,6 +878,9 @@ in der man etwas wiederfindet.
 (im Ordner: „Neuer Unterordner"). Das legt ihn an, auch wenn noch
 nichts darin liegt, und wechselt gleich hinein — wer einen Ordner
 anlegt, will ihn benutzen. Angelegte Ordner bleiben gespeichert.
+Die Ordnerleiste steht auch über der noch leeren Galerie — wer die
+Ablage vorbereiten will, bevor das erste Bild da ist, kommt sonst nicht
+an den Knopf.
 
 **Kacheln markieren.** Der Knopf **„Auswählen"** über der Liste
 schaltet den Auswahlmodus ein: Jede Kachel trägt dann ein Kästchen,
@@ -886,9 +889,22 @@ muss man erst kommen.) Oben stehen dann **„Alle"**,
 **„Einsortieren …"** und **„Fertig"**. Zusammen mit der Suche lassen
 sich so z. B. alle `burg-` auf einmal einsortieren.
 
+**Einen ganzen Block markieren.** Die erste Kachel antippen, die letzte
+mit **Umschalt** anklicken — alles dazwischen ist markiert. Auf dem
+Handy gibt es keine Umschalttaste; dort zieht **langes Drücken** im
+Auswahlmodus denselben Bereich. Nach einem Massenlauf mit vierzig
+Kacheln ist das der Unterschied zwischen zwei Klicks und vierzig. Der
+Anker ist immer die zuletzt angetippte Kachel; ist sie inzwischen aus
+der Ansicht verschwunden, markiert der Umschalt-Klick nur sich selbst,
+statt einen Bereich zu raten.
+
 Unter „Einsortieren …" steht jedes vorhandene Projekt, ein neues, ein
 Unterordner im gerade geöffneten Ordner — oder „Ohne Projekt", um
 wieder herauszusortieren.
+
+**„Ohne Projekt"** in der Ordnerleiste ist ein Filter: Ein Klick zeigt
+nur noch die Einträge, die in keinem Projekt liegen — genau die, die
+noch aufzuräumen sind. Ein zweiter Klick zeigt wieder alles.
 
 **Die Ordnerleiste** ganz oben zeigt den Weg („Alle › Burgenspiel ›
 Gebäude") und darunter die Unterordner der aktuellen Ebene mit ihrer

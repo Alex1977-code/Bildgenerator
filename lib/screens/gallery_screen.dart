@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -9,6 +8,7 @@ import '../services/history_service.dart';
 import '../services/project_tree.dart';
 import '../services/prompt_relay.dart';
 import '../services/provenance.dart';
+import '../services/selection_range.dart';
 import '../services/settings_service.dart';
 import '../widgets/common.dart';
 import 'image_detail_screen.dart';
@@ -96,6 +96,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// niemand findet, ist keiner. Auf dem Bildschirm gibt es dafür
   /// keinen Hinweis, und mit der Maus kommt kaum jemand auf die Idee.
   bool _selectMode = false;
+
+  /// Nur die Einträge zeigen, die in keinem Projekt liegen.
+  ///
+  /// „Ohne Projekt" war bisher ein Schild ohne Funktion: Es zählte die
+  /// unsortierten Einträge, ließ sich aber nicht anklicken. Wer sie
+  /// aufräumen wollte, musste sie zwischen allen anderen heraussuchen.
+  bool _unsorted = false;
+
+  /// Die zuletzt angetippte Kachel – Ankerpunkt für Umschalt+Klick.
+  String? _anchor;
 
   bool get _selecting => _selectMode || _selected.isNotEmpty;
 
@@ -256,6 +266,37 @@ class _GalleryScreenState extends State<GalleryScreen> {
     setState(_selected.clear);
   }
 
+  /// Eine Kachel markieren oder die Markierung aufheben.
+  ///
+  /// Mit gedrückter Umschalttaste – und auf dem Handy per langem
+  /// Drücken, wo es keine Umschalttaste gibt – markiert der Klick
+  /// alles vom zuletzt angetippten Bild bis hierher. Bei vierzig
+  /// Kacheln aus einem Massenlauf ist das der Unterschied zwischen
+  /// einem Klick und vierzig.
+  void _toggle(List<HistoryEntry> entries, HistoryEntry entry,
+      {bool range = false}) {
+    final bereich = range || HardwareKeyboard.instance.isShiftPressed;
+    if (bereich) {
+      final ids = selectionRange(
+          [for (final e in entries) e.id], _anchor, entry.id);
+      // Nur ein Ziel heißt: Es gab keinen brauchbaren Anker. Dann
+      // verhält sich der Klick wie ein gewöhnlicher.
+      if (ids.length > 1) {
+        setState(() {
+          _selectMode = true;
+          _selected.addAll(ids);
+        });
+        return;
+      }
+    }
+    setState(() {
+      if (!_selected.remove(entry.id)) _selected.add(entry.id);
+      // Der Anker bleibt auch dann stehen, wenn die Markierung
+      // aufgehoben wurde: Er ist der Ausgangspunkt, nicht die Auswahl.
+      _anchor = entry.id;
+    });
+  }
+
   /// Ein Projekt anlegen – ohne dass vorher etwas ausgewählt sein
   /// muss.
   ///
@@ -276,7 +317,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
     if (!mounted) return;
     // Gleich hineinwechseln: Wer einen Ordner anlegt, will ihn
     // benutzen.
-    setState(() => _folder = path);
+    setState(() {
+      _folder = path;
+      _unsorted = false;
+    });
   }
 
   /// Ordner umbenennen, auflösen oder eine Ebene höher schieben.
@@ -351,7 +395,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               InkWell(
-                onTap: () => setState(() => _folder = ''),
+                onTap: () => setState(() {
+                  _folder = '';
+                  _unsorted = false;
+                }),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 6, vertical: 4),
@@ -407,12 +454,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
                               : Icons.folder_outlined,
                           size: 18),
                       label: Text('${node.name}  ${node.totalCount}'),
-                      onPressed: () => setState(() => _folder = node.path),
+                      onPressed: () => setState(() {
+                        _folder = node.path;
+                        _unsorted = false;
+                      }),
                     ),
-                  if (_folder.isEmpty && unsorted > 0)
-                    Chip(
+                  if (_folder.isEmpty && (unsorted > 0 || _unsorted))
+                    FilterChip(
                       avatar: const Icon(Icons.inbox_outlined, size: 18),
                       label: Text('Ohne Projekt  $unsorted'),
+                      selected: _unsorted,
+                      tooltip: _unsorted
+                          ? 'Wieder alle Einträge zeigen'
+                          : 'Nur die Einträge zeigen, die in keinem '
+                              'Projekt liegen',
+                      onSelected: (value) =>
+                          setState(() => _unsorted = value),
                     ),
                   ActionChip(
                     avatar: const Icon(Icons.create_new_folder_outlined,
@@ -439,7 +496,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
     // „Burgenspiel" öffnet, sieht auch die Türme.
     final inFolder = [
       for (final entry in all)
-        if (projectIsInside(entry.project, _folder)) entry,
+        if (_unsorted
+            ? entry.project.isEmpty
+            : projectIsInside(entry.project, _folder))
+          entry,
     ];
     final entries = needle.isEmpty
         ? inFolder
@@ -451,25 +511,37 @@ class _GalleryScreenState extends State<GalleryScreen> {
           ];
 
     if (all.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.collections_outlined,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.outlineVariant),
-              const SizedBox(height: 12),
-              Text(
-                'Die Galerie ist noch leer.\nGenerierte Bilder und '
-                '3D-Modelle erscheinen hier automatisch.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
+      // Auch die leere Galerie behält ihre Ordnerleiste: Wer die
+      // Ablage vorbereiten will, bevor das erste Bild da ist, fand
+      // sonst keinen Knopf – die Leiste hing an den Einträgen.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _folderBar(history, Theme.of(context)),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.collections_outlined,
+                        size: 64,
+                        color:
+                            Theme.of(context).colorScheme.outlineVariant),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Die Galerie ist noch leer.\nGenerierte Bilder und '
+                      '3D-Modelle erscheinen hier automatisch.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       );
     }
 
@@ -509,7 +581,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 Expanded(
                   child: Text(
                     _selected.isEmpty
-                        ? 'Kacheln antippen zum Markieren'
+                        ? 'Antippen markiert · Umschalt+Klick (am '
+                            'Handy: langes Drücken) markiert alles bis '
+                            'dorthin'
                         : '${_selected.length} ausgewählt',
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
@@ -532,6 +606,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   onPressed: () => setState(() {
                     _selected.clear();
                     _selectMode = false;
+                    _anchor = null;
                   }),
                   child: const Text('Fertig'),
                 ),
@@ -615,9 +690,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 // Kachel; im Ordner nur der Teil darunter, sonst
                 // wiederholt jede Kachel, was schon in der Leiste steht.
                 folderLabel: reparentProject(entry.project, _folder, ''),
-                onToggleSelect: () => setState(() {
-                  if (!_selected.remove(entry.id)) _selected.add(entry.id);
-                }),
+                onToggleSelect: () => _toggle(entries, entry),
+                onRangeSelect: () =>
+                    _toggle(entries, entry, range: true),
                 onOpen: (bytes) => _openEntry(context, entry, bytes),
               );
             },
@@ -637,6 +712,7 @@ class _GalleryTile extends StatelessWidget {
     required this.selecting,
     required this.folderLabel,
     required this.onToggleSelect,
+    required this.onRangeSelect,
     required this.onOpen,
   });
 
@@ -656,6 +732,11 @@ class _GalleryTile extends StatelessWidget {
   final String folderLabel;
 
   final VoidCallback onToggleSelect;
+
+  /// Markiert alles von der zuletzt angetippten Kachel bis hierher –
+  /// der Ersatz für Umschalt+Klick auf Geräten ohne Tastatur.
+  final VoidCallback onRangeSelect;
+
   final void Function(Uint8List bytes) onOpen;
 
   /// Erstellungsnachweis-PDF zum Galerie-Eintrag herunterladen: mit
@@ -760,8 +841,10 @@ class _GalleryTile extends StatelessWidget {
           return InkWell(
             // Langes Drücken markiert. Ist schon etwas markiert,
             // markiert auch der kurze Klick – erst wenn die Auswahl
-            // leer ist, öffnet er wieder.
-            onLongPress: onToggleSelect,
+            // leer ist, öffnet er wieder. Läuft die Auswahl schon,
+            // zieht langes Drücken den Bereich bis hierher: auf dem
+            // Handy gibt es keine Umschalttaste.
+            onLongPress: selecting ? onRangeSelect : onToggleSelect,
             onTap: selecting
                 ? onToggleSelect
                 : isModel
