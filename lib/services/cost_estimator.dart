@@ -102,6 +102,7 @@ const qualityTierLabels = {
       final tier = switch (model) {
         'flux-schnell' => 5,
         'sd35-medium' => 4,
+        'sd35-medium-lean' => 4,
         'sdxl' => 4,
         'sdxl-turbo' => 3,
         'sd15' => 2,

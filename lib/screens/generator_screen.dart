@@ -2323,7 +2323,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           'Guidance 7) und wertet den Negativ-Prompt aus.',
       'sd35-medium' => 'SD 3.5 Medium versteht auch längere, '
           'zusammenhängende Beschreibungen und schreibt Text im Bild '
-          'lesbar.',
+          'lesbar. Braucht dafür viel Speicher – unter 16 GB VRAM '
+          'lagert der Server aus.',
+      'sd35-medium-lean' => 'SD 3.5 Medium ohne den T5-Text-Encoder: '
+          'passt auf eine 8-GB-Karte statt 16 zu brauchen. Der Preis '
+          'ist das Textverständnis – kurze Motivketten gelingen '
+          'weiter, lange verschachtelte Sätze und Text im Bild nicht '
+          'mehr zuverlässig.',
       'flux-schnell' => 'FLUX.1 schnell liest den Prompt am genauesten, '
           'kennt aber keinen Negativ-Prompt.',
       _ => null,

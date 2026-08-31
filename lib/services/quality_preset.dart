@@ -102,6 +102,7 @@ const localModelDefaults = <String, (int, double, bool)>{
   // SD 3.5 und FLUX rechnen nach einem anderen Verfahren (Flow
   // Matching); der Detail-Durchgang gilt dort nicht.
   'sd35-medium': (28, 4.5, false),
+  'sd35-medium-lean': (28, 4.5, false),
   'flux-schnell': (4, 0.0, false),
 };
 

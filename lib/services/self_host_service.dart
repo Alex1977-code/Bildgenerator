@@ -145,6 +145,16 @@ class SelfHostService {
             if ((entry.value as Map?)?['vram'] is num)
               entry.key: ((entry.value as Map)['vram'] as num).toDouble(),
         },
+        // Was der Server auf dieser Karte wirklich gemessen hat –
+        // sobald ein Modell einmal gelaufen ist. Schlägt die
+        // Schätzung.
+        measured: {
+          for (final entry
+              in (json['modelInfo'] as Map<String, dynamic>? ?? {}).entries)
+            if ((entry.value as Map?)?['measuredVram'] is num)
+              entry.key:
+                  ((entry.value as Map)['measuredVram'] as num).toDouble(),
+        },
       );
       if (vram.isNotEmpty) info = '$info. $vram';
       // Der 3D-Server hängt fehlende Pakete schon selbst an.

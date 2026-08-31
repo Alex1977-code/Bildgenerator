@@ -761,8 +761,38 @@ die Techniken dahinter – und die sind jetzt eingebaut.
 | SD 1.5 | ~4 GB | ganz auf der GPU |
 | SDXL Turbo | ~7 GB | ganz auf der GPU |
 | **SDXL Base (1024²)** | **~8 GB** | **ganz auf der GPU** |
-| SD 3.5 Medium | ~10 GB | ausgelagert, langsamer |
+| **SD 3.5 Medium (sparsam)** | **~7 GB** | **ganz auf der GPU** |
+| SD 3.5 Medium | ~16 GB | ausgelagert, deutlich langsamer |
 | FLUX.1 schnell | ~16 GB | ausgelagert, deutlich langsamer |
+
+### SD 3.5 sparsam: ohne den T5-Text-Encoder
+
+SD 3.5 lädt drei Text-Encoder, und **T5-XXL ist mit Abstand der
+größte Brocken** – er allein macht aus einem 7-GB-Modell ein 16-GB-
+Modell. In der Modellliste steht deshalb zusätzlich
+**`sd35-medium-lean`**: dasselbe Bildmodell, ohne diesen Encoder.
+
+Der Preis ist das Textverständnis, und zwar gezielt:
+
+| | volles SD 3.5 | sparsam |
+| --- | --- | --- |
+| Kurze, dichte Motivketten | gut | **gut** |
+| Lange, verschachtelte Sätze | gut | **schlecht** |
+| Lesbarer Text im Bild | gut | **nur grob** |
+| Wortgrenze im Prompt-Briefing | 120 | 60 |
+
+Für Spielgrafik – kurze Motivbeschreibungen, kein Text im Bild – ist
+das ein guter Tausch. Für ein Plakat mit Beschriftung nicht.
+
+### Gemessen statt geschätzt
+
+Die GB-Angaben oben sind Schätzungen, und Schätzungen liegen daneben:
+Für SD 3.5 stand hier zuerst 10 GB, mit dem T5-Encoder sind es rund
+16. Der Server misst deshalb selbst – nach dem Laden, was die Gewichte
+belegen, und nach dem ersten Bild den Spitzenwert. Sobald ein Modell
+einmal gelaufen ist, zeigt **„Verbindung prüfen"** diesen Wert mit dem
+Zusatz *(gemessen)* statt der Tabelle. Ein gemessener Wert bekommt
+auch keinen Sicherheitsaufschlag mehr – er ist bereits die Spitze.
 
 SDXL bei 1024² – das Modell, mit dem die besten Ergebnisse entstanden
 sind – läuft auf einer 3080 also vollständig im Grafikspeicher. Genau

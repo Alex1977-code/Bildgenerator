@@ -83,20 +83,33 @@ VramVerdict vramVerdict({
 ///
 /// [models] ist Modellname → Bedarf in GB. Leer, wenn nichts bekannt
 /// ist; dann steht in der Meldung auch nichts.
+///
+/// [measured] sind auf dieser Karte **gemessene** Spitzenwerte, sobald
+/// ein Modell einmal gelaufen ist. Die gewinnen gegen die Schätzung:
+/// Eine Tabelle aus der Literatur kann um Gigabyte danebenliegen – bei
+/// SD 3.5 war die Schätzung dieser App zunächst 10 GB, mit dem
+/// T5-Encoder sind es aber rund 16. Ein gemessener Wert braucht auch
+/// keinen Aufschlag mehr, er **ist** schon der Spitzenwert.
 String vramSummary({
   required double cardGb,
   required Map<String, double> models,
+  Map<String, double> measured = const {},
   double reserveGb = 1.5,
 }) {
   if (cardGb <= 0 || models.isEmpty) return '';
   final ganz = <String>[];
   final rest = <String>[];
   final names = models.keys.toList()
-    ..sort((a, b) => models[a]!.compareTo(models[b]!));
+    ..sort((a, b) => (measured[a] ?? models[a]!)
+        .compareTo(measured[b] ?? models[b]!));
   for (final name in names) {
-    final verdict = vramVerdict(
-        cardGb: cardGb, modelGb: models[name]!, reserveGb: reserveGb);
-    (verdict.fast ? ganz : rest).add(name);
+    final gemessen = measured[name];
+    final verdict = gemessen != null
+        ? vramVerdict(cardGb: cardGb, modelGb: gemessen, reserveGb: 0)
+        : vramVerdict(
+            cardGb: cardGb, modelGb: models[name]!, reserveGb: reserveGb);
+    (verdict.fast ? ganz : rest).add(
+        gemessen == null ? name : '$name (gemessen)');
   }
   final parts = <String>[];
   if (ganz.isNotEmpty) parts.add('ganz auf der GPU: ${ganz.join(', ')}');

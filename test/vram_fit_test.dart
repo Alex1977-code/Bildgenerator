@@ -63,6 +63,45 @@ void main() {
       expect(text, isNot(contains('ausgelagert')));
     });
 
+    test('Ein gemessener Wert schlägt die Schätzung', () {
+      // Genau der Fall, an dem die Schätzung dieser App danebenlag:
+      // Für SD 3.5 standen 10 GB in der Tabelle, mit dem T5-Encoder
+      // sind es rund 16. Wer einmal gemessen hat, soll nicht weiter
+      // die Tabelle sehen.
+      final text = vramSummary(
+        cardGb: 11,
+        models: const {'sd35': 10.0},
+        measured: const {'sd35': 15.8},
+      );
+      expect(text, contains('ausgelagert'));
+      expect(text, contains('(gemessen)'));
+      // Und ohne Messung gälte die Schätzung: 10 + 1,5 > 11 → knapp
+      // ausgelagert, aber eben aus anderem Grund.
+      expect(vramSummary(cardGb: 12, models: const {'sd35': 10.0}),
+          contains('ganz auf der GPU'));
+    });
+
+    test('Der gemessene Wert braucht keinen Aufschlag mehr', () {
+      // Er ist bereits der Spitzenwert eines echten Laufs – noch
+      // einmal 1,5 GB draufzuschlagen würde doppelt zählen.
+      final text = vramSummary(
+        cardGb: 8,
+        models: const {'sdxl': 8.0},
+        measured: const {'sdxl': 7.4},
+      );
+      expect(text, contains('ganz auf der GPU'));
+    });
+
+    test('Gemessene und geschätzte Modelle nebeneinander', () {
+      final text = vramSummary(
+        cardGb: 11,
+        models: const {'klein': 4.0, 'gross': 10.0},
+        measured: const {'gross': 15.0},
+      );
+      expect(text, contains('ganz auf der GPU: klein'));
+      expect(text, contains('gross (gemessen)'));
+    });
+
     test('Ohne Angaben bleibt die Meldung leer', () {
       expect(vramSummary(cardGb: 0, models: const {'sdxl': 8}), isEmpty);
       expect(vramSummary(cardGb: 10, models: const {}), isEmpty);

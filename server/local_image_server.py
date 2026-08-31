@@ -64,10 +64,27 @@ MODELS = {
     "sdxl": ("stabilityai/stable-diffusion-xl-base-1.0", "sdxl",
              30, 7.0, 1024, 8),
     "sd35-medium": ("stabilityai/stable-diffusion-3.5-medium", "sd3",
-                    28, 4.5, 1024, 10),
+                    28, 4.5, 1024, 16),
+    # Dasselbe Modell ohne den T5-Text-Encoder. Der ist mit Abstand
+    # der groesste Brocken - ohne ihn passt SD 3.5 auf eine Karte mit
+    # 8 GB, mit ihm braucht es 16. Bezahlt wird das mit dem
+    # Textverstaendnis: Kurze Motivbeschreibungen leiden kaum, lange
+    # verschachtelte Saetze schon.
+    "sd35-medium-lean": ("stabilityai/stable-diffusion-3.5-medium",
+                         "sd3", 28, 4.5, 1024, 7),
     "flux-schnell": ("black-forest-labs/FLUX.1-schnell", "flux",
                      4, 0.0, 1024, 16),
 }
+
+# Modelle, die ohne den T5-Text-Encoder geladen werden.
+LEAN_MODELS = {"sd35-medium-lean"}
+
+# Tatsaechlich gemessener Speicherbedarf je Modell, in GB:
+# {name: {"gewichte": x, "spitze": y}}. Die Zahlen in MODELS sind
+# Schaetzungen aus der Literatur - sobald ein Modell einmal gelaufen
+# ist, stehen hier die echten Werte dieser Karte, und die App zeigt
+# sie statt der Schaetzung. Damit hoert das Raten auf.
+_measured: dict[str, dict[str, float]] = {}
 
 MODEL = "sdxl-turbo"
 _pipe = None
@@ -250,7 +267,7 @@ def _dtype_for(torch, family: str, device: str):
     return torch.float16
 
 
-def _from_pretrained(Pipe, repo: str, dtype):
+def _from_pretrained(Pipe, repo: str, dtype, lean: bool = False):
     """Laedt die Pipeline, bevorzugt die halbierten fp16-Gewichte.
 
     Viele Repositories legen ihre Gewichte zweimal ab: einmal in voller
@@ -260,11 +277,16 @@ def _from_pretrained(Pipe, repo: str, dtype):
     jedes Repository hat die Variante (SD 3.5 und FLUX liegen ohnehin
     nur in bfloat16 vor), deshalb der Rueckfall.
     """
+    # Ohne T5: Der Encoder wird gar nicht erst geladen. `None` fuer
+    # Encoder **und** Tokenizer - diffusers prueft beide.
+    extra = (
+        {"text_encoder_3": None, "tokenizer_3": None} if lean else {}
+    )
     try:
         return Pipe.from_pretrained(repo, torch_dtype=dtype,
-                                    variant="fp16")
+                                    variant="fp16", **extra)
     except Exception:
-        return Pipe.from_pretrained(repo, torch_dtype=dtype)
+        return Pipe.from_pretrained(repo, torch_dtype=dtype, **extra)
 
 
 def _load(name: str):
@@ -312,8 +334,16 @@ def _load_locked(name: str):
     else:
         from diffusers import StableDiffusionPipeline as Pipe
 
+    lean = name in LEAN_MODELS
+    if lean:
+        print(
+            "Sparsame Fassung: Der T5-Text-Encoder bleibt weg. Das "
+            "spart den groessten Teil des Speichers und kostet "
+            "Verstaendnis fuer lange, verschachtelte Prompts.",
+            flush=True,
+        )
     print(f"Modell wird geladen: {repo} ({_device}) ...", flush=True)
-    pipe = _from_pretrained(Pipe, repo, dtype)
+    pipe = _from_pretrained(Pipe, repo, dtype, lean=lean)
 
     if _device == "cuda":
         total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
@@ -356,6 +386,13 @@ def _load_locked(name: str):
     # schwarze Bilder aus; er laeuft lokal und ohne Netz, deshalb hier aus.
     if hasattr(pipe, "safety_checker"):
         pipe.safety_checker = None
+
+    if _device == "cuda":
+        # Was die Gewichte nach dem Laden belegen. Der Spitzenwert
+        # kommt spaeter, nach der ersten Generierung.
+        _measured.setdefault(name, {})["gewichte"] = round(
+            torch.cuda.memory_allocated() / 2**30, 1)
+        torch.cuda.reset_peak_memory_stats()
 
     _pipe = pipe
     _pipe_name = name
@@ -656,6 +693,21 @@ def health():
                 "vram": vram,
                 "negativePrompt": guidance > 0 and family != "flux",
                 "longPrompt": True,
+                # Ohne T5 versteht SD 3.5 lange, verschachtelte
+                # Prompts schlechter - das gehoert in die Auswahl.
+                "lean": key in LEAN_MODELS,
+                # Gemessen auf dieser Karte, sobald das Modell einmal
+                # gelaufen ist. Fehlt, solange es das nicht ist.
+                **(
+                    {"measuredVram": _measured[key]["spitze"]}
+                    if key in _measured and "spitze" in _measured[key]
+                    else {}
+                ),
+                **(
+                    {"measuredWeights": _measured[key]["gewichte"]}
+                    if key in _measured and "gewichte" in _measured[key]
+                    else {}
+                ),
             }
             for key, (_, family, steps, guidance, base, vram)
             in MODELS.items()
@@ -929,6 +981,13 @@ def generate(req: GenerateRequest):
                 result.images = detailed
             if detail_note:
                 note = f"{note} {detail_note}".strip()
+
+    if _device == "cuda":
+        # Spitzenwert dieses Laufs: Gewichte plus alles, was beim
+        # Rechnen dazukam. Genau die Zahl entscheidet, ob ein Modell
+        # auf eine Karte passt.
+        _measured.setdefault(name, {})["spitze"] = round(
+            torch.cuda.max_memory_allocated() / 2**30, 1)
 
     # Der Zwischenstand hat seinen Zweck erfuellt.
     if job:

@@ -206,6 +206,11 @@ String _modelRules(GenProvider provider, String model) {
         'sd35-medium' => '- SD 3.5 Medium versteht auch kurze Wortgruppen '
             'in natürlicher Sprache und schreibt Text im Bild lesbar; '
             'gewünschte Wörter in Anführungszeichen setzen.',
+        'sd35-medium-lean' => '- SD 3.5 Medium (sparsam) läuft ohne den '
+            'T5-Text-Encoder. Kurze, dichte Ketten versteht es wie das '
+            'volle Modell; lange, verschachtelte Sätze NICHT – die in '
+            'knappe Wortgruppen zerlegen. Text im Bild gelingt nur noch '
+            'grob.',
         'flux-schnell' => '- FLUX.1 schnell liest den Prompt am '
             'genauesten und verträgt auch beschreibende Wortgruppen, '
             'wertet aber den NEGATIV-Block NICHT aus – alles Unerwünschte '
@@ -246,6 +251,8 @@ int _maxWords(GenProvider provider, String model) {
         'sd15' => 50,
         'sdxl' => 60,
         'sd35-medium' => 120,
+        // Ohne T5 zählt wieder die CLIP-Grenze: rund 60 Wörter.
+        'sd35-medium-lean' => 60,
         'flux-schnell' => 120,
         _ => 60,
       },
