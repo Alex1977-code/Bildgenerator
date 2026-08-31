@@ -29,6 +29,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'item_prompt.dart';
+import 'model_refine.dart' show bakeScaleAndRotationIntoGlb;
 
 /// An welches Gelenk ein Gegenstand gehört.
 ///
@@ -191,15 +192,40 @@ List<double> placementMatrix(ItemPlacement p) {
 
 int _pad4(int n) => (n + 3) & ~3;
 
-/// Schreibt die Platzierung als Wurzel-Transformation in die GLB des
-/// Gegenstands.
+/// Schreibt Größe und Drehung in die GLB des Gegenstands.
 ///
-/// Angelegt wird **ein neuer Wurzelknoten** mit der Matrix, unter den
-/// die bisherigen Wurzelknoten wandern. Die Netzdaten bleiben Byte für
-/// Byte unangetastet – deshalb kann die Anpassung nichts an Textur,
-/// Material oder Topologie kaputt machen, und sie lässt sich durch
-/// erneutes Anwenden ersetzen statt zu stapeln.
+/// **Bevorzugt ins Netz gebacken.** Eine Wurzel-Matrix am Knoten sehen
+/// nur Programme, die Knoten-Transformationen auswerten – die
+/// Größenprüfung dieser App liest die Positionen roh und hätte weiter
+/// die alte Größe gemeldet: Man stellt das Schwert auf 40 % und die
+/// Prüfung meldet unverändert „zu groß". Ins Netz gebacken sehen
+/// Vorschau, Prüfung und Import dasselbe.
+///
+/// **Der Rückfall auf die Wurzel-Matrix** greift bei Modellen mit
+/// Skelett (Reittiere, Fahrzeuge): Dort müssten die Bind-Matrizen
+/// mitgerechnet werden, und ein falsch gebackenes Rig zerreißt das
+/// Modell. Für die gilt die Größentabelle ohnehin nicht – sie sind
+/// keine Accessoires, sondern Modelle mit einem Sitz.
 Uint8List applyPlacementToGlb(Uint8List glb, ItemPlacement placement) {
+  try {
+    return bakeScaleAndRotationIntoGlb(
+      glb,
+      scale: placement.scale,
+      rotX: placement.rotX,
+      rotY: placement.rotY,
+      rotZ: placement.rotZ,
+    );
+  } on Exception {
+    // Skelett oder eigene Knoten-Transformationen – dann der Weg über
+    // den Wurzelknoten.
+    return _placementAsRootNode(glb, placement);
+  }
+}
+
+/// Der Rückfall: ein Wurzelknoten mit der Matrix, unter den die
+/// bisherigen Wurzelknoten wandern. Die Netzdaten bleiben unangetastet,
+/// und erneutes Anwenden ersetzt den Knoten statt zu stapeln.
+Uint8List _placementAsRootNode(Uint8List glb, ItemPlacement placement) {
   if (glb.length < 20) throw Exception('Ungültige GLB-Datei.');
   final header = ByteData.sublistView(glb);
   if (header.getUint32(0, Endian.little) != 0x46546C67) {

@@ -953,13 +953,25 @@ Der erste Vorschlag setzt die Größe auf das, was die Maßtabelle für
 diese Figur vorsieht – hat das Bildmodell die Proportion getroffen,
 ändert sich fast nichts.
 
-**Übernommen werden nur Größe und Drehung.** Sie werden als
-Wurzel-Transformation in die GLB des Gegenstands geschrieben; die
-Netzdaten bleiben Byte für Byte unangetastet, und zweimal anwenden
-stapelt nicht, sondern ersetzt. Die Verschiebung gilt nur für die
-Anprobe: Wohin am Körper das Teil gehört, entscheidet in Roblox das
-Attachment – stünde sie in der Datei, schwebte das Accessoire beim
-Anziehen um die Anbauhöhe daneben.
+**Übernommen werden nur Größe und Drehung** – und zwar **ins Netz
+gebacken**, nicht als Matrix am Wurzelknoten. Der Unterschied ist
+keiner der Eleganz: Eine Knoten-Matrix sehen nur Programme, die
+Knoten-Transformationen auswerten. Die Größenprüfung dieser App liest
+die Positionen roh und hätte weiter die alte Größe gemeldet – man
+stellt das Schwert auf 40 % und die Prüfung sagt unverändert „zu
+groß". Gebacken sehen Vorschau, Prüfung und Import dasselbe. Nur bei
+Modellen mit Skelett (Reittiere, Fahrzeuge) bleibt es beim
+Wurzelknoten: Dort müssten die Bind-Matrizen mitgerechnet werden, und
+für die gilt die Accessoire-Größentabelle ohnehin nicht.
+
+Die **Verschiebung** gilt nur für die Anprobe: Wohin am Körper das Teil
+gehört, entscheidet in Roblox das Attachment – stünde sie in der Datei,
+schwebte das Accessoire beim Anziehen um die Anbauhöhe daneben.
+
+Die angepasste Fassung landet auch in der Galerie („… (angepasst)").
+Sonst lieferte der Download dort weiter das unangepasste Modell,
+während der Export hier das neue liefert – zwei Dateien gleichen
+Namens mit verschiedener Größe.
 
 Gezeichnet wird ohne Textur. Beim Anpassen zählt die Silhouette – wo
 sitzt es, wie groß, steht es richtig herum; eine Textur würde genau das

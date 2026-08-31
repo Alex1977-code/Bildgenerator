@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -416,20 +417,22 @@ class _FitPainter extends CustomPainter {
     }
 
     // Alle Dreiecke beider Netze in einen Topf – nur so stimmt die
-    // Verdeckung zwischen Figur und Gegenstand.
-    final faces = <(double, Path, Color)>[];
+    // Verdeckung zwischen Figur und Gegenstand. Gezeichnet wird alles
+    // in **einem** `drawVertices`-Aufruf: Ein Pfad je Dreieck wären
+    // bei zwei Modellen zu je zehntausend Dreiecken zwanzigtausend
+    // Zeichenbefehle pro Bild – das ruckelt beim Ziehen sichtbar.
+    final tris = <(double, int, int, int)>[];
+    final vx = <double>[];
+    final vy = <double>[];
+    final vz = <double>[];
+    final tint = <Color>[];
 
-    void collect(PreviewMesh mesh, Color tint,
+    void collect(PreviewMesh mesh, Color color,
         {ItemPlacement? transform}) {
+      final base = vx.length;
       final positions = mesh.positions;
-      final count = positions.length ~/ 3;
-      final sx = Float32List(count),
-          sy = Float32List(count),
-          sz = Float32List(count);
-      for (var i = 0; i < count; i++) {
-        var x = positions[i * 3],
-            y = positions[i * 3 + 1],
-            z = positions[i * 3 + 2];
+      for (var i = 0; i + 2 < positions.length; i += 3) {
+        var x = positions[i], y = positions[i + 1], z = positions[i + 2];
         if (transform != null) {
           final moved = applyPlacement(transform, x, y, z);
           x = moved.$1;
@@ -437,41 +440,63 @@ class _FitPainter extends CustomPainter {
           z = moved.$3;
         }
         final (px, py, pz) = project(x, y, z);
-        sx[i] = px;
-        sy[i] = py;
-        sz[i] = pz;
+        vx.add(px);
+        vy.add(py);
+        vz.add(pz);
+        tint.add(color);
       }
       final indices = mesh.indices;
       for (var t = 0; t + 2 < indices.length; t += 3) {
-        final a = indices[t], b = indices[t + 1], c = indices[t + 2];
+        final a = base + indices[t],
+            b = base + indices[t + 1],
+            c = base + indices[t + 2];
         // Rückseiten weglassen: halbiert die Fläche und macht die
         // Silhouette klarer.
-        final area = (sx[b] - sx[a]) * (sy[c] - sy[a]) -
-            (sx[c] - sx[a]) * (sy[b] - sy[a]);
+        final area = (vx[b] - vx[a]) * (vy[c] - vy[a]) -
+            (vx[c] - vx[a]) * (vy[b] - vy[a]);
         if (area <= 0) continue;
-        final path = Path()
-          ..moveTo(sx[a], sy[a])
-          ..lineTo(sx[b], sy[b])
-          ..lineTo(sx[c], sy[c])
-          ..close();
-        // Grobe Schattierung über die Bildschirmfläche: größere
-        // Dreiecke stehen flacher zum Betrachter.
-        final shade = (0.55 + 0.45 * (area / 400).clamp(0.0, 1.0));
-        faces.add((
-          sz[a] + sz[b] + sz[c],
-          path,
-          Color.lerp(tint, Colors.white, 0.35 * shade)!,
-        ));
+        tris.add((vz[a] + vz[b] + vz[c], a, b, c));
       }
     }
 
     collect(figure, figureColor);
     collect(item, itemColor, transform: placement);
-    faces.sort((a, b) => a.$1.compareTo(b.$1));
-    final paint = Paint()..style = PaintingStyle.fill;
-    for (final (_, path, color) in faces) {
-      paint.color = color;
-      canvas.drawPath(path, paint);
+    // Maler-Algorithmus: Entferntes zuerst. `drawVertices` zeichnet in
+    // der übergebenen Reihenfolge, also genügt es, die Dreiecke
+    // sortiert einzutragen.
+    tris.sort((a, b) => a.$1.compareTo(b.$1));
+
+    if (tris.isNotEmpty) {
+      final points = Float32List(tris.length * 6);
+      final colors = Int32List(tris.length * 3);
+      for (var t = 0; t < tris.length; t++) {
+        final (_, a, b, c) = tris[t];
+        // Schattierung aus der Flächennormalen im Blickraum: Flächen,
+        // die zum Betrachter zeigen, werden heller. Ohne das wäre das
+        // Modell eine flache Silhouette ohne erkennbare Form.
+        final ux = vx[b] - vx[a], uy = vy[b] - vy[a], uz = vz[b] - vz[a];
+        final wx = vx[c] - vx[a], wy = vy[c] - vy[a], wz = vz[c] - vz[a];
+        final nx = uy * wz - uz * wy;
+        final ny = uz * wx - ux * wz;
+        final nz = ux * wy - uy * wx;
+        final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+        final facing = len <= 0 ? 0.0 : (nz / len).abs();
+        final color = Color.lerp(tint[a], Colors.white, 0.45 * facing)!
+            .toARGB32();
+        for (final (slot, v) in [(0, a), (1, b), (2, c)]) {
+          points[t * 6 + slot * 2] = vx[v];
+          points[t * 6 + slot * 2 + 1] = vy[v];
+          colors[t * 3 + slot] = color;
+        }
+      }
+      canvas.drawVertices(
+        ui.Vertices.raw(ui.VertexMode.triangles, points, colors: colors),
+        // srcOver, nicht dstOver: Die Vertex-Farben sollen über der
+        // Farbe des Pinsels liegen. Umgekehrt läge der voreingestellte
+        // schwarze Pinsel obenauf und alles wäre schwarz.
+        BlendMode.srcOver,
+        Paint(),
+      );
     }
 
     // Der Anbaupunkt als Kreuz – so ist zu sehen, woran der

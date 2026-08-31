@@ -1200,6 +1200,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       context: context,
       builder: (_) => _ItemDialog(
         figurePrompt: figurePrompt,
+        figureName: result.label,
         figureStuds: robloxCharacterStuds,
         robloxDefault: _robloxMode,
       ),
@@ -1280,17 +1281,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             _views[key] = null;
           }
         });
+        final vorher = _results.length;
         await _generate();
         if (!mounted) break;
-        setState(() => _itemDone++);
-        if (_error != null) {
-          // Beim ersten echten Fehler abbrechen: Läuft etwas
-          // grundsätzlich schief (Guthaben, Schlüssel, Server), wären
-          // die restlichen Läufe nur weitere Fehlschläge – bei einem
-          // bezahlten Anbieter auch weitere Kosten.
-          _showSnack('Abgebrochen bei „${kind.label}": $_error');
+        // Gezählt wird, was wirklich entstanden ist. Ein Blick auf
+        // `_error` reichte nicht: `_generate` bricht auch still ab –
+        // etwa wenn der Schlüssel fehlt und stattdessen ein Dialog
+        // kommt. Dann liefe die Reihe weiter und zeigte den Dialog für
+        // jeden weiteren Gegenstand noch einmal.
+        if (_results.length == vorher) {
+          _showSnack('Abgebrochen bei „${kind.label}"'
+              '${_error == null ? '.' : ': $_error'}');
           break;
         }
+        setState(() => _itemDone++);
       }
     } finally {
       if (mounted) {
@@ -1347,8 +1351,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     );
     if (angepasst == null || !mounted) return;
     setState(() => result.glbBytes = angepasst);
-    _showSnack('Größe und Drehung übernommen. Der Export liefert jetzt '
-        'die angepasste Fassung.');
+    // Auch in die Galerie: Sonst lieferte der Download dort weiter die
+    // unangepasste Fassung, während der Export hier die neue liefert –
+    // zwei Dateien gleichen Namens mit verschiedener Größe.
+    await context.read<HistoryService>().addModel(
+      glbBytes: angepasst,
+      thumbnail: result.thumbnailBytes,
+      label: '${result.label} (angepasst)',
+      providerLabel: result.providerLabel,
+      params: {
+        'Gegenstand': kind.label,
+        'Anprobe': 'Größe und Drehung angepasst',
+      },
+    );
+    if (!mounted) return;
+    _showSnack('Größe und Drehung übernommen – im Netz gebacken, nicht '
+        'nur als Knoten-Matrix. Export und Galerie liefern jetzt die '
+        'angepasste Fassung.');
   }
 
   /// Den Gegenstand so ausliefern, dass Roblox ihn erkennt: GLB,
@@ -6389,11 +6408,17 @@ class _ItemChoice {
 class _ItemDialog extends StatefulWidget {
   const _ItemDialog({
     required this.figurePrompt,
+    required this.figureName,
     required this.figureStuds,
     required this.robloxDefault,
   });
 
   final String figurePrompt;
+
+  /// Name der Figur – daraus entstehen die Namen der Gegenstände beim
+  /// Kopieren („burg-ritter-01-schwert" statt „item-schwert").
+  final String figureName;
+
   final double figureStuds;
   final bool robloxDefault;
 
@@ -6507,7 +6532,7 @@ class _ItemDialogState extends State<_ItemDialog> {
                   final block = itemBatchPrompt(
                     kinds: _selected,
                     figurePrompt: widget.figurePrompt,
-                    figureName: '',
+                    figureName: widget.figureName,
                     roblox: _roblox,
                     withReference: _reference,
                     accessoryTail:

@@ -812,3 +812,91 @@ Future<Uint8List> mirrorSymmetrizeGlb(Uint8List glb) async {
     mesh.dispose();
   }
 }
+
+/// Backt eine Skalierung und eine Drehung in die Geometrie.
+///
+/// Gedacht für die Anprobe: Wird der Gegenstand dort kleiner gestellt,
+/// muss diese Änderung überall ankommen – in der eigenen Vorschau, in
+/// der Roblox-Größenprüfung, im Import. Als Wurzel-Matrix am Knoten
+/// wäre sie nur für Programme sichtbar, die Knoten-Transformationen
+/// auswerten; die Prüfung dieser App liest die Positionen roh und hätte
+/// weiter die alte Größe gemeldet. Ins Netz gebacken sehen alle
+/// dasselbe.
+///
+/// Die Reihenfolge ist dieselbe wie bei der Anzeige: erst skalieren,
+/// dann um x, y, z drehen. Normalen werden mitgedreht (bei
+/// gleichmäßiger Skalierung bleibt ihre Richtung erhalten), Tangenten
+/// ebenso, das w der Tangente bleibt.
+///
+/// Wirft, wenn das Modell ein Skelett trägt oder die Mesh-Knoten eigene
+/// Transformationen haben – dann müssten Bind-Matrizen mitgerechnet
+/// werden, und ein falsch gebackenes Rig zerreißt das Modell.
+Uint8List bakeScaleAndRotationIntoGlb(
+  Uint8List glb, {
+  double scale = 1,
+  double rotX = 0,
+  double rotY = 0,
+  double rotZ = 0,
+}) {
+  if (scale == 1 && rotX == 0 && rotY == 0 && rotZ == 0) return glb;
+  if (scale <= 0) throw Exception('Die Größe muss über null liegen.');
+  final (json, bin) = _parseGlb(glb);
+  if ((json['skins'] as List?)?.isNotEmpty ?? false) {
+    throw Exception('Das Modell trägt ein Skelett – Größe und Drehung '
+        'lassen sich hier nicht ins Netz backen.');
+  }
+  for (final node in (json['nodes'] as List?) ?? []) {
+    final map = node as Map;
+    if (map.containsKey('mesh') &&
+        (map.containsKey('rotation') ||
+            map.containsKey('scale') ||
+            map.containsKey('matrix'))) {
+      throw Exception('Dieses Modell hat eigene Knoten-Transformationen '
+          '– das Backen würde die Darstellung verfälschen.');
+    }
+  }
+  final positions = _attributeAccessors(json, 'POSITION');
+  if (positions.isEmpty) {
+    throw Exception('Keine Geometrie gefunden.');
+  }
+
+  final cx = math.cos(rotX), sx = math.sin(rotX);
+  final cy = math.cos(rotY), sy = math.sin(rotY);
+  final cz = math.cos(rotZ), sz = math.sin(rotZ);
+  void rotate(Float64List v) {
+    var x = v[0], y = v[1], z = v[2];
+    // x-Achse
+    final y1 = y * cx - z * sx;
+    final z1 = y * sx + z * cx;
+    // y-Achse
+    final x2 = x * cy + z1 * sy;
+    final z2 = -x * sy + z1 * cy;
+    // z-Achse
+    final x3 = x2 * cz - y1 * sz;
+    final y3 = x2 * sz + y1 * cz;
+    v[0] = x3;
+    v[1] = y3;
+    v[2] = z2;
+  }
+
+  for (final a in positions) {
+    _forEachVector(json, bin, a, 3, (v) {
+      v[0] *= scale;
+      v[1] *= scale;
+      v[2] *= scale;
+      rotate(v);
+    }, write: true);
+    _refreshMinMax(json, bin, a);
+  }
+  // Normalen nur drehen: Eine gleichmäßige Skalierung ändert ihre
+  // Richtung nicht, und skalierte Normalen wären nicht mehr
+  // Einheitsvektoren – die Beleuchtung würde flackern.
+  for (final a in _attributeAccessors(json, 'NORMAL')) {
+    _forEachVector(json, bin, a, 3, rotate, write: true);
+    _refreshMinMax(json, bin, a);
+  }
+  for (final a in _attributeAccessors(json, 'TANGENT')) {
+    _forEachVector(json, bin, a, 4, rotate, write: true);
+  }
+  return _writeGlb(json, bin);
+}

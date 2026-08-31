@@ -26,6 +26,23 @@ Uint8List _boxGlb({double size = 1.0}) {
   return buildGlb(mesh);
 }
 
+/// Längste Kante einer Punktwolke.
+double _longest(Float32List positions) {
+  var minX = double.infinity, maxX = double.negativeInfinity;
+  var minY = double.infinity, maxY = double.negativeInfinity;
+  var minZ = double.infinity, maxZ = double.negativeInfinity;
+  for (var i = 0; i + 2 < positions.length; i += 3) {
+    minX = math.min(minX, positions[i]);
+    maxX = math.max(maxX, positions[i]);
+    minY = math.min(minY, positions[i + 1]);
+    maxY = math.max(maxY, positions[i + 1]);
+    minZ = math.min(minZ, positions[i + 2]);
+    maxZ = math.max(maxZ, positions[i + 2]);
+  }
+  return [maxX - minX, maxY - minY, maxZ - minZ]
+      .reduce((a, b) => a > b ? a : b);
+}
+
 Map<String, dynamic> _json(Uint8List glb) {
   final header = ByteData.sublistView(glb);
   final length = header.getUint32(12, Endian.little);
@@ -182,45 +199,65 @@ void main() {
   });
 
   group('In die GLB schreiben', () {
-    test('Ein Wurzelknoten mit Matrix kommt dazu, das Netz bleibt',
+    test('Größe und Drehung landen im Netz, nicht in einer Matrix',
         () async {
+      // Der entscheidende Punkt: Die Roblox-Größenprüfung liest die
+      // Positionen roh. Läge die Größe nur in einer Wurzel-Matrix,
+      // würde sie nach dem Verkleinern weiter „zu groß" melden.
       final glb = _boxGlb(size: 2);
       final vorher = await parseGlbForPreview(glb);
-      final out = applyPlacementToGlb(
-          glb, const ItemPlacement(scale: 0.5, offsetY: 1));
-      final json = _json(out);
-      final scene = (json['scenes'] as List).first as Map;
-      final roots = (scene['nodes'] as List).cast<int>();
-      expect(roots.length, 1);
-      final root = (json['nodes'] as List)[roots.first] as Map;
-      expect(root['matrix'], isNotNull);
-      expect(root['children'], isNotEmpty);
-
-      // Das Netz ist unangetastet – nur anders aufgehängt.
+      final out =
+          applyPlacementToGlb(glb, const ItemPlacement(scale: 0.5));
       final nachher = await parseGlbForPreview(out);
       expect(nachher.vertexCount, vorher.vertexCount);
+      // Die halbierte Ausdehnung steht wirklich in den Punkten.
+      expect(_longest(nachher.positions),
+          closeTo(_longest(vorher.positions) / 2, 1e-5));
+      // Und es gibt keinen zusätzlichen Wurzelknoten.
+      final json = _json(out);
+      expect(
+          (json['nodes'] as List)
+              .where((n) => (n as Map)['name'] ==
+                  'DreiDGeneratorPlatzierung'),
+          isEmpty);
     });
 
-    test('Zweimal anwenden stapelt nicht, es ersetzt', () async {
-      // Sonst würde jede Korrektur am Regler die vorige multiplizieren
-      // und das Teil verschwände.
-      final glb = _boxGlb();
+    test('Eine Drehung dreht die Punkte mit', () async {
+      final glb = _boxGlb(size: 2);
+      final out = applyPlacementToGlb(
+          glb, ItemPlacement(rotY: math.pi / 2));
+      final mesh = await parseGlbForPreview(out);
+      // Der Quader lief von 0 bis 2 in x und z; nach einer
+      // Vierteldrehung um y liegt die x-Ausdehnung im negativen z.
+      var minZ = double.infinity, maxZ = double.negativeInfinity;
+      for (var i = 2; i < mesh.positions.length; i += 3) {
+        minZ = math.min(minZ, mesh.positions[i]);
+        maxZ = math.max(maxZ, mesh.positions[i]);
+      }
+      expect(maxZ, closeTo(0, 1e-5));
+      expect(minZ, closeTo(-2, 1e-5));
+    });
+
+    test('Nacheinander angewendet rechnet es sich zusammen', () async {
+      // Anders als beim Matrix-Weg: Der Editor lädt jedes Mal die
+      // aktuelle Datei und misst sie neu, deshalb ist Zusammenrechnen
+      // hier das richtige Verhalten.
+      final glb = _boxGlb(size: 2);
       final einmal =
           applyPlacementToGlb(glb, const ItemPlacement(scale: 0.5));
       final zweimal =
-          applyPlacementToGlb(einmal, const ItemPlacement(scale: 0.25));
-      final json = _json(zweimal);
-      final scene = (json['scenes'] as List).first as Map;
-      expect((scene['nodes'] as List).length, 1);
-      final root =
-          (json['nodes'] as List)[(scene['nodes'] as List).first as int]
-              as Map;
-      final matrix = (root['matrix'] as List).cast<num>();
-      expect(matrix[0], closeTo(0.25, 1e-9));
-      // Und es ist genau ein Platzierungsknoten, kein zweiter darüber.
-      final marker = (json['nodes'] as List)
-          .where((n) => (n as Map)['name'] == 'DreiDGeneratorPlatzierung');
-      expect(marker.length, 1);
+          applyPlacementToGlb(einmal, const ItemPlacement(scale: 0.5));
+      final mesh = await parseGlbForPreview(zweimal);
+      expect(_longest(mesh.positions), closeTo(0.5, 1e-5));
+    });
+
+    test('Ohne Änderung bleibt die Datei, wie sie war', () {
+      final glb = _boxGlb();
+      expect(applyPlacementToGlb(glb, const ItemPlacement()), same(glb));
+      // Eine reine Verschiebung ändert die Datei ebenfalls nicht –
+      // sie gehört nicht hinein.
+      expect(applyPlacementToGlb(glb, const ItemPlacement(offsetY: 3)),
+          same(glb));
     });
 
     test('Die Datei bleibt eine gültige GLB', () async {
@@ -230,17 +267,13 @@ void main() {
       expect(header.getUint32(0, Endian.little), 0x46546C67);
       expect(header.getUint32(4, Endian.little), 2);
       expect(header.getUint32(8, Endian.little), out.length);
-      // Und sie lässt sich wieder öffnen.
       expect((await parseGlbForPreview(out)).vertexCount, greaterThan(0));
     });
 
     test('Kaputte Eingaben werfen verständlich', () {
-      expect(() => applyPlacementToGlb(Uint8List(4), const ItemPlacement()),
-          throwsException);
       expect(
           () => applyPlacementToGlb(
-              Uint8List.fromList(List.filled(64, 0)),
-              const ItemPlacement()),
+              Uint8List(4), const ItemPlacement(scale: 2)),
           throwsException);
     });
   });
