@@ -664,6 +664,74 @@ wird `bld-02-bakery.png`. Ohne eigenen Namen bleibt es bei der
 Kennung. Zeichen, die Windows in Dateinamen nicht erlaubt, werden
 ersetzt.
 
+## Eigene GPU: Was passt in 10 GB (RTX 3080)?
+
+**Diese App benutzt weder Automatic1111 noch ComfyUI oder Fooocus.**
+Der Bild-Server (`server/local_image_server.py`) setzt direkt auf
+🤗 *diffusers* auf – also auf derselben Bibliothek, auf der ComfyUI und
+Fooocus intern ebenfalls rechnen, nur ohne deren Oberfläche und
+Node-Graphen. Der Rat „nimm auf keinen Fall A1111" trifft hier deshalb
+ins Leere: A1111 ist gar nicht im Spiel. Was an dem Rat stimmt, sind
+die Techniken dahinter – und die sind jetzt eingebaut.
+
+### Was mit einer 10-GB-Karte läuft
+
+| Modell | Gewichte | Auf 10 GB |
+| --- | --- | --- |
+| SD 1.5 | ~4 GB | ganz auf der GPU |
+| SDXL Turbo | ~7 GB | ganz auf der GPU |
+| **SDXL Base (1024²)** | **~8 GB** | **ganz auf der GPU** |
+| SD 3.5 Medium | ~10 GB | ausgelagert, langsamer |
+| FLUX.1 schnell | ~16 GB | ausgelagert, deutlich langsamer |
+
+SDXL bei 1024² – das Modell, mit dem die besten Ergebnisse entstanden
+sind – läuft auf einer 3080 also vollständig im Grafikspeicher. Genau
+dafür ist keine andere Oberfläche nötig.
+
+### Drei Dinge, die dafür geändert wurden
+
+- **Halbierte Gewichte laden.** Viele Repositories legen ihre Dateien
+  zweimal ab: in voller Größe und als `fp16`-Variante. Ohne Angabe
+  nimmt diffusers die großen – bei SDXL 13,9 GB Download statt 6,9 GB,
+  und beim Laden liegt kurzzeitig das Doppelte im Hauptspeicher. Der
+  Server fragt jetzt zuerst nach der `fp16`-Variante und fällt zurück,
+  wo es sie nicht gibt.
+- **Kein Scheibchen-Rechnen ohne Not.** `enable_attention_slicing()`
+  lief bisher immer. Es spart Speicher, kostet aber Zeit – und moderne
+  PyTorch-Versionen rechnen die Aufmerksamkeit ohnehin schon
+  speichersparend (SDPA). Jetzt läuft es nur noch im Engpass.
+- **Der Aufschlag fürs Rechnen.** Die alte Rechnung verglich den
+  Grafikspeicher mit den Gewichten. Bei einer 10-GB-Karte und einem
+  10-GB-Modell hieß das „passt" – und der erste Lauf endete mit *CUDA
+  out of memory*. Aktivierungen, Latents und der VAE-Schritt brauchen
+  bei 1024² grob 1,5 GB obendrauf; die zählen jetzt mit.
+
+Dazu meldet `/health` den Grafikspeicher der Karte, und
+**Einstellungen → Eigener Bild-Server → Verbindung prüfen** schreibt
+das Ergebnis hin: „10,0 GB VRAM – ganz auf der GPU: sd15, sdxl-turbo,
+sdxl; ausgelagert (langsamer): sd35-medium, flux-schnell".
+
+### Und was mit FP8 wirklich ist
+
+FP8 halbiert tatsächlich den Speicherbedarf der Gewichte. Aber:
+**Die RTX 3080 ist eine Ampere-Karte und hat keine FP8-Recheneinheiten**
+– die gibt es erst ab Ada (RTX 40) und Hopper. Auf einer 3080 wird FP8
+nur als *Ablageformat* benutzt und zum Rechnen wieder hochgerechnet.
+Das spart Speicher, macht aber **nicht schneller**, eher minimal
+langsamer.
+
+Für SDXL bringt FP8 auf 10 GB deshalb nichts: Das Modell passt bereits.
+Interessant wäre es allein für SD 3.5 und FLUX – und selbst FLUX bliebe
+in FP8 mit ~12 GB über der Grenze. Wenn die Karte da ist und SD 3.5
+tatsächlich zu langsam läuft, baue ich die Quantisierung gern ein; ohne
+die Karte zum Nachmessen wäre es geraten.
+
+**Zur Geschwindigkeit:** Realistisch sind für SDXL bei 1024² und 30
+Schritten grob 8–15 Sekunden pro Bild, nicht 5–8. Das ist eine
+Schätzung aus dem Leistungsverhältnis der Karten, keine Messung – die
+kommt, wenn die 3080 eingebaut ist. Die Live-Vorschau zeigt währenddessen
+alle fünf Schritte, wie das Bild entsteht.
+
 ## Galerie: Projekte und Ordner
 
 Bilder und Modelle lassen sich in **Projekte** einsortieren, mit
@@ -1580,6 +1648,7 @@ lib/
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
 │   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes
 │   ├── rig_dummy.dart         # Soll-Gelenke der Dummy-Zeichnung
+│   ├── vram_fit.dart          # Passt ein Bild-Modell in den VRAM?
 │   └── exporter.dart          # Speichern/Teilen/Download je Plattform
 └── widgets/common.dart        # Schachbrett-Transparenzvorschau u. a.
 ```

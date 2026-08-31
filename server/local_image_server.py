@@ -163,6 +163,46 @@ def _missing_modules() -> list[str]:
     return [name for name in needed if util.find_spec(name) is None]
 
 
+# Was ausser den Gewichten noch im VRAM liegt, waehrend gerechnet
+# wird: Aktivierungen, Latents, der VAE beim Dekodieren. Bei 1024x1024
+# und einem Bild sind das grob eineinhalb Gigabyte.
+ACTIVATION_GB = 1.5
+
+
+def _dtype_for(torch, family: str, device: str):
+    """Das passende Rechenformat je Modellfamilie.
+
+    SD und SDXL sind in float16 trainiert und laufen darin sauber.
+    SD 3.5 und FLUX liegen dagegen in bfloat16 vor: In float16 laufen
+    dort einzelne Werte ueber (float16 endet bei 65504), und heraus
+    kommen schwarze oder verrauschte Bilder. bfloat16 hat denselben
+    Wertebereich wie float32 bei halber Genauigkeit und wird ab
+    Ampere - also auch von einer RTX 3080 - in Hardware gerechnet.
+    """
+    if device != "cuda":
+        return torch.float32
+    if family in ("sd3", "flux") and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float16
+
+
+def _from_pretrained(Pipe, repo: str, dtype):
+    """Laedt die Pipeline, bevorzugt die halbierten fp16-Gewichte.
+
+    Viele Repositories legen ihre Gewichte zweimal ab: einmal in voller
+    Groesse und einmal als "fp16"-Variante. Ohne Angabe nimmt diffusers
+    die grossen - bei SDXL sind das 13,9 GB Download statt 6,9 GB, und
+    beim Laden liegt das Doppelte kurzzeitig im Hauptspeicher. Nicht
+    jedes Repository hat die Variante (SD 3.5 und FLUX liegen ohnehin
+    nur in bfloat16 vor), deshalb der Rueckfall.
+    """
+    try:
+        return Pipe.from_pretrained(repo, torch_dtype=dtype,
+                                    variant="fp16")
+    except Exception:
+        return Pipe.from_pretrained(repo, torch_dtype=dtype)
+
+
 def _load(name: str):
     """Laedt das gewuenschte Modell (einmalig) und liefert die Pipeline."""
     global _pipe, _pipe_name, _device
@@ -197,7 +237,7 @@ def _load_locked(name: str):
 
     repo, family, _, _, _, vram = MODELS[name]
     _device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float16 if _device == "cuda" else torch.float32
+    dtype = _dtype_for(torch, family, _device)
 
     if family == "sdxl":
         from diffusers import StableDiffusionXLPipeline as Pipe
@@ -209,22 +249,40 @@ def _load_locked(name: str):
         from diffusers import StableDiffusionPipeline as Pipe
 
     print(f"Modell wird geladen: {repo} ({_device}) ...", flush=True)
-    pipe = Pipe.from_pretrained(repo, torch_dtype=dtype)
+    pipe = _from_pretrained(Pipe, repo, dtype)
 
     if _device == "cuda":
-        free_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
-        # Passt das Modell nicht bequem in den Speicher, wandern die
-        # Teile zwischen GPU und Hauptspeicher - langsamer, laeuft aber.
-        if free_gb + 0.5 < vram:
+        total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+        # Die Gewichte sind nicht alles: Bei 1024x1024 kommen
+        # Aktivierungen und der Latent-Zwischenspeicher dazu. Ohne
+        # diesen Aufschlag entschied die Rechnung bei einer 10-GB-Karte
+        # und einem 10-GB-Modell auf "passt" - und der erste Lauf
+        # endete mit "CUDA out of memory".
+        headroom = ACTIVATION_GB
+        tight = total_gb < vram + headroom
+        if tight:
             print(
-                f"Nur {free_gb:.1f} GB VRAM fuer ein Modell mit ~{vram} GB "
-                "Bedarf - Teile werden ausgelagert (langsamer).",
+                f"{total_gb:.1f} GB VRAM fuer ein Modell mit ~{vram} GB "
+                f"plus ~{headroom} GB Arbeitsspeicher beim Rechnen - "
+                "Teile werden ausgelagert (langsamer, laeuft aber).",
                 flush=True,
             )
             pipe.enable_model_cpu_offload()
+            # Nur im Engpass: Aufmerksamkeit in Scheiben rechnen. Das
+            # spart Speicher, kostet aber Zeit - moderne PyTorch-
+            # Versionen rechnen die Aufmerksamkeit ohnehin schon
+            # speichersparend (SDPA), und auf einer Karte mit genug
+            # VRAM bremst das Scheibchen-Verfahren nur.
+            pipe.enable_attention_slicing()
         else:
             pipe = pipe.to(_device)
-        pipe.enable_attention_slicing()
+            print(
+                f"{total_gb:.1f} GB VRAM - Modell (~{vram} GB) laeuft "
+                "vollstaendig auf der GPU.",
+                flush=True,
+            )
+        # Kostet bei einem Bild nichts und rettet den VAE-Schritt,
+        # wenn mehrere Bilder auf einmal dekodiert werden.
         if hasattr(pipe, "enable_vae_slicing"):
             pipe.enable_vae_slicing()
     else:
@@ -507,12 +565,16 @@ def health():
     missing = _missing_modules()
     device = "unbekannt"
     gpu = ""
+    vram_total = 0.0
     if "torch" not in missing:
         import torch
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cuda":
             gpu = torch.cuda.get_device_name(0)
+            vram_total = round(
+                torch.cuda.get_device_properties(0).total_memory / 2**30, 1
+            )
     return {
         "status": "ok" if not missing else "unvollstaendig",
         "kind": "image",
@@ -536,6 +598,11 @@ def health():
         },
         "device": device,
         "gpu": gpu,
+        # Wie viel VRAM die Karte hat. Damit kann die App vor der Wahl
+        # sagen, welches Modell hineinpasst und welches ausgelagert
+        # werden muesste - statt es beim ersten Lauf zu merken.
+        "vramTotal": vram_total,
+        "vramReserve": ACTIVATION_GB,
         "missing": missing,
         "loaded": _pipe_name or "",
         # Live-Vorschau waehrend der Generierung: Die App fragt

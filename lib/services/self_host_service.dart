@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'generators.dart' show GenerationException;
 import 'server_ports.dart';
+import 'vram_fit.dart';
 
 /// Anbindung an den eigenen 3D-Server (server/local3d_server.py):
 /// MIT-lizenzierte Open-Source-Modelle (TripoSR, TRELLIS) auf dem
@@ -130,7 +131,22 @@ class SelfHostService {
       final model = lastLoaded.isEmpty || lastLoaded == lastBackend
           ? lastBackend
           : '$lastBackend beim Start, geladen: $lastLoaded';
-      final info = '$model auf $where';
+      var info = '$model auf $where';
+      // Der Bild-Server nennt den Grafikspeicher der Karte und den
+      // Bedarf je Modell. Daraus steht schon in der
+      // Verbindungsmeldung, was schnell läuft und was ausgelagert
+      // werden muss – statt dass es sich erst beim ersten Lauf zeigt.
+      final vram = vramSummary(
+        cardGb: (json['vramTotal'] as num?)?.toDouble() ?? 0,
+        reserveGb: (json['vramReserve'] as num?)?.toDouble() ?? 1.5,
+        models: {
+          for (final entry
+              in (json['modelInfo'] as Map<String, dynamic>? ?? {}).entries)
+            if ((entry.value as Map?)?['vram'] is num)
+              entry.key: ((entry.value as Map)['vram'] as num).toDouble(),
+        },
+      );
+      if (vram.isNotEmpty) info = '$info. $vram';
       // Der 3D-Server hängt fehlende Pakete schon selbst an.
       return missing.isEmpty || info.contains('FEHLEN')
           ? info
