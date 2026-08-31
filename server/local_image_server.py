@@ -173,6 +173,10 @@ def _aspect_size(aspect: str, base: int) -> tuple[int, int]:
         "3:2": (3, 2),
         "2:3": (2, 3),
         "21:9": (21, 9),
+        # Fehlte: Die App bietet 9:21 an, hier fiel es auf die
+        # Vorgabe 1:1 zurueck - das Bild kam quadratisch zurueck,
+        # ohne Fehlermeldung.
+        "9:21": (9, 21),
         "5:4": (5, 4),
         "4:5": (4, 5),
     }

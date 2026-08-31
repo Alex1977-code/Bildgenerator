@@ -436,7 +436,7 @@ class ThreeDResult {
 typedef Option = (String value, String label);
 
 const List<Option> openAiSizeOptions = [
-  ('auto', 'Automatisch'),
+  ('auto', 'Automatisch (das Modell wählt)'),
   ('1024x1024', 'Quadrat (1024×1024)'),
   ('1536x1024', 'Querformat (1536×1024)'),
   ('1024x1536', 'Hochformat (1024×1536)'),
@@ -511,6 +511,54 @@ String geminiAspectPixelLabel(String aspect, String imageSize) {
           ? 2
           : 1;
   return '${base.$1 * factor}×${base.$2 * factor} px';
+}
+
+/// Die Grundauflösung je Modell des eigenen Bild-Servers – dieselben
+/// Zahlen wie in `MODELS` in server/local_image_server.py. Ein Test
+/// liest die Datei und vergleicht.
+const Map<String, int> selfHostBaseSizes = {
+  'sd15': 512,
+  'sdxl-turbo': 512,
+  'sdxl': 1024,
+  'sd35-medium': 1024,
+  'sd35-medium-lean': 1024,
+  'flux-schnell': 1024,
+};
+
+/// Die Seitenverhältnisse, die der eigene Bild-Server kennt.
+///
+/// Ein unbekanntes Verhältnis fällt dort stillschweigend auf 1:1
+/// zurück – das Bild kommt quadratisch zurück, ohne Fehlermeldung.
+/// Deshalb prüft ein Test, dass diese Liste zur Liste im Server passt
+/// und beide alle Einträge aus [stabilityAspectOptions] abdecken.
+const Map<String, (int, int)> selfHostAspects = {
+  '1:1': (1, 1),
+  '16:9': (16, 9),
+  '9:16': (9, 16),
+  '4:3': (4, 3),
+  '3:4': (3, 4),
+  '3:2': (3, 2),
+  '2:3': (2, 3),
+  '21:9': (21, 9),
+  '9:21': (9, 21),
+  '5:4': (5, 4),
+  '4:5': (4, 5),
+};
+
+/// Die Pixelmaße, die der eigene Bild-Server für ein Seitenverhältnis
+/// liefert – dieselbe Rechnung wie `_aspect_size` im Server: Die
+/// Fläche bleibt ungefähr die des quadratischen Bildes, die Kanten
+/// werden auf Vielfache von 64 gerundet (Stable Diffusion arbeitet
+/// sonst nicht sauber), Mindestkante 256.
+///
+/// Anders als bei Stability ist das keine Schätzung: Server und App
+/// rechnen dasselbe, und ein Test hält beide zusammen.
+(int, int) selfHostPixels(String aspect, String model) {
+  final base = selfHostBaseSizes[model] ?? 1024;
+  final (w, h) = selfHostAspects[aspect] ?? (1, 1);
+  final scale = math.sqrt(base * base / (w * h));
+  int kante(double v) => math.max(256, (v / 64).round() * 64);
+  return (kante(w * scale), kante(h * scale));
 }
 
 /// Ungefähre Pixelmaße bei Stability: Core liefert ca. 1,5 Megapixel,

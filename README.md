@@ -13,6 +13,11 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   mitgeben – das Ergebnis orientiert sich daran (OpenAI und Gemini).
 - **Bildgröße/Seitenverhältnis wählbar**: Quadrat, Quer-, Hochformat
   (OpenAI) bzw. 9 Seitenverhältnisse von 21:9 bis 9:21 (Stability AI).
+  In der Auswahl stehen die Pixelmaße dabei — bei Stability als
+  Schätzung („ca."), bei Gemini und beim eigenen Bild-Server exakt,
+  weil App und Server dieselbe Rechnung anstellen. „Automatisch"
+  (OpenAI) trägt keine Zahl, weil dort das Modell entscheidet; das
+  steht jetzt auch dran.
 - **Qualität wählbar**: Auto / Niedrig / Mittel / Hoch.
 - **Transparenter Hintergrund** (für Logos & Icons, PNG/WebP) – mit
   Schachbrett-Vorschau.

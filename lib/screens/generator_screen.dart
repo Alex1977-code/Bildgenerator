@@ -1724,6 +1724,17 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     // über das Modell gewählt, nicht mehr getrennt in den
     // Einstellungen. Abgerufene Modelle sind mit dabei, damit neue
     // Modelle ohne App-Update wählbar bleiben.
+    // Die Beschriftung der gerade gewählten Größe – sie steht im
+    // geschlossenen Feld und geht in den Schlüssel des Dropdowns ein.
+    final sizeLabel = _sizeOptionLabel(
+        settings,
+        sizeOptions.firstWhere((o) => o.$1 == sizeValue,
+            orElse: () => (sizeValue, sizeValue)));
+    final imageSizeLabel = '${geminiImageSizeOptions.firstWhere(
+      (o) => o.$1 == settings.geminiImageSize,
+      orElse: () => (settings.geminiImageSize, settings.geminiImageSize),
+    ).$2} · '
+        '${geminiAspectPixelLabel(settings.geminiAspect, settings.geminiImageSize)}';
     final allModels = allImageModels(settings.fetchedModelsFor);
     final currentModel = settings.modelFor(provider);
     final currentKey = '${provider.name}/$currentModel';
@@ -1829,9 +1840,14 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                   ],
                   const SectionLabel('Format & Größe'),
                   DropdownMenu<String>(
-                    key: ValueKey(
-                        'size-${provider.name}-${settings.stabilityModel}'
-                        '-${settings.geminiModel}-${settings.geminiImageSize}'),
+                    // Der Schlüssel hängt an der angezeigten
+                    // Beschriftung, nicht an einer Liste von
+                    // Einstellungen. DropdownMenu schreibt seinen Text
+                    // nur bei einer geänderten Auswahl nach – ändert
+                    // sich nur die Pixelangabe darin (anderes Modell,
+                    // andere Auflösung), bliebe im Feld sonst die alte
+                    // stehen. Über den Schlüssel entsteht das Feld neu.
+                    key: ValueKey('size-${provider.name}-$sizeLabel'),
                     initialSelection: sizeValue,
                     label:
                         Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
@@ -1860,7 +1876,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                       settings.geminiModel.contains('pro')) ...[
                     const SizedBox(height: 12),
                     DropdownMenu<String>(
-                      key: ValueKey('imgsize-${settings.geminiAspect}'),
+                      key: ValueKey('imgsize-$imageSizeLabel'),
                       initialSelection: settings.geminiImageSize,
                       label: const Text('Auflösung'),
                       expandedInsets: EdgeInsets.zero,
@@ -2205,8 +2221,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               children: [
                 const Icon(Icons.auto_awesome_outlined, size: 18),
                 const SizedBox(width: 8),
-                Text('Qualität und Detailtreue',
-                    style: theme.textTheme.titleSmall),
+                // Ohne Expanded lief die Überschrift auf einer
+                // schmalen Karte über den Rand hinaus – sichtbar als
+                // schwarz-gelbe Streifen.
+                Expanded(
+                  child: Text('Qualität und Detailtreue',
+                      style: theme.textTheme.titleSmall),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -2410,7 +2431,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       case GenProvider.openai:
         return option.$2;
       case GenProvider.selfhost:
-        return option.$2;
+        // Der eigene Server rechnet das Seitenverhältnis selbst in
+        // Pixel um – hier stand die Angabe als einzige nicht dabei.
+        final (w, h) =
+            selfHostPixels(option.$1, settings.selfHostImageModel);
+        return '${option.$2} · $w×$h px';
       case GenProvider.stability:
         final (w, h) =
             stabilityApproxPixels(option.$1, settings.stabilityModel);
