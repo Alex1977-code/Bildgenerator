@@ -9,7 +9,13 @@ import 'package:provider/provider.dart';
 
 import '../services/animation_bake.dart';
 import '../services/auto_rig.dart'
-    show estimateFrontSign, injectAutoRig;
+    show
+        estimateFrontSign,
+        injectAutoRig,
+        measureRigShapeOfGlb,
+        rigTypeOptions,
+        rigTypePromptRules;
+import '../services/rig_detect.dart';
 import '../services/exporter.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
@@ -252,6 +258,16 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               tooltip: 'Rig anpassen (Gelenke manuell verschieben)',
               icon: const Icon(Icons.settings_accessibility),
               onPressed: _editRig,
+            )
+          // Ein Modell ohne Skelett – aus einem Import, aus einem
+          // Lauf ohne Auto-Rigging, von einem Anbieter, der nur das
+          // Netz liefert. Das Skelett lässt sich nachträglich
+          // einbauen; danach steht auch der Rig-Editor offen.
+          else if (rig == null)
+            IconButton(
+              tooltip: 'Skelett nachträglich einbauen',
+              icon: const Icon(Icons.auto_fix_high),
+              onPressed: _addRig,
             ),
           // Importierte Dateien aus Blender/CAD stehen oft z-up und
           // liegen dadurch auf der Seite – hier lässt sich das
@@ -501,6 +517,59 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
       if (name.isNotEmpty && position != null) result[name] = position;
     }
     return result.isEmpty ? null : result;
+  }
+
+  /// Skelett nachträglich einbauen.
+  ///
+  /// Der Typ wird an der Form vorgeschlagen (Standflächen am Boden,
+  /// Proportionen) und lässt sich überstimmen – erkannt **oder**
+  /// gewählt. Danach verhält sich das Modell wie ein frisch geriggtes:
+  /// Animationen laufen, der Rig-Editor ist offen.
+  Future<void> _addRig() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    List<RigTypeGuess> guesses;
+    RigShape? shape;
+    try {
+      shape = measureRigShapeOfGlb(widget.glbBytes);
+      guesses = guessRigType(shape);
+    } on Exception catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Kein Skelett möglich: '
+              '${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
+    if (!mounted) return;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => _RigTypeDialog(guesses: guesses, shape: shape!),
+    );
+    if (chosen == null || !mounted) return;
+
+    Uint8List rigged;
+    try {
+      rigged = injectAutoRig(widget.glbBytes,
+          rigType: chosen, knownFrontSign: _mesh?.rig?.frontSign);
+    } on Exception catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Rigging fehlgeschlagen: '
+              '${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
+    widget.onGlbUpdated?.call(rigged);
+    navigator.pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: rigged,
+        title: widget.title,
+        provenance: widget.provenance,
+        // Das bisherige Netz ist ab jetzt die ungeriggte Fassung –
+        // damit kann der Rig-Editor das Skelett neu aufbauen.
+        unriggedGlb: widget.glbBytes,
+        rigType: chosen,
+        onGlbUpdated: widget.onGlbUpdated,
+        showExport: widget.showExport,
+      ),
+    ));
   }
 
   Future<void> _editRig() async {
@@ -842,5 +911,149 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                 ),
       ),
     );
+  }
+}
+
+/// Auswahl des Skeletts beim nachträglichen Rigging.
+///
+/// Oben steht, was die Form hergibt – mit der Begründung, damit die
+/// Empfehlung nachprüfbar bleibt und nicht wie ein Orakel wirkt.
+/// Darunter stehen alle Typen zur freien Wahl; erkannt **oder**
+/// gewählt, beides führt zum selben Skelett.
+class _RigTypeDialog extends StatefulWidget {
+  const _RigTypeDialog({required this.guesses, required this.shape});
+
+  final List<RigTypeGuess> guesses;
+  final RigShape shape;
+
+  @override
+  State<_RigTypeDialog> createState() => _RigTypeDialogState();
+}
+
+class _RigTypeDialogState extends State<_RigTypeDialog> {
+  late String _type =
+      widget.guesses.isEmpty ? 'biped' : widget.guesses.first.type;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final best = widget.guesses.isEmpty ? null : widget.guesses.first;
+    final rule = rigTypePromptRules[_type];
+    return AlertDialog(
+      title: const Text('Skelett einbauen'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: best == null
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                        best == null
+                            ? Icons.help_outline
+                            : best.solid
+                                ? Icons.check_circle_outline
+                                : Icons.lightbulb_outline,
+                        size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            best == null
+                                ? 'Kein Typ erkannt'
+                                : best.solid
+                                    ? 'Erkannt: ${_label(best.type)}'
+                                    : 'Vermutlich: ${_label(best.type)}',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            best?.reason ?? rigDetectFallback(widget.shape),
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Weitere Kandidaten, wenn die Form mehrdeutig ist.
+              if (widget.guesses.length > 1) ...[
+                const SizedBox(height: 8),
+                Text('Käme auch in Frage:',
+                    style: theme.textTheme.labelMedium),
+                for (final guess in widget.guesses.skip(1))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('• ${_label(guess.type)} – ${guess.reason}',
+                        style: theme.textTheme.bodySmall),
+                  ),
+              ],
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _type,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Skelett',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  for (final (value, label) in rigTypeOptions)
+                    DropdownMenuItem(value: value, child: Text(label)),
+                ],
+                onChanged: (value) =>
+                    setState(() => _type = value ?? _type),
+              ),
+              if (rule != null) ...[
+                const SizedBox(height: 12),
+                Text('Damit das Skelett greift:',
+                    style: theme.textTheme.labelMedium),
+                const SizedBox(height: 2),
+                Text(rule, style: theme.textTheme.bodySmall),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Das Netz bleibt unverändert – es kommen nur Knochen '
+                'und Gewichte hinzu. Passt das Ergebnis nicht, lassen '
+                'sich die Gelenke danach im Rig-Editor verschieben.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_type),
+          child: const Text('Einbauen'),
+        ),
+      ],
+    );
+  }
+
+  static String _label(String type) {
+    for (final (value, label) in rigTypeOptions) {
+      if (value == type) return label;
+    }
+    return type;
   }
 }

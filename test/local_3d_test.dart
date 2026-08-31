@@ -1073,6 +1073,14 @@ void main() {
     // Bereits ausgerichtete Modelle bleiben unverändert.
     final (_, zeroDegrees) = canonicalizeYawGlb(aligned);
     expect(zeroDegrees, 0);
+
+    // Und die Typ-Erkennung liest aus derselben Datei ein Fahrzeug –
+    // der Weg von der GLB bis zum Vorschlag, ohne Umweg.
+    final erkannt = detectRigType(aligned);
+    expect(erkannt.first.type, 'vehicle');
+    expect(erkannt.first.solid, isTrue);
+    // An einem fertig geriggten Modell gibt es nichts nachzurüsten.
+    expect(() => detectRigType(rigged), throwsException);
   });
 
   test(

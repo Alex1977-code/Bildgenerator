@@ -19,6 +19,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'rig_detect.dart';
+
 /// Was die Beschreibung zeigen muss, damit sich ein Modell dieses
 /// Typs überhaupt riggen lässt.
 ///
@@ -1087,6 +1089,19 @@ _GlbAnalysis _analyzeGlb(Uint8List glb) {
   }
   return (joints, bones, frontSign);
 }
+
+/// Schlägt anhand der Form vor, welches Skelett in diese GLB gehört.
+///
+/// Bestes Ergebnis zuerst, leer wenn sich nichts abzeichnet. Wirft,
+/// wenn die Datei kein Netz enthält oder schon ein Skelett hat – dann
+/// gibt es nichts nachzurüsten.
+List<RigTypeGuess> detectRigType(Uint8List glb) =>
+    guessRigType(measureRigShapeOfGlb(glb));
+
+/// Die gemessenen Formmerkmale einer GLB – für die Begründung, wenn
+/// [detectRigType] nichts findet.
+RigShape measureRigShapeOfGlb(Uint8List glb) => measureRigShape(
+    [for (final (_, positions) in _analyzeGlb(glb).primitives) positions]);
 
 /// Öffentliche Gelenk-Info (für den Rig-Editor).
 /// Kurzanleitung je Gelenk: wo der Punkt am Modell sitzen soll.

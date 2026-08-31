@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 
 import '../services/auto_rig.dart';
 import '../services/glb_preview.dart';
+import '../services/rig_dummy.dart';
+import '../widgets/rig_dummy_view.dart';
 
 /// Ergebnis einer Rig-Bearbeitung: die neue GLB samt der
 /// Einfluss-Faktoren. Die Gelenkpositionen stecken bereits im GLB und
@@ -87,6 +89,22 @@ class _RigEditScreenState extends State<RigEditScreen> {
   /// Erkannte Blickrichtung (+1 = +z, -1 = -z): richtet die
   /// Ansichts-Presets Vorn/Hinten am Gesicht des Modells aus.
   int _frontSign = 1;
+
+  /// Gezeichnete Anleitung zum Figurtyp – zeigt seitlich, wohin die
+  /// Gelenke gehören und wie weit ihr Einfluss reichen soll.
+  late final RigDummy? _dummy = rigDummyFor(widget.rigType);
+
+  /// Auf schmalen Fenstern ist für die Anleitung kein Platz; dort
+  /// liegt sie hinter einem Knopf in der Titelleiste.
+  bool _dummyInline = false;
+
+  /// Name des zuletzt angetippten Gelenks – danach richtet sich, was
+  /// im Dummy hervorgehoben wird.
+  String? get _markedJoint {
+    if (_selected.isEmpty) return null;
+    final index = _selected.last;
+    return index < _joints.length ? _joints[index].name : null;
+  }
 
   @override
   void initState() {
@@ -315,6 +333,14 @@ class _RigEditScreenState extends State<RigEditScreen> {
         title: Text('Rig anpassen – ${widget.title}',
             overflow: TextOverflow.ellipsis),
         actions: [
+          // Auf schmalen Fenstern steht die Anleitung nicht daneben –
+          // dann ist sie über diesen Knopf zu erreichen.
+          if (_dummy != null && !_dummyInline)
+            IconButton(
+              tooltip: 'Anleitung: Wohin gehören die Gelenke?',
+              icon: const Icon(Icons.help_outline),
+              onPressed: _showDummyDialog,
+            ),
           IconButton(
             tooltip: 'Gelenke zurücksetzen',
             icon: const Icon(Icons.restart_alt),
@@ -331,7 +357,7 @@ class _RigEditScreenState extends State<RigEditScreen> {
             )
           : mesh == null
               ? const Center(child: CircularProgressIndicator())
-              : Column(
+              : _withDummy(theme, Column(
                   children: [
                     Expanded(
                       child: LayoutBuilder(
@@ -629,7 +655,89 @@ class _RigEditScreenState extends State<RigEditScreen> {
                       ),
                     ),
                   ],
+                )),
+    );
+  }
+
+  /// Legt die gezeichnete Anleitung neben den Editor – wenn das
+  /// Fenster breit genug ist. Darunter würde die Zeichnung die
+  /// 3D-Ansicht auf einen Streifen zusammendrücken; dort wandert sie
+  /// hinter den Knopf in der Titelleiste.
+  Widget _withDummy(ThemeData theme, Widget editor) {
+    final dummy = _dummy;
+    if (dummy == null) return editor;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final inline = constraints.maxWidth >= 780;
+        // Nur melden, wenn sich etwas ändert – sonst baut jeder
+        // Layout-Durchlauf den Rahmen neu auf.
+        if (inline != _dummyInline) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _dummyInline = inline);
+          });
+        }
+        if (!inline) return editor;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: editor),
+            const VerticalDivider(width: 1),
+            SizedBox(
+              width: 260,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('So sitzen die Gelenke',
+                        style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    RigDummyView(dummy: dummy, highlight: _markedJoint),
+                    const SizedBox(height: 10),
+                    if (_markedJoint != null)
+                      Text(dummy.note, style: theme.textTheme.bodySmall),
+                  ],
                 ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Dieselbe Anleitung als Dialog – für schmale Fenster und Handys.
+  Future<void> _showDummyDialog() async {
+    final dummy = _dummy;
+    if (dummy == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('So sitzen die Gelenke'),
+        content: SizedBox(
+          width: 300,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RigDummyView(dummy: dummy, highlight: _markedJoint),
+                if (_markedJoint != null) ...[
+                  const SizedBox(height: 10),
+                  Text(dummy.note,
+                      style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
     );
   }
 }

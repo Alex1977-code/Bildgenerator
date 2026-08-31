@@ -220,6 +220,19 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Hand am Unterarm ansetzt; bei Fäustlingen den Punkt in die
     Handmitte legen und den Einflussbereich vergrößern") und was er
     steuert
+  - **Dummy-Zeichnung neben dem Rig-Editor**: Seitlich steht eine
+    gezeichnete Figur des gewählten Typs mit allen Gelenkpunkten und
+    einem Ring je Punkt, der den empfohlenen Einflussbereich zeigt.
+    Das angetippte Gelenk wird hervorgehoben – so ist im Bild zu
+    sehen, wohin der Punkt gehört und wie weit er greifen soll
+  - **Skelett nachträglich einbauen**: Modelle ohne Rig – Importe,
+    Läufe ohne Auto-Rigging, Anbieter, die nur das Netz liefern –
+    bekommen im Viewer über den Zauberstab ein Skelett; danach steht
+    auch der Rig-Editor offen
+  - **Rig-Typ wird an der Form erkannt**: Standflächen am Boden,
+    Proportionen und Radform ergeben einen Vorschlag samt Begründung
+    („4 radförmige Standflächen auf 2 Achsen"); die Auswahl bleibt
+    frei
   - **Animationen direkt in der App**: Die 3D-Vorschau spielt
     Animations-Clips aus der GLB-Datei ab (CPU-Skinning im eigenen
     Renderer) und bringt eingebaute Testanimationen je Figurtyp mit
@@ -689,6 +702,73 @@ laufende Sitzung, wie der übrige Verlauf).
 Verglichen wird ebenenweise, nicht als Textanfang: Ein Ordner „Burg"
 schließt „Burgenspiel" **nicht** ein — beim Umbenennen von „Burg" bleibt
 „Burgenspiel" unberührt.
+
+## Skelett nachträglich einbauen und der Dummy im Rig-Editor
+
+Bisher bekam ein Modell sein Skelett nur im selben Lauf, in dem es
+entstand. Ein importiertes GLB, ein Lauf ohne Auto-Rigging oder ein
+Anbieter, der nur das Netz liefert, blieb ohne – und damit ohne
+Animation und ohne Rig-Editor.
+
+**Der Zauberstab im Viewer** (nur bei Modellen ohne Skelett) baut eines
+ein. Im Dialog steht oben, was die Form hergibt, darunter die freie
+Auswahl aller Typen. Danach verhält sich das Modell wie ein frisch
+geriggtes: Testanimationen laufen, das Skelett lässt sich einblenden,
+der Rig-Editor ist offen. Das Netz bleibt unverändert – es kommen nur
+Knochen und Gewichte hinzu.
+
+### Wie der Typ erkannt wird
+
+Vier Messwerte, alle direkt aus den Punkten ablesbar:
+
+| Messwert | Wofür |
+| --- | --- |
+| **Standflächen** im untersten Sechstel | 2 Beine, 4 Beine/Räder, 6 = Insekt |
+| **Rad oder Bein** | Ein Rad ist in Fahrtrichtung 3-mal länger als quer (man schneidet fast den ganzen Durchmesser an), ein Bein ist rund |
+| **Aufrechtheit** (Höhe / Grundfläche) | Mensch über 1, Vierbeiner darunter, Schlange ganz unten |
+| **Rumpf über den Beinen** (Tiefe / Höhe) | Der Mensch ist dort hoch und schmal, der Vogel trägt ihn waagerecht |
+
+Der zweite und der vierte sind die eigentliche Arbeit: **Auto und
+Vierbeiner haben beide vier Punkte am Boden**, und **Mensch und Vogel
+haben beide zwei Beine nebeneinander und weit abstehende Arme bzw.
+Flügel**. Ohne diese zwei Messwerte wären beide Paare nicht zu
+trennen.
+
+Der Vorschlag kommt **mit seiner Begründung** („4 radförmige
+Standflächen auf 2 Achsen …") – nachprüfbar statt orakelhaft. Passt
+nichts, sagt der Dialog das ehrlich: Bei einem Gebäude oder einem
+Gegenstand ist „kein Typ" die richtige Antwort. Die Auswahlliste steht
+immer daneben; erkannt **oder** gewählt führt zum selben Skelett.
+
+Ein liegend importiertes Modell (z. B. z-up aus Blender) bekommt
+bewusst keinen Zweibeiner vorgeschlagen: Der Rigger nimmt y = oben an,
+und das Modell gehört erst mit den 90°-Knöpfen aufgerichtet.
+
+### Der Dummy neben dem Editor
+
+„Schulter" ist keine eindeutige Anweisung: Der Punkt gehört ein Stück
+**innerhalb** der Silhouette, nicht auf den Ärmelrand; das Fußgelenk
+an den Knöchel, nicht an die Fußspitze. Deshalb steht neben dem
+Rig-Editor (ab ca. 780 px Fensterbreite, darunter über das
+Fragezeichen in der Titelleiste) eine gezeichnete Figur des gewählten
+Typs:
+
+- alle Gelenkpunkte an ihrer Soll-Stelle,
+- je Punkt ein **Ring für den empfohlenen Einflussbereich** – so weit,
+  dass das eigene Körperteil hineinpasst, aber nicht das benachbarte,
+- das im Editor angetippte Gelenk hervorgehoben, mit einem Satz dazu.
+
+Gezeichnet wird jeweils die Ansicht, in der man am meisten sieht:
+Zweibeiner und Vogel von vorn, Vierbeiner, Fisch, Schlange und
+Fahrzeug von der Seite, das Insekt von oben (in der Seitenansicht
+verdecken sich die drei Beinpaare).
+
+**Die Maße sind dieselben Anteile, die der Auto-Rigger verwendet.** Der
+Dummy zeigt also nicht irgendein Ideal, sondern genau das, was die
+Automatik anstrebt – wer davon abweicht, sieht, wie weit. Ein Test
+prüft, dass jedes Gelenk, das der echte Rigger für einen Typ baut, in
+der Zeichnung auch einen Punkt hat; die Anleitung kann dem Skelett
+also nicht davonlaufen.
 
 ## Aus den eigenen Läufen lernen
 
@@ -1498,6 +1578,8 @@ lib/
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
+│   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes
+│   ├── rig_dummy.dart         # Soll-Gelenke der Dummy-Zeichnung
 │   └── exporter.dart          # Speichern/Teilen/Download je Plattform
 └── widgets/common.dart        # Schachbrett-Transparenzvorschau u. a.
 ```
