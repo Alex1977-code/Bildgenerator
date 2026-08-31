@@ -120,6 +120,16 @@ class GenerateRequest(BaseModel):
     seed: int | None = None
     count: int = 1
 
+    # Sampler (Scheduler) aus SAMPLERS; leer = der des Modells.
+    sampler: str = ""
+
+    # Detail-Durchgang: Das fertige Bild wird um detail_scale
+    # vergroessert und mit dieser Staerke noch einmal durch das Modell
+    # geschickt. 0 = aus. Ueber etwa 0,5 erfindet der zweite Durchgang
+    # das Motiv neu, statt es zu schaerfen.
+    detail: float = 0.0
+    detail_scale: float = 1.25
+
     # Hintergrund freistellen (rembg) - so entstehen die transparenten
     # Ansichten, die der 3D-Teil der App braucht.
     transparent: bool = False
@@ -161,6 +171,60 @@ def _missing_modules() -> list[str]:
 
     needed = ["torch", "diffusers", "transformers", "PIL", "safetensors"]
     return [name for name in needed if util.find_spec(name) is None]
+
+
+# Waehlbare Sampler (Scheduler). Der Sampler bestimmt, wie das
+# Rauschen ueber die Schritte abgebaut wird - bei gleicher Schrittzahl
+# ein sichtbarer Unterschied in Schaerfe und Struktur.
+#
+# Nur fuer SD und SDXL. SD 3.5 und FLUX rechnen nach einem anderen
+# Verfahren (Flow Matching) und haben eigene Scheduler; ein DPM++
+# dazwischenzuschieben ergibt Rauschen statt Bild.
+SAMPLERS = {
+    "dpmpp2m-karras": (
+        "DPMSolverMultistepScheduler",
+        {"use_karras_sigmas": True, "algorithm_type": "dpmsolver++"},
+    ),
+    "dpmpp2m": ("DPMSolverMultistepScheduler",
+                {"algorithm_type": "dpmsolver++"}),
+    "euler": ("EulerDiscreteScheduler", {}),
+    "euler-a": ("EulerAncestralDiscreteScheduler", {}),
+    "ddim": ("DDIMScheduler", {}),
+}
+
+# Der Scheduler, mit dem das Modell geladen wurde - Rueckweg, wenn
+# jemand wieder auf "Vorgabe des Modells" stellt.
+_default_scheduler = None
+
+
+def _set_sampler(pipe, family: str, sampler: str) -> str:
+    """Stellt den Sampler um. Liefert einen Hinweis, wenn es nicht ging."""
+    global _default_scheduler
+    if _default_scheduler is None:
+        _default_scheduler = pipe.scheduler
+    key = (sampler or "").strip().lower()
+    if not key or key == "standard":
+        pipe.scheduler = _default_scheduler
+        return ""
+    if family not in ("sd", "sdxl"):
+        pipe.scheduler = _default_scheduler
+        return (
+            f"Der Sampler '{key}' gilt nur fuer SD und SDXL; "
+            "dieses Modell rechnet mit seinem eigenen Verfahren."
+        )
+    if key not in SAMPLERS:
+        pipe.scheduler = _default_scheduler
+        return f"Unbekannter Sampler '{key}' - es gilt der des Modells."
+    class_name, extra = SAMPLERS[key]
+    try:
+        import diffusers
+
+        cls = getattr(diffusers, class_name)
+        pipe.scheduler = cls.from_config(_default_scheduler.config, **extra)
+        return ""
+    except Exception as exc:  # pragma: no cover - versionsabhaengig
+        pipe.scheduler = _default_scheduler
+        return f"Sampler '{key}' nicht verfuegbar ({exc})."
 
 
 # Was ausser den Gewichten noch im VRAM liegt, waehrend gerechnet
@@ -603,6 +667,11 @@ def health():
         # werden muesste - statt es beim ersten Lauf zu merken.
         "vramTotal": vram_total,
         "vramReserve": ACTIVATION_GB,
+        # Waehlbare Sampler und wo sie gelten - die App baut daraus
+        # ihre Auswahlliste, statt eine eigene Kopie zu pflegen.
+        "samplers": ["standard"] + sorted(SAMPLERS),
+        "samplerFamilies": ["sd", "sdxl"],
+        "detailFamilies": ["sd", "sdxl"],
         "missing": missing,
         "loaded": _pipe_name or "",
         # Live-Vorschau waehrend der Generierung: Die App fragt
@@ -613,6 +682,96 @@ def health():
         "previewEvery": PREVIEW_EVERY,
         "previewFamilies": ["sd", "sdxl"],
     }
+
+
+def _detail_pass(pipe, family, images, req, kwargs, steps, guidance):
+    """Zweiter Durchgang auf vergroessertem Bild - der Detail-Hebel.
+
+    Mehr Schritte bringen irgendwann nichts mehr, weil die Aufloesung
+    das Limit ist: In 1024x1024 passt nur so viel Struktur. Der
+    Detail-Durchgang vergroessert das fertige Bild und schickt es mit
+    geringer Staerke noch einmal durch dasselbe Modell. Der zweite
+    Lauf malt in die gewonnene Flaeche echte Struktur - Poren, Fugen,
+    Holzmaserung -, statt sie hochzurechnen.
+
+    Entscheidend ist die **Staerke**: Bei 0,3 bis 0,45 bleibt das Motiv
+    dasselbe und wird nur schaerfer. Ab etwa 0,6 fasst der zweite
+    Durchgang die Komposition an und erfindet Details dazu, die im
+    ersten Bild nicht standen.
+
+    Die Gewichte werden nicht noch einmal geladen: `from_pipe` baut die
+    Bild-zu-Bild-Pipeline aus denselben Bausteinen. Sonst laege das
+    Modell zweimal im Speicher, und auf einer 10-GB-Karte waere hier
+    Schluss.
+    """
+    if family not in ("sd", "sdxl"):
+        return None, ("Der Detail-Durchgang gilt nur fuer SD und SDXL.")
+    if not images:
+        return None, ""
+    try:
+        from diffusers import AutoPipelineForImage2Image
+        from PIL import Image
+    except Exception as exc:  # pragma: no cover - installationsabhaengig
+        return None, f"Detail-Durchgang nicht moeglich ({exc})."
+
+    strength = max(0.05, min(0.6, float(req.detail)))
+    scale = max(1.0, min(2.0, float(req.detail_scale)))
+    import torch
+
+    try:
+        refiner = AutoPipelineForImage2Image.from_pipe(pipe)
+        # Bei der groesseren Flaeche wird der VAE-Schritt zum
+        # Speicherfresser; kachelweise dekodieren kostet nichts.
+        if hasattr(refiner, "enable_vae_tiling"):
+            refiner.enable_vae_tiling()
+
+        out = []
+        for image in images:
+            width = int(round(image.width * scale / 8)) * 8
+            height = int(round(image.height * scale / 8)) * 8
+            big = image.resize((width, height), Image.LANCZOS)
+            call = {
+                "image": big,
+                "strength": strength,
+                # Bei Bild-zu-Bild rechnet diffusers nur den Anteil
+                # strength x steps. Damit der zweite Durchgang nicht
+                # bei drei Schritten landet, wird hochgerechnet.
+                "num_inference_steps": max(
+                    8, int(round(steps / max(strength, 0.05)))
+                ),
+                "guidance_scale": float(guidance),
+            }
+            # Denselben Text wie im ersten Durchgang - notfalls die
+            # fertigen Vektoren, damit ein langer Prompt nicht doch
+            # noch bei 77 Tokens abgeschnitten wird.
+            for key in (
+                "prompt",
+                "negative_prompt",
+                "prompt_embeds",
+                "pooled_prompt_embeds",
+                "negative_prompt_embeds",
+                "negative_pooled_prompt_embeds",
+            ):
+                if key in kwargs:
+                    call[key] = kwargs[key]
+            out.append(refiner(**call).images[0])
+        return out, ""
+    except torch.cuda.OutOfMemoryError:
+        # Das erste Bild ist fertig und gut - es waere albern, den
+        # ganzen Lauf daran scheitern zu lassen.
+        torch.cuda.empty_cache()
+        return None, (
+            f"Der Detail-Durchgang auf {scale:g}-facher Groesse passte "
+            "nicht in den Grafikspeicher; geliefert wird das Bild aus "
+            "dem ersten Durchgang."
+        )
+    except Exception as exc:  # pragma: no cover - modellabhaengig
+        print("Detail-Durchgang fehlgeschlagen:", flush=True)
+        traceback.print_exc()
+        return None, (
+            f"Der Detail-Durchgang schlug fehl ({type(exc).__name__}: "
+            f"{exc}); geliefert wird das Bild aus dem ersten Durchgang."
+        )
 
 
 @app.post("/generate")
@@ -698,6 +857,10 @@ def generate(req: GenerateRequest):
     # sind gemeinsam genutzter Zustand (siehe _pipe_lock).
     note = long_note
     with _pipe_lock:
+        sampler_note = _set_sampler(pipe, family, req.sampler)
+        if sampler_note:
+            print(sampler_note, flush=True)
+            note = f"{note} {sampler_note}".strip()
         try:
             result = pipe(**kwargs)
         except torch.cuda.OutOfMemoryError:
@@ -755,6 +918,17 @@ def generate(req: GenerateRequest):
                 f"({type(exc).__name__}: {exc}); das Bild entstand mit "
                 "dem bei 77 Tokens gekuerzten Text."
             )
+
+        # Detail-Durchgang: noch unter derselben Sperre, weil er
+        # dieselben Gewichte benutzt.
+        if req.detail > 0:
+            detailed, detail_note = _detail_pass(
+                pipe, family, result.images, req, kwargs, steps, guidance
+            )
+            if detailed is not None:
+                result.images = detailed
+            if detail_note:
+                note = f"{note} {detail_note}".strip()
 
     # Der Zwischenstand hat seinen Zweck erfuellt.
     if job:

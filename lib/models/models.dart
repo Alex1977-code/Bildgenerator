@@ -103,6 +103,11 @@ class GenerationRequest {
     this.model = '',
     this.geminiAspect = '1:1',
     this.geminiImageSize = '1K',
+    this.steps = 0,
+    this.guidance = -1,
+    this.sampler = '',
+    this.detail = 0,
+    this.detailScale = 1.25,
   });
 
   final GenProvider provider;
@@ -150,6 +155,23 @@ class GenerationRequest {
   /// Style-Preset (nur Stability, '' = keins).
   final String stylePreset;
 
+  /// Rechenschritte auf der eigenen GPU (0 = Vorgabe des Modells).
+  final int steps;
+
+  /// Prompt-Treue (CFG) auf der eigenen GPU (-1 = Vorgabe des
+  /// Modells; 0 ist bei destillierten Modellen ein gültiger Wert und
+  /// darf deshalb nicht „unbestimmt" bedeuten).
+  final double guidance;
+
+  /// Sampler auf der eigenen GPU ('' = der des Modells).
+  final String sampler;
+
+  /// Stärke des Detail-Durchgangs (0 = keiner). Das Bild wird um
+  /// [detailScale] vergrößert und noch einmal leicht überarbeitet –
+  /// der eigentliche Hebel für Detailtreue.
+  final double detail;
+  final double detailScale;
+
   /// Lesbare Parameter-Zusammenfassung für Verlauf/Metadaten.
   Map<String, String> describeParams() {
     final map = <String, String>{'Provider': provider.label};
@@ -176,6 +198,19 @@ class GenerationRequest {
           map['Negativ-Prompt'] = negativePrompt.trim();
         }
         if (seed != 0) map['Seed'] = '$seed';
+        // Die Feinsteuerung gehört in den Verlauf: Ohne sie lässt
+        // sich ein gelungenes Bild später nicht wiederholen – und die
+        // Lernstatistik könnte nicht erkennen, woran es lag.
+        if (steps > 0) map['Schritte'] = '$steps';
+        if (guidance >= 0) {
+          map['Prompt-Treue'] = guidance.toStringAsFixed(1);
+        }
+        if (sampler.isNotEmpty) map['Sampler'] = sampler;
+        if (detail > 0) {
+          map['Detail-Durchgang'] =
+              '${detail.toStringAsFixed(2)} auf '
+              '${detailScale.toStringAsFixed(2)}×';
+        }
     }
     if (references.isNotEmpty) {
       map['Referenzbilder'] = '${references.length}';

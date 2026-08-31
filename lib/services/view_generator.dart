@@ -190,6 +190,15 @@ Future<GeneratedViews> generateViewsFromText({
       // Detailquelle des 3D-Modells – 2K/4K (Pro-Modelle) ergibt
       // sichtbar schärfere Texturen als das 1K-Minimum.
       geminiImageSize: settings.geminiImageSize,
+      // Auf der eigenen GPU gilt dieselbe Feinsteuerung wie im
+      // Bild-Tab – die Ansichten sind die Detailquelle des
+      // 3D-Modells. Ohne den Detail-Durchgang: Der vergrößert das
+      // Bild über 1024 hinaus, und die 3D-Rekonstruktion rechnet mit
+      // quadratischen 1024ern.
+      steps: provider.isLocal ? settings.gpuQualitySettings.steps : 0,
+      guidance:
+          provider.isLocal ? settings.gpuQualitySettings.guidance : -1,
+      sampler: provider.isLocal ? settings.gpuSampler : '',
     );
   }
 

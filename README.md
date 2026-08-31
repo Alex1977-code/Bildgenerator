@@ -664,6 +664,86 @@ wird `bld-02-bakery.png`. Ohne eigenen Namen bleibt es bei der
 Kennung. Zeichen, die Windows in Dateinamen nicht erlaubt, werden
 ersetzt.
 
+## Bildqualität und Detailtreue steuern (eigene GPU)
+
+Der Bild-Server nahm Schrittzahl und Prompt-Treue schon immer entgegen
+– **die App hat sie nie mitgeschickt**. Es galt also stillschweigend
+immer die Vorgabe des Modells. Jetzt steht im Bild-Tab unter „Eigene
+GPU" ein eigener Abschnitt.
+
+### Vier Stufen
+
+| Stufe | Was sie tut |
+| --- | --- |
+| **Entwurf** | Weniger Schritte – schnell sehen, ob die Bildidee trägt |
+| **Standard** | Die Vorgabe des Modells |
+| **Fein** | Mehr Schritte **und ein Detail-Durchgang** |
+| **Sehr fein** | Deutlich mehr Schritte, kräftigerer Durchgang auf 1,5-facher Größe |
+
+Unter den Stufen steht immer, was daraus wird: „Daraus wird: 42
+Schritte, Prompt-Treue 7,0, Detail-Durchgang auf 1,25× Größe." Ohne
+diese Zeile wäre die Stufe eine Behauptung.
+
+**Die Stufe rechnet relativ zum Modell, nicht in festen Zahlen.** SDXL
+Turbo und FLUX schnell sind destillierte Modelle: vier Schritte, gar
+keine Prompt-Treue-Regelung. Wer dort auf 40 Schritte und CFG 7 stellt,
+bekommt kein besseres Bild, sondern ein zermatschtes. Deshalb bleibt
+die Schrittzahl dort gedeckelt und der CFG-Regler ausgegraut – ein
+Regler, der nichts tut, ist schlimmer als keiner.
+
+### Der Detail-Durchgang – der eigentliche Hebel
+
+Mehr Schritte bringen irgendwann nichts mehr, weil die **Auflösung**
+das Limit ist: In 1024×1024 passt nur so viel Struktur. Der
+Detail-Durchgang vergrößert das fertige Bild und schickt es mit
+geringer Stärke noch einmal durch dasselbe Modell. Der zweite Lauf malt
+in die gewonnene Fläche echte Struktur – Poren, Fugen, Holzmaserung –,
+statt sie hochzurechnen.
+
+Entscheidend ist die Stärke: Bei 0,3–0,45 bleibt das Motiv dasselbe und
+wird nur schärfer. Ab etwa 0,6 fasst der zweite Durchgang die
+Komposition an und erfindet Details dazu, die im ersten Bild nicht
+standen. Die App bleibt deshalb unter 0,45.
+
+Die Gewichte werden dafür **nicht ein zweites Mal geladen**
+(`from_pipe` baut die Bild-zu-Bild-Pipeline aus denselben Bausteinen) –
+sonst läge das Modell doppelt im Speicher, und auf einer 10-GB-Karte
+wäre hier Schluss. Passt der Durchgang trotzdem nicht in den
+Grafikspeicher, kommt das Bild aus dem ersten Durchgang mit einem
+Hinweis statt eines Fehlers.
+
+Der Detail-Durchgang gilt für SD 1.5 und SDXL. SD 3.5 und FLUX rechnen
+nach einem anderen Verfahren (Flow Matching); dort sagt die App das
+dazu, statt es still zu übergehen.
+
+### Sampler
+
+Der Sampler bestimmt, wie das Rauschen über die Schritte abgebaut wird
+– bei gleicher Schrittzahl ein sichtbarer Unterschied in Schärfe und
+Struktur. Zur Wahl stehen DPM++ 2M Karras (die übliche Standardwahl für
+feine Details), DPM++ 2M, Euler, Euler a und DDIM. Auch das nur für SD
+und SDXL: SD 3.5 und FLUX haben eigene Scheduler, ein DPM++
+dazwischenzuschieben ergibt Rauschen statt Bild.
+
+### Wo es sonst noch wirkt
+
+Schritte, Prompt-Treue und Sampler gelten auch für die **Ansichten der
+3D-Pipeline** – die sind die Detailquelle des 3D-Modells. Der
+Detail-Durchgang bleibt dort aus: Er vergrößert das Bild über 1024
+hinaus, und die 3D-Rekonstruktion rechnet mit quadratischen 1024ern.
+
+Alle Werte landen im Verlauf und im Erstellungsnachweis („Schritte 42,
+Prompt-Treue 7,0, Sampler dpmpp2m-karras, Detail-Durchgang 0,35 auf
+1,25×"). Ohne das ließe sich ein gelungenes Bild später nicht
+wiederholen – und die Lernstatistik wüsste nicht, woran es lag.
+
+### Bei den Cloud-Anbietern
+
+Dort gibt es diese Regler nicht, weil die APIs sie nicht annehmen.
+Deren eigene Steuerung bleibt: die Qualitätsstufe bei OpenAI, die
+Style-Presets und die Modellwahl bei Stability, die Bildgröße
+(1K/2K/4K) bei Nano Banana Pro.
+
 ## Eigene GPU: Was passt in 10 GB (RTX 3080)?
 
 **Diese App benutzt weder Automatic1111 noch ComfyUI oder Fooocus.**
@@ -1646,6 +1726,7 @@ lib/
 │   ├── settings_service.dart  # Einstellungen + sichere Schlüsselablage
 │   ├── history_service.dart   # Verlauf (Dateisystem nativ, In-Memory im Web)
 │   ├── project_tree.dart      # Projektpfade und Ordnerbaum der Galerie
+│   ├── quality_preset.dart    # Schritte, Prompt-Treue, Detail-Durchgang
 │   ├── rig_detect.dart        # Rig-Typ aus der Form des Netzes
 │   ├── rig_dummy.dart         # Soll-Gelenke der Dummy-Zeichnung
 │   ├── vram_fit.dart          # Passt ein Bild-Modell in den VRAM?

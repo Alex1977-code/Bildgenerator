@@ -16,6 +16,7 @@ import '../services/history_service.dart';
 import '../services/model_catalog.dart';
 import '../services/cost_estimator.dart';
 import '../services/prompt_relay.dart';
+import '../services/quality_preset.dart';
 import '../services/provenance.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
@@ -345,6 +346,13 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       negativeHandlingFor(
           settings.provider, settings.modelFor(settings.provider)),
     );
+    final quality = settings.provider == GenProvider.selfhost
+        ? settings.gpuQualitySettings
+        // Für die Cloud-Anbieter gilt weiter deren eigene Steuerung
+        // (OpenAI-Qualitätsstufe, Stability-Preset); Schritte und
+        // Prompt-Treue nehmen sie gar nicht entgegen.
+        : const QualitySettings(
+            steps: 0, guidance: -1, detail: 0, detailScale: 1);
     return GenerationRequest(
       provider: settings.provider,
       prompt: withNegative.prompt,
@@ -364,8 +372,15 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       model: settings.modelFor(settings.provider),
       geminiAspect: settings.geminiAspect,
       geminiImageSize: settings.geminiImageSize,
+      steps: quality.steps,
+      guidance: quality.guidance,
+      sampler: settings.gpuSampler,
+      detail: quality.detail,
+      detailScale: quality.detailScale,
     );
   }
+
+
 
   /// Legt – falls eingeschaltet – das Wasserzeichen auf die Bilder.
   Future<List<GeneratedImage>> _watermarked(
@@ -1952,6 +1967,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 ),
               ),
             ],
+            if (provider == GenProvider.selfhost) ...[
+              const SizedBox(height: 12),
+              _qualityPanel(settings),
+            ],
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -2078,6 +2097,210 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             label: const Text('Kopieren'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Qualität und Detailtreue auf der eigenen GPU.
+  ///
+  /// Vier Stufen für den Alltag, darunter aufgeklappt die beiden
+  /// Regler, an denen es wirklich hängt. Die Stufe rechnet **relativ
+  /// zum Modell**: SDXL Turbo bleibt auch bei „Sehr fein" bei wenigen
+  /// Schritten, weil es darauf trainiert ist – 40 Schritte machen dort
+  /// kein besseres Bild, sondern ein weicheres.
+  Widget _qualityPanel(SettingsService settings) {
+    final theme = Theme.of(context);
+    final model = settings.selfHostImageModel;
+    final (modelSteps, modelGuidance, canDetail) =
+        localModelDefault(model);
+    final effective = settings.gpuQualitySettings;
+    // Wollte die Stufe einen Detail-Durchgang, kann das Modell aber
+    // keinen? Dann gehört das dazugesagt, statt still zu schweigen.
+    final wantsDetail = qualityFor(
+      preset: settings.gpuQuality,
+      modelSteps: modelSteps,
+      modelGuidance: modelGuidance,
+    ).hasDetailPass;
+    final warning = qualityWarning(
+      steps: effective.steps,
+      guidance: effective.guidance,
+      modelGuidance: modelGuidance,
+    );
+    final distilled = modelGuidance <= 0;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome_outlined, size: 18),
+                const SizedBox(width: 8),
+                Text('Qualität und Detailtreue',
+                    style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<QualityPreset>(
+              showSelectedIcon: false,
+              segments: [
+                for (final preset in QualityPreset.values)
+                  ButtonSegment(
+                    value: preset,
+                    label: Text(qualityLabel(preset).$1),
+                  ),
+              ],
+              selected: {settings.gpuQuality},
+              onSelectionChanged: (value) =>
+                  settings.setGpuQuality(value.first),
+            ),
+            const SizedBox(height: 6),
+            Text(qualityLabel(settings.gpuQuality).$2,
+                style: theme.textTheme.bodySmall),
+            const SizedBox(height: 6),
+            // Was tatsächlich gesendet wird – ohne diese Zeile bliebe
+            // die Stufe eine Behauptung.
+            Text(
+              'Daraus wird: ${effective.steps} Schritte'
+              '${distilled ? '' : ', Prompt-Treue '
+                  '${effective.guidance.toStringAsFixed(1)}'}'
+              '${effective.hasDetailPass ? ', Detail-Durchgang auf '
+                  '${effective.detailScale.toStringAsFixed(2)}× Größe' : ''}'
+              '${wantsDetail && !canDetail ? ' – dieses Modell kennt '
+                  'keinen Detail-Durchgang' : ''}.',
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: theme.colorScheme.primary),
+            ),
+            if (warning.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 14, color: theme.colorScheme.error),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(warning,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.error)),
+                  ),
+                ],
+              ),
+            ],
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 4),
+              title: const Text('Von Hand einstellen'),
+              subtitle: const Text('Schritte, Prompt-Treue, Sampler'),
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 130,
+                      child: Text('Schritte ${effective.steps}',
+                          style: theme.textTheme.bodySmall),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: effective.steps
+                            .clamp(1, maxSteps)
+                            .toDouble(),
+                        min: 1,
+                        max: maxSteps.toDouble(),
+                        divisions: maxSteps - 1,
+                        label: '${effective.steps}',
+                        onChanged: (v) =>
+                            settings.setGpuSteps(v.round()),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 130,
+                      child: Text(
+                        distilled
+                            ? 'Prompt-Treue –'
+                            : 'Prompt-Treue '
+                                '${effective.guidance.toStringAsFixed(1)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color:
+                              distilled ? theme.colorScheme.outline : null,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: effective.guidance
+                            .clamp(0.0, 15.0)
+                            .toDouble(),
+                        max: 15,
+                        divisions: 30,
+                        label: effective.guidance.toStringAsFixed(1),
+                        // Destillierte Modelle rechnen ohne
+                        // Prompt-Treue; ein Regler wäre dort eine
+                        // Attrappe.
+                        onChanged: distilled
+                            ? null
+                            : (v) => settings.setGpuGuidance(v),
+                      ),
+                    ),
+                  ],
+                ),
+                if (distilled)
+                  Text(
+                    'Dieses Modell rechnet ohne Prompt-Treue – der '
+                    'Regler bliebe wirkungslos.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline),
+                  ),
+                const SizedBox(height: 8),
+                DropdownMenu<String>(
+                  initialSelection: settings.gpuSampler,
+                  label: const Text('Sampler'),
+                  expandedInsets: EdgeInsets.zero,
+                  helperText: canDetail
+                      ? 'Bestimmt, wie das Rauschen abgebaut wird – bei '
+                          'gleicher Schrittzahl ein sichtbarer '
+                          'Unterschied in Schärfe und Struktur.'
+                      : 'Dieses Modell rechnet nach einem anderen '
+                          'Verfahren und behält seinen eigenen Sampler.',
+                  dropdownMenuEntries: const [
+                    DropdownMenuEntry(
+                        value: '', label: 'Vorgabe des Modells'),
+                    DropdownMenuEntry(
+                        value: 'dpmpp2m-karras',
+                        label: 'DPM++ 2M Karras (fein, Standardwahl)'),
+                    DropdownMenuEntry(
+                        value: 'dpmpp2m', label: 'DPM++ 2M'),
+                    DropdownMenuEntry(
+                        value: 'euler', label: 'Euler (ruhig)'),
+                    DropdownMenuEntry(
+                        value: 'euler-a',
+                        label: 'Euler a (mehr Variation)'),
+                    DropdownMenuEntry(value: 'ddim', label: 'DDIM'),
+                  ],
+                  onSelected: (value) =>
+                      settings.setGpuSampler(value ?? ''),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () =>
+                        settings.setGpuQuality(settings.gpuQuality),
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: Text('Zurück auf '
+                        '„${qualityLabel(settings.gpuQuality).$1}"'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

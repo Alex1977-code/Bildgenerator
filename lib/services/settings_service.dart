@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'quality_preset.dart';
 import 'run_stats.dart';
 
 import '../models/models.dart';
@@ -106,6 +107,72 @@ class SettingsService extends ChangeNotifier {
 
   /// Gewähltes Modell des eigenen Bild-Servers.
   String selfHostImageModel = 'sdxl-turbo';
+
+  /// Qualitätsstufe auf der eigenen GPU. Aus ihr entstehen Schritte,
+  /// Prompt-Treue und Detail-Durchgang – jeweils passend zum Modell
+  /// (siehe `quality_preset.dart`). Nicht zu verwechseln mit
+  /// [quality]: Das ist OpenAIs eigene Stufe, die dort abgerechnet
+  /// wird.
+  QualityPreset gpuQuality = QualityPreset.standard;
+
+  /// Von Hand gesetzte Werte, die die Stufe überstimmen. 0 bzw. -1 =
+  /// die Stufe entscheidet.
+  int gpuSteps = 0;
+  double gpuGuidance = -1;
+
+  /// Sampler des eigenen Bild-Servers ('' = der des Modells).
+  String gpuSampler = '';
+
+  void setGpuQuality(QualityPreset v) {
+    gpuQuality = v;
+    // Eine neue Stufe hebt die Handeinstellung auf – sonst bliebe sie
+    // wirkungslos stehen und die Stufe wäre eine Attrappe.
+    gpuSteps = 0;
+    gpuGuidance = -1;
+    _persistString('gpuQuality', v.name);
+    _persistInt('gpuSteps', 0);
+    _persistDouble('gpuGuidance', -1);
+    notifyListeners();
+  }
+
+  void setGpuSteps(int v) {
+    gpuSteps = v;
+    _persistInt('gpuSteps', v);
+    notifyListeners();
+  }
+
+  void setGpuGuidance(double v) {
+    gpuGuidance = v;
+    _persistDouble('gpuGuidance', v);
+    notifyListeners();
+  }
+
+  void setGpuSampler(String v) {
+    gpuSampler = v;
+    _persistString('gpuSampler', v);
+    notifyListeners();
+  }
+
+  /// Die Feinsteuerung für die eigene GPU, fertig gerechnet: aus der
+  /// Stufe und den Vorgaben des gewählten Modells, von Hand gesetzte
+  /// Werte gewinnen. Eine Stelle für alle Aufrufer – Bild-Tab wie
+  /// 3D-Ansichten.
+  QualitySettings get gpuQualitySettings {
+    final (modelSteps, modelGuidance, canDetail) =
+        localModelDefault(selfHostImageModel);
+    final base = qualityFor(
+      preset: gpuQuality,
+      modelSteps: modelSteps,
+      modelGuidance: modelGuidance,
+      supportsDetail: canDetail,
+    );
+    return QualitySettings(
+      steps: gpuSteps > 0 ? gpuSteps : base.steps,
+      guidance: gpuGuidance >= 0 ? gpuGuidance : base.guidance,
+      detail: base.detail,
+      detailScale: base.detailScale,
+    );
+  }
 
   void setSelfHostImageUrl(String v) {
     selfHostImageUrl = v.trim();
@@ -331,6 +398,13 @@ class SettingsService extends ChangeNotifier {
           prefs.getString('selfHostImageUrl') ?? selfHostImageUrl;
       selfHostImageModel =
           prefs.getString('selfHostImageModel') ?? selfHostImageModel;
+      final storedQuality = prefs.getString('gpuQuality') ?? '';
+      gpuQuality = QualityPreset.values.firstWhere(
+          (p) => p.name == storedQuality,
+          orElse: () => QualityPreset.standard);
+      gpuSteps = prefs.getInt('gpuSteps') ?? 0;
+      gpuGuidance = prefs.getDouble('gpuGuidance') ?? -1;
+      gpuSampler = prefs.getString('gpuSampler') ?? '';
       final storedPresets = prefs.getStringList('customPresets');
       if (storedPresets != null) {
         customPresets = [
@@ -599,5 +673,13 @@ class SettingsService extends ChangeNotifier {
 
   void _persistString(String key, String value) {
     _prefs?.setString(key, value);
+  }
+
+  void _persistInt(String key, int value) {
+    _prefs?.setInt(key, value);
+  }
+
+  void _persistDouble(String key, double value) {
+    _prefs?.setDouble(key, value);
   }
 }

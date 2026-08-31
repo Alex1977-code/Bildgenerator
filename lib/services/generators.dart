@@ -515,6 +515,16 @@ class SelfHostImageGenerator implements ImageGenerator {
               'count': request.count,
               'transparent': request.transparent,
               if (request.seed != 0) 'seed': request.seed,
+              // Feinsteuerung: Der Server nahm sie schon immer
+              // entgegen – bis hierher kam sie nie an, es galt
+              // stillschweigend die Vorgabe des Modells.
+              if (request.steps > 0) 'steps': request.steps,
+              if (request.guidance >= 0) 'guidance': request.guidance,
+              if (request.sampler.isNotEmpty) 'sampler': request.sampler,
+              if (request.detail > 0) ...{
+                'detail': request.detail,
+                'detail_scale': request.detailScale,
+              },
             }),
           )
           // Der erste Lauf lädt die Modellgewichte (mehrere GB).
