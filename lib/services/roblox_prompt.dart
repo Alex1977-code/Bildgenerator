@@ -30,6 +30,68 @@ const String robloxAccessoryTail =
     'surfaces, low detail density, clean readable silhouette, few '
     'flat separated color areas, uniform material';
 
+/// Der feste Schwanz für einen **Marktplatz-Körper**.
+///
+/// Ein eigener, weil hier fünf Formregeln dazukommen, an denen eine
+/// Figur scheitert, die im eigenen Erlebnis tadellos läuft. Alle fünf
+/// sind an Roblox' Validator gemessen, nicht der Doku entnommen:
+///
+/// * **Tiefe unter zwei Fünfteln der Höhe.** Die Testfigur hatte 49 %,
+///   die Grenze liegt bei 40 %. Nachträglich flach drücken geht nicht.
+/// * **Saum am Hüftknochen, Beine darunter frei.** „hip-length" hat
+///   Tripo als Mitte Oberschenkel gelesen; alles, was von der Hüfte
+///   abwärts über beide Beine hängt, landet im Bein-Hüllkörper und
+///   reißt Deckung und die Regel LegsSeparated zugleich.
+/// * **Schlanke Beine.** Höchstens ein Drittel der Körperhöhe.
+/// * **Fäustlinge statt Finger.** Ausmodellierte Finger kosteten je
+///   Hand über 1.280 Dreiecke – mehr als das Budget des ganzen Arms.
+/// * **Sichtbarer Hals.** Ohne Einschnürung findet Roblox' Auto Setup
+///   die Grenze zwischen Kopf und Rumpf nicht: In einem echten Lauf
+///   wurde die Kapuze bis zu den Schultern zum „Kopf" von 3,75 Studs
+///   Breite.
+///
+/// Dazu zwei Dinge, die nicht die Form, sondern die Weiterverarbeitung
+/// betreffen: **A-Pose statt T-Pose** – die waagerechten Arme wurden
+/// dem Rumpf zugeschlagen – und **Augen und Mund als Volumen**, weil
+/// der Marktplatz für den Kopf eines Ganzkörper-Bundles einen
+/// dynamischen Kopf mit FACS-Posen verlangt; aufgemalte Augen ergeben
+/// nichts zum Animieren.
+///
+/// „chunky" fehlt hier bewusst: Genau dieses Wort hat die Tiefe
+/// bestellt, die jetzt abgelehnt wird.
+const String robloxMarketplaceTail =
+    'single connected body, symmetrical, body depth less than two '
+    'fifths of body height, flat chest and back, narrow visible neck '
+    'clearly separating head from shoulders, arms in a relaxed '
+    'A-pose about 45 degrees from the body, mitten hands without '
+    'fingers, garment hem ending at the hip bone, thighs uncovered, '
+    'two separate leg tubes from the hips down, slim straight legs '
+    'each narrower than one third of body height, two hemisphere '
+    'eyes and a mouth modelled as separate volumes, solid closed '
+    'volumes with visible wall thickness, closed watertight shell, '
+    'single mesh, smooth simple surfaces, few flat separated color '
+    'areas, uniform material';
+
+/// Die NEGATIV-Zeile für einen Marktplatz-Körper.
+///
+/// Die Formfehler stehen **vorn**, vor allem Kosmetischen: Tripo
+/// gewichtet die vorderen Begriffe stärker, und `deep body` sowie
+/// `long hem` sind hier die beiden, an denen die Figur abgelehnt
+/// wurde.
+const String robloxMarketplaceNegative =
+    'deep body, round belly, long hem, thigh-length, skirt, cape, '
+    'fingers, T-pose, arms out sideways, painted flat eyes, thick '
+    'legs, floating parts, thin parts, open mesh, holes, base, '
+    'pedestal, text, logo, second character, extra limbs, loose cloth';
+
+const String robloxMarketplaceExample =
+    'PROMPT: hooded creature character, rounded head, slim torso, '
+    'thin hoodie ending at the hip bone, glowing cyan eyes and a '
+    'small mouth inside the hood opening, flat rounded feet, matte '
+    'dark charcoal fabric, lighter grey hood interior, '
+    '$robloxMarketplaceTail\n'
+    'NEGATIV: $robloxMarketplaceNegative';
+
 /// Die NEGATIV-Zeile für eine Figur (238 Zeichen – Tripo nimmt 255).
 const String robloxFigureNegative =
     'low poly, blobby, melted, floating parts, thin parts, open '
@@ -66,14 +128,30 @@ const String robloxAccessoryExample =
 /// Er nennt nicht nur, was zu vermeiden ist, sondern gibt den Bauplan
 /// und die festen Textbausteine mit – sonst muss die Prompt-KI raten,
 /// und genau daran sind die ersten Läufe gescheitert.
-String robloxPromptRules({required bool accessory}) {
-  final tail = accessory ? robloxAccessoryTail : robloxFigureTail;
-  final negative =
-      accessory ? robloxAccessoryNegative : robloxFigureNegative;
-  final example =
-      accessory ? robloxAccessoryExample : robloxFigureExample;
-  final triangles = accessory ? robloxAccessoryTriangles : robloxGoalTriangles;
-  final was = accessory ? 'das Accessoire' : 'die Figur';
+/// [marketplace] schaltet auf den Marktplatz-Körper um: dieselbe
+/// Bauanleitung, aber mit den fünf Formregeln, an denen eine Figur
+/// scheitert, die im eigenen Erlebnis läuft. Wirkt nur zusammen mit
+/// `accessory: false` – ein Accessoire hat weder Beine noch Hals.
+String robloxPromptRules({
+  required bool accessory,
+  bool marketplace = false,
+}) {
+  final markt = marketplace && !accessory;
+  final tail = accessory
+      ? robloxAccessoryTail
+      : (markt ? robloxMarketplaceTail : robloxFigureTail);
+  final negative = accessory
+      ? robloxAccessoryNegative
+      : (markt ? robloxMarketplaceNegative : robloxFigureNegative);
+  final example = accessory
+      ? robloxAccessoryExample
+      : (markt ? robloxMarketplaceExample : robloxFigureExample);
+  final triangles = accessory
+      ? robloxAccessoryTriangles
+      : (markt ? specBodyTotalTriangles : robloxGoalTriangles);
+  final was = accessory
+      ? 'das Accessoire'
+      : (markt ? 'den Marktplatz-Körper' : 'die Figur');
 
   final aufbau = accessory
       ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
@@ -99,6 +177,24 @@ String robloxPromptRules({required bool accessory}) {
   final poseRegel = accessory
       ? '- KEINE Pose, kein Körper, keine Hand, die es hält. Das Teil '
           'schwebt frei und vollständig sichtbar.\n'
+      : markt
+      ? '- KEINE T-Pose. Für den Marktplatz-Weg steht die A-Pose '
+          'schon im festen Schwanz, und sie ist dort die bessere: In '
+          'einem echten Lauf durch Roblox\' Auto Setup wurden die '
+          'waagerechten Arme der T-Pose dem Kopf und dem Rumpf '
+          'zugeschlagen – heraus kam ein „UpperTorso" von 4,38 Studs '
+          'Breite. Arme in 45° hängen frei und sind als Arme '
+          'erkennbar.\n'
+          '- KEINE Umhänge, Röcke, langen Mäntel oder Schleier. Für '
+          'den Marktplatz kommt dazu: **nichts, was von der Hüfte '
+          'abwärts über beide Beine hängt.** Ein Saum bläht den '
+          'Hüllkörper des Beins auf, während das Bein darin dünn '
+          'bleibt – das reißt die Deckungsprüfung und die Regel '
+          'LegsSeparated zugleich.\n'
+          '- KEIN aufgemaltes Gesicht. Der Marktplatz verlangt für '
+          'den Kopf eines Ganzkörper-Bundles einen dynamischen Kopf '
+          'mit FACS-Posen; aufgemalte Augen ergeben nichts zum '
+          'Animieren. Augen und Mund müssen eigene Volumen sein.\n'
       : '- KEINE T-Pose in den Prompt schreiben. Der Importer '
           'verlangt sie, aber die App hängt sie bei eingeschaltetem '
           'Rigging selbst an (${tPoseSuffix.length + 2} Zeichen) – '
@@ -110,9 +206,14 @@ String robloxPromptRules({required bool accessory}) {
 
   final posen = specAllowedPoses.join(', ');
   return '\n\nZUSÄTZLICH – das Modell wird '
-      '${accessory ? 'als UGC-Accessoire ' : ''}nach Roblox '
-      'hochgeladen. Damit der Importer es annimmt, muss der Prompt so '
-      'gebaut sein:\n\n'
+      '${accessory ? 'als UGC-Accessoire ' : ''}'
+      '${markt ? 'als Figurenkörper auf den Roblox-Marktplatz '
+          'hochgeladen. Der Importer ist dabei die kleinere Hürde: '
+          'Über ihn hinaus prüft der Marktplatz-Validator Maße, die '
+          'in keiner Dokumentation stehen, und die entstehen alle '
+          'beim Prompt. Deshalb muss er so gebaut sein' : 'nach '
+          'Roblox hochgeladen. Damit der Importer es annimmt, muss '
+          'der Prompt so gebaut sein'}:\n\n'
       '$aufbau'
       '\n- Der FESTE SCHWANZ, wörtlich und unverändert ans Ende:\n'
       '  $tail\n'
@@ -132,9 +233,36 @@ String robloxPromptRules({required bool accessory}) {
       '- KEINE Schrift, keine Logos, keine Marken- oder '
       'Figurenbezüge: Alles Hochgeladene geht durch die '
       'Roblox-Moderation.\n'
+      '${markt ? '\nGrenzen des Marktplatz-Validators – gemessen, '
+          'nicht dokumentiert (alle Werte bei '
+          '${robloxCharacterStuds.toStringAsFixed(0)} Studs Höhe):\n'
+          '- Tiefe höchstens 2,00 Studs, also unter zwei Fünfteln der '
+          'Höhe. Die abgelehnte Testfigur hatte 2,45 – 49 % statt '
+          '40 %.\n'
+          '- Jedes Bein höchstens 1,50 breit und 2,00 tief.\n'
+          '- Rumpfbreite mindestens 2,54, Armspanne mindestens 6,22 – '
+          '„flach" darf nicht „dünn" werden.\n'
+          '- Jedes Körperteil muss seinen Hüllkörper ausfüllen: der '
+          'Rumpf von vorn zu 50 %, von der Seite zu 46 %; ein Bein '
+          'von vorn und von der Seite zu 30 %. Die Testfigur kam am '
+          'Bein auf 26 % – nicht weil das Bein zu dünn war, sondern '
+          'weil der Saum den Hüllkörper aufblähte.\n'
+          '- Der Hals muss höchstens halb so breit sein wie der Kopf. '
+          '59 % haben in einem echten Lauf nicht gereicht.\n' : ''}'
       '\nGrenzen, die das Ziel setzt (aus Roblox\' Spezifikation):\n'
       '- Höchstens ${_n(triangles)} Dreiecke – deshalb grobe Volumen '
       'statt Zierrat. '
+      '${markt ? 'Und zwar über alle sechs Gruppen zusammen, je '
+          'Gruppe begrenzt: Kopf '
+          '${_n(specBodyPartTriangles['DynamicHead']!)}, Rumpf '
+          '${_n(specBodyPartTriangles['Torso']!)}, je Arm und Bein '
+          '${_n(specBodyPartTriangles['LeftArm']!)}. Der Arm zählt '
+          'Ober, Unter und Hand zusammen – deshalb Fäustlinge: '
+          'ausmodellierte Finger kosteten je Hand über 1.280 '
+          'Dreiecke, mehr als der ganze Arm haben darf. Für Roblox\' '
+          'Auto Setup das Modell mit face_limit 7.000 erzeugen, '
+          'nicht 10.000: Das Werkzeug reduziert nicht selbst, und bei '
+          '9.627 Dreiecken bekam jede Gliedmaße 2.304. ' : ''}'
       '${accessory ? 'Für starre Accessoires ist das die harte '
           'Grenze; der Importer nimmt je Mesh nie mehr als '
           '${_n(specMaxMeshTriangles)}.' : 'Die harte Grenze des '

@@ -801,6 +801,10 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         schritte.add('${fixed.report.flippedFaces} Fläche(n) in die '
             'einheitliche Wicklung gedreht.');
       }
+      if (fixed.report.degenerateRemoved > 0) {
+        schritte.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
+            'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
+      }
       final small =
           await shrinkGlbTextures(fixed.glb, maxSize: robloxMaxTexture);
       for (final change in small.changed) {

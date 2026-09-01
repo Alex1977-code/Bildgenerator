@@ -53,6 +53,10 @@ void main() {
     expect(after.openEdges, 0);
     // Die vorhandene Geometrie bleibt, es kommt nur der Deckel dazu.
     expect(after.triangles, greaterThan(before.triangles));
+    // Und der Deckel selbst ist sauber: Ein Fächer erzeugt an
+    // langgezogenen Löchern nullflächige Dreiecke, die der
+    // Marktplatz-Validator ablehnt.
+    expect(after.degenerateTriangles, 0);
   });
 
   test('Eine falsch gewickelte Fläche wird gedreht', () async {
@@ -133,5 +137,47 @@ void main() {
     final facts = await readRobloxFacts(fixed.glb);
     expect(facts.reversedEdges, 0);
     expect(checkMeshOrientation, isNotNull);
+  });
+
+  group('Nullflächige Dreiecke', () {
+    /// Ein Würfel, dem eine Seite fehlt – und dazu zwei Dreiecke, die
+    /// gar keine sind: eines mit zwei gleichen Ecken, eines mit drei
+    /// Punkten auf einer Linie. Genau die lehnt Roblox' Validator ab.
+    Uint8List mitEntarteten() {
+      final mesh = LocalMesh();
+      for (final c in _corners) {
+        mesh.addVertex(c[0], c[1], c[2], 0, 0, r: 0.7, g: 0.5, b: 0.3);
+      }
+      // Drei Punkte auf einer Linie – das dritte Dreieck hat keine
+      // Fläche, ohne dass zwei Ecken gleich wären.
+      final a = mesh.addVertex(0.25, 2, 0, 0, 0);
+      final b = mesh.addVertex(0.5, 2, 0, 0, 0);
+      final c = mesh.addVertex(0.75, 2, 0, 0, 0);
+      for (final f in _faces) {
+        mesh.addTriangle(f[0], f[1], f[2]);
+      }
+      // Zwei Ecken gleich.
+      mesh.addTriangle(0, 1, 1);
+      mesh.addTriangle(a, b, c);
+      return buildGlb(mesh);
+    }
+
+    test('werden entfernt und gezählt', () async {
+      final vorher = await readRobloxFacts(mitEntarteten());
+      final ergebnis = fixGlbForRoblox(mitEntarteten());
+      expect(ergebnis.report.degenerateRemoved, greaterThanOrEqualTo(2));
+      final nachher = await readRobloxFacts(ergebnis.glb);
+      expect(nachher.triangles, lessThan(vorher.triangles));
+      expect(nachher.degenerateTriangles, 0);
+    });
+
+    test('ein sauberes Netz verliert kein Dreieck', () async {
+      final wuerfel = cube();
+      final vorher = await readRobloxFacts(wuerfel);
+      final ergebnis = fixGlbForRoblox(wuerfel);
+      expect(ergebnis.report.degenerateRemoved, 0);
+      final nachher = await readRobloxFacts(ergebnis.glb);
+      expect(nachher.triangles, vorher.triangles);
+    });
   });
 }

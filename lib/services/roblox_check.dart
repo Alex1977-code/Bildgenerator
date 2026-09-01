@@ -94,6 +94,16 @@ const int robloxMaxInfluences = specMaxInfluences;
 /// um, er setzt schlicht einen Meter gleich einem Stud.
 const double robloxStudMeters = 0.28;
 
+/// Die Dreieckszahl, mit der ein Modell in Roblox' Auto Setup gehen
+/// soll.
+///
+/// **Nicht dokumentiert, sondern aus einem Lauf.** `AutoSetupParams`
+/// kennt keine Reduktion: Was hineingeht, wird verteilt. Bei 9.627
+/// Dreiecken bekam jede Gliedmaße 2.304 – bei einem Gruppenbudget von
+/// 1.248. Die Eingabe muss also schon darunter liegen, und 7.000 hält
+/// nach der Verteilung Luft.
+const int robloxAutoSetupTriangles = 7000;
+
 /// Höhe eines Standard-Charakters in Studs (Vergleichsmaßstab).
 const double robloxCharacterStuds = 5.0;
 

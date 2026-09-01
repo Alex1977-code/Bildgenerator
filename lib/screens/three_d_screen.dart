@@ -324,6 +324,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'und Zweibeiner-Skelett – auf die Grenzen des '
           'Roblox-Importers eingestellt'
     ),
+    (
+      'roblox_markt',
+      'Marktplatz-Avatar',
+      Icons.storefront_outlined,
+      'tripo',
+      'Für Roblox\' Auto Setup: ohne Rigging, A-Pose, Smart Low-Poly, '
+          'face_limit 7.000, eine 1024er-Textur – dazu die '
+          'Prompt-Vorlage mit Tiefe, Hals und getrennten Beinen'
+    ),
   ];
 
   /// Wendet eine Vorlage an. Danach bleibt alles weiterhin einzeln
@@ -412,11 +421,25 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _tripoAutoSize = true;
           _localTextureMode = 'atlas1024';
           _symmetryMode = 'auto';
+        case 'roblox_markt':
+          // Der Marktplatz-Weg über Roblox' Auto Setup. Die Schalter
+          // stehen anders als bei „Roblox-Figur", und jeder aus einem
+          // gemessenen Grund – siehe [_applyRobloxTarget].
+          // Der Anbieter kommt aus dem Vorlagen-Eintrag ($4) – hier
+          // steht nur, was danach anders ist als bei „Roblox-Figur".
+          _robloxMode = true;
+          _quadTopology = false;
+          _tripoVersion = 'P1-20260311';
+          _tripoSmartLowPoly = true;
+          _pbr = false;
+          _tripoAutoSize = true;
+          _localTextureMode = 'atlas1024';
+          _symmetryMode = 'auto';
       }
       // Nur die Roblox-Vorlage schaltet den Modus ein – jede andere
       // Vorlage schaltet ihn wieder aus, sonst blieben die Hinweise
       // stehen, obwohl die Grenzen nicht mehr gesetzt sind.
-      if (id != 'roblox') _robloxMode = false;
+      if (id != 'roblox' && id != 'roblox_markt') _robloxMode = false;
       // Figur und Objekt brauchen unterschiedliche Ansichten – eine
       // automatisch erzeugte Kachel würde sonst still weiterverwendet.
       if (_promptSubject != previousSubject &&
@@ -428,6 +451,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // lässt sich auf „UGC-Accessoire" umschalten – dann fallen Skelett
     // und T-Pose weg und das Budget sinkt auf 4.000 Dreiecke.
     if (id == 'roblox') _applyRobloxTarget(RobloxTarget.character);
+    if (id == 'roblox_markt') {
+      _applyRobloxTarget(RobloxTarget.marketplaceAvatar);
+    }
     // Fehlenden Zugang sofort melden statt erst beim Generieren.
     final access = switch (preset.$4) {
       'rodin' => settings.rodinApiKey,
@@ -926,7 +952,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Bauplan, festen Schwanz, NEGATIV-Zeile, Grenzen und ein
   /// vollständiges Beispiel.
   String get _robloxPromptRules => robloxPromptRules(
-      accessory: _robloxTarget == RobloxTarget.accessory);
+      accessory: _robloxTarget == RobloxTarget.accessory,
+      marketplace: _robloxTarget == RobloxTarget.marketplaceAvatar);
 
   /// Deutsche Bezeichnung des eingestellten Figurtyps.
   String get _rigTypeLabel {
@@ -3211,6 +3238,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _promptSubject = 'object';
         _rigging = false;
         _tPose = false;
+      } else if (target == RobloxTarget.marketplaceAvatar) {
+        // Kein Rigging: Auto Setup baut sein eigenes R15-Rig und
+        // verwirft ein mitgebrachtes – ohne Rigging kommt außerdem
+        // das rohe Netz, das Tripos Rig-Schritt nicht angefasst hat.
+        _promptSubject = 'figure';
+        _rigging = false;
+        // Keine T-Pose: Ihre waagerechten Arme wurden vom
+        // Segmentierer dem Kopf und dem Rumpf zugeschlagen. Die
+        // A-Pose steht stattdessen im festen Schwanz der Vorlage.
+        _tPose = false;
       } else {
         _promptSubject = 'figure';
         _rigging = true;
@@ -3220,7 +3257,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
       // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
       // Dreiecke, das Ziel muss dort also halbiert werden.
-      final goal = target.goalTriangles;
+      // Für den Marktplatz-Weg zählt nicht das Gesamtbudget, sondern
+      // was Auto Setup damit anfängt: Das Werkzeug reduziert nicht
+      // selbst, und bei 9.627 Dreiecken bekam jede Gliedmaße 2.304 –
+      // bei einem Budget von 1.248. Deshalb muss die Eingabe schon
+      // darunter liegen.
+      final goal = target == RobloxTarget.marketplaceAvatar
+          ? robloxAutoSetupTriangles
+          : target.goalTriangles;
       final budget = robloxPolygonBudget(goal, quad: _quadTopology);
       _meshyPolycount = budget;
       // Tripo und Rodin haben eigene Topologie-Schalter – halbiert
@@ -3355,6 +3399,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       value: RobloxTarget.accessory,
                       label: Text('UGC-Accessoire'),
                       icon: Icon(Icons.checkroom_outlined)),
+                  ButtonSegment(
+                      value: RobloxTarget.marketplaceAvatar,
+                      label: Text('Marktplatz'),
+                      icon: Icon(Icons.storefront_outlined)),
                 ],
                 selected: {_robloxTarget},
                 showSelectedIcon: false,
@@ -3364,17 +3412,33 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _robloxTarget == RobloxTarget.accessory
-                    ? 'Accessoire: ein einzelnes starres Netz mit '
+                switch (_robloxTarget) {
+                  RobloxTarget.accessory =>
+                    'Accessoire: ein einzelnes starres Netz mit '
                         'höchstens 4.000 Dreiecken – ohne Skelett und '
                         'ohne T-Pose. Rigging und Pose sind deshalb '
                         'ausgeschaltet, die Motivart steht auf '
                         '„Objekt", und die Prompt-Vorlage verlangt das '
-                        'Accessoire allein, ohne Figur.'
-                    : 'Figur: bis 20.000 Dreiecke (Ziel unter 10.000), '
+                        'Accessoire allein, ohne Figur.',
+                  RobloxTarget.marketplaceAvatar =>
+                    'Marktplatz-Avatar: für Roblox\' Auto Setup, das '
+                        'aus einem ungeriggten Netz alles Weitere baut '
+                        '– Zerlegung, R15-Rig, Cages, Attachments und '
+                        'den dynamischen Kopf. Rigging und T-Pose sind '
+                        'deshalb aus (die A-Pose steht in der Vorlage), '
+                        'das Ziel liegt bei '
+                        '${_n(robloxAutoSetupTriangles)} Dreiecken, '
+                        'weil Auto Setup selbst nicht reduziert. Über '
+                        'den Importer hinaus prüft der Marktplatz '
+                        'Maße, die nirgends dokumentiert sind: Tiefe, '
+                        'Beinbreite, Hals, getrennte Beine – die '
+                        'entstehen alle beim Prompt.',
+                  RobloxTarget.character =>
+                    'Figur: bis 20.000 Dreiecke (Ziel unter 10.000), '
                         'mit Zweibeiner-Skelett und T-Pose – so '
                         'verlangt es der Importer für animierbare '
                         'Charaktere.',
+                },
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
@@ -3494,6 +3558,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         repairs.add('${fixed.report.flippedFaces} Fläche(n) in die '
             'einheitliche Wicklung gedreht, Normalen neu gerechnet.');
       }
+      if (fixed.report.degenerateRemoved > 0) {
+        repairs.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
+            'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
+      }
       final small = await shrinkGlbTextures(fixed.glb, maxSize: 1024);
       for (final change in small.changed) {
         repairs.add('Textur von ${change.fromWidth} auf ${change.toWidth} '
@@ -3503,9 +3571,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         small.glb,
         // Accessoires richten sich nach dem Körperteil, an dem sie
         // sitzen – die bleiben, wie sie sind.
-        targetStuds: _robloxTarget == RobloxTarget.character
-            ? robloxCharacterStuds
-            : 0,
+        // Auch der Marktplatz-Körper muss auf 5 Studs stehen: Der
+        // Validator misst alle Grenzen bei dieser Höhe, und Tripos
+        // „auto_size" liefert sie nicht – gemessen kamen 1,00
+        // Einheiten zurück.
+        targetStuds: _robloxTarget == RobloxTarget.accessory
+            ? 0
+            : robloxCharacterStuds,
       );
       repairs.addAll(robloxPrepareSummary(rig.report));
     } catch (e) {
@@ -3723,6 +3795,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final fbxFile = '$base.fbx';
     final scriptFile = '${base}_blender_fbx.py';
     final luaFile = '${base}_studio.lua';
+    final autoSetupFile = '${base}_auto_setup.lua';
     try {
       final texts = <String, String>{
         scriptFile: blenderFbxScript(glbFile: glbFile, fbxFile: fbxFile),
@@ -3731,11 +3804,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           asStarterCharacter: asStarter,
           hipHeight: double.parse(hipHeight.toStringAsFixed(1)),
         ),
+        // Der kurze Weg zum Marktplatz: Auto Setup baut Zerlegung,
+        // Rig, Cages, Attachments und den dynamischen Kopf selbst.
+        // Liegt immer dabei – ohne dynamischen Kopf besteht kein
+        // Ganzkörper-Bundle die Prüfung, und den kann diese App
+        // nicht erzeugen.
+        autoSetupFile: autoSetupLua(modelName: base),
         '${base}_ANLEITUNG.txt': robloxReadme(
           glbFile: glbFile,
           fbxFile: fbxFile,
           scriptFile: scriptFile,
           luaFile: luaFile,
+          autoSetupFile: autoSetupFile,
           missingBones: rig.report.rig.missing,
           repairs: repairs.map(_ohneUmlaute).toList(),
         ),
@@ -4050,6 +4130,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       }
       if (fixed.report.flippedFaces > 0) {
         done.add('${fixed.report.flippedFaces} Fläche(n) umgedreht');
+      }
+      if (fixed.report.degenerateRemoved > 0) {
+        done.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
+            'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
       }
       if (fixed.report.rebuiltNormals > 0) {
         done.add('Normalen neu gerechnet');

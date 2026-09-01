@@ -11,6 +11,7 @@ class RobloxFixReport {
     this.addedTriangles = 0,
     this.flippedFaces = 0,
     this.rebuiltNormals = 0,
+    this.degenerateRemoved = 0,
     this.scale = 1,
     this.heightBefore = 0,
     this.heightAfter = 0,
@@ -21,6 +22,11 @@ class RobloxFixReport {
   final int addedTriangles;
   final int flippedFaces;
   final int rebuiltNormals;
+
+  /// Dreiecke ohne nennenswerte Fläche, die entfernt wurden. Roblox'
+  /// Marktplatz-Validator lehnt sie ab (`TriangleAreaValid`).
+  final int degenerateRemoved;
+
   final double scale;
   final double heightBefore;
   final double heightAfter;
@@ -32,6 +38,7 @@ class RobloxFixReport {
       filledHoles > 0 ||
       flippedFaces > 0 ||
       rebuiltNormals > 0 ||
+      degenerateRemoved > 0 ||
       (scale - 1).abs() > 1e-6;
 }
 
@@ -73,6 +80,7 @@ RobloxFixResult fixGlbForRoblox(
   var addedTriangles = 0;
   var flippedFaces = 0;
   var rebuiltNormals = 0;
+  var degenerateRemoved = 0;
   final skipped = <String>[];
 
   final meshes = (json['meshes'] as List?) ?? const [];
@@ -112,6 +120,15 @@ RobloxFixResult fixGlbForRoblox(
       }
       if (fixWinding) {
         flippedFaces += _makeWindingConsistent(positions, indices);
+      }
+      // Zuletzt die nullflächigen Dreiecke – auch die, die schon in
+      // der Datei standen. Der Marktplatz-Validator lehnt sie ab, und
+      // beim Deckeln können neue entstanden sein.
+      if (closeHoles || fixWinding) {
+        final (gesaeubert, weg) =
+            _dropDegenerateTriangles(positions, indices);
+        indices = gesaeubert;
+        degenerateRemoved += weg;
       }
 
       replacement[_bufferViewOf(json, indexIndex)] =
@@ -166,6 +183,7 @@ RobloxFixResult fixGlbForRoblox(
       addedTriangles: addedTriangles,
       flippedFaces: flippedFaces,
       rebuiltNormals: rebuiltNormals,
+      degenerateRemoved: degenerateRemoved,
       scale: scale,
       heightBefore: heightBefore,
       heightAfter: heightAfter,
@@ -241,12 +259,194 @@ RobloxFixResult fixGlbForRoblox(
     // (eine Ebene etwa). Die zuzukleben ergäbe Unsinn.
     if (loop.length > 512) continue;
     loops++;
-    final anchor = original[loop.first]!;
-    for (var i = 1; i + 1 < loop.length; i++) {
-      added.addAll([anchor, original[loop[i]]!, original[loop[i + 1]]!]);
-    }
+    final ring = [for (final v in loop) original[v]!];
+    added.addAll(_triangulateLoop(positions, ring));
   }
   return (loops: loops, added: added);
+}
+
+/// Trianguliert eine Randschleife durch **Ear Clipping** in ihrer
+/// eigenen Ebene.
+///
+/// Vorher lag hier ein Fächer: alles vom ersten Punkt aus. Für ein
+/// rundes Loch geht das, für eine langgezogene oder eingebuchtete
+/// Schleife nicht – dort entstehen extrem schmale und teils
+/// nullflächige Dreiecke. Genau die lehnt Roblox' Marktplatz-Validator
+/// ab (`TriangleAreaValid`), und im Spiel flimmern sie.
+///
+/// Ear Clipping schneidet stattdessen immer die Ecke ab, die
+/// tatsächlich frei liegt. Gearbeitet wird in 2D: Die Schleife wird
+/// auf ihre Ausgleichsebene projiziert (Normale nach Newell), damit
+/// „links" und „rechts" überhaupt eine Bedeutung haben.
+List<int> _triangulateLoop(Float32List positions, List<int> ring) {
+  if (ring.length < 3) return const [];
+  if (ring.length == 3) return [ring[0], ring[1], ring[2]];
+
+  // Newell-Normale: funktioniert auch für eine leicht gewellte
+  // Schleife, während ein Kreuzprodukt aus drei Punkten dort kippt.
+  var nx = 0.0, ny = 0.0, nz = 0.0;
+  for (var i = 0; i < ring.length; i++) {
+    final a = ring[i] * 3, b = ring[(i + 1) % ring.length] * 3;
+    final ax = positions[a], ay = positions[a + 1], az = positions[a + 2];
+    final bx = positions[b], by = positions[b + 1], bz = positions[b + 2];
+    nx += (ay - by) * (az + bz);
+    ny += (az - bz) * (ax + bx);
+    nz += (ax - bx) * (ay + by);
+  }
+  final laenge = math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (laenge < 1e-12) return const [];
+  nx /= laenge;
+  ny /= laenge;
+  nz /= laenge;
+
+  // Zwei Achsen in der Ebene aufspannen.
+  final hilfsX = nx.abs() < 0.9 ? 1.0 : 0.0;
+  final hilfsY = nx.abs() < 0.9 ? 0.0 : 1.0;
+  var ux = ny * 0.0 - nz * hilfsY;
+  var uy = nz * hilfsX - nx * 0.0;
+  var uz = nx * hilfsY - ny * hilfsX;
+  final ul = math.sqrt(ux * ux + uy * uy + uz * uz);
+  if (ul < 1e-12) return const [];
+  ux /= ul;
+  uy /= ul;
+  uz /= ul;
+  final vx = ny * uz - nz * uy;
+  final vy = nz * ux - nx * uz;
+  final vz = nx * uy - ny * ux;
+
+  final px = <double>[], py = <double>[];
+  for (final index in ring) {
+    final o = index * 3;
+    px.add(positions[o] * ux + positions[o + 1] * uy + positions[o + 2] * uz);
+    py.add(positions[o] * vx + positions[o + 1] * vy + positions[o + 2] * vz);
+  }
+
+  double flaeche2(int a, int b, int c) =>
+      (px[b] - px[a]) * (py[c] - py[a]) -
+      (px[c] - px[a]) * (py[b] - py[a]);
+
+  // Umlaufsinn der ganzen Schleife.
+  var summe = 0.0;
+  for (var i = 0; i < ring.length; i++) {
+    final j = (i + 1) % ring.length;
+    summe += px[i] * py[j] - px[j] * py[i];
+  }
+  final gegenUhrzeiger = summe > 0;
+
+  final offen = [for (var i = 0; i < ring.length; i++) i];
+  final out = <int>[];
+  var wachhund = offen.length * offen.length;
+  while (offen.length > 3 && wachhund-- > 0) {
+    var geschnitten = false;
+    for (var k = 0; k < offen.length; k++) {
+      final a = offen[(k - 1 + offen.length) % offen.length];
+      final b = offen[k];
+      final c = offen[(k + 1) % offen.length];
+      final f = flaeche2(a, b, c);
+      // Konvex im Sinne des Umlaufs? Eine nullflächige Ecke wird hier
+      // nicht abgeschnitten, sondern fällt am Ende weg.
+      if (gegenUhrzeiger ? f <= 1e-12 : f >= -1e-12) continue;
+      // Kein anderer Punkt darf im Ohr liegen.
+      var frei = true;
+      for (final m in offen) {
+        if (m == a || m == b || m == c) continue;
+        final d1 = (px[b] - px[a]) * (py[m] - py[a]) -
+            (px[m] - px[a]) * (py[b] - py[a]);
+        final d2 = (px[c] - px[b]) * (py[m] - py[b]) -
+            (px[m] - px[b]) * (py[c] - py[b]);
+        final d3 = (px[a] - px[c]) * (py[m] - py[c]) -
+            (px[m] - px[c]) * (py[a] - py[c]);
+        final negativ = d1 < 0 || d2 < 0 || d3 < 0;
+        final positiv = d1 > 0 || d2 > 0 || d3 > 0;
+        if (!(negativ && positiv)) {
+          frei = false;
+          break;
+        }
+      }
+      if (!frei) continue;
+      out.addAll([ring[a], ring[b], ring[c]]);
+      offen.removeAt(k);
+      geschnitten = true;
+      break;
+    }
+    // Findet sich kein Ohr (selbstüberschneidende Schleife), bleibt
+    // der Fächer als Notnagel – besser ein grober Deckel als ein Loch.
+    if (!geschnitten) {
+      for (var i = 1; i + 1 < offen.length; i++) {
+        out.addAll([ring[offen[0]], ring[offen[i]], ring[offen[i + 1]]]);
+      }
+      return out;
+    }
+  }
+  if (offen.length == 3) {
+    out.addAll([ring[offen[0]], ring[offen[1]], ring[offen[2]]]);
+  }
+  return out;
+}
+
+/// Wirft Dreiecke ohne nennenswerte Fläche weg.
+///
+/// Roblox' Marktplatz-Validator prüft das eigens (`TriangleAreaValid`,
+/// `VerticesNotCoincident`). Solche Dreiecke entstehen nicht nur beim
+/// Deckeln – manche Generatoren liefern sie mit, und beim Verschweißen
+/// fallen weitere an. Die Schwelle ist relativ zur Modellgröße, damit
+/// sie bei einer Figur in Metern dasselbe bedeutet wie bei einer in
+/// Zentimetern.
+(Uint32List, int) _dropDegenerateTriangles(
+    Float32List positions, Uint32List indices) {
+  if (indices.length < 3) return (indices, 0);
+  var minX = double.infinity, maxX = double.negativeInfinity;
+  var minY = double.infinity, maxY = double.negativeInfinity;
+  var minZ = double.infinity, maxZ = double.negativeInfinity;
+  for (var i = 0; i + 2 < positions.length; i += 3) {
+    minX = math.min(minX, positions[i]);
+    maxX = math.max(maxX, positions[i]);
+    minY = math.min(minY, positions[i + 1]);
+    maxY = math.max(maxY, positions[i + 1]);
+    minZ = math.min(minZ, positions[i + 2]);
+    maxZ = math.max(maxZ, positions[i + 2]);
+  }
+  final groesse = math.max(
+      maxX - minX, math.max(maxY - minY, maxZ - minZ));
+  if (!groesse.isFinite || groesse <= 0) return (indices, 0);
+  // 1e-7 der Modellfläche: klein genug, dass keine echte Facette
+  // trifft, groß genug für alles, was aus Rundung entsteht.
+  final schwelle = groesse * groesse * 1e-7;
+
+  final bleibt = <int>[];
+  var weg = 0;
+  for (var t = 0; t + 2 < indices.length; t += 3) {
+    final a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+    if (a + 2 >= positions.length ||
+        b + 2 >= positions.length ||
+        c + 2 >= positions.length) {
+      weg++;
+      continue;
+    }
+    if (indices[t] == indices[t + 1] ||
+        indices[t + 1] == indices[t + 2] ||
+        indices[t] == indices[t + 2]) {
+      weg++;
+      continue;
+    }
+    final ux = positions[b] - positions[a];
+    final uy = positions[b + 1] - positions[a + 1];
+    final uz = positions[b + 2] - positions[a + 2];
+    final vx = positions[c] - positions[a];
+    final vy = positions[c + 1] - positions[a + 1];
+    final vz = positions[c + 2] - positions[a + 2];
+    final cx = uy * vz - uz * vy;
+    final cy = uz * vx - ux * vz;
+    final cz = ux * vy - uy * vx;
+    final flaeche = math.sqrt(cx * cx + cy * cy + cz * cz) / 2;
+    if (flaeche < schwelle) {
+      weg++;
+      continue;
+    }
+    bleibt.addAll([indices[t], indices[t + 1], indices[t + 2]]);
+  }
+  if (weg == 0) return (indices, 0);
+  return (Uint32List.fromList(bleibt), weg);
 }
 
 /// Dreht Dreiecke so, dass benachbarte dieselbe Kante gegenläufig

@@ -1384,6 +1384,87 @@ Marktplatz sie abgewiesen hat.
 ist deshalb vor allem eine Frühwarnung: Sie sagt, dass der nächste Lauf
 einen anderen Prompt braucht. Jeder Befund nennt den Textbaustein dazu.
 
+### Die Prompt-Vorlage „Marktplatz-Avatar"
+
+Die Formfehler entstehen beim Prompt, nicht beim Export — deshalb gibt es
+für den Marktplatz-Weg eine eigene Vorlage mit eigenem festem Schwanz.
+Sieben Bausteine, jeder aus einem gemessenen Grund:
+
+| Baustein | Warum |
+| --- | --- |
+| `body depth less than two fifths of body height, flat chest and back` | Die abgelehnte Figur hatte 49 %, die Grenze liegt bei 40 % |
+| `garment hem ending at the hip bone, thighs uncovered` | „hip-length" las Tripo als Mitte Oberschenkel — der Saum landete im Bein-Hüllkörper |
+| `two separate leg tubes from the hips down` | `LegsSeparated` und die Deckungsprüfung zugleich |
+| `slim straight legs each narrower than one third of body height` | Grenze 1,50 von 5,00 |
+| `mitten hands without fingers` | Ausmodellierte Finger kosteten je Hand über 1.280 Dreiecke — mehr als der ganze Arm haben darf |
+| `narrow visible neck clearly separating head from shoulders` | Ohne Einschnürung wurde die Kapuze bis zu den Schultern zum „Kopf" von 3,75 Studs |
+| `two hemisphere eyes and a mouth modelled as separate volumes` | Der Marktplatz verlangt einen dynamischen Kopf mit FACS-Posen; aufgemalte Augen ergeben nichts zum Animieren |
+
+**`chunky` fliegt raus.** Genau dieses Wort hat die Tiefe bestellt, die
+jetzt abgelehnt wird. In der Vorlage für die Figur im eigenen Erlebnis
+bleibt es — dort gilt die Grenze nicht.
+
+**A-Pose statt T-Pose.** Im ersten echten Lauf durch Auto Setup wurden
+die waagerechten Arme der T-Pose dem Kopf und dem Rumpf zugeschlagen —
+heraus kam ein „UpperTorso" von 4,38 Studs Breite. Arme in 45° hängen
+frei und sind als Arme erkennbar.
+
+Ins Negativ, mit den Formfehlern **vorn**: `deep body, round belly, long
+hem, thigh-length, skirt, cape, fingers, T-pose, arms out sideways,
+painted flat eyes, thick legs, …`
+
+Die Vorlage setzt außerdem die Schalter, die bisher von Hand gesetzt
+wurden: Rigging aus, T-Pose aus, Smart Low-Poly an, PBR aus, Textur
+1024, **face_limit 7.000** und Skalierung auf 5 Studs. Die 7.000 statt
+10.000, weil Auto Setup selbst nicht reduziert: Bei 9.627 Dreiecken bekam
+jede Gliedmaße 2.304 — bei einem Gruppenbudget von 1.248.
+
+### Auto Setup: der kurze Weg, und warum er nötig ist
+
+Für den Marktplatz reicht ein R15-Rig aus dieser App nicht. Der
+Validator ordnet dem Kopf eines Ganzkörper-Bundles den Typ
+`DynamicHead` zu und verlangt „FACS controls for at least 17 poses" —
+ein Kopf ohne Gesichtsanimation besteht nicht, und den kann diese App
+nicht erzeugen.
+
+Roblox' **Auto Setup** kann es. Es nimmt ein **ungeriggtes** Netz und
+baut Zerlegung in 15 Teile, R15-Rig, Skinning, Cages, Attachments und
+den Gesichtsrig. Das Roblox-Paket enthält deshalb ein zusätzliches
+Luau-Skript, das die Schnittstelle direkt aufruft:
+
+```
+AvatarCreationService:AutoSetupAvatarAsync(player, {Body = model}, fortschritt)
+AvatarCreationService:LoadGeneratedAvatarAsync(generationId)
+AvatarCreationService:ValidateUGCFullBodyAsync(player, humanoidDescription)
+```
+
+Drei Fallen, an denen der erste echte Lauf hängengeblieben ist und die
+das Skript umgeht:
+
+- `AutoSetupAvatarAsync` verlangt einen **echten Player** — es läuft nur
+  im Playtest, nicht in der Befehlsleiste im Bearbeitungsmodus.
+- Der Aufruf **yieldet minutenlang**. Ohne `task.spawn` steht Studio
+  still und man hält es für abgestürzt.
+- Das Ergebnis darf **nicht unverankert** in einen laufenden Playtest.
+  Beim ersten Lauf hat die Physik es zerlegt, und die Prüfung meldete
+  einen Arm 4.184 Studs weit weg.
+
+`ValidateUGCFullBodyAsync` liefert Roblox' Urteil ohne Dialog und ohne
+Gebühr — der Weg, ein Modell zu prüfen, bevor man dafür bezahlt.
+
+### Löcher schließen, ohne neue Fehler zu erzeugen
+
+Die Reparatur schloss Löcher bisher mit einem **Fächer**: alles vom
+ersten Randpunkt aus. Für ein rundes Loch geht das; für eine
+langgezogene oder eingebuchtete Schleife entstehen dabei extrem schmale
+und teils nullflächige Dreiecke — und genau die lehnt der
+Marktplatz-Validator ab (`TriangleAreaValid`, `VerticesNotCoincident`).
+
+Jetzt läuft **Ear Clipping** in der Ebene der Schleife (Normale nach
+Newell, damit auch eine leicht gewellte Schleife trägt). Anschließend
+fliegen alle Dreiecke mit einer Fläche unter 10⁻⁷ der Modellfläche raus
+— auch die, die schon in der Datei standen. Der Bericht nennt die Zahl.
+
 ### Vier Aussagen der Roblox-Prüfung, die falsch waren
 
 Der Prüf-Dialog kannte bisher nur die Importer-Regeln. Vier seiner

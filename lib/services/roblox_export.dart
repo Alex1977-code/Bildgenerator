@@ -256,6 +256,7 @@ String robloxReadme({
   required String luaFile,
   required List<String> missingBones,
   List<String> repairs = const [],
+  String autoSetupFile = '',
 }) =>
     '''
 Roblox-Paket
@@ -266,6 +267,23 @@ Diese Dateien gehoeren zusammen:
   $glbFile      Das Modell, Knochen bereits auf R15 benannt
   $scriptFile   Blender-Skript: macht daraus $fbxFile
   $luaFile      Luau-Skript fuer die Befehlsleiste in Roblox Studio
+${autoSetupFile.isEmpty ? '' : '  $autoSetupFile  Luau-Skript fuer Roblox Auto Setup (Marktplatz-Weg)\n'}
+Zwei Wege, und sie fuehren nicht zum selben Ziel
+------------------------------------------------
+STARTFIGUR im eigenen Erlebnis: Schritte 1 bis 3 unten. Die Datei
+traegt bereits ein R15-Skelett; Studio nimmt sie als StarterCharacter.
+
+MARKTPLATZ: dafuer reicht das nicht. Der Marktplatz verlangt einen
+dynamischen Kopf mit FACS-Posen ("FACS controls for at least 17
+poses") - ein Kopf ohne Gesichtsanimation besteht die Pruefung nicht,
+und den kann diese App nicht erzeugen. Roblox' eigenes Auto Setup
+kann es: Es nimmt ein UNGERIGGTES Netz und baut Zerlegung in 15 Teile,
+R15-Rig, Skinning, Cages, Attachments und den Gesichtsrig.
+${autoSetupFile.isEmpty ? '' : 'Dafuer ist $autoSetupFile da.\n'}
+Wichtig dabei: Auto Setup formt nichts um. Tiefe, Beinbreite, Hals,
+Saum und Faeustlinge entstehen beim Prompt und werden vom Validator
+geprueft - die Vorlage "Marktplatz-Avatar" in der App setzt die
+passenden Schalter und Textbausteine.
 
 ${missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als StarterCharacter.' : 'Achtung: Diese R15-Gelenke fehlen noch:\n  ${missingBones.join(', ')}\nOhne sie laesst sich das Modell nur mit der Import-Einstellung\n"Custom" verwenden (Katalog-Animationen laufen, Startfigur nicht).'}
 
@@ -337,3 +355,118 @@ String _pyName(String file) {
   final dot = base.lastIndexOf('.');
   return dot > 0 ? base.substring(0, dot) : base;
 }
+
+/// Das Luau-Skript für **Roblox' Auto Setup** – den kurzen Weg zum
+/// Marktplatz-Körper.
+///
+/// Auto Setup nimmt ein **ungeriggtes** Netz und macht daraus alles,
+/// was der Marktplatz verlangt: Zerlegung in 15 Teile, R15-Rig,
+/// Skinning, Cages, Attachments und den dynamischen Kopf mit
+/// Gesichtsrig. Das letzte davon kann diese App nicht, und ohne einen
+/// dynamischen Kopf mit FACS-Posen besteht kein Ganzkörper-Bundle die
+/// Prüfung.
+///
+/// **Warum als Skript und nicht als Knopf im Importer:** In der
+/// geprüften Studio-Fassung gibt es keinen Ribbon-Knopf dafür; der
+/// linke Knopf im Avatar-Reiter öffnet die Avatar-Einstellungen des
+/// Erlebnisses. Die Skript-Schnittstelle ist dagegen freigeschaltet
+/// und tut dasselbe.
+///
+/// Drei Dinge, an denen der erste echte Lauf hängengeblieben ist und
+/// die deshalb im Skript stehen:
+///
+/// * `AutoSetupAvatarAsync` verlangt einen **echten Player**
+///   („expected 'Player' instance type") – es läuft also nur im
+///   Playtest, nicht in der Befehlsleiste im Bearbeitungsmodus.
+/// * Der Aufruf **yieldet minutenlang**. Ohne `task.spawn` steht
+///   Studio still und man hält es für abgestürzt.
+/// * Das Ergebnis darf **nicht unverankert** in einen laufenden
+///   Playtest gestellt werden. Beim ersten Lauf hat die Physik es
+///   zerlegt, und die Prüfung meldete einen Arm 4.184 Studs weit weg.
+///
+/// [modelName] ist der Name des Netzes im Workspace.
+String autoSetupLua({required String modelName}) => '''
+-- Roblox Avatar Auto Setup ueber die Skript-Schnittstelle.
+--
+-- SO WIRD ES BENUTZT:
+--   1. Das ungeriggte Netz als "$modelName" in den Workspace legen.
+--   2. Playtest starten (F5) -- der Aufruf braucht einen echten
+--      Player und laeuft nicht in der Befehlsleiste im Editor.
+--   3. Dieses Skript in die Befehlsleiste kopieren, Enter.
+--   4. Warten. Der Auftrag laeuft in Roblox' Cloud, ein Lauf dauerte
+--      70 Sekunden. Der Fortschritt steht in der Ausgabe.
+
+local AvatarCreationService = game:GetService("AvatarCreationService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local MODELL = "$modelName"
+
+local spieler = Players:GetPlayers()[1]
+if not spieler then
+	warn("Kein Spieler da. Auto Setup braucht einen echten Player -- "
+		.. "erst Playtest starten (F5), dann dieses Skript.")
+	return
+end
+
+local koerper = Workspace:FindFirstChild(MODELL, true)
+if not koerper then
+	warn("Kein Modell namens " .. MODELL .. " im Workspace gefunden.")
+	return
+end
+
+-- Der Aufruf yieldet minutenlang. Ohne task.spawn steht Studio
+-- still und man haelt es fuer abgestuerzt.
+task.spawn(function()
+	local ok, ergebnis = pcall(function()
+		return AvatarCreationService:AutoSetupAvatarAsync(
+			spieler,
+			{ Body = koerper, Accessories = {} },
+			function(anteil)
+				print(string.format("Auto Setup: %d %%", anteil * 100))
+			end
+		)
+	end)
+	if not ok then
+		warn("Auto Setup fehlgeschlagen: " .. tostring(ergebnis))
+		return
+	end
+
+	local generationId = ergebnis
+	print("Fertig. generationId = " .. tostring(generationId))
+	_G.LetzteGenerationId = generationId
+
+	local beschreibung =
+		AvatarCreationService:LoadGeneratedAvatarAsync(generationId)
+
+	-- Zum Anschauen: das erzeugte Modell aufbauen. WICHTIG -- alle
+	-- Teile verankern, BEVOR es in die Welt kommt. Beim ersten Lauf
+	-- hat die Physik es zerlegt, und die Pruefung meldete einen Arm
+	-- 4.184 Studs weit weg.
+	local modell = Players:CreateHumanoidModelFromDescription(
+		beschreibung, Enum.HumanoidRigType.R15)
+	for _, teil in ipairs(modell:GetDescendants()) do
+		if teil:IsA("BasePart") then
+			teil.Anchored = true
+		end
+	end
+	modell.Parent = Workspace
+	modell:PivotTo(CFrame.new(0, 10, 0))
+
+	-- Roblox' eigenes Urteil, ohne Dialog und ohne Gebuehr.
+	local bestanden, meldungen =
+		AvatarCreationService:ValidateUGCFullBodyAsync(spieler, beschreibung)
+	if bestanden then
+		print("Validierung BESTANDEN.")
+	else
+		warn("Validierung durchgefallen, "
+			.. tostring(#meldungen) .. " Meldung(en):")
+		for _, meldung in ipairs(meldungen) do
+			warn("  " .. tostring(meldung))
+		end
+	end
+end)
+
+print("Auto Setup laeuft. Studio bleibt bedienbar; die Ausgabe "
+	.. "meldet den Fortschritt.")
+''';
