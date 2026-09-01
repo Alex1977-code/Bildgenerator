@@ -21,6 +21,7 @@ import '../services/quality_preset.dart';
 import '../services/provenance.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
+import '../services/view_direction.dart';
 import '../services/wait_motif.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
@@ -65,7 +66,6 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   /// Regeln für Gebäude-Assets: genau ein Gebäude, keine Bodenplatte,
   /// 35° von oben, grobes Mauerwerk. Sie stehen in der Vorlage für die
   /// Prompt-KI und werden beim Prüfen mitkontrolliert.
-  bool _gameAssets = false;
   final _seedCtrl = TextEditingController(text: '0');
   final _picker = ImagePicker();
   final List<ReferenceImage> _references = [];
@@ -502,7 +502,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       return;
     }
     final result = rewriteBatchText(plan,
-        profile: profile, gameAssets: _gameAssets);
+        profile: profile, direction: _direction(settings));
     if (result.changedItems == 0) {
       _showSnack('Der Massenprompt passt schon zu '
           '${profile.modelLabel}.');
@@ -573,7 +573,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         availableReferences: [for (final ref in _references) ref.name],
         supportsReferences: settings.provider.supportsReferences,
         profile: _profile(settings),
-        gameAssets: _gameAssets,
+        direction: _direction(settings),
       );
 
   /// Vorlage für die Prompt-KI – mit den Namen der aktuell geladenen
@@ -582,7 +582,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   String _batchBriefing(SettingsService settings) => batchPromptBriefing(
         _profile(settings),
         references: [for (final ref in _references) ref.name],
-        gameAssets: _gameAssets,
+        direction: _direction(settings),
       );
 
   Future<void> _copyBatchBriefing(SettingsService settings) async {
@@ -1113,7 +1113,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                       : () {
                           _batchCtrl.text = batchPromptExample(
                               _profile(settings),
-                              gameAssets: _gameAssets);
+                              direction: _direction(settings));
                           _checkBatch();
                         },
                   icon: const Icon(Icons.lightbulb_outline, size: 18),
@@ -1129,7 +1129,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
-            _buildGameAssetSwitch(settings),
+            _buildViewDirection(settings),
             if (plan != null) ...[
               const SizedBox(height: 12),
               _buildBatchResult(plan),
@@ -1140,36 +1140,71 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  /// Schalter für die Spielgrafik-Regeln. Sie stehen dann in der
-  /// Vorlage für die Prompt-KI und werden beim Prüfen mitkontrolliert.
-  Widget _buildGameAssetSwitch(SettingsService settings) {
+  /// Die gewählte Blickrichtung.
+  ViewDirection _direction(SettingsService settings) =>
+      viewDirectionById(settings.viewDirection);
+
+  /// Die Auswahl der Blickrichtung. Sie ersetzt den früheren Schalter
+  /// „Spielgrafik-Regeln": Der kannte genau eine Kamera und war für
+  /// alles andere nutzlos. Die Spielgrafik ist jetzt eine Richtung
+  /// unter anderen – sie bringt ihre Zusatzregeln mit.
+  Widget _buildViewDirection(SettingsService settings) {
     final theme = Theme.of(context);
+    final direction = _direction(settings);
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            value: _gameAssets,
-            onChanged: _generating
-                ? null
-                : (value) {
-                    setState(() => _gameAssets = value);
-                    if (_batchPlan != null) _checkBatch();
-                  },
-            title: const Text('Spielgrafik-Regeln (Gebäude-Assets)'),
-            subtitle: Text(
-              'Genau ein Gebäude, keine Bodenplatte, Kamera 35° von '
-              'oben, grobes Mauerwerk – kommt in die Vorlage und wird '
-              'beim Prüfen kontrolliert.',
-              style: theme.textTheme.bodySmall,
-            ),
+          const SectionLabel('Blickrichtung'),
+          DropdownMenu<String>(
+            key: ValueKey('richtung-${direction.id}'),
+            initialSelection: direction.id,
+            expandedInsets: EdgeInsets.zero,
+            enabled: !_generating,
+            label: const Text('Kamera'),
+            dropdownMenuEntries: [
+              for (final d in viewDirections)
+                DropdownMenuEntry(value: d.id, label: d.label),
+            ],
+            onSelected: (value) {
+              if (value == null) return;
+              settings.setViewDirection(value);
+              if (_batchPlan != null) _checkBatch();
+            },
           ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(direction.hint, style: theme.textTheme.bodySmall),
+          ),
+          // Was daraus im Prompt wird – in der Schreibweise des
+          // gewählten Modells. Ohne diese Zeile bliebe die Auswahl
+          // eine Behauptung.
+          if (!direction.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _directionPreview(settings, direction),
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: theme.colorScheme.primary),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  /// Der Satz bzw. die Stichworte, die aus der Blickrichtung in den
+  /// Prompt gehen – samt dem, was in den Negativ-Block wandert.
+  String _directionPreview(
+      SettingsService settings, ViewDirection direction) {
+    final profile = _profile(settings);
+    final teile = viewDirectionParts(
+        direction, profile.style, profile.negativeHandling);
+    final negativ = teile.negative.isEmpty
+        ? ''
+        : '\nNegativ: ${teile.negative}';
+    return 'Im Prompt: ${teile.prompt}$negativ';
   }
 
   /// Ergebnis der Prüfung: grüner Haken samt Zahlen oder die Liste
@@ -1535,7 +1570,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
-            _buildGameAssetSwitch(settings),
+            _buildViewDirection(settings),
             const SizedBox(height: 10),
             Text('Stil-Vorlagen',
                 style: Theme.of(context).textTheme.labelMedium),
@@ -2105,7 +2140,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         settings.provider,
         settings.modelFor(settings.provider),
         referenceCount: _references.length,
-        gameAssets: _gameAssets,
+        direction: _direction(settings),
       );
 
   Future<void> _copyPromptBriefing(SettingsService settings) async {

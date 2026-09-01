@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/models/models.dart';
 import 'package:bildgenerator/services/batch_prompt.dart';
 import 'package:bildgenerator/services/prompt_briefing.dart';
+import 'package:bildgenerator/services/view_direction.dart';
 import 'package:bildgenerator/services/history/history_store_memory.dart';
 import 'package:bildgenerator/services/history_service.dart';
 
@@ -176,7 +177,7 @@ void main() {
         'a low wall\n'
         'NEGATIV: text\n',
         profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, contains('Bodenplatte'));
@@ -194,7 +195,7 @@ void main() {
         'NAME: haus\nPROMPT: ${gameAssetSentences.join(' ')}\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, isNot(contains('Spielgrafik')), reason: text);
@@ -204,7 +205,7 @@ void main() {
       final plan = parseBatchPrompt(
         gameAssetExample,
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(plan.isValid, isTrue);
@@ -222,7 +223,7 @@ void main() {
         'most 15 stone courses over the wall height\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       // Mengenangabe: das Modell zählt nicht.
@@ -246,7 +247,7 @@ void main() {
         'above, looking down onto the roof, tilted top view\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, contains('nennen im PROMPT den Boden'));
@@ -264,7 +265,7 @@ void main() {
         'view, stylized game asset, plain grey background\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       // Ein Kamerabegriff steht da – der fehlende Blick aufs Dach
@@ -280,7 +281,7 @@ void main() {
         'isometric view from high above, looking down onto the roof\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, contains('miniature scene'));
@@ -293,7 +294,7 @@ void main() {
         'the side wall, $gameAssetKeywords\n'
         'NEGATIV: village, trees, text, watermark\n',
         profile: promptProfileFor(GenProvider.selfhost, 'sdxl'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, contains('Bodenfleck'));
@@ -309,7 +310,7 @@ void main() {
         'the side wall, $gameAssetKeywords\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.selfhost, 'flux-schnell'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       expect(text, contains('wertet den NEGATIV-Block nicht aus'));
@@ -323,7 +324,7 @@ void main() {
         'NAME: haus\nPROMPT: ${gameAssetSentences.join(' ')}\n'
         'NEGATIV: $gameAssetNegativeTerms\n',
         profile: promptProfileFor(GenProvider.openai, 'gpt-image-1'),
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
       final text = plan.warnings.map((w) => w.message).join(' ');
       // GPT-Image versteht „35 degrees" – kein Hinweis dazu.
@@ -360,7 +361,7 @@ void main() {
     test('Spielgrafik-Regeln stehen wörtlich in der Vorlage', () {
       final text = batchPromptBriefing(
           promptProfileFor(GenProvider.openai, 'gpt-image-1'),
-          gameAssets: true);
+          direction: viewDirectionById('iso35'));
       for (final sentence in gameAssetSentences) {
         expect(text, contains(sentence));
       }
@@ -370,7 +371,7 @@ void main() {
     test('Für Stable Diffusion werden die Regeln zu Stichworten', () {
       final text = batchPromptBriefing(
           promptProfileFor(GenProvider.selfhost, 'sdxl'),
-          gameAssets: true);
+          direction: viewDirectionById('iso35'));
       expect(text, contains(gameAssetKeywords));
       expect(text, contains(gameAssetNegativeTerms));
       expect(text, isNot(contains(gameAssetSentences.first)));
@@ -380,7 +381,7 @@ void main() {
 
     test('„Beispiel einfügen" liefert bei Spielgrafik den Block', () {
       final profile = promptProfileFor(GenProvider.selfhost, 'sdxl');
-      expect(batchPromptExample(profile, gameAssets: true),
+      expect(batchPromptExample(profile, direction: viewDirectionById('iso35')),
           gameAssetExample);
       // Ohne den Schalter bleibt es beim allgemeinen Beispiel.
       expect(batchPromptExample(profile), isNot(gameAssetExample));

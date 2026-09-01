@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/models/models.dart';
 import 'package:bildgenerator/services/prompt_briefing.dart';
+import 'package:bildgenerator/services/view_direction.dart';
 import 'package:bildgenerator/services/update_check.dart';
 
 void main() {
@@ -79,11 +80,11 @@ void main() {
 
     test('Spielgrafik-Regeln kommen in die Vorlage', () {
       final briefing = promptProfileFor(GenProvider.openai, 'gpt-image-1',
-              gameAssets: true)
+              direction: viewDirectionById('iso35'))
           .briefing;
       expect(briefing, contains(gameAssetSentences[2]));
       final keywords =
-          promptProfileFor(GenProvider.selfhost, 'sdxl', gameAssets: true)
+          promptProfileFor(GenProvider.selfhost, 'sdxl', direction: viewDirectionById('iso35'))
               .briefing;
       expect(keywords, contains(gameAssetKeywords));
       expect(keywords, contains(gameAssetNegativeTerms));
@@ -162,7 +163,7 @@ void main() {
 
     test('Die Stichwort-Vorlage warnt vor den drei Stolpersteinen', () {
       final text =
-          promptProfileFor(GenProvider.selfhost, 'sdxl', gameAssets: true)
+          promptProfileFor(GenProvider.selfhost, 'sdxl', direction: viewDirectionById('iso35'))
               .briefing;
       expect(text, contains('Mengenangaben'));
       expect(text, contains('Gradzahlen'));

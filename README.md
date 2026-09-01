@@ -18,6 +18,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   weil App und Server dieselbe Rechnung anstellen. „Automatisch"
   (OpenAI) trägt keine Zahl, weil dort das Modell entscheidet; das
   steht jetzt auch dran.
+- **Blickrichtung wählbar**: Vorderansicht, Dreiviertel, Profil,
+  Rückansicht, isometrische Spielgrafik, Draufsicht, Augenhöhe,
+  Untersicht — oder „keine Vorgabe". Die Wahl geht in **jede**
+  Prompt-Vorlage ein, formuliert so, wie das gewählte Modell liest:
+  als Satz für GPT-Image und Gemini, als Stichworte plus Negativ-Block
+  für Stable Diffusion, und bei den Modellen ohne Guidance doppelt im
+  positiven Teil, weil dort kein Negativ-Block wirkt. Unter der
+  Auswahl steht, was daraus wird.
 - **Qualität wählbar**: Auto / Niedrig / Mittel / Hoch.
 - **Transparenter Hintergrund** (für Logos & Icons, PNG/WebP) – mit
   Schachbrett-Vorschau.
@@ -420,12 +428,29 @@ ankommt:
   positiv formuliert im Prompt stehen („empty grey background" statt
   „no props").
 
-### Spielgrafik-Regeln (Gebäude-Assets)
+### Die Vorgabe für die 3D-Ansichten
 
-Der Schalter **„Spielgrafik-Regeln (Gebäude-Assets)"** unter der
-Vorlage ist für Bilder gedacht, die später als Asset auf einen
-Karten-Knoten gesetzt werden. Er nimmt die Vorgaben in die Vorlage auf
-und prüft sie beim Massenprompt mit:
+Die Ansichten, aus denen die 3D-Pipeline rechnet, bekommen ihre
+Kamera-Vorgabe ebenfalls in der Schreibweise des Modells. Für
+GPT-Image und Gemini bleibt es der ausformulierte Auftrag mit
+Verneinungen („NOT elevated, NOT from above"). Für Stable Diffusion
+gibt es jetzt eine eigene Stichwortkette: Dort wären die Verneinungen
+ein Eigentor — das Modell liest daraus „elevated", „from above" und
+holt genau das ins Bild. Dazu geht erstmals ein Negativ-Prompt mit
+(`from above, perspective distortion, ground plane, shadow, second
+subject, cropped …`); Stability und der eigene Server haben ein Feld
+dafür, es blieb bisher leer. Die Kette bleibt unter 40 Wörtern — dem
+Budget des sparsamsten Modells; die ausformulierte Fassung hatte rund
+90.
+
+### Blickrichtung „Spielgrafik: isometrisch, 35° von oben"
+
+Diese Blickrichtung ist für Bilder gedacht, die später als Asset auf
+einen Karten-Knoten gesetzt werden. Sie bringt als einzige einen ganzen
+Regelblock mit — er kommt in die Vorlage und wird beim Massenprompt
+mitgeprüft. (Vorher war das ein eigener Schalter „Spielgrafik-Regeln";
+der kannte genau eine Kamera und war für alles andere nutzlos. Jetzt
+ist die Spielgrafik eine Blickrichtung unter anderen.)
 
 - **Genau ein Gebäude je Bild** – sonst lässt sich das Asset nicht auf
   einen Knoten setzen.
@@ -493,7 +518,7 @@ Dach, ein bis zwei Requisiten. Zusammen bleibt der Block unter
 60 Wörtern – die Grenze, die für SDXL jetzt auch in der Prüfung steht
 (vorher 100).
 
-**„Beispiel einfügen"** setzt bei eingeschalteten Spielgrafik-Regeln
+**„Beispiel einfügen"** setzt bei der Blickrichtung „Spielgrafik"
 genau diesen erprobten Block ein:
 
 ```
@@ -576,7 +601,7 @@ aufhalten, aber die Ergebnisse deutlich verbessern:
 - `NEGATIV:`-Zeilen, die das Modell verwirft (SDXL Turbo, FLUX) – oder
   umgekehrt der Hinweis, dass kein einziger Block eine hat, obwohl das
   Modell sie auswertet.
-- Bei eingeschalteten Spielgrafik-Regeln: Bodenplatten, ein möglicher
+- Bei der Blickrichtung „Spielgrafik": Bodenplatten, ein möglicher
   zweiter Baukörper, jedes Bodenwort im `PROMPT:` (`empty ground`,
   `grass`, `soil` …) und eine fehlende Aufsicht – für
   Diffusions-Modelle wird dabei `isometric view from high above`

@@ -123,6 +123,22 @@ class SettingsService extends ChangeNotifier {
   /// Sampler des eigenen Bild-Servers ('' = der des Modells).
   String gpuSampler = '';
 
+  /// Die gewünschte Blickrichtung, als Kennung aus
+  /// `view_direction.dart`. Sie geht in jede Prompt-Vorlage ein –
+  /// formuliert so, wie das gewählte Modell liest.
+  ///
+  /// Vorher gab es dafür nur einen Schalter „Spielgrafik-Regeln", der
+  /// genau eine Kamera kannte. Die Kamera ist aber die Angabe, die am
+  /// häufigsten fehlt: „Keine Vorgabe" ist deshalb eine Wahl unter
+  /// anderen, nicht der versteckte Normalfall.
+  String viewDirection = 'frei';
+
+  void setViewDirection(String v) {
+    viewDirection = v;
+    _persistString('viewDirection', v);
+    notifyListeners();
+  }
+
   void setGpuQuality(QualityPreset v) {
     gpuQuality = v;
     // Eine neue Stufe hebt die Handeinstellung auf – sonst bliebe sie
@@ -405,6 +421,7 @@ class SettingsService extends ChangeNotifier {
       gpuSteps = prefs.getInt('gpuSteps') ?? 0;
       gpuGuidance = prefs.getDouble('gpuGuidance') ?? -1;
       gpuSampler = prefs.getString('gpuSampler') ?? '';
+      viewDirection = prefs.getString('viewDirection') ?? viewDirection;
       final storedPresets = prefs.getStringList('customPresets');
       if (storedPresets != null) {
         customPresets = [

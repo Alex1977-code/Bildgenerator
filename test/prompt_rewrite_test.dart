@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/models/models.dart';
 import 'package:bildgenerator/services/batch_prompt.dart';
 import 'package:bildgenerator/services/prompt_briefing.dart';
+import 'package:bildgenerator/services/view_direction.dart';
 import 'package:bildgenerator/services/prompt_rewrite.dart';
 
 /// Genau der Prompt, der auf SDXL Base ein Gebäude in Frontalansicht
@@ -56,7 +57,7 @@ void main() {
         _realPrompt,
         negativePrompt: 'ground plate, base, cast shadow',
         profile: sdxl,
-        gameAssets: true,
+        direction: viewDirectionById('iso35'),
       );
     });
 
@@ -115,7 +116,7 @@ void main() {
       'chimney',
       negativePrompt: gameAssetNegativeTerms,
       profile: sdxl,
-      gameAssets: true,
+      direction: viewDirectionById('iso35'),
     );
     expect(words(good.prompt), lessThanOrEqualTo(sdxl.maxWords));
     expect(good.prompt, startsWith('medieval bakery'));
@@ -127,7 +128,7 @@ void main() {
       'A red sports car on a road. There is no rain.',
       negativePrompt: '',
       profile: sdxl,
-      gameAssets: false,
+      direction: freeDirection,
     );
     expect(plain.prompt, isNot(contains('building')));
     expect(plain.negativePrompt, contains('rain'));
@@ -139,10 +140,10 @@ void main() {
       'NEGATIV: ground plate, base\n\n'
       'NAME: bld-02-bakery\nPROMPT: A bakery. There is no fence.\n',
       profile: sdxl,
-      gameAssets: true,
+      direction: viewDirectionById('iso35'),
     );
     expect(plan.items.length, 2);
-    final out = rewriteBatchText(plan, profile: sdxl, gameAssets: true);
+    final out = rewriteBatchText(plan, profile: sdxl, direction: viewDirectionById('iso35'));
     expect(out.changedItems, 2);
     expect(out.text, contains('NAME: bld-01-armory'));
     expect(out.text, contains('NAME: bld-02-bakery'));
@@ -154,11 +155,11 @@ void main() {
       'NAME: bld-01-armory\nPROMPT: $_realPrompt\n'
       'NEGATIV: ground plate, base\n',
       profile: sdxl,
-      gameAssets: true,
+      direction: viewDirectionById('iso35'),
     );
     expect(before.warnings, isNotEmpty);
     final after =
-        parseBatchPrompt(out.text, profile: sdxl, gameAssets: true);
+        parseBatchPrompt(out.text, profile: sdxl, direction: viewDirectionById('iso35'));
     expect(after.isValid, isTrue);
     expect(
         after.warnings.map((w) => w.message).join(' '),

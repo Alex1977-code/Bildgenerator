@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import '../models/models.dart';
 import 'generators.dart';
+import 'prompt_briefing.dart';
 import 'settings_service.dart';
 
 /// Erzeugt aus einer Textbeschreibung konsistente Ansichten
@@ -64,6 +65,48 @@ String _stagingPart(bool trueAlpha) =>
         'backdrop onto the subject'}, the subject floats with no '
     'ground plane, no floor, absolutely no shadow cast anywhere, no '
     'reflections, even diffuse studio lighting, crisp details';
+
+/// Die Vorderansicht als Stichwortkette – für Diffusions-Modelle.
+///
+/// Warum überhaupt eine zweite Fassung: Die ausformulierte Anweisung
+/// unten steckt voller Verneinungen („NOT elevated, NOT from above, no
+/// bird's-eye"). Ein sprachverstehendes Modell befolgt sie; ein
+/// Diffusions-Modell liest daraus „elevated", „from above",
+/// „bird's-eye" und holt genau das ins Bild. Dieselbe Falle, an der
+/// die Spielgrafik-Vorlage schon einmal gescheitert ist. Außerdem ist
+/// die Anweisung rund 90 Wörter lang – mehr als das Budget von SDXL
+/// Turbo, SD 1.5 und SDXL zusammen erlaubt.
+String viewFrontKeywords(String description, String? pose,
+        {bool threeQuarter = false, required bool trueAlpha}) =>
+    [
+      description.trim(),
+      if (pose != null && pose.trim().isNotEmpty) pose.trim(),
+      if (threeQuarter)
+        'three quarter view, front and one side visible, slightly '
+            'turned to the left'
+      else
+        'front view, facing the camera, horizontal camera axis, '
+            'camera at mid height',
+      'single subject, centered, fully visible, orthographic',
+      trueAlpha
+          ? 'plain transparent background'
+          : 'uniform magenta background, chroma key magenta',
+      'even diffuse studio lighting, crisp details',
+    ].join(', ');
+
+/// Was bei den Ansichten in den Negativ-Block gehört. Bisher ging gar
+/// keiner mit – dabei haben Stability und der eigene Server ein
+/// eigenes Feld dafür, und genau die Fehler, die hier stehen, sind
+/// die, an denen eine Ansicht für die 3D-Rekonstruktion unbrauchbar
+/// wird.
+String viewNegativePrompt({required bool threeQuarter}) => [
+      threeQuarter ? 'flat frontal view' : 'three quarter view, profile',
+      'from above, bird eye view, hero angle, elevated camera, low '
+          'angle, tilted camera',
+      'perspective distortion, cropped, cut off, close-up',
+      'ground plane, floor, pedestal, base, shadow, reflection',
+      'second subject, background scenery, props, text, watermark',
+    ].join(', ');
 
 String _frontPrompt(String description, String? pose,
         {bool threeQuarter = false, required bool trueAlpha}) =>
@@ -179,10 +222,12 @@ Future<GeneratedViews> generateViewsFromText({
   var hasTokens = false;
 
   GenerationRequest buildRequest(String prompt,
-      {List<ReferenceImage> references = const []}) {
+      {List<ReferenceImage> references = const [],
+      String negative = ''}) {
     return GenerationRequest(
       provider: provider,
       prompt: prompt,
+      negativePrompt: negative,
       references: references,
       // Quadratisch und mit echter Transparenz, wo möglich.
       openAiSize: '1024x1024',
@@ -209,11 +254,13 @@ Future<GeneratedViews> generateViewsFromText({
   }
 
   Future<ReferenceImage> generateOne(String label, String prompt,
-      {List<ReferenceImage> references = const []}) async {
+      {List<ReferenceImage> references = const [],
+      String negative = ''}) async {
     if (isCancelled()) throw GenerationException('Abgebrochen.');
     onProgress('Ansicht „$label“ wird erzeugt …');
-    final result =
-        await generator.generate(buildRequest(prompt, references: references), apiKey);
+    final result = await generator.generate(
+        buildRequest(prompt, references: references, negative: negative),
+        apiKey);
     if (result.totalTokens != null) {
       totalTokens += result.totalTokens!;
       hasTokens = true;
@@ -231,12 +278,25 @@ Future<GeneratedViews> generateViewsFromText({
   }
 
   final trueAlpha = provider == GenProvider.openai || provider.isLocal;
+  // Die Ansichts-Vorgabe in der Schreibweise des gewählten Modells.
+  // Die gedrehten Ansichten brauchen das nicht: Sie entstehen nur bei
+  // referenzbildfähigen Anbietern, und das sind genau die
+  // sprachverstehenden.
+  final profile =
+      promptProfileFor(provider, settings.modelFor(provider));
+  final dreiviertel = threeQuarterFront && frontOnly;
   final front = existing['front'] ??
       await generateOne(
         'Vorn',
-        _frontPrompt(description, pose,
-            threeQuarter: threeQuarterFront && frontOnly,
-            trueAlpha: trueAlpha),
+        profile.style == PromptStyle.keywords
+            ? viewFrontKeywords(description, pose,
+                threeQuarter: dreiviertel, trueAlpha: trueAlpha)
+            : _frontPrompt(description, pose,
+                threeQuarter: dreiviertel, trueAlpha: trueAlpha),
+        negative: profile.negativeHandling ==
+                NegativeHandling.separateField
+            ? viewNegativePrompt(threeQuarter: dreiviertel)
+            : '',
         // Vorlage für den Stil: Bei den Gegenständen zu einer Figur
         // ist das ein gerendertes Bild der Figur. Farben und
         // Formensprache trifft das Modell damit deutlich genauer als

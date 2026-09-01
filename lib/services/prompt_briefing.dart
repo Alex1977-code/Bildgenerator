@@ -14,6 +14,7 @@
 library;
 
 import '../models/models.dart';
+import 'view_direction.dart';
 
 /// Wie ein Modell seinen Prompt liest.
 enum PromptStyle {
@@ -279,7 +280,8 @@ NegativeHandling negativeHandlingFor(GenProvider provider, String model) {
 
 /// Der Auftrag für die Prompt-KI, passend zum gewählten Modell.
 PromptProfile promptProfileFor(GenProvider provider, String model,
-    {int referenceCount = 0, bool gameAssets = false}) {
+    {int referenceCount = 0,
+    ViewDirection direction = freeDirection}) {
   final keywords =
       provider == GenProvider.stability || provider == GenProvider.selfhost;
   final label = _label(provider, model);
@@ -306,8 +308,14 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
               'Vorlage stattdessen in Worten.'}'
       : '';
 
-  final assets = gameAssets
-      ? '\n\n${gameAssetBriefing(keywords ? PromptStyle.keywords : PromptStyle.briefing)}'
+  final style = keywords ? PromptStyle.keywords : PromptStyle.briefing;
+  // Die Blickrichtung gehört in jede Vorlage – sie ist die Angabe,
+  // die am häufigsten fehlt und sich hinterher nicht reparieren lässt.
+  final kamera = '\n\n${viewDirectionBriefing(direction, style, handling, label)}';
+  // Die Spielgrafik-Regeln hängen an der isometrischen Ansicht: Wer
+  // ein Gebäude-Asset für eine Karte baut, wählt genau die.
+  final assets = direction.extraRules == 'spielgrafik'
+      ? '\n\n${gameAssetBriefing(style)}'
       : '';
 
   final briefing = keywords
@@ -320,7 +328,7 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
           '${negative ? '' : '\n- Dieses Modell wertet den NEGATIV-Block '
               'nicht aus. Gib ihn trotzdem aus, aber formuliere das '
               'Wichtige positiv im PROMPT-Block.'}'
-          '$references$assets\n\n'
+          '$references$kamera$assets\n\n'
           'Meine Vorgaben:\n'
           '- Motiv: [HIER BESCHREIBEN]\n'
           '- Stil: [HIER STIL]\n'
@@ -332,7 +340,7 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
           '$_briefingRules\n'
           '${_modelRules(provider, model)}\n'
           '- Negativ-Prompt: $negativeNote'
-          '$references$assets\n\n'
+          '$references$kamera$assets\n\n'
           'Gib ausschließlich den fertigen Prompt aus – keine '
           'Erklärungen, keine Code-Blöcke.\n\n'
           'Meine Vorgaben:\n'
@@ -351,7 +359,7 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
           'genaue Vorgaben wirken. Länge nach Bedarf.';
 
   return PromptProfile(
-    style: keywords ? PromptStyle.keywords : PromptStyle.briefing,
+    style: style,
     modelLabel: label,
     briefing: briefing,
     summary: summary,

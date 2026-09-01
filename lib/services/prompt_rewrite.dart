@@ -1,5 +1,6 @@
 import 'batch_prompt.dart';
 import 'prompt_briefing.dart';
+import 'view_direction.dart';
 
 /// Ergebnis einer Umschreibung.
 class PromptRewrite {
@@ -49,8 +50,13 @@ PromptRewrite rewriteForKeywordModel(
   String prompt, {
   required String negativePrompt,
   required PromptProfile profile,
-  required bool gameAssets,
+  ViewDirection direction = freeDirection,
 }) {
+  final gameAssets = direction.extraRules == 'spielgrafik';
+  // Die Blickrichtung gehört in die Kette und – wo das Modell einen
+  // Negativ-Block auswertet – deren Gegenteil dorthin.
+  final kamera = viewDirectionParts(
+      direction, profile.style, profile.negativeHandling);
   final notes = <String>[];
   final harvested = <String>[];
 
@@ -118,7 +124,14 @@ PromptRewrite rewriteForKeywordModel(
     words += count;
   }
 
-  final tail = gameAssets ? gameAssetKeywords : _neutralTail;
+  // Die Spielgrafik-Kette trägt ihre Kamera schon selbst; sonst
+  // kommt die gewählte Blickrichtung vor den neutralen Schwanz.
+  final tail = gameAssets
+      ? gameAssetKeywords
+      : [
+          if (kamera.prompt.isNotEmpty) kamera.prompt,
+          _neutralTail,
+        ].join(', ');
   var out = '${motif.join(', ')}, $tail';
   final total = _wordCount(out);
   if (total > profile.maxWords) {
@@ -158,6 +171,10 @@ PromptRewrite rewriteForKeywordModel(
   }
   if (gameAssets) {
     for (final term in gameAssetNegativeTerms.split(',')) {
+      addNegative(term);
+    }
+  } else {
+    for (final term in kamera.negative.split(',')) {
       addNegative(term);
     }
   }
@@ -315,7 +332,7 @@ int _wordCount(String text) => text
 ({String text, List<String> notes, int changedItems}) rewriteBatchText(
   BatchPlan plan, {
   required PromptProfile profile,
-  required bool gameAssets,
+  ViewDirection direction = freeDirection,
 }) {
   final blocks = <String>[];
   final notes = <String>[];
@@ -325,7 +342,7 @@ int _wordCount(String text) => text
       item.prompt,
       negativePrompt: item.negativePrompt,
       profile: profile,
-      gameAssets: gameAssets,
+      direction: direction,
     );
     if (rewrite.changed) {
       changed++;

@@ -22,6 +22,7 @@
 library;
 
 import 'prompt_briefing.dart';
+import 'view_direction.dart';
 
 /// Ein Bild aus dem Massenprompt.
 class BatchItem {
@@ -132,7 +133,7 @@ BatchPlan parseBatchPrompt(
   List<String> availableReferences = const [],
   bool supportsReferences = true,
   PromptProfile? profile,
-  bool gameAssets = false,
+  ViewDirection direction = freeDirection,
 }) {
   final items = <BatchItem>[];
   final issues = <BatchIssue>[];
@@ -295,7 +296,7 @@ BatchPlan parseBatchPrompt(
   }
 
   if (profile != null && items.isNotEmpty) {
-    warnings.addAll(_modelWarnings(items, profile, gameAssets: gameAssets));
+    warnings.addAll(_modelWarnings(items, profile, direction: direction));
   }
 
   if (items.isEmpty && issues.isEmpty) {
@@ -450,8 +451,9 @@ String _names(List<BatchItem> hits) {
 List<BatchIssue> _modelWarnings(
   List<BatchItem> items,
   PromptProfile profile, {
-  bool gameAssets = false,
+  ViewDirection direction = freeDirection,
 }) {
+  final gameAssets = direction.extraRules == 'spielgrafik';
   final warnings = <BatchIssue>[];
   BatchIssue issue(List<BatchItem> hits, String message) =>
       BatchIssue(hits.first.line, message);
@@ -716,11 +718,15 @@ List<BatchIssue> _modelWarnings(
 String batchPromptBriefing(
   PromptProfile profile, {
   List<String> references = const [],
-  bool gameAssets = false,
+  ViewDirection direction = freeDirection,
 }) {
   final names = references.join(', ');
   final keywords = profile.style == PromptStyle.keywords;
-  final assets = gameAssets
+  // Auch im Massenprompt gehört die Kamera in jede Zeile – bei
+  // vierzig Bildern in einem Lauf fällt eine verrutschte Ansicht erst
+  // auf, wenn alle fertig sind.
+  final kamera = '\n\n${viewDirectionBriefing(direction, profile.style, profile.negativeHandling, profile.modelLabel)}';
+  final assets = direction.extraRules == 'spielgrafik'
       ? '\n\n${gameAssetBriefing(profile.style)}'
       : '';
   return 'Aufgabe: Erstelle einen „Massenprompt" für einen '
@@ -750,9 +756,9 @@ String batchPromptBriefing(
       'So muss jede PROMPT-Zeile für ${profile.modelLabel} geschrieben '
       'sein:\n'
       '${keywords ? _keywordPromptRules(profile) : _briefingPromptRules(profile)}'
-      '$assets\n\n'
+      '$kamera$assets\n\n'
       'Beispiel:\n\n'
-      '${batchPromptExample(profile, gameAssets: gameAssets)}\n\n'
+      '${batchPromptExample(profile, direction: direction)}\n\n'
       'Meine Vorgaben:\n'
       '- Anzahl der Bilder: [HIER ANZAHL]\n'
       '- Thema/Serie: [HIER BESCHREIBEN]\n'
@@ -807,7 +813,8 @@ String _briefingPromptRules(PromptProfile profile) =>
 /// Kleines, gültiges Beispiel zum Ausprobieren – in der Schreibweise
 /// des gewählten Modells.
 String batchPromptExample(PromptProfile profile,
-    {bool gameAssets = false}) {
+    {ViewDirection direction = freeDirection}) {
+  final gameAssets = direction.extraRules == 'spielgrafik';
   // Bei Spielgrafiken ist der erprobte Block die beste Vorlage: Er
   // zeigt die Aufteilung 15 Wörter Motiv, dann der feste Stil-Schwanz.
   if (gameAssets && profile.style == PromptStyle.keywords) {
