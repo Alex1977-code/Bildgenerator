@@ -58,6 +58,7 @@ import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
 import '../services/view_generator.dart';
+import '../services/wait_motif.dart';
 import '../widgets/common.dart';
 import '../widgets/cost_quality_panel.dart';
 import '../widgets/generation_progress.dart';
@@ -6225,6 +6226,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   // 3D-Dienst – deshalb eine Wartegrafik statt einer
                   // vorgetäuschten Vorschau.
                   GenerationProgress(
+                    motif: waitMotifForThreeD(settings.threeDProvider),
                     elapsed: _runStart == null
                         ? Duration.zero
                         : DateTime.now().difference(_runStart!),

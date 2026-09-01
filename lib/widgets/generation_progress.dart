@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../services/wait_motif.dart';
+
 /// Zeigt während eines Laufs, dass etwas entsteht.
 ///
 /// Zwei Fälle, und der Unterschied wird ausgesprochen statt kaschiert:
@@ -25,6 +27,7 @@ class GenerationProgress extends StatefulWidget {
     this.label = '',
     this.hint = '',
     this.aspect = 1,
+    this.motif,
   });
 
   /// Letzter Zwischenstand, falls der Anbieter welche liefert.
@@ -45,6 +48,10 @@ class GenerationProgress extends StatefulWidget {
 
   /// Seitenverhältnis der Fläche (Breite/Höhe).
   final double aspect;
+
+  /// Wer da zeichnet, während gewartet wird – je Modell ein eigenes
+  /// Motiv. Ohne Angabe der Würfel.
+  final WaitMotif? motif;
 
   @override
   State<GenerationProgress> createState() => _GenerationProgressState();
@@ -100,11 +107,24 @@ class _GenerationProgressState extends State<GenerationProgress>
                   AnimatedBuilder(
                     animation: _controller,
                     builder: (context, _) => CustomPaint(
-                      painter: _MeshPainter(
+                      painter: _MotifPainter(
                         progress: _controller.value,
+                        motif: widget.motif ?? waitMotifs['wuerfel']!,
                         color: theme.colorScheme.primary,
                         accent: theme.colorScheme.tertiary,
                       ),
+                    ),
+                  ),
+                // Wer da zeichnet, steht dabei. Ohne die Zeile wäre
+                // das Motiv ein Rätsel statt einer Auskunft.
+                if (widget.preview == null && widget.motif != null)
+                  Positioned(
+                    left: 8,
+                    top: 6,
+                    child: Text(
+                      '${widget.motif!.name} zeichnet …',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.outline),
                     ),
                   ),
                 // Ein schmaler Streifen, der über das Bild wandert –
@@ -160,104 +180,146 @@ class _GenerationProgressState extends State<GenerationProgress>
   }
 }
 
-/// Die Wartegrafik für Anbieter ohne Zwischenstände: ein Drahtnetz,
-/// das sich Linie für Linie aufbaut.
+/// Die Wartegrafik für Anbieter ohne Zwischenstände: ein Zeichner,
+/// der Punkt für Punkt entsteht, und daneben eine Leinwand, auf der
+/// sich eine Punktwolke langsam zu einem Bild verdichtet.
 ///
-/// Die erste Fassung ließ Punkte kreisen und sich verdichten. Das war
-/// unangenehm anzusehen – ständige Bewegung über die ganze Fläche,
-/// ohne Ruhepunkt. Jetzt bleibt jede gezeichnete Linie stehen, und
-/// nur die vorderste Kante wandert weiter: Man sieht, dass etwas
-/// entsteht, ohne dass sich das Bild bewegt.
+/// Die erste Fassung ließ Punkte über die ganze Fläche kreisen. Das
+/// war unangenehm anzusehen – ständige Bewegung ohne Ruhepunkt.
+/// Deshalb gilt hier: **Was gesetzt ist, bleibt stehen.** Jeder Punkt
+/// wandert einmal kurz von seiner Streulage an seinen Platz und rührt
+/// sich danach nicht mehr. In Bewegung ist nur die vorderste Kante –
+/// und der dünne Strich vom Zeichner zum jüngsten Punkt.
 ///
-/// Gezeichnet wird ein Gitter über einer Kugel – kein Motiv, denn der
-/// Anbieter liefert keines. Es verspricht damit nichts, was es nicht
-/// halten kann.
-class _MeshPainter extends CustomPainter {
-  _MeshPainter({
+/// Das Motiv gehört zum Modell, das gerade rechnet (siehe
+/// [WaitMotif]): Nano Banana ist eine Banane, hinter Stable Diffusion
+/// steht das Hugging-Face-Gesicht. Damit verspricht die Grafik nichts,
+/// was sie nicht halten kann – sie zeigt keinen Fortschritt, sondern
+/// wer arbeitet.
+class _MotifPainter extends CustomPainter {
+  _MotifPainter({
     required this.progress,
+    required this.motif,
     required this.color,
     required this.accent,
   });
 
   /// 0 bis 1, läuft langsam durch und beginnt von vorn.
   final double progress;
+  final WaitMotif motif;
   final Color color;
   final Color accent;
 
-  /// Längengrade und Breitengrade des Netzes.
-  static const int _columns = 14;
-  static const int _rows = 9;
+  /// Wie viele Punkte der Zeichner und wie viele das Bild bekommt.
+  static const int _artistPoints = 190;
+  static const int _canvasPoints = 150;
+
+  /// Der Zeichner ist ab hier fertig; ab dann entsteht das Bild.
+  static const double _artistPhase = 0.42;
+
+  /// Streulage eines Punktes vor dem Setzen – fest gewürfelt, damit
+  /// nichts flimmert.
+  static double _noise(int seed) {
+    var x = (seed * 1103515245 + 12345) % 2147483648;
+    x = (x * 1103515245 + 12345) % 2147483648;
+    return x / 2147483648;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) * 0.33;
+    final artist = samplePoints(motif.artist, _artistPoints);
+    final bild = samplePoints(motif.canvas, _canvasPoints);
+    if (artist.isEmpty && bild.isEmpty) return;
 
-    // Ein Punkt auf der Kugel, leicht gekippt, in die Fläche
-    // projiziert. Fest berechnet – nichts dreht sich.
-    Offset point(double u, double v) {
-      final theta = u * math.pi * 2;
-      final phi = v * math.pi;
-      final x = math.sin(phi) * math.cos(theta);
-      final y = math.cos(phi);
-      final z = math.sin(phi) * math.sin(theta);
-      // Leichte Kippung um die x-Achse, damit das Netz nicht wie ein
-      // flacher Kreis wirkt.
-      const tilt = 0.35;
-      final ry = y * math.cos(tilt) - z * math.sin(tilt);
-      final rz = y * math.sin(tilt) + z * math.cos(tilt);
-      // Schwache Perspektive: hinten liegende Linien rücken zusammen.
-      final scale = 1 / (1.8 - rz * 0.4);
-      return Offset(
-        center.dx + x * radius * scale * 1.8,
-        center.dy + ry * radius * scale * 1.8,
+    // Aufteilung: Zeichner links, Leinwand rechts. Auf schmalen
+    // Flächen bleibt das Verhältnis gleich, nur alles kleiner.
+    final w = size.width;
+    final h = size.height;
+    final einheit = math.min(w * 0.42, h * 0.72) / 2;
+    final zeichnerMitte = Offset(w * 0.26, h * 0.5);
+    final rahmen = Rect.fromCenter(
+      center: Offset(w * 0.68, h * 0.48),
+      width: einheit * 2.05,
+      height: einheit * 1.7,
+    );
+
+    final punkt = Paint()..style = PaintingStyle.fill;
+
+    // --- Der Zeichner ---------------------------------------------
+    final kante = (progress / _artistPhase) * artist.length;
+    for (var i = 0; i < artist.length; i++) {
+      final alter = kante - i;
+      if (alter <= 0) continue;
+      final frisch = (1 - alter / 6).clamp(0.0, 1.0);
+      final ziel = zeichnerMitte + artist[i] * einheit;
+      // Der Anflug: kurz, dann steht der Punkt.
+      final flug = (1 - alter / 3).clamp(0.0, 1.0);
+      final streu = Offset(
+        (_noise(i * 2 + 1) - 0.5) * einheit * 0.9,
+        (_noise(i * 2 + 2) - 0.5) * einheit * 0.9,
+      );
+      final pos = ziel + streu * flug;
+      punkt.color = Color.lerp(color, accent, frisch)!
+          .withValues(alpha: (0.35 + 0.55 * (1 - flug)).clamp(0.0, 1.0));
+      canvas.drawCircle(pos, 1.5 + 1.1 * frisch, punkt);
+    }
+
+    // --- Die Leinwand ---------------------------------------------
+    final rahmenAn = ((progress - 0.12) / 0.1).clamp(0.0, 1.0);
+    if (rahmenAn > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rahmen, const Radius.circular(6)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = color.withValues(alpha: 0.18 * rahmenAn),
       );
     }
 
-    // Tiefe für die Helligkeit: vorne hell, hinten blass.
-    double depth(double u, double v) {
-      final theta = u * math.pi * 2;
-      final phi = v * math.pi;
-      final y = math.cos(phi);
-      final z = math.sin(phi) * math.sin(theta);
-      const tilt = 0.35;
-      return (y * math.sin(tilt) + z * math.cos(tilt) + 1) / 2;
+    // Das Bild entsteht, nachdem der Zeichner steht.
+    final bildKante =
+        ((progress - _artistPhase) / (1 - _artistPhase)) * bild.length * 1.15;
+    var letzter = Offset.zero;
+    var etwasGesetzt = false;
+    final halb = Offset(rahmen.width / 2, rahmen.height / 2);
+    for (var i = 0; i < bild.length; i++) {
+      final alter = bildKante - i;
+      if (alter <= 0) continue;
+      final ziel = rahmen.center +
+          Offset(bild[i].dx * halb.dx * 0.8, bild[i].dy * halb.dy * 0.8);
+      final flug = (1 - alter / 4).clamp(0.0, 1.0);
+      final streu = Offset(
+        (_noise(i * 2 + 101) - 0.5) * rahmen.width * 0.55,
+        (_noise(i * 2 + 102) - 0.5) * rahmen.height * 0.55,
+      );
+      final pos = ziel + streu * flug;
+      final frisch = (1 - alter / 8).clamp(0.0, 1.0);
+      punkt.color = Color.lerp(color, accent, frisch)!
+          .withValues(alpha: (0.25 + 0.6 * (1 - flug)).clamp(0.0, 1.0));
+      canvas.drawCircle(pos, 1.3 + 0.9 * frisch, punkt);
+      letzter = ziel;
+      etwasGesetzt = true;
     }
 
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1
-      ..strokeCap = StrokeCap.round;
-
-    // Der Aufbau läuft von oben nach unten durch und beginnt von
-    // vorn; die Kante ist hell, alles davor bleibt ruhig stehen.
-    final edge = progress * (_rows + 2);
-    for (var row = 0; row <= _rows; row++) {
-      final v = row / _rows;
-      final age = edge - row;
-      if (age <= 0) continue;
-      // Frisch gezeichnete Reihen leuchten kurz auf.
-      final fresh = (1 - age).clamp(0.0, 1.0);
-      for (var col = 0; col < _columns; col++) {
-        final u0 = col / _columns;
-        final u1 = (col + 1) / _columns;
-        final near = depth(u0, v);
-        final alpha =
-            ((0.12 + 0.5 * near) * (0.45 + 0.55 * fresh)).clamp(0.0, 1.0);
-        paint.color =
-            Color.lerp(color, accent, fresh)!.withValues(alpha: alpha);
-        canvas.drawLine(point(u0, v), point(u1, v), paint);
-        // Die Längslinie zur nächsten Reihe – nur, wenn die schon da
-        // ist, sonst hinge sie in der Luft.
-        if (row < _rows && age > 1) {
-          paint.color = color.withValues(alpha: 0.10 + 0.35 * near);
-          canvas.drawLine(point(u0, v), point(u0, (row + 1) / _rows), paint);
-        }
-      }
+    // --- Der Stift ------------------------------------------------
+    // Ein dünner Strich vom Zeichner zum jüngsten Punkt: das einzige
+    // Element, das sich bewegt. Ohne ihn sähe es aus, als male sich
+    // das Bild von selbst.
+    if (etwasGesetzt && progress > _artistPhase) {
+      canvas.drawLine(
+        zeichnerMitte + Offset(einheit * 0.85, einheit * 0.2),
+        letzter,
+        Paint()
+          ..strokeWidth = 1.0
+          ..color = accent.withValues(alpha: 0.35),
+      );
     }
   }
 
   @override
-  bool shouldRepaint(_MeshPainter old) =>
-      old.progress != progress || old.color != color;
+  bool shouldRepaint(_MotifPainter old) =>
+      old.progress != progress ||
+      old.motif.id != motif.id ||
+      old.color != color;
 }
+

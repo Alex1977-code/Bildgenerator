@@ -160,34 +160,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Fragt nach einem Ordnernamen. Der Vorschlag steht schon drin,
   /// damit ein Klick auf „Anlegen" reicht.
   Future<String?> _askName(String title, {String preset = ''}) async {
-    final controller = TextEditingController(text: preset);
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Name',
-            hintText: 'z. B. Burgenspiel',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.of(context).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('Übernehmen'),
-          ),
-        ],
-      ),
+      builder: (context) => _NameDialog(title: title, preset: preset),
     );
-    controller.dispose();
     final name = value?.trim() ?? '';
     return name.isEmpty ? null : name;
   }
@@ -313,6 +289,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// keinen Weg.
   Future<void> _createProject(HistoryService history) async {
     final drin = _folder.isEmpty ? '' : ' in „$_folder"';
+    final messenger = ScaffoldMessenger.of(context);
     final name = await _askName('Neues Projekt$drin');
     if (name == null || !mounted) return;
     final known = _knownProjects(history);
@@ -320,12 +297,29 @@ class _GalleryScreenState extends State<GalleryScreen> {
         _folder.isEmpty ? name : '$_folder/$name', known);
     await history.createProject(path);
     if (!mounted) return;
-    // Gleich hineinwechseln: Wer einen Ordner anlegt, will ihn
-    // benutzen.
-    setState(() {
-      _folder = path;
-      _unsorted = false;
-    });
+    // Bewusst NICHT hineinwechseln. Die erste Fassung tat das („wer
+    // einen Ordner anlegt, will ihn benutzen") – in der Hand ist das
+    // Gegenteil richtig: Nach Enter stand man in einem leeren Ordner,
+    // ohne die Kacheln, die man gerade einsortieren wollte, und
+    // musste erst wieder heraus. Wer mehrere Ordner nacheinander
+    // anlegt, hätte nach jedem denselben Weg zurück. Der Ordner steht
+    // ab sofort in der Leiste; wer hinein will, klickt ihn an oder
+    // nimmt „Öffnen" im Hinweis.
+    setState(() {});
+    messenger.showSnackBar(SnackBar(
+      content: Text('Ordner „${projectName(path)}" angelegt.'),
+      action: SnackBarAction(
+        label: 'Öffnen',
+        onPressed: () {
+          if (mounted) {
+            setState(() {
+              _folder = path;
+              _unsorted = false;
+            });
+          }
+        },
+      ),
+    ));
   }
 
   /// Ordner umbenennen, auflösen oder eine Ebene höher schieben.
@@ -702,6 +696,64 @@ class _GalleryScreenState extends State<GalleryScreen> {
               );
             },
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Der Dialog nach dem Ordnernamen.
+///
+/// Eigenes Widget, nicht nur wegen der Übersicht: Der
+/// TextEditingController gehört hier hinein. Vorher lag er in
+/// _askName und wurde weggeworfen, sobald showDialog zurückkam – da
+/// blendet sich der Dialog aber noch aus und baut sein Textfeld dabei
+/// weiter auf. Bei Enter (statt Klick auf „Übernehmen") griff dieser
+/// Aufbau auf einen bereits entsorgten Controller zu. Als eigenes
+/// State-Objekt wird er erst entsorgt, wenn die Route wirklich weg
+/// ist.
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({required this.title, this.preset = ''});
+
+  final String title;
+  final String preset;
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.preset);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Name',
+          hintText: 'z. B. Burgenspiel',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (v) => Navigator.of(context).pop(v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('Übernehmen'),
         ),
       ],
     );

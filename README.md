@@ -21,6 +21,12 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
 - **Qualität wählbar**: Auto / Niedrig / Mittel / Hoch.
 - **Transparenter Hintergrund** (für Logos & Icons, PNG/WebP) – mit
   Schachbrett-Vorschau.
+- **Wartegrafik je Modell**: Solange gerechnet wird, zeichnet ein
+  Motiv, das zum arbeitenden Modell gehört — Nano Banana eine Banane,
+  Stable Diffusion das Hugging-Face-Gesicht, GPT-Image eine Rosette,
+  die eigene GPU einen Chip, die Schnellmodelle einen Blitz. Der
+  Zeichner entsteht Punkt für Punkt, und auf seiner Leinwand
+  verdichtet sich eine zweite Punktwolke zu einem Bild.
 - **Profi-Features**:
   - Drei Provider: **OpenAI GPT Image**, **Stability AI Stable Image**
     (Core/Ultra) und **Google Gemini** („Nano Banana“ / „Nano Banana Pro“
@@ -886,6 +892,11 @@ anlegt, will ihn benutzen. Angelegte Ordner bleiben gespeichert.
 Die Ordnerleiste steht auch über der noch leeren Galerie — wer die
 Ablage vorbereiten will, bevor das erste Bild da ist, kommt sonst nicht
 an den Knopf.
+Nach dem Anlegen bleibt die Ansicht stehen, wo sie war. Die erste
+Fassung wechselte gleich hinein — in der Hand ist das falsch herum:
+Nach Enter stand man in einem leeren Ordner, ohne die Kacheln, die man
+gerade einsortieren wollte. Der neue Ordner steht in der Leiste, und
+der Hinweis bietet „Öffnen" an.
 
 **Kacheln markieren.** Der Knopf **„Auswählen"** über der Liste
 schaltet den Auswahlmodus ein: Jede Kachel trägt dann ein Kästchen,

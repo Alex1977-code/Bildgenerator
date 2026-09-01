@@ -21,6 +21,7 @@ import '../services/quality_preset.dart';
 import '../services/provenance.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
+import '../services/wait_motif.dart';
 import '../services/watermark.dart';
 import '../widgets/common.dart';
 import '../widgets/cost_quality_panel.dart';
@@ -2502,6 +2503,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         ? Duration.zero
         : DateTime.now().difference(_runStart!);
     return GenerationProgress(
+      // Das Wartemotiv gehört zum Modell, das gerade rechnet.
+      motif: waitMotifFor(
+          settings.provider, settings.modelFor(settings.provider)),
       preview: _preview,
       step: _previewStep,
       totalSteps: _previewTotal,
