@@ -58,6 +58,8 @@ class AssetSpec {
     this.watertight = true,
     this.parts = const {},
     this.meshNames = const [],
+    this.marketplace = false,
+    this.expectsRig = true,
     this.source = '',
     this.checked,
   });
@@ -83,6 +85,19 @@ class AssetSpec {
 
   /// Die Namen der Teil-Meshes, wenn es welche gibt.
   final List<String> meshNames;
+
+  /// Ob zusätzlich die **Marktplatz-Regeln** gelten – Tiefe, Hals,
+  /// getrennte Beine. Die stehen nirgends und sind am Validator
+  /// gemessen; siehe `roblox_marketplace.dart`.
+  final bool marketplace;
+
+  /// Ob ein Skelett erwartet wird.
+  ///
+  /// Für den Marktplatz-Weg über Roblox' Auto Setup ist **kein**
+  /// Skelett richtig: Auto Setup baut sein eigenes, und das Tripo-Rig
+  /// würde ohnehin verworfen. Die Prüfung darf dort also nicht
+  /// „ohne Skelett" bemängeln.
+  final bool expectsRig;
 
   /// Woher die Zahlen stammen.
   final String source;
@@ -277,6 +292,8 @@ RobloxSpecs parseRobloxSpecs(String source) {
           for (final n in (wert['meshNames'] as List? ?? const []))
             if (n is String) n,
         ],
+        marketplace: wert['marketplace'] == true,
+        expectsRig: wert['expectsRig'] != false,
         texture: TextureBudget.from(
             wert['texture'] as Map<String, dynamic>?,
             rueckfall?.texture ??

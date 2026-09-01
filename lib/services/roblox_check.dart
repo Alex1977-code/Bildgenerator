@@ -29,24 +29,39 @@ enum RobloxTarget {
 
   /// UGC-Accessoire (Hut, Rucksack, Haare …): hart 4.000 Dreiecke.
   accessory,
+
+  /// Marktplatz-Avatar über Roblox' Auto Setup.
+  ///
+  /// Ein eigenes Ziel, weil hier drei Dinge **anders** gelten als im
+  /// eigenen Erlebnis: Es soll **kein** Skelett in der Datei sein
+  /// (Auto Setup baut sein eigenes und verwirft ein mitgebrachtes),
+  /// das Budget wird je Körpergruppe gerechnet statt je Mesh, und ein
+  /// erkennbarer Hals ist Pflicht, weil Auto Setup sonst die Grenze
+  /// zwischen Kopf und Rumpf nicht findet.
+  marketplaceAvatar,
 }
 
 extension RobloxTargetLabel on RobloxTarget {
   String get label => switch (this) {
         RobloxTarget.character => 'Figur oder Prop',
         RobloxTarget.accessory => 'UGC-Accessoire',
+        RobloxTarget.marketplaceAvatar => 'Marktplatz-Avatar',
       };
 
   /// Grenze, ab der der Importer ablehnt.
   int get hardTriangles => switch (this) {
         RobloxTarget.character => robloxMaxTriangles,
         RobloxTarget.accessory => robloxAccessoryTriangles,
+        // Der Importer deckelt auch hier je Mesh; die schärfere
+        // Marktplatz-Grenze steht als eigene Zeile im Bericht.
+        RobloxTarget.marketplaceAvatar => robloxMaxTriangles,
       };
 
   /// Arbeitsziel – darunter läuft das Modell im Spiel flüssig.
   int get goalTriangles => switch (this) {
         RobloxTarget.character => robloxGoalTriangles,
         RobloxTarget.accessory => robloxAccessoryTriangles,
+        RobloxTarget.marketplaceAvatar => specBodyTotalTriangles,
       };
 }
 
@@ -131,8 +146,19 @@ class RobloxTexture {
   final int height;
   final String mimeType;
 
+  /// Über der **harten** Grenze: Darüber nimmt der Marktplatz das
+  /// Bild nicht an.
+  ///
+  /// Hier stand [robloxMaxTexture] (1024) – und damit meldete die
+  /// Prüfung ein 2048er-Bild als Blocker, obwohl der Importer bis
+  /// 4096 nimmt und der Marktplatz bis 2048. Ein 2048er-Bild ist also
+  /// nicht falsch, nur nicht optimal.
   bool get tooLarge =>
-      width > robloxMaxTexture || height > robloxMaxTexture;
+      width > specMarketplaceTexture || height > specMarketplaceTexture;
+
+  /// Über der Zielgröße für den UV-Raum, aber noch zulässig.
+  bool get overTarget =>
+      !tooLarge && (width > robloxMaxTexture || height > robloxMaxTexture);
 }
 
 /// Die aus der Datei abgelesenen Zahlen.
@@ -308,11 +334,11 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             'lassen: Der Knopf „Bei Tripo3D nachrechnen" schickt es '
             'zurück und holt es mit Dreiecks- und Texturgrenze wieder '
             '– UVs und Textur bleiben erhalten, weil derselbe Dienst '
-            'rechnet. Nur wenn auch das nicht geht, bleibt Blender '
-            '(„Decimate"). In der App selbst lassen sich die Dreiecke '
-            'nicht senken, ohne UV-Nähte und damit die Textur zu '
-            'zerstören. Achtung bei Quad-Netzen: Jedes Viereck wird zu '
-            'zwei Dreiecken.$sum'));
+            'rechnet. Oder gleich hier: Der Dreiecksbudget-Regler im '
+            'Viewer (Tacho-Symbol) reduziert jede GLB und nimmt die '
+            'UVs mit – ein Skelett übersteht das allerdings nicht, '
+            'also vorher reduzieren und danach riggen. Achtung bei '
+            'Quad-Netzen: Jedes Viereck wird zu zwei Dreiecken.$sum'));
   } else if (largest > goal) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,
@@ -326,6 +352,29 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         label,
         'Innerhalb des Arbeitsziels von ${_n(goal)} je Mesh für '
             '${target.label}.$sum'));
+  }
+
+  // 1b. Für den Marktplatz zählt eine zweite Rechnung: nicht je Mesh,
+  // sondern je Körpergruppe. Eine Hand mit 1.374 Dreiecken sprengt
+  // das Budget des ganzen Arms (1.248), ohne dass irgendeine
+  // Mesh-Grenze reißt.
+  if (target == RobloxTarget.marketplaceAvatar) {
+    final gesamt = facts.triangles;
+    final teile = [
+      for (final e in specBodyPartTriangles.entries) '${e.key} ${_n(e.value)}',
+    ].join(', ');
+    findings.add(RobloxFinding(
+        gesamt > specBodyTotalTriangles
+            ? RobloxLevel.blocker
+            : RobloxLevel.ok,
+        'Marktplatz-Budget: ${_n(gesamt)} von '
+            '${_n(specBodyTotalTriangles)}',
+        'Der Marktplatz rechnet je Körpergruppe: $teile. Solange die '
+            'Figur ein einziges Netz ist, lässt sich nur die Summe '
+            'prüfen; nach der Zerlegung in 15 Meshes nennt der Bericht '
+            'jede Gruppe einzeln. Erfahrungswert: Ausmodellierte '
+            'Finger sprengen den Arm zuerst – „rounded mitten stumps '
+            'without separate fingers" in den Prompt.'));
   }
 
   // 2. Ein Material je Mesh – auch das zählt je Mesh, nicht im Modell.
@@ -370,8 +419,10 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         'Uneinheitliche Wicklung: ${_n(facts.reversedEdges)} Kanten',
         'An diesen Kanten stoßen gegenläufig gewickelte Dreiecke '
             'aneinander – solche Flächen sind im Spiel von außen '
-            'unsichtbar (Backfaces). In Blender im Edit-Modus alles '
-            'auswählen und Mesh → Normals → Recalculate Outside.'));
+            'unsichtbar (Backfaces). **Das macht die App selbst**: '
+            '„Für Roblox anpassen" vereinheitlicht die Wicklung und '
+            'rechnet die Normalen neu. Blender braucht es dafür nicht '
+            'mehr.'));
   } else if (facts.signedVolume < 0) {
     findings.add(const RobloxFinding(
         RobloxLevel.warning,
@@ -463,17 +514,31 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     final biggest = facts.textures
         .map((t) => t.width > t.height ? t.width : t.height)
         .reduce((a, b) => a > b ? a : b);
+    final ueberZiel = facts.textures.where((t) => t.overTarget).toList();
     if (tooLarge.isNotEmpty) {
       findings.add(RobloxFinding(
           RobloxLevel.blocker,
           'Textur zu groß: $biggest px',
-          'Roblox nimmt höchstens $robloxMaxTexture×$robloxMaxTexture. '
+          'Über $specMarketplaceTexture×$specMarketplaceTexture nimmt '
+              'der Marktplatz das Bild nicht an. '
               '${tooLarge.length} von ${facts.textures.length} Bildern '
               'liegen darüber. Das lässt sich hier beheben: Der Knopf '
               '„Texturen auf $robloxMaxTexture verkleinern" unten '
               'rechnet sie herunter und packt die GLB neu. Beim '
               'lokalen Generator gleich den Textur-Modus '
               '„Atlas $robloxMaxTexture" wählen.'));
+    } else if (ueberZiel.isNotEmpty) {
+      // Hier stand ein Blocker ab 1024. Das war falsch: Der Importer
+      // nimmt bis 4096, der Marktplatz bis 2048. Die 1024 sind die
+      // empfohlene UV-Fläche, kein Ablehnungsgrund.
+      findings.add(RobloxFinding(
+          RobloxLevel.hint,
+          'Textur: $biggest px – größer als nötig',
+          'Zulässig bis $specMarketplaceTexture; empfohlen sind '
+              '$robloxMaxTexture für den UV-Raum. Es geht also durch, '
+              'kostet aber Speicher und Ladezeit, ohne sichtbar besser '
+              'auszusehen. Der Knopf „Texturen auf $robloxMaxTexture '
+              'verkleinern" nimmt es herunter.'));
     } else {
       findings.add(RobloxFinding(
           RobloxLevel.ok,
@@ -503,12 +568,12 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             '${robloxCharacterStuds.toStringAsFixed(0)} Studs hoch.';
     final detail = 'Das Modell ist ${height.toStringAsFixed(2)} '
         'glTF-Einheiten hoch, und genau so viele Studs werden daraus: '
-        'Der Importer rechnet die Datei in Meter um und setzt einen '
-        'Meter gleich einem Stud. $ziel Der Knopf „Für Roblox '
-        'vorbereiten" bringt eine Figur von sich aus auf '
-        '${robloxCharacterStuds.toStringAsFixed(0)} Studs; von Hand '
-        'geht es in Blender (Objekt skalieren, Transformation '
-        'einfrieren).';
+        'Der Importer setzt eine Datei-Einheit gleich einem Stud. '
+        '$ziel Der Knopf „Für Roblox anpassen" bringt eine Figur von '
+        'sich aus auf ${robloxCharacterStuds.toStringAsFixed(0)} '
+        'Studs. Tripos Schalter „auto_size" tut das **nicht** – ein '
+        'Lauf damit kam mit 1,00 Einheiten zurück; er sorgt nur für '
+        'eine Größenordnung, nicht für das Maß.';
     final plausible = target == RobloxTarget.accessory
         ? studs > 0.2 && studs < 8
         : studs > robloxCharacterStuds * 0.5 &&
@@ -528,12 +593,35 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     findings.add(RobloxFinding(
         RobloxLevel.ok,
         'Ohne Skelett',
-        target == RobloxTarget.accessory
-            ? 'Richtig so: Ein Accessoire wie Hut, Frisur oder '
-                'Rucksack ist ein starres Netz. Beim Import „No Rig" '
-                'wählen.'
-            : 'Beim Import „No Rig" wählen. Für Props ist das richtig; '
-                'eine animierbare Figur braucht ein Skelett.'));
+        switch (target) {
+          RobloxTarget.accessory =>
+            'Richtig so: Ein Accessoire wie Hut, Frisur oder Rucksack '
+                'ist ein starres Netz. Beim Import „No Rig" wählen.',
+          // Hier stand für jedes Ziel „eine animierbare Figur braucht
+          // ein Skelett". Für den Marktplatz-Weg ist das falsch: Auto
+          // Setup baut sein eigenes Rig und verwirft ein
+          // mitgebrachtes – das rohe Netz ist dort das saubere.
+          RobloxTarget.marketplaceAvatar =>
+            'Richtig so für den Marktplatz-Weg: Roblox\' Auto Setup '
+                'zerlegt das Netz selbst in 15 Teile, baut das '
+                'R15-Rig, häutet, setzt Cages und Attachments und '
+                'erzeugt den Gesichtsrig. Ein mitgebrachtes Skelett '
+                'würde dabei ohnehin verworfen. Bei Tripo also **ohne** '
+                'Rigging erzeugen.',
+          RobloxTarget.character =>
+            'Beim Import „No Rig" wählen. Für Props ist das richtig; '
+                'eine animierbare Figur im eigenen Erlebnis braucht '
+                'ein Skelett.',
+        }));
+  } else if (target == RobloxTarget.marketplaceAvatar) {
+    findings.add(RobloxFinding(
+        RobloxLevel.warning,
+        'Skelett für den Marktplatz-Weg',
+        'Das Modell trägt ${facts.boneCount} Bones. Auto Setup baut '
+            'sein eigenes R15-Rig und verwirft dieses – das rohe Netz '
+            'wäre sauberer. Für die Startfigur im eigenen Erlebnis ist '
+            'das Skelett dagegen genau richtig; dann ist hier das Ziel '
+            '„Figur oder Prop" das passende.'));
   } else if (target == RobloxTarget.accessory) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,

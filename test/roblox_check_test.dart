@@ -85,7 +85,10 @@ void main() {
       final blocker = _blockers(findings).first;
       expect(blocker.title, contains('240.000'));
       expect(blocker.detail, contains('20.000'));
-      expect(blocker.detail, contains('Decimate'));
+      // Der Text muss den Weg nennen, den es in der App wirklich
+      // gibt – „Decimate in Blender" stand dort, seit es den
+      // Dreiecksbudget-Regler noch nicht gab.
+      expect(blocker.detail, contains('Dreiecksbudget-Regler'));
     });
 
     test('Zwischen Ziel und Grenze gibt es nur eine Warnung', () {
@@ -183,11 +186,23 @@ void main() {
       expect(_text(findings), contains('außerhalb 0–1'));
     });
 
-    test('Texturen über 1024 px blockieren', () {
-      final findings = checkRobloxFacts(
+    test('Erst über 2048 px blockiert eine Textur', () {
+      // Hier blockierte alles über 1024 – falsch: Der Importer nimmt
+      // bis 4096, der Marktplatz bis 2048. Die 1024 sind die
+      // empfohlene UV-Fläche, kein Ablehnungsgrund.
+      final gross = checkRobloxFacts(
+          _good(textures: const [RobloxTexture(4096, 4096, 'image/png')]),
+          RobloxTarget.character);
+      expect(_text(_blockers(gross)), contains('2048'));
+
+      final zweiK = checkRobloxFacts(
           _good(textures: const [RobloxTexture(2048, 2048, 'image/png')]),
           RobloxTarget.character);
-      expect(_text(_blockers(findings)), contains('2048'));
+      expect(_blockers(zweiK), isEmpty);
+      final hinweis =
+          zweiK.firstWhere((f) => f.title.startsWith('Textur:'));
+      expect(hinweis.level, RobloxLevel.hint);
+      expect(hinweis.detail, contains('1024'));
     });
 
     test('Rig-Regeln: Einflüsse, Transformationen, Wurzelknochen', () {
@@ -274,7 +289,9 @@ void main() {
         () {
       final mixed =
           checkRobloxFacts(_good(reversedEdges: 12), RobloxTarget.character);
-      expect(_text(mixed), contains('Recalculate Outside'));
+      // Die App dreht die Wicklung selbst um; der Verweis auf
+      // Blender war überholt.
+      expect(_text(mixed), contains('Für Roblox anpassen'));
       final inverted = checkRobloxFacts(
           _good(signedVolume: -0.05), RobloxTarget.character);
       expect(_text(inverted), contains('nach innen'));
@@ -323,7 +340,7 @@ void main() {
       final zuKlein =
           klein.firstWhere((f) => f.title.startsWith('Größe:'));
       expect(zuKlein.level, RobloxLevel.warning);
-      expect(zuKlein.detail, contains('Für Roblox vorbereiten'));
+      expect(zuKlein.detail, contains('Für Roblox anpassen'));
 
       // Ein Hut misst rund einen Stud – als Accessoire in Ordnung.
       final hut = checkRobloxFacts(

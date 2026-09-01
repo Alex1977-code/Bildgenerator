@@ -157,9 +157,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Tripos `auto_size`: bringt das Modell auf eine plausible
   /// Weltgröße, statt es in beliebigem Maßstab zu liefern.
   ///
-  /// Der Roblox-Importer rechnet glTF-Einheiten als Meter. Eine Figur
-  /// mit 0,98 Einheiten landet dort bei 3,5 Studs – ein
-  /// Standard-Charakter ist rund 5 Studs hoch.
+  /// **Es ersetzt das Skalieren nicht.** Ein Lauf mit `auto_size`
+  /// lieferte eine Figur von 1,00 Einheiten – der Importer setzt eine
+  /// Einheit gleich einem Stud, das wäre also ein Stud hoch statt der
+  /// üblichen fünf. Die Figur auf 5,0 zu bringen bleibt Sache der App
+  /// („Für Roblox anpassen"); `auto_size` sorgt nur dafür, dass der
+  /// Maßstab überhaupt in einer sinnvollen Größenordnung liegt.
   bool _tripoAutoSize = false;
   bool _pbr = true;
   String _tripoVersion = '';
@@ -403,8 +406,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           // Bilder (Basecolor, Normal, Metallic-Roughness) – die
           // beiden zusätzlichen kosten nur Grenze und Ladezeit.
           _pbr = false;
-          // Ohne Maßstab kam die Figur mit 0,98 Einheiten, im
-          // Importer also 3,5 Studs statt der üblichen 5.
+          // Ohne Maßstab kommt der Maßstab willkürlich. Auf 5 Studs
+          // bringt die Figur trotzdem erst „Für Roblox anpassen" –
+          // gemessen kam auch mit auto_size 1,00 Einheiten zurück.
           _tripoAutoSize = true;
           _localTextureMode = 'atlas1024';
           _symmetryMode = 'auto';

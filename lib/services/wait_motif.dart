@@ -244,22 +244,110 @@ final List<MotifStroke> _bildStern = [
 
 /// Die Banane – Nano Banana.
 ///
-/// Die Sichel entsteht aus zwei Bögen um denselben Mittelpunkt: dem
-/// äußeren Bauch und dem inneren Rücken. Die erste Fassung nahm zwei
-/// Bögen mit verschobenen Mittelpunkten und legte sie beide über die
-/// untere Hälfte – herausgekommen ist ein Lächeln, keine Banane.
-final List<MotifStroke> _banane = [
-  MotifStroke([
-    ..._arc(0, -0.35, 0.85, 0.85, 160, 20),
-    ..._arc(0, -0.35, 0.58, 0.58, 20, 160),
-  ], closed: true),
-  // Der Stiel an der linken Spitze.
-  MotifStroke([
-    Offset(-0.72, -0.1),
-    Offset(-0.85, -0.24),
-    Offset(-0.8, -0.4),
-  ], weight: 1.6),
-];
+/// Zwei Anläufe waren nötig. Der erste legte zwei Bögen mit
+/// verschobenen Mittelpunkten über die untere Hälfte – heraus kam ein
+/// Lächeln. Der zweite nahm zwei Bögen um denselben Mittelpunkt: eine
+/// gleichmäßig dicke Sichel mit stumpfen Enden, also eine Schale.
+///
+/// Diese Fassung baut die Banane aus einer **Mittellinie mit
+/// veränderlicher Dicke**: In der Mitte ist sie am dicksten, zu beiden
+/// Enden läuft sie auf null – erst dadurch bekommt sie Spitzen statt
+/// abgeschnittener Kanten. Dazu kommen die drei Dinge, die eine
+/// gezeichnete Frucht körperlich wirken lassen und die den anderen
+/// Motiven ihre Tiefe geben: eine **Längskante** auf dem Bauch (an ihr
+/// sieht man die Rundung), die **Schnittfläche** am Stielansatz als
+/// Ellipse, und ein Stiel mit eigener Breite statt eines Strichs.
+List<MotifStroke> _bananeBauen() {
+  // Mittelpunkt des Bogens liegt über der Frucht: Die Banane hängt
+  // mit beiden Spitzen nach oben, der Bauch nach unten.
+  const cx = 0.02, cy = -0.50, r = 0.78;
+  const von = 26.0, bis = 170.0;
+  const dicke = 0.25;
+  const schritte = 26;
+
+  double bogen(double grad) => grad * math.pi / 180;
+
+  /// Ein Punkt auf der Banane. [s] läuft von 0 (Stielspitze) bis 1
+  /// (Blütenspitze), [faktor] von -1 (Rücken) über 0 (Mittellinie)
+  /// bis 1 (Bauch).
+  Offset auf(double s, double faktor) {
+    final w = bogen(bis + (von - bis) * s);
+    // Die Verjüngung: sin hoch 0,55 bleibt in der Mitte lange dick
+    // und fällt erst kurz vor den Spitzen ab.
+    final t = dicke * math.pow(math.sin(math.pi * s), 0.55).toDouble();
+    final radius = r + t * faktor;
+    return Offset(cx + radius * math.cos(w), cy + radius * math.sin(w));
+  }
+
+  final umriss = <Offset>[
+    for (var i = 0; i <= schritte; i++) auf(i / schritte, 1),
+    for (var i = schritte; i >= 0; i--) auf(i / schritte, -1),
+  ];
+
+  // Der Stiel sitzt an der oberen Spitze und zeigt in Verlängerung
+  // der Mittellinie weiter.
+  final spitze = auf(0, 0);
+  final davor = auf(0.06, 0);
+  final richtung = spitze - davor;
+  final laenge = richtung.distance;
+  final dir = laenge <= 0
+      ? const Offset(-0.4, -0.9)
+      : Offset(richtung.dx / laenge, richtung.dy / laenge);
+  final quer = Offset(-dir.dy, dir.dx);
+  Offset stiel(double weit, double seite) => Offset(
+        spitze.dx + dir.dx * weit + quer.dx * seite,
+        spitze.dy + dir.dy * weit + quer.dy * seite,
+      );
+
+  return [
+    MotifStroke(umriss, closed: true),
+    // Die Längskante auf dem Bauch – an ihr sieht man, dass die
+    // Frucht rund ist und nicht flach.
+    MotifStroke([
+      for (var i = 0; i <= 16; i++) auf(0.14 + (0.72 * i / 16), 0.42),
+    ], weight: 0.8),
+    // Eine zweite, kürzere Kante zum Rücken hin: zwei Kanten neben
+    // der Kontur lesen sich als Wölbung, eine allein als Strich.
+    MotifStroke([
+      for (var i = 0; i <= 12; i++) auf(0.26 + (0.46 * i / 12), -0.62),
+    ], weight: 0.7),
+    // Der Stiel, mit Breite statt als Strich.
+    MotifStroke([
+      stiel(0.02, 0.055),
+      stiel(0.20, 0.035),
+      stiel(0.20, -0.035),
+      stiel(0.02, -0.055),
+    ], closed: true, weight: 1.3),
+    // Die Schnittfläche oben auf dem Stiel – der deutlichste
+    // Tiefenhinweis, weil man dem Körper ins Innere sieht.
+    MotifStroke([
+      for (var i = 0; i <= 10; i++)
+        () {
+          final w = bogen(i * 36.0);
+          return Offset(
+            stiel(0.21, 0).dx + 0.055 * math.cos(w) * dir.dy.abs() +
+                0.03 * math.cos(w) * dir.dx.abs(),
+            stiel(0.21, 0).dy + 0.028 * math.sin(w),
+          );
+        }(),
+    ], closed: true, weight: 1.5),
+    // Die Blütenspitze am unteren Ende – in Verlängerung der
+    // Mittellinie, nicht in eine beliebige Richtung.
+    () {
+      final ende = auf(1, 0);
+      final vorher = auf(0.94, 0);
+      final weg = ende - vorher;
+      final l = weg.distance;
+      final e = l <= 0 ? const Offset(0.9, -0.4) : weg / l;
+      return MotifStroke([
+        ende,
+        Offset(ende.dx + e.dx * 0.09, ende.dy + e.dy * 0.09),
+      ], weight: 1.8);
+    }(),
+  ];
+}
+
+final List<MotifStroke> _banane = _bananeBauen();
 
 /// Das umarmende Gesicht – Hugging Face, wo die Stable-Diffusion-
 /// Gewichte liegen.

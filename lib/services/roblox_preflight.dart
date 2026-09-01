@@ -21,8 +21,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'glb_preview.dart' show splitGlb;
+import 'glb_preview.dart' show splitGlb, parseGlbForPreview;
 import 'roblox_check.dart';
+import 'roblox_marketplace.dart';
 import 'roblox_specs_config.dart';
 
 /// Wie schwer ein Befund wiegt.
@@ -231,11 +232,32 @@ Future<PreflightReport> preflightGlb(
 }) async {
   final facts = await readRobloxFacts(glb);
   final names = readGlbNodeNames(glb);
+
+  // Die Marktplatz-Regeln brauchen die Geometrie, nicht nur die
+  // Kennzahlen – Tiefe, Hals und getrennte Beine liest man nur am
+  // Querschnitt ab.
+  var marktplatz = const <MarketplaceFinding>[];
+  if (spec.marketplace) {
+    try {
+      final mesh = await parseGlbForPreview(glb);
+      try {
+        marktplatz = checkMarketplaceFigure(
+            measureMarketplaceFigure(mesh.positions, mesh.indices));
+      } finally {
+        mesh.dispose();
+      }
+    } catch (_) {
+      // Eine Datei, die sich nicht zeichnen lässt, scheitert schon an
+      // den Regeln davor; hier still weiter statt abbrechen.
+    }
+  }
+
   return buildPreflightReport(
     facts: facts,
     names: names,
     spec: spec,
     specs: specs ?? robloxSpecs,
+    marketplace: marktplatz,
   );
 }
 
@@ -246,6 +268,7 @@ PreflightReport buildPreflightReport({
   required GlbNodeNames names,
   required AssetSpec spec,
   required RobloxSpecs specs,
+  List<MarketplaceFinding> marketplace = const [],
 }) {
   final issues = <PreflightIssue>[];
 
@@ -259,6 +282,26 @@ PreflightReport buildPreflightReport({
         reason: reason,
         rank: rank,
         fix: fix));
+  }
+
+  // --- Marktplatz zuerst ----------------------------------------
+  // Rang −1: Eine zu tiefe Figur ist für den Marktplatz verloren,
+  // bevor Attachments oder Budget überhaupt zählen. Und anders als
+  // alles andere lässt sich das hier **nicht reparieren** – es
+  // entsteht beim Prompt.
+  for (final f in marketplace) {
+    if (f.level == MarketplaceLevel.ok) continue;
+    add(
+      'markt_${f.id}',
+      f.level == MarketplaceLevel.fehler
+          ? PreflightSeverity.fehler
+          : PreflightSeverity.warnung,
+      f.title,
+      '${f.reason}\n\nGemessen am Marktplatz-Validator '
+          '($marketplaceMeasuredOn); in Roblox\' Dokumentation steht '
+          'diese Grenze nicht.',
+      -1,
+    );
   }
 
   // --- 0. Attachments -------------------------------------------

@@ -90,6 +90,43 @@ void main() {
     });
   });
 
+  group('Die Banane', () {
+    final banane = waitMotifs['banane']!.artist;
+
+    test('läuft an beiden Enden spitz zu', () {
+      // Der Unterschied zwischen einer Banane und einer Schale: Eine
+      // gleichmäßig dicke Sichel hat stumpfe Enden. Gemessen wird die
+      // Dicke als Abstand zwischen Bauch- und Rückenpunkt.
+      final umriss = banane.first.points;
+      final halb = umriss.length ~/ 2;
+      double dicke(int i) =>
+          (umriss[i] - umriss[umriss.length - 1 - i]).distance;
+      expect(dicke(0), lessThan(0.05), reason: 'Stielspitze zu stumpf');
+      expect(dicke(halb - 1), lessThan(0.05),
+          reason: 'Blütenspitze zu stumpf');
+      expect(dicke(halb ~/ 2), greaterThan(0.3),
+          reason: 'in der Mitte zu dünn');
+    });
+
+    test('trägt die Kanten und die Schnittfläche, die sie körperlich '
+        'machen', () {
+      // Kontur, zwei Längskanten, Stiel, Schnittfläche, Blütenspitze.
+      expect(banane.length, 6);
+      final geschlossen = banane.where((s) => s.closed).length;
+      // Kontur, Stiel und Schnittfläche sind geschlossen.
+      expect(geschlossen, 3);
+    });
+
+    test('bleibt im Zeichenbereich', () {
+      for (final strich in banane) {
+        for (final p in strich.points) {
+          expect(p.dx.abs(), lessThanOrEqualTo(1.0));
+          expect(p.dy.abs(), lessThanOrEqualTo(1.0));
+        }
+      }
+    });
+  });
+
   group('Zuordnung zum Modell', () {
     test('Jeder Anbieter hat sein Motiv', () {
       expect(waitMotifFor(GenProvider.gemini, 'gemini-2.5-flash-image').id,

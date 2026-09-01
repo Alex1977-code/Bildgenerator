@@ -1288,6 +1288,124 @@ Knochen der neue Punkt gehört. Reihenfolge also: erst reduzieren, dann
 riggen. Texturen überstehen es dagegen — die UV-Koordinaten werden wie
 Position und Farbe gemittelt.
 
+### Modul 3: Zerlegung in die 15 R15-Meshes
+
+Roblox nimmt einen Figurenkörper nicht als ein Netz an. Er will 15
+benannte Meshes (`Head_Geo`, `UpperTorso_Geo`, …), alle an dasselbe
+R15-Skelett gehäutet. Die KI liefert dagegen **ein** Netz — und das ist
+richtig so, denn nur daran lassen sich Skin-Gewichte sinnvoll erzeugen.
+
+Die App macht aus dem einen die fünfzehn. Maßstab ist das Gewicht:
+Jedes Dreieck kommt zu dem Teil, dessen Knochen an seinen drei Ecken am
+schwersten wiegt. Kein Punkt wird verschoben, kein Dreieck geteilt — die
+Naht liegt genau dort, wo die Häutung sie ohnehin hat. Über die drei
+Ecken zu summieren statt je Ecke zu entscheiden verhindert einzelne
+Dreiecke, die mitten in einer Fläche ins Nachbarteil springen.
+
+**Zwischenknochen sind unschädlich.** Tripo liefert 43 Knochen, von
+denen 16 R15-Namen tragen; `tripo::Spine_1` und Geschwister werden auf
+ihren nächsten R15-Vorfahren zurückgeführt. An einer echten Figur waren
+das 27 Knochen — und kein einziges Dreieck blieb ohne Zuordnung.
+
+Nachgeprüft durch Import in Blender: 15 Objekte, jedes mit
+Armature-Modifier am selben Skelett, UVs erhalten, Gesamtmaße
+unverändert.
+
+**Das Budget rechnet Roblox je Gruppe, nicht je Mesh** — Kopf 4.000,
+Torso 1.750 (Ober + Unter), je Arm 1.248 (Ober + Unter + Hand), je Bein
+1.248. Genau daran scheitert eine Figur, an der keine Mesh-Grenze
+reißt:
+
+| Gruppe | Kapuzzee | Budget |
+| --- | --- | --- |
+| DynamicHead | 1.816 | 4.000 |
+| Torso | 1.330 | 1.750 |
+| LeftArm | **1.956** | 1.248 |
+| RightArm | **1.968** | 1.248 |
+| LeftLeg | 1.240 | 1.248 |
+| RightLeg | 1.237 | 1.248 |
+
+Die Arme reißen es, weil Tripo Finger ausmodelliert: 1.292 und 1.382
+Dreiecke allein für die Hände. Deshalb prüft die App zusätzlich den
+**Handanteil** (höchstens 1.000 für beide zusammen). Die Abhilfe steht
+im Prompt, nicht im Netz — `rounded mitten stumps without separate
+fingers` nimmt der Hand zwei Drittel ihrer Dreiecke. Nachträglich zu
+dezimieren zerstört gerade an der Hand die Form.
+
+### Marktplatz: die Regeln, die nirgends stehen
+
+Eine Figur kann im eigenen Erlebnis tadellos laufen und trotzdem vom
+Marktplatz abgelehnt werden. Diese Grenzen stehen **nicht in Roblox'
+Dokumentation**; sie sind am Validator gemessen (Stand 31.08.2026), teils
+aus dessen Quelltext (`UGCValidation/flags/`). Alle Werte bei 5 Studs
+Figurenhöhe:
+
+| Regel | Grenze |
+| --- | --- |
+| Tiefe (kleinere waagerechte Achse) | höchstens **2,00** |
+| Bein-Breite je Seite | höchstens **1,50** |
+| Bein-Tiefe je Seite | höchstens **2,00** |
+| Rumpfbreite | mindestens **2,54** |
+| Armspanne | mindestens **6,22** |
+
+Dazu drei Prüfungen, die **ohne Skelett** auf der Gesamtfigur laufen:
+
+- **Tiefe.** Reißt sie, ist die Figur für den Marktplatz verloren, egal
+  was danach kommt — flach drücken geht nicht, ohne sie zu verformen.
+- **Hals.** Die schmalste Stelle zwischen Kopf und Schulter muss
+  höchstens **50 %** der Kopfbreite messen. Die Zahl kommt aus einem
+  gescheiterten Lauf: Eine Figur mit 59 % wurde von Auto Setup
+  segmentiert, als gehörte die Kapuze bis zu den Schultern zum Kopf —
+  heraus kam ein „Head" von 3,75 Studs Breite.
+- **Bein-Breite.** Höchstens 1,50 je Seite, gemessen an der breitesten
+  Insel unterhalb der Hüfte. Zu breit heißt fast immer: Es ist gar nicht
+  das Bein, sondern ein Saum, der mitgemessen wird.
+- **Getrennte Beine.** In den unteren 45 % der Höhe muss der Querschnitt
+  in mindestens 80 % der Höhenbänder in zwei Inseln zerfallen. Was beide
+  Beine verbindet, ist fast immer ein Saum — er bläht den Hüllkörper des
+  Beins auf, während das Bein darin dünn bleibt, und reißt Deckung und
+  die Regel `LegsSeparated` zugleich.
+
+Gemessen wird an **Dreiecken, nicht an Punkten**. Der erste Anlauf
+zählte nur Vertices, und an einer grob unterteilten Stelle zerfiel ein
+einzelnes Bein in sieben „Inseln": Ein Dreieck, das ein Höhenband
+überspannt, hat dort gar keinen Punkt.
+
+Die **Armspanne wird als größere waagerechte Achse bestimmt**, nicht als
+x angenommen. Ein Lauf kam mit der Armspanne auf z herein; wer x
+voraussetzt, misst dann die Tiefe als Breite und lässt eine abgelehnte
+Figur durchgehen.
+
+An der Figur „Kapuzzee" gemessen: Tiefe 2,45 (Grenze 2,00), Armspanne
+6,22, kein Hals, Beine zu 45 % getrennt — genau die Punkte, an denen der
+Marktplatz sie abgewiesen hat.
+
+**Diese Fehler entstehen beim Prompt, nicht beim Export.** Die Prüfung
+ist deshalb vor allem eine Frühwarnung: Sie sagt, dass der nächste Lauf
+einen anderen Prompt braucht. Jeder Befund nennt den Textbaustein dazu.
+
+### Vier Aussagen der Roblox-Prüfung, die falsch waren
+
+Der Prüf-Dialog kannte bisher nur die Importer-Regeln. Vier seiner
+Aussagen stimmten für den Marktplatz-Weg nicht:
+
+| Was dort stand | Was stimmt |
+| --- | --- |
+| „Textur zu groß: 2048 — höchstens 1024", blockiert | Der Importer nimmt bis 4096, der Marktplatz bis 2048. Erst darüber wird blockiert; 1024–2048 ist ein Hinweis |
+| „Ohne Skelett — eine animierbare Figur braucht ein Skelett" | Für den Marktplatz-Weg ist **kein** Skelett richtig: Auto Setup baut sein eigenes und verwirft ein mitgebrachtes |
+| „57 gegenläufige Kanten — in Blender beheben" | Die App dreht die Wicklung selbst um („Für Roblox anpassen") |
+| „In der App lassen sich die Dreiecke nicht senken" | Seit dem Dreiecksbudget-Regler doch — und die UVs bleiben erhalten |
+
+Dazu ein Widerspruch: Die Prüfung sagte „eine Einheit ist ein Stud", die
+Einstellungen versprachen „auto_size → 5 Studs". Gemessen kam mit
+`auto_size` eine Figur von 1,00 Einheiten zurück. `auto_size` sorgt für
+eine Größenordnung, nicht für das Maß — auf 5,0 bringt die Figur erst
+„Für Roblox anpassen".
+
+Neu ist ein **drittes Ziel „Marktplatz-Avatar"** neben „Figur oder Prop"
+und „UGC-Accessoire". Es rechnet das Budget je Körpergruppe, erwartet
+kein Skelett und fordert einen erkennbaren Hals.
+
 ### Textur-Pipeline und Export-Presets
 
 Im Viewer (Symbol mit dem Pfeil aus dem Kasten) sitzt beides in einem
