@@ -70,10 +70,20 @@ void main() {
       expect(mapBoneToR15('  RIGHT_FOOT  '), 'RightFoot');
     });
 
-    test('Der Wurzelknochen heißt HumanoidRootPart, nicht -Node', () {
-      expect(mapBoneToR15('HumanoidRootNode'), 'HumanoidRootPart');
-      expect(mapBoneToR15('root'), 'HumanoidRootPart');
-      expect(robloxRootBone, 'HumanoidRootPart');
+    test('Der Wurzelknochen heißt HumanoidRootNode, mit Root darüber',
+        () {
+      // Die Dokumentation nennt beide Namen, aber an verschiedenen
+      // Stellen: HumanoidRootNode beim Import eines Figurenkörpers
+      // (und im Prüfwerkzeug: „Root and HumanoidRootNode bones
+      // exist"), HumanoidRootPart beim Animations-Export aus Maya.
+      // Diese App exportiert Figurenkörper.
+      expect(robloxRootBone, 'HumanoidRootNode');
+      expect(robloxRootParent, 'Root');
+      // Beides wird beim Einlesen erkannt – fremde Rigs tragen mal
+      // den einen, mal den anderen Namen.
+      expect(mapBoneToR15('HumanoidRootNode'), robloxRootBone);
+      expect(mapBoneToR15('HumanoidRootPart'), robloxRootBone);
+      expect(mapBoneToR15('root'), robloxRootBone);
     });
 
     test('Was R15 nicht kennt, bleibt unangetastet', () {
@@ -111,7 +121,8 @@ void main() {
       expect(names, contains('Spine'));
     });
 
-    test('Ein HumanoidRootPart wird über der Hüfte eingezogen', () {
+    test('Root und HumanoidRootNode werden über der Hüfte eingezogen',
+        () {
       final result = renameBonesToR15(_riggedGlb(eigene));
       expect(result.report.rootAdded, isTrue);
 
@@ -129,10 +140,17 @@ void main() {
       final joints =
           ((json['skins'] as List).first as Map)['joints'] as List;
       expect(joints, isNot(contains(nodes.indexOf(root))));
-      // Die Szene zeigt jetzt auf ihn, und die alte Wurzel hängt
-      // darunter.
+      // Darüber steht Root – ebenfalls im Ursprung und ohne
+      // Gewichtung. Das Prüfwerkzeug von Roblox sucht nach beiden.
+      final parent =
+          nodes.lastWhere((n) => n['name'] == robloxRootParent);
+      expect(parent['translation'], [0.0, 0.0, 0.0]);
+      expect(joints, isNot(contains(nodes.indexOf(parent))));
+      expect(parent['children'], [nodes.indexOf(root)]);
+      // Die Szene zeigt auf Root, darunter hängt HumanoidRootNode und
+      // darunter die alte Wurzel.
       expect(((json['scenes'] as List).first as Map)['nodes'],
-          contains(nodes.indexOf(root)));
+          contains(nodes.indexOf(parent)));
       expect(root['children'], contains(0));
       expect(nodes[0]['name'], 'LowerTorso');
     });
@@ -201,7 +219,7 @@ void main() {
       // Und lässt sich erneut lesen, ohne dass etwas wächst.
       expect(jsonEncode(parts.json), isNotEmpty);
       expect(missingR15Bones(readBoneNames(result.glb)),
-          ['HumanoidRootPart']);
+          [robloxRootBone]);
     });
   });
 
@@ -500,7 +518,7 @@ void _rigStructureTests() {
       expect(result.report.flattenedScales, 1);
 
       final world = _jointWorld(json);
-      for (final value in world['HumanoidRootPart']!) {
+      for (final value in world[robloxRootBone]!) {
         expect(value.abs(), lessThan(1e-6));
       }
       for (final value in world['LowerTorso']!) {
@@ -514,7 +532,7 @@ void _rigStructureTests() {
       final result = prepareRigForRoblox(_tripoBiped().glb, targetStuds: 5);
       final json = splitGlb(result.glb).json;
       final world = _jointWorld(json);
-      for (final name in const ['HumanoidRootPart', 'LowerTorso']) {
+      for (final name in [robloxRootBone, 'LowerTorso']) {
         for (final v in world[name]!) {
           expect(v.abs(), lessThan(1e-5), reason: name);
         }

@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import 'glb_preview.dart';
 import 'mesh_check.dart';
 import 'roblox_rig.dart';
+import 'roblox_spec.dart';
 
 /// Wofür das Modell gedacht ist – davon hängt die Dreiecksgrenze ab.
 enum RobloxTarget {
@@ -49,20 +50,29 @@ extension RobloxTargetLabel on RobloxTarget {
       };
 }
 
-/// Harte Obergrenze des Importers je Mesh.
-const int robloxMaxTriangles = 20000;
+/// Harte Obergrenze des Importers je Mesh. Aus der Spezifikation:
+/// „Individual meshes can not exceed 20,000 triangles."
+const int robloxMaxTriangles = specMaxMeshTriangles;
 
 /// Arbeitsziel für Figuren und Props.
+///
+/// Eine runde Zahl unterhalb dessen, was ein Marktplatz-Körper
+/// zusammen ausgibt: Die sechs Teile eines R15-Körpers dürfen laut
+/// Tabelle zusammen [specBodyTotalTriangles] Dreiecke haben. Wer
+/// darunter bleibt, kann das Modell auch zerlegt hochladen.
 const int robloxGoalTriangles = 10000;
 
-/// Obergrenze für UGC-Accessoires.
-const int robloxAccessoryTriangles = 4000;
+/// Obergrenze für UGC-Accessoires: „Rigid accessories can't exceed 4k
+/// triangles."
+const int robloxAccessoryTriangles = specAccessoryTriangles;
 
-/// Größte zulässige Texturkante.
-const int robloxMaxTexture = 1024;
+/// Größte zulässige Texturkante: „Roblox supports up to 1024×1024
+/// pixel spaces for texture maps."
+const int robloxMaxTexture = specMaxTexture;
 
-/// Höchstzahl der Bones, die einen Vertex beeinflussen dürfen.
-const int robloxMaxInfluences = 4;
+/// Höchstzahl der Bones, die einen Vertex beeinflussen dürfen: „A
+/// vertex can not be influenced by more than 4 bones or joints."
+const int robloxMaxInfluences = specMaxInfluences;
 
 /// Ein Stud in Metern – das physikalische Maß, mit dem Roblox seine
 /// Welt beschreibt. Achtung: Der 3D-Importer rechnet **nicht** damit

@@ -5,6 +5,7 @@ import 'roblox_check.dart'
         robloxMaxTexture,
         robloxCharacterStuds;
 import 'pose_prompt.dart' show tPoseSuffix;
+import 'roblox_spec.dart';
 import 'tripo_service.dart' show TripoService;
 
 /// Der feste Schwanz für eine Roblox-Figur.
@@ -107,6 +108,7 @@ String robloxPromptRules({required bool accessory}) {
           'bei der Rekonstruktion mit dem Rumpf, und dort kann kein '
           'Skelett andocken.\n';
 
+  final posen = specAllowedPoses.join(', ');
   return '\n\nZUSÄTZLICH – das Modell wird '
       '${accessory ? 'als UGC-Accessoire ' : ''}nach Roblox '
       'hochgeladen. Damit der Importer es annimmt, muss der Prompt so '
@@ -130,9 +132,29 @@ String robloxPromptRules({required bool accessory}) {
       '- KEINE Schrift, keine Logos, keine Marken- oder '
       'Figurenbezüge: Alles Hochgeladene geht durch die '
       'Roblox-Moderation.\n'
-      '\nGrenzen, die das Ziel setzt:\n'
+      '\nGrenzen, die das Ziel setzt (aus Roblox\' Spezifikation):\n'
       '- Höchstens ${_n(triangles)} Dreiecke – deshalb grobe Volumen '
-      'statt Zierrat.\n'
+      'statt Zierrat. '
+      '${accessory ? 'Für starre Accessoires ist das die harte '
+          'Grenze; der Importer nimmt je Mesh nie mehr als '
+          '${_n(specMaxMeshTriangles)}.' : 'Die harte Grenze des '
+          'Importers liegt bei ${_n(specMaxMeshTriangles)} je Mesh; '
+          'ein Figurenkörper für den Marktplatz darf über seine sechs '
+          'Teile zusammen ${_n(specBodyTotalTriangles)} haben (Kopf '
+          '${_n(specBodyPartTriangles['DynamicHead']!)}, Rumpf '
+          '${_n(specBodyPartTriangles['Torso']!)}, je Arm und Bein '
+          '${_n(specBodyPartTriangles['LeftArm']!)}).'}\n'
+      '- Die Hülle muss geschlossen sein – keine offenen Löcher, keine '
+      'Rückseiten. Nichts darf null Dicke haben; jedes Teil braucht '
+      'Volumen. Ein einziges Mesh'
+      '${accessory ? ' – bei starren Accessoires ausdrücklich '
+          'gefordert' : ''}.\n'
+      '${accessory ? '' : '- Das Modell muss riggbar bleiben: Arme und '
+          'Beine frei und vom Rumpf getrennt, damit die 15 '
+          'R15-Gelenke (LowerTorso, UpperTorso, Head, '
+          'LeftUpperArm … RightFoot) darin Platz haben. Roblox nimmt '
+          '$posen – die App hängt die T-Pose '
+          'selbst an.\n'}'
       '- Ein Material je Mesh, alles in einer einzigen '
       '${robloxMaxTexture}er-Textur: wenige, klar getrennte '
       'Farbflächen.\n'

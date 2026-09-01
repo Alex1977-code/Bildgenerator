@@ -24,31 +24,27 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'glb_preview.dart';
+import 'roblox_spec.dart';
 
-/// Die 15 Gelenknamen der R15-Konvention, in der Reihenfolge, in der
-/// Roblox sie aufführt.
-const List<String> robloxR15Bones = [
-  'HumanoidRootPart',
-  'LowerTorso',
-  'UpperTorso',
-  'Head',
-  'LeftUpperArm',
-  'LeftLowerArm',
-  'LeftHand',
-  'RightUpperArm',
-  'RightLowerArm',
-  'RightHand',
-  'LeftUpperLeg',
-  'LeftLowerLeg',
-  'LeftFoot',
-  'RightUpperLeg',
-  'RightLowerLeg',
-  'RightFoot',
-];
+/// Die Gelenknamen der R15-Konvention, in der Reihenfolge der
+/// offiziellen Hierarchie – abgeleitet aus [specR15Hierarchy], damit
+/// Liste und Baum nicht auseinanderlaufen können.
+final List<String> robloxR15Bones = specR15Joints;
 
-/// Der Wurzelknochen. Roblox' Dokumentation ist hier eindeutig: nicht
-/// „HumanoidRootNode", sondern genau dieser Name.
-const String robloxRootBone = 'HumanoidRootPart';
+/// Der Wurzelknochen der Figur.
+///
+/// Hier stand `HumanoidRootPart`, mit dem Kommentar, die
+/// Dokumentation sei eindeutig. Ist sie nicht: Für den **Import eines
+/// Figurenkörpers** – und das ist der Weg, den diese App geht –
+/// nennen die Spezifikation und das Prüfwerkzeug `HumanoidRootNode`,
+/// mit einem Knochen `Root` darüber. `HumanoidRootPart` steht in der
+/// Anleitung für den **Animations-Export aus Maya**. Siehe
+/// [specRootNode].
+const String robloxRootBone = specRootNode;
+
+/// Der Knochen über dem Wurzelknochen. Er muss im Ursprung liegen und
+/// darf keine Gewichtung tragen.
+const String robloxRootParent = specRootBone;
 
 /// Übersetzt einen vorhandenen Knochennamen in seinen R15-Namen.
 ///
@@ -252,10 +248,11 @@ RobloxRigResult renameBonesToR15(Uint8List glb) {
     };
   }
 
-  // Wurzelknochen: Er muss HumanoidRootPart heißen, im Ursprung
-  // sitzen und ohne Gewichtung sein. Ein neuer, leerer Knoten über der
-  // bisherigen Wurzel erfüllt alle drei Bedingungen auf einmal – und
-  // weil er nicht in die Gelenkliste kommt, bleiben die
+  // Wurzelknochen: Über der bisherigen Wurzel entstehen zwei neue,
+  // leere Knoten – `Root` ganz oben und darunter
+  // `HumanoidRootNode`, genau wie in der Spezifikation
+  // (specR15Hierarchy). Beide sitzen im Ursprung und tragen keine
+  // Gewichtung; weil sie nicht in die Gelenkliste kommen, bleiben die
   // Gewichts-Indizes unverändert.
   var rootAdded = false;
   if (!present.contains(robloxRootBone)) {
@@ -279,6 +276,17 @@ RobloxRigResult renameBonesToR15(Uint8List glb) {
         'scale': [1.0, 1.0, 1.0],
         'children': roots,
       });
+      // Der Elternknochen `Root` darüber. Das Prüfwerkzeug von Roblox
+      // sucht ausdrücklich nach beiden („Root and HumanoidRootNode
+      // bones exist").
+      final parentIndex = nodes.length;
+      nodes.add({
+        'name': robloxRootParent,
+        'translation': [0.0, 0.0, 0.0],
+        'rotation': [0.0, 0.0, 0.0, 1.0],
+        'scale': [1.0, 1.0, 1.0],
+        'children': [rootIndex],
+      });
       // Die alten Wurzeln hängen jetzt unter dem neuen Knoten; in der
       // Szene steht an ihrer Stelle er.
       for (final scene in (json['scenes'] as List? ?? const [])) {
@@ -288,17 +296,17 @@ RobloxRigResult renameBonesToR15(Uint8List glb) {
         for (final root in roots) {
           if (list.remove(root)) replaced = true;
         }
-        if (replaced) list.add(rootIndex);
+        if (replaced) list.add(parentIndex);
       }
       // Kein Elternknoten mehr für die alten Wurzeln ausser dem neuen.
-      for (var i = 0; i < nodes.length - 1; i++) {
+      for (var i = 0; i < nodes.length - 2; i++) {
         final children = nodes[i]['children'] as List?;
         if (children == null) continue;
         children.removeWhere(roots.contains);
         if (children.isEmpty) nodes[i].remove('children');
       }
       nodes[rootIndex]['children'] = roots;
-      skin['skeleton'] = rootIndex;
+      skin['skeleton'] = parentIndex;
       present.add(robloxRootBone);
       rootAdded = true;
     }

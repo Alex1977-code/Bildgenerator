@@ -238,7 +238,7 @@ void main() {
       // Teilweise benannt: die Fehlenden stehen namentlich da.
       final partial = checkRobloxFacts(
           _good(boneNames: const [
-            'HumanoidRootPart',
+            'HumanoidRootNode',
             'LowerTorso',
             'UpperTorso',
             'Head',
