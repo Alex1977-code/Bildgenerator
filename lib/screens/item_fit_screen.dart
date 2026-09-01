@@ -7,6 +7,7 @@ import '../services/glb_preview.dart';
 import '../services/item_fit.dart';
 import '../services/item_prompt.dart';
 import '../services/roblox_accessory.dart';
+import '../services/studio_light.dart';
 import '../widgets/mesh_painter.dart';
 
 /// Figur und Gegenstand zusammen – und der Gegenstand daran anpassbar.
@@ -53,6 +54,12 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
   /// zu sehen, wo am Körper man ist, und der Gegenstand bleibt auch
   /// dann erkennbar, wenn er dahinter oder darin liegt.
   double _figureOpacity = 0.5;
+
+  /// Die Lichtaufstellung. Auf einer gleichmäßig grauen Fläche mit
+  /// festem Licht ließ sich nicht beurteilen, ob ein Teil an der
+  /// Figur sitzt oder darin steckt – dafür gibt es jetzt Streiflicht
+  /// und Gegenlicht.
+  String _lightId = 'studio';
 
   double _rotX = -0.2;
   double _rotY = 0.6;
@@ -290,6 +297,9 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
                               zoom: _zoom,
                               background: theme
                                   .colorScheme.surfaceContainerHighest,
+                              backgroundBottom:
+                                  theme.colorScheme.surfaceContainerLow,
+                              light: studioLightById(_lightId),
                               markColor: theme.colorScheme.primary,
                             ),
                             size: Size.infinite,
@@ -328,6 +338,35 @@ class _ItemFitScreenState extends State<ItemFitScreen> {
                   ),
                 ),
               ),
+            // Licht: Streiflicht zeigt Wölbungen, Gegenlicht den
+            // Umriss. Ohne Wechsel bleibt unklar, ob ein Teil an der
+            // Figur sitzt oder in ihr steckt.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, top: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final l in studioLights)
+                        ChoiceChip(
+                          label: Text(l.label),
+                          selected: _lightId == l.id,
+                          onSelected: (_) =>
+                              setState(() => _lightId = l.id),
+                        ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(studioLightById(_lightId).hint,
+                        style: theme.textTheme.bodySmall),
+                  ),
+                ],
+              ),
+            ),
             _slider(theme, 'Figur sichtbar', _figureOpacity, 0.0, 1.0,
                 (v) => _figureOpacity = v,
                 format: (v) => '${(v * 100).round()} %'),
@@ -462,6 +501,8 @@ class _FitPainter extends CustomPainter {
     required this.rotY,
     required this.zoom,
     required this.background,
+    required this.backgroundBottom,
+    required this.light,
     required this.markColor,
   });
 
@@ -476,7 +517,11 @@ class _FitPainter extends CustomPainter {
   final (double, double, double) anchor;
   final double figureOpacity;
   final double rotX, rotY, zoom;
-  final Color background, markColor;
+  final Color background, backgroundBottom, markColor;
+
+  /// Woher das Licht kommt – Figur und Gegenstand bekommen dasselbe,
+  /// sonst wirkte der Gegenstand wie hineinmontiert.
+  final StudioLight light;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -494,6 +539,9 @@ class _FitPainter extends CustomPainter {
       rotY: rotY,
       zoom: zoom,
       background: background,
+      backgroundBottom: backgroundBottom,
+      light: light,
+      groundShadow: true,
       viewCenter: center,
       viewExtent: extent,
       opacity: figureOpacity,
@@ -508,8 +556,10 @@ class _FitPainter extends CustomPainter {
       rotX: rotX,
       rotY: rotY,
       zoom: zoom,
-      // Kein zweiter Hintergrund – sonst wäre die Figur wieder weg.
+      // Kein zweiter Hintergrund und kein zweiter Schatten – sonst
+      // wäre die Figur wieder weg.
       background: null,
+      light: light,
       viewCenter: center,
       viewExtent: extent,
     ).paint(canvas, size);

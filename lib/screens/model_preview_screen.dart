@@ -1049,6 +1049,14 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                                       zoom: _zoom,
                                       background: theme.colorScheme
                                           .surfaceContainerHighest,
+                                      // Verlauf statt Fläche und ein
+                                      // weicher Bodenschatten: Damit
+                                      // hat das Bild ein Oben und ein
+                                      // Unten, und das Modell steht
+                                      // statt zu schweben.
+                                      backgroundBottom: theme
+                                          .colorScheme.surfaceContainerLow,
+                                      groundShadow: true,
                                     ),
                                     size: Size.infinite,
                                   ),

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../services/glb_preview.dart';
+import '../services/studio_light.dart';
 
 /// Zeichnet ein Netz mit Textur, weicher Beleuchtung und optionalem
 /// Skelett.
@@ -24,6 +25,15 @@ class MeshPainter extends CustomPainter {
     required this.rotY,
     required this.zoom,
     required this.background,
+    this.backgroundBottom,
+    this.light = const StudioLight(
+        id: 'studio',
+        label: 'Studio',
+        hint: '',
+        x: -0.26,
+        y: 0.44,
+        z: 0.86),
+    this.groundShadow = false,
     this.viewCenter,
     this.viewExtent,
     this.opacity = 1.0,
@@ -41,6 +51,21 @@ class MeshPainter extends CustomPainter {
   /// Hintergrundfarbe – null zeichnet keinen, damit sich zwei Netze
   /// übereinanderlegen lassen.
   final Color? background;
+
+  /// Die zweite Farbe des Hintergrunds. Gesetzt entsteht ein
+  /// senkrechter Verlauf statt einer gleichmäßigen Fläche: Damit hat
+  /// das Bild ein Oben und ein Unten, und das Modell steht in einem
+  /// Raum statt vor einer Wand.
+  final Color? backgroundBottom;
+
+  /// Woher das Licht kommt. Vorher stand die Richtung fest im Code –
+  /// bei der Anprobe ist gerade das Wandern des Lichts die Auskunft:
+  /// Streiflicht zeigt, ob ein Teil in der Figur steckt.
+  final StudioLight light;
+
+  /// Weiche Ellipse unter dem Modell. Keine Physik, eine Lesehilfe –
+  /// ohne sie schwebt alles im Nichts.
+  final bool groundShadow;
 
   /// Mittelpunkt und Ausdehnung, nach denen die Ansicht ausgerichtet
   /// wird. Ohne Angabe die des eigenen Netzes; gesetzt, wenn zwei
@@ -61,7 +86,51 @@ class MeshPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final bg = background;
-    if (bg != null) canvas.drawRect(Offset.zero & size, Paint()..color = bg);
+    if (bg != null) {
+      final unten = backgroundBottom;
+      final rect = Offset.zero & size;
+      canvas.drawRect(
+        rect,
+        unten == null
+            ? (Paint()..color = bg)
+            : (Paint()
+              ..shader = ui.Gradient.linear(
+                Offset(0, 0),
+                Offset(0, size.height),
+                [bg, unten],
+              )),
+      );
+    }
+    // Maßstab schon hier, weil der Bodenschatten ihn braucht – und
+    // der gehört unter das Modell, aber nicht in die Ebene, mit der
+    // die Figur durchscheinend gemacht wird.
+    final viewScale = 0.42 *
+        math.min(size.width, size.height) /
+        (viewExtent ?? mesh.extent) *
+        zoom;
+    if (groundShadow) {
+      final schatten = groundShadowFor(
+        width: size.width,
+        height: size.height,
+        extent: viewExtent ?? mesh.extent,
+        scale: viewScale,
+        tiltX: rotX,
+        zoom: zoom,
+      );
+      if (!schatten.isEmpty) {
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(schatten.centerX, schatten.centerY),
+            width: schatten.radiusX * 2,
+            height: schatten.radiusY * 2,
+          ),
+          Paint()
+            ..color = const Color(0x33000000)
+            ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 14),
+        );
+      }
+    }
+
     final faded = opacity < 0.999;
     if (faded) {
       canvas.saveLayer(
@@ -73,9 +142,7 @@ class MeshPainter extends CustomPainter {
 
     final cosY = math.cos(rotY), sinY = math.sin(rotY);
     final cosX = math.cos(rotX), sinX = math.sin(rotX);
-    final scale = 0.42 * math.min(size.width, size.height) /
-        (viewExtent ?? mesh.extent) *
-        zoom;
+    final scale = viewScale;
     final cx = size.width / 2, cy = size.height / 2;
     final view = viewCenter ?? mesh.center;
     final centerX = view[0], centerY = view[1], centerZ = view[2];
@@ -126,8 +193,9 @@ class MeshPainter extends CustomPainter {
     final shininess = 4 + gloss * gloss * 96;
     final specStrength =
         (0.25 + 0.75 * metallic) * math.pow(gloss, 1.5).toDouble();
-    // Halbvektor aus Lichtrichtung (-0.26, 0.44, 0.86) und Blick (0,0,1).
-    var hx = -0.26, hy = 0.44, hz = 1.86;
+    // Halbvektor aus Lichtrichtung und Blick (0,0,1).
+    final (lx, ly, lz) = light.direction;
+    var hx = lx, hy = ly, hz = lz + 1.0;
     final hLen = math.sqrt(hx * hx + hy * hy + hz * hz);
     hx /= hLen;
     hy /= hLen;
@@ -142,10 +210,12 @@ class MeshPainter extends CustomPainter {
       final z1 = -nx * sinY + nz * cosY;
       final y2 = ny * cosX - z1 * sinX;
       final z2 = ny * sinX + z1 * cosX;
-      // Licht schräg von oben vorn; doppelseitig (Betrag).
-      var dot = (-0.26 * x1 + 0.44 * y2 + 0.86 * z2).abs();
+      // Doppelseitig (Betrag): Ein Netz mit uneinheitlicher Wicklung
+      // soll nicht halb schwarz sein.
+      var dot = (lx * x1 + ly * y2 + lz * z2).abs();
       if (dot > 1) dot = 1;
-      shade[i] = (0.42 + 0.58 * dot) * (1 - 0.45 * metallic);
+      final ambient = light.ambient;
+      shade[i] = (ambient + (1 - ambient) * dot) * (1 - 0.45 * metallic);
       if (spec != null) {
         var hDot = (hx * x1 + hy * y2 + hz * z2).abs();
         if (hDot > 1) hDot = 1;
@@ -282,5 +352,8 @@ class MeshPainter extends CustomPainter {
       oldDelegate.rotX != rotX ||
       oldDelegate.rotY != rotY ||
       oldDelegate.zoom != zoom ||
-      oldDelegate.background != background;
+      oldDelegate.background != background ||
+      oldDelegate.backgroundBottom != backgroundBottom ||
+      oldDelegate.light.id != light.id ||
+      oldDelegate.groundShadow != groundShadow;
 }

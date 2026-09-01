@@ -1148,6 +1148,34 @@ man zur Figur erzeugt hat, will an die Figur gehalten werden; ihn nur
 in der Liste abzulegen hieße, den entscheidenden Schritt zu
 verstecken.
 
+### Hintergrund und Licht in der Anprobe
+
+Die Anprobe stand auf einer gleichmäßig grauen Fläche, bei einem
+Licht, das nie wanderte. Damit ließ sich schlecht beurteilen, was die
+Anprobe beurteilen soll: ob ein Teil **an** der Figur sitzt oder **in**
+ihr steckt.
+
+Jetzt liegt hinter dem Modell ein senkrechter Verlauf statt einer
+Fläche, und darunter ein weicher Bodenschatten — er folgt der
+Kameraneigung, wird beim Blick von oben rund und bei waagerechter
+Kamera flach. Damit hat das Bild ein Oben und ein Unten, und das
+Modell steht, statt zu schweben.
+
+Dazu fünf Lichtaufstellungen, umschaltbar über der Reglerreihe:
+
+| Aufstellung | Wofür |
+| --- | --- |
+| Studio (von vorn oben) | Der ruhige Standard — genau das Licht von bisher |
+| Von oben | Aufsicht und Silhouette: Hüte, Helme, alles auf dem Kopf |
+| Von der Seite | Streiflicht: Wölbungen und Kanten treten hervor |
+| Gegenlicht | Der Umriss steht scharf — ragt das Teil über die Figur hinaus? |
+| Ohne Schatten | Gleichmäßig ausgeleuchtet, die reinen Farben |
+
+Figur und Gegenstand bekommen dasselbe Licht — sonst wirkte der
+Gegenstand wie hineinmontiert. Der Viewer bekommt Verlauf und
+Bodenschatten ebenfalls; die Lichtauswahl steht (vorerst) nur in der
+Anprobe, weil dort das Wandern des Lichts die eigentliche Auskunft ist.
+
 ### Anbau in Roblox: fertig ausliefern
 
 Neben der Anprobe steht **„Für Roblox ausliefern"**. Das legt drei
