@@ -263,6 +263,14 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     GLB gebacken werden („GLB + Testanimationen exportieren“). Die
     Vorschau zeigt auch die PBR-Oberfläche des Materials: Glanzlichter
     je nach Metall- und Rauheitswert (matt bis metallisch)
+  - **FBX-Export** (binär, Fassung 7.4): Der Viewer schreibt das
+    Modell als FBX – das Format, das Roblox Studio für gerigte Figuren
+    erwartet. Enthalten sind Geometrie, Normalen, Texturkoordinaten,
+    das Skelett als LimbNode-Kette, die Hautgewichte und die
+    Bindepose; die Textur liegt als eigene PNG daneben, weil FBX
+    Bilder nicht einbettet, sondern auf Nachbardateien verweist – und
+    Roblox das Bild ohnehin getrennt hochlädt. Damit entfällt der
+    bisherige Umweg über Blender
   - **STL-, 3MF- und OBJ-Export**: Der Viewer exportiert Modelle als
     binäres STL (nur Form) oder als 3MF **mit Farben** (Material-
     Palette je Dreieck) – jeweils aufs Druckbett gedreht, zentriert
@@ -1467,8 +1475,36 @@ einer Datei trägt. **glTF** bündelt die Texturen und wird von Studio
 direkt gelesen, hat dort aber eingeschränkte Rig-Unterstützung –
 `.glb` ist dabei kein eigenes Format, sondern dieselbe Spezifikation,
 nur binär geschrieben. **OBJ** passt nur für einfache statische Props.
-Die App exportiert GLB und OBJ; für eine gerigte Figur führt der Weg
-über Blender (GLB öffnen, als FBX ausgeben).
+Die App exportiert **alle drei**: GLB, OBJ und – seit dem FBX-Schreiber
+– FBX. Für eine gerigte Figur ist damit kein Zwischenschritt über
+Blender mehr nötig.
+
+Was im FBX steht: Geometrie, Normalen, Texturkoordinaten, das Skelett
+als LimbNode-Kette, die Hautgewichte als Cluster und die Bindepose.
+Was **nicht** darin steht: Material und Textur. FBX bettet Bilder
+nicht ein, sondern verweist auf Nachbardateien – ein solcher Verweis
+zeigt beim Empfänger ins Leere. Deshalb speichert die App die Textur
+als eigene PNG neben der FBX; in Studio wird sie getrennt hochgeladen
+und dem Mesh zugewiesen. Ein FBX ohne Material importiert sauber, es
+kommt nur grau herein.
+
+Zwei Stolpersteine, die der Schreiber bereits umgeht und die beim
+eigenen Nachbau Zeit kosten:
+
+- **Objektkennungen müssen 64-Bit sein.** Als int32 geschrieben bricht
+  Blenders Importer mit einer Zusicherung ab, weil er die Typenfolge
+  jedes Objekts prüft (int64, Zeichenkette, Zeichenkette).
+- **Ein Punkt darf je Cluster nur einmal vorkommen.** Nennt eine GLB
+  denselben Knochen für einen Punkt zweimal (0,55 + 0,45 auf „Hips"),
+  ist das in glTF harmlos – dort wird summiert. In FBX steht je Cluster
+  eine Punktnummer mit einem Gewicht, und der Importer überschreibt den
+  ersten Eintrag mit dem zweiten; der Punkt verlöre fast die Hälfte
+  seines Gewichts. Die App addiert solche Doppelnennungen vorher.
+
+Nachgeprüft wurde das nicht nur im Test, sondern durch einen echten
+Import in Blender: 285 Punkte, 504 Dreiecke, Maße unverändert, 17
+Knochen in der richtigen Hierarchie, Gewichtssumme je Punkt genau 1,0
+und höchstens vier Knochen je Punkt – die Roblox-Grenze.
 
 ### Die Grenzen, an denen KI-Assets scheitern
 

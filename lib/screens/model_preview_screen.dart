@@ -18,6 +18,8 @@ import '../services/auto_rig.dart'
         rigTypePromptRules;
 import '../services/rig_detect.dart';
 import '../services/exporter.dart';
+import '../services/fbx_writer.dart';
+import '../services/roblox_accessory.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
 import '../services/model_relay.dart';
@@ -937,6 +939,44 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     }
   }
 
+  /// FBX-Export (binär, 7.4) – das Format, das Roblox Studio für
+  /// geriggte Modelle erwartet.
+  ///
+  /// Die Textur steckt **nicht** in der Datei: FBX bettet Bilder nicht
+  /// ein, sondern verweist auf Nachbardateien, und Roblox lädt das Bild
+  /// ohnehin getrennt hoch. Deshalb liegt sie hier als eigene PNG
+  /// daneben, statt einen Verweis zu schreiben, der beim Empfänger ins
+  /// Leere zeigt.
+  Future<void> _exportFbx() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final stempel = DateTime.now().millisecondsSinceEpoch;
+      final name = robloxInstanceName(widget.title, fallback: 'Modell');
+      final fbx = await glbToFbx(widget.glbBytes, name: name);
+      final message = await exportImageBytes(
+        fbx,
+        'modell_$stempel.fbx',
+        'application/octet-stream',
+      );
+      final textur = firstGlbTexturePng(widget.glbBytes);
+      if (textur != null) {
+        await exportImageBytes(
+            textur, 'modell_$stempel.png', 'image/png');
+      }
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(
+            content: Text(textur == null
+                ? (message ?? 'FBX gespeichert.')
+                : 'FBX gespeichert – die Textur liegt als '
+                    'modell_$stempel.png daneben und wird in Roblox '
+                    'getrennt hochgeladen.')));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('FBX-Export fehlgeschlagen: $e')));
+    }
+  }
+
   /// STL-Export (nur Form) mit wählbarer Druckgröße.
   Future<void> _exportStl() async {
     final size = await _askPrintSize(
@@ -1023,6 +1063,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                   _export(withAnimations: true);
                 case 'obj':
                   _exportObj();
+                case 'fbx':
+                  _exportFbx();
                 case 'stl':
                   _exportStl();
                 case '3mf':
@@ -1041,6 +1083,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               const PopupMenuItem(
                   value: 'obj',
                   child: Text('OBJ exportieren (mit Vertexfarben)')),
+              const PopupMenuItem(
+                  value: 'fbx',
+                  child: Text('FBX exportieren (für Roblox Studio)')),
               const PopupMenuItem(
                   value: 'stl',
                   child: Text('STL für 3D-Druck exportieren …')),
