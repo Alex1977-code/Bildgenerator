@@ -1,5 +1,10 @@
 import 'dart:typed_data';
 
+import 'dart:math' as math;
+
+import 'package:bildgenerator/services/auto_rig.dart';
+import 'package:bildgenerator/services/glb_preview.dart';
+import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -235,6 +240,93 @@ void main() {
         for (final f in checkCoverage('LeftArm', b.positions, b.i)) f.id,
       ];
       expect(ids.any((id) => id.endsWith('01')), isFalse);
+    });
+  });
+
+  group('Vorbereitung für Auto Setup', () {
+    /// Dieselbe gute Figur, aber wie ein Anbieter sie liefert: viel zu
+    /// klein, mit der Armspanne auf z statt auf x.
+    Uint8List wieVomAnbieter() {
+      final b = _guteFigur();
+      final mesh = LocalMesh();
+      for (var i = 0; i + 2 < b.p.length; i += 3) {
+        // 90° gedreht und auf ein Fünftel geschrumpft.
+        mesh.addVertex(-b.p[i + 2] * 0.2, b.p[i + 1] * 0.2,
+            b.p[i] * 0.2, 0, 0);
+      }
+      for (var i = 0; i + 2 < b.i.length; i += 3) {
+        mesh.addTriangle(b.i[i], b.i[i + 1], b.i[i + 2]);
+      }
+      return buildGlb(mesh);
+    }
+
+    test('bringt die Figur auf fünf Studs', () async {
+      final ergebnis = prepareForAutoSetup(wieVomAnbieter());
+      final mesh = await parseGlbForPreview(ergebnis.glb);
+      var lo = double.infinity, hi = double.negativeInfinity;
+      for (var i = 1; i < mesh.positions.length; i += 3) {
+        lo = math.min(lo, mesh.positions[i]);
+        hi = math.max(hi, mesh.positions[i]);
+      }
+      mesh.dispose();
+      expect(hi - lo, closeTo(marketplaceFigureStuds, 1e-3));
+      expect(lo, closeTo(0, 1e-3), reason: 'steht nicht auf dem Boden');
+      expect(ergebnis.report.text, contains('Studs'));
+    });
+
+    test('dreht die Armspanne zurück auf x', () async {
+      final ergebnis = prepareForAutoSetup(wieVomAnbieter());
+      final mesh = await parseGlbForPreview(ergebnis.glb);
+      final m = measureMarketplaceFigure(mesh.positions, mesh.indices);
+      mesh.dispose();
+      expect(m.widthAxis, 0);
+      expect(ergebnis.report.turnedDegrees % 90, 0);
+      expect(ergebnis.report.text, contains('90°'));
+    });
+
+    test('ein zweiter Durchlauf ändert nichts mehr', () {
+      final einmal = prepareForAutoSetup(wieVomAnbieter());
+      final zweimal = prepareForAutoSetup(einmal.glb);
+      expect(zweimal.report.changed, isFalse,
+          reason: zweimal.report.text);
+    });
+
+    test('eine Figur mit Zehen wird auf −Z gedreht', () {
+      // Zehen nach +z: Auto Setup will die Front nach −z, also muss
+      // die Figur sich umdrehen. Die Beine bekommen dafür einen Ring
+      // auf Schienbeinhöhe – die Heuristik misst den Fuß gegen das
+      // Schienbein, und ein Quader hat dort keine Punkte.
+      final b = _guteFigur()
+        ..quader(-0.95, 0.35, -0.45, -0.25, 1.2, 0.45)
+        ..quader(0.25, 0.35, -0.45, 0.95, 1.2, 0.45)
+        ..quader(-0.95, 0.0, 0.45, -0.25, 0.35, 1.1)
+        ..quader(0.25, 0.0, 0.45, 0.95, 0.35, 1.1);
+      final mesh = LocalMesh();
+      for (var i = 0; i + 2 < b.p.length; i += 3) {
+        mesh.addVertex(b.p[i], b.p[i + 1], b.p[i + 2], 0, 0);
+      }
+      for (var i = 0; i + 2 < b.i.length; i += 3) {
+        mesh.addTriangle(b.i[i], b.i[i + 1], b.i[i + 2]);
+      }
+      final ergebnis = prepareForAutoSetup(buildGlb(mesh));
+      expect(ergebnis.report.turnedDegrees, 180);
+      expect(ergebnis.report.text, contains('−Z'));
+      // Und danach ist Schluss: ein zweiter Durchlauf dreht nicht.
+      expect(prepareForAutoSetup(ergebnis.glb).report.turnedDegrees, 0);
+    });
+
+    test('bei unklarer Blickrichtung wird nichts gedreht, und das '
+        'steht im Bericht', () {
+      final ergebnis = prepareForAutoSetup(wieVomAnbieter());
+      expect(ergebnis.report.text, contains('nicht bestimmbar'));
+    });
+
+    test('mit Skelett gibt es eine verständliche Absage', () {
+      final geriggt = injectAutoRig(wieVomAnbieter(), rigType: 'biped');
+      expect(
+        () => prepareForAutoSetup(geriggt),
+        throwsA(predicate((e) => '$e'.contains('ungeriggtes Netz'))),
+      );
     });
   });
 }

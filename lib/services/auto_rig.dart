@@ -457,7 +457,22 @@ _BodyProfile _analyzeBipedProfile(
 /// vor der Brustmitte. Klare Fälle liegen bei |Signal| ≥ 0,2 der
 /// Modelltiefe; bei schwachem Signal (symmetrische Geometrie,
 /// Fahrzeuge, Reliefs) bleibt es bei +1.
-int estimateFrontSign(List<Float32List> positionLists) {
+int estimateFrontSign(List<Float32List> positionLists) =>
+    estimateFrontSignal(positionLists) < -0.02 ? -1 : 1;
+
+/// Dasselbe Signal, aber als Zahl statt als Vorzeichen.
+///
+/// Warum getrennt: [estimateFrontSign] liefert bei einem **unklaren**
+/// Signal dieselbe +1 wie bei einem eindeutigen „schaut nach +z". Für
+/// die Rig-Ausrichtung reicht das – dort ist +1 die richtige Annahme.
+/// Wer aber entscheiden muss, ob er das Modell um 180° dreht, darf
+/// das nicht: Bei einer vorn wie hinten gleichen Figur würde jeder
+/// Durchlauf erneut drehen, und das Ergebnis hinge davon ab, wie oft
+/// man den Knopf gedrückt hat.
+///
+/// Positiv heißt „schaut nach +z", negativ „nach −z"; nahe null heißt
+/// **unbekannt**. Der Betrag ist auf die Modelltiefe bezogen.
+double estimateFrontSignal(List<Float32List> positionLists) {
   var minY = double.infinity, maxY = double.negativeInfinity;
   var minZ = double.infinity, maxZ = double.negativeInfinity;
   for (final positions in positionLists) {
@@ -470,7 +485,7 @@ int estimateFrontSign(List<Float32List> positionLists) {
     }
   }
   final height = maxY - minY, depth = maxZ - minZ;
-  if (height <= 0 || depth <= 0) return 1;
+  if (height <= 0 || depth <= 0) return 0;
   // Gemessen wird am Fuß, nicht am Rumpf.
   //
   // Vorher stand hier „Füße gegen Rumpf" und „Kopf gegen Brust". Beide
@@ -500,7 +515,7 @@ int estimateFrontSign(List<Float32List> positionLists) {
       }
     }
   }
-  if (counts[0] == 0 || counts[1] == 0) return 1;
+  if (counts[0] == 0 || counts[1] == 0) return 0;
   final shin = sums[1] / counts[1];
   // Zwei Signale, beide am Fuß: seine Mitte liegt vor dem Schienbein,
   // und er ragt nach vorn weiter über das Schienbein hinaus als nach
@@ -515,7 +530,7 @@ int estimateFrontSign(List<Float32List> positionLists) {
   if (signal.abs() < 0.05 && counts[2] > 0 && counts[3] > 0) {
     signal = (sums[3] / counts[3] - sums[2] / counts[2]) / depth;
   }
-  return signal < -0.02 ? -1 : 1;
+  return signal;
 }
 
 /// Ein erkanntes Rad bzw. Radpaar (eine Achse) des Fahrzeug-Rigs.

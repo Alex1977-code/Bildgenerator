@@ -22,6 +22,9 @@ library;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'auto_rig.dart' show estimateFrontSignal;
+import 'glb_preview.dart' show splitGlb, joinGlb, readGltfFloats;
+
 /// Das Datum, an dem diese Werte am Validator gemessen wurden.
 const String marketplaceMeasuredOn = '2026-08-31';
 
@@ -102,11 +105,15 @@ class MarketplaceFinding {
     required this.level,
     required this.title,
     required this.reason,
+    this.origin = MarketplaceOrigin.prompt,
   });
 
   final String id;
   final MarketplaceLevel level;
   final String title;
+
+  /// Wo der Befund entsteht – und damit, wer ihn beheben kann.
+  final MarketplaceOrigin origin;
 
   /// Warum das zählt – und was im **Prompt** dagegen hilft, denn dort
   /// entsteht es.
@@ -547,9 +554,14 @@ List<MarketplaceFinding> checkCoverage(
 /// Beurteilt eine Messung gegen die Marktplatz-Grenzen.
 List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
   final out = <MarketplaceFinding>[];
-  void add(String id, MarketplaceLevel level, String title, String reason) {
+  void add(String id, MarketplaceLevel level, String title, String reason,
+      {MarketplaceOrigin origin = MarketplaceOrigin.prompt}) {
     out.add(MarketplaceFinding(
-        id: id, level: level, title: title, reason: reason));
+        id: id,
+        level: level,
+        title: title,
+        reason: reason,
+        origin: origin));
   }
 
   if (m.height <= 0) {
@@ -589,7 +601,8 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
         'Zu schmal gebaute Arme reißen die Mindestbreite. Gemessen '
             'wird die größere waagerechte Achse; steht die Figur in '
             'I-Pose statt A- oder T-Pose, ist die Zahl zu klein, ohne '
-            'dass am Modell etwas falsch wäre.');
+            'dass am Modell etwas falsch wäre.',
+        origin: MarketplaceOrigin.export);
   } else {
     add('armspanne', MarketplaceLevel.ok,
         'Armspanne ${m.width.toStringAsFixed(2)} Studs', '');
@@ -673,8 +686,325 @@ String marketplaceAsText(List<MarketplaceFinding> findings) {
       MarketplaceLevel.warnung => '!',
       MarketplaceLevel.ok => '✔',
     };
-    zeilen.add('$zeichen ${f.title}');
+    zeilen.add('$zeichen [${f.origin.label}] ${f.title}');
     if (f.reason.isNotEmpty) zeilen.add('   ${f.reason}');
   }
   return zeilen.join('\n');
+}
+
+/// Ab welchem Signal die Blickrichtung als bestimmt gilt.
+///
+/// [estimateFrontSignal] misst, wie weit die Zehen über das Schienbein
+/// hinausragen, bezogen auf die Modelltiefe. Unter diesem Wert ist die
+/// Figur vorn wie hinten zu ähnlich – dann wird **nicht** gedreht,
+/// sondern gesagt, dass es nicht bestimmbar war.
+const double marketplaceFrontThreshold = 0.02;
+
+/// Ob ein Befund beim **Prompt** oder beim **Export** entsteht.
+///
+/// Der Unterschied entscheidet, was zu tun ist: Ein Formfehler lässt
+/// sich nicht wegrechnen – da muss der nächste Lauf einen anderen
+/// Prompt bekommen. Ein Exportfehler dagegen ist Sache der App.
+/// Deshalb steht er in jeder Meldung.
+enum MarketplaceOrigin {
+  /// Entsteht beim Prompt. Nachträglich nicht zu beheben.
+  prompt,
+
+  /// Entsteht beim Export. Die App bringt es in Ordnung.
+  export,
+}
+
+extension MarketplaceOriginLabel on MarketplaceOrigin {
+  String get label => switch (this) {
+        MarketplaceOrigin.prompt => 'Prompt',
+        MarketplaceOrigin.export => 'Export',
+      };
+}
+
+/// Was die Vorbereitung für Auto Setup getan hat.
+class AutoSetupPrepReport {
+  const AutoSetupPrepReport({
+    required this.steps,
+    required this.scale,
+    required this.turnedDegrees,
+    required this.shift,
+    this.colorsRemoved = 0,
+  });
+
+  final List<String> steps;
+  final double scale;
+  final int turnedDegrees;
+  final List<double> shift;
+
+  /// Wie viele Vertexfarben-Spuren entfernt wurden.
+  final int colorsRemoved;
+
+  bool get changed =>
+      (scale - 1).abs() > 1e-6 ||
+      turnedDegrees != 0 ||
+      shift.any((v) => v.abs() > 1e-6) ||
+      colorsRemoved > 0;
+
+  String get text => ['Für Auto Setup vorbereitet', ...steps].join('\n');
+}
+
+class AutoSetupPrepResult {
+  const AutoSetupPrepResult(this.glb, this.report);
+  final Uint8List glb;
+  final AutoSetupPrepReport report;
+}
+
+/// Bringt ein **ungeriggtes** Netz in die Lage, die Roblox' Auto Setup
+/// erwartet: [targetStuds] hoch, Front nach −Z, Nullpunkt mittig unter
+/// der Figur.
+///
+/// Warum eigens und nicht über `prepareRigForRoblox`: Das dort ist an
+/// ein Skelett gebunden – es liest die Gelenke, um Vorn und Hüfte zu
+/// bestimmen. Auf dem Marktplatz-Weg gibt es keines, und genau das ist
+/// richtig so: Auto Setup baut sein eigenes Rig und verwirft ein
+/// mitgebrachtes.
+///
+/// Beides muss trotzdem stimmen, und beides kam bei einem echten Lauf
+/// falsch aus dem Anbieter: die Figur **1,00 Einheiten hoch** statt 5
+/// (auch mit Tripos `auto_size`), und mit der **Armspanne auf Z** statt
+/// auf X, also der Front auf X. Aus der Geometrie ist beides
+/// bestimmbar – die Armspanne ist die größere waagerechte Achse, und
+/// wohin die Figur schaut, verraten die Zehen.
+///
+/// **Front nach −Z**, nicht nach +Z: Das ist die Vorgabe für Auto
+/// Setup und der Unterschied zum Importer-Weg, wo diese App auf +Z
+/// dreht.
+AutoSetupPrepResult prepareForAutoSetup(
+  Uint8List glb, {
+  double targetStuds = marketplaceFigureStuds,
+}) {
+  final parts = splitGlb(glb);
+  final json = parts.json;
+  if (((json['skins'] as List?) ?? const []).isNotEmpty) {
+    throw Exception('Die Datei trägt ein Skelett. Auto Setup erwartet '
+        'ein ungeriggtes Netz – es baut sein eigenes R15-Rig und '
+        'würde dieses verwerfen. Bei Tripo also ohne Rigging '
+        'erzeugen.');
+  }
+  final bin = Uint8List.fromList(parts.bin);
+  final steps = <String>[];
+
+  // 1. Ausrichtung. Erst so drehen, dass die Armspanne auf x liegt –
+  // danach greift die vorhandene Zehen-Heuristik, die entlang z misst.
+  final positionen = _positionAccessors(json);
+  var alle = <Float32List>[
+    for (final index in positionen) readGltfFloats(json, bin, index),
+  ];
+  var (minX, maxX, minY, maxY, minZ, maxZ) = _spanne(alle);
+  var turned = (maxX - minX) >= (maxZ - minZ) ? 0 : 90;
+  if (turned != 0) {
+    alle = [for (final p in alle) _dreheUmY(p, turned)];
+    steps.add('Um 90° gedreht: Die Armspanne lag auf z statt auf x.');
+  }
+  // Jetzt sagt das Signal, wohin die Figur schaut. Auto Setup will
+  // sie nach −z.
+  //
+  // Gedreht wird nur bei einem **eindeutigen** Signal. Bei einer vorn
+  // wie hinten gleichen Figur weiß niemand, wo vorn ist – dort würde
+  // ein zweiter Durchlauf sonst erneut drehen, und das Ergebnis hinge
+  // davon ab, wie oft man den Knopf gedrückt hat.
+  final signal = estimateFrontSignal(alle);
+  if (signal > marketplaceFrontThreshold) {
+    turned = (turned + 180) % 360;
+    alle = [for (final p in alle) _dreheUmY(p, 180)];
+    steps.add('Um 180° gedreht: Auto Setup erwartet die Front nach −Z, '
+        'und die Zehen zeigten nach +Z.');
+  } else if (signal.abs() <= marketplaceFrontThreshold) {
+    steps.add('Blickrichtung nicht bestimmbar (Signal '
+        '${signal.toStringAsFixed(3)}): Die Figur ist von vorn und '
+        'hinten zu ähnlich. Nichts gedreht – im Viewer prüfen und '
+        'notfalls mit den 90°-Knöpfen nachhelfen.');
+  }
+
+  // 2. Maßstab.
+  (minX, maxX, minY, maxY, minZ, maxZ) = _spanne(alle);
+  final hoehe = maxY - minY;
+  var scale = 1.0;
+  if (hoehe > 1e-6 && (hoehe - targetStuds).abs() > 1e-4) {
+    scale = targetStuds / hoehe;
+    steps.add('Auf ${targetStuds.toStringAsFixed(0)} Studs gebracht '
+        '(Faktor ${scale.toStringAsFixed(3)}) – der Validator misst '
+        'alle Grenzen bei dieser Höhe, und der Anbieter lieferte '
+        '${hoehe.toStringAsFixed(2)}.');
+  }
+
+  // 3. Nullpunkt mittig unter die Figur.
+  final shift = [
+    -(minX + maxX) / 2 * scale,
+    -minY * scale,
+    -(minZ + maxZ) / 2 * scale,
+  ];
+  if (shift.any((v) => v.abs() > 1e-4)) {
+    steps.add('Nullpunkt mittig unter die Figur gelegt.');
+  }
+
+  // Alles in einem Durchgang in die Punkte rechnen.
+  for (var i = 0; i < positionen.length; i++) {
+    final werte = _dreheUmY(
+        readGltfFloats(json, bin, positionen[i]), turned);
+    for (var k = 0; k + 2 < werte.length; k += 3) {
+      werte[k] = werte[k] * scale + shift[0];
+      werte[k + 1] = werte[k + 1] * scale + shift[1];
+      werte[k + 2] = werte[k + 2] * scale + shift[2];
+    }
+    _schreibeFloats(json, bin, positionen[i], werte);
+  }
+  // Normalen nur drehen: Skalierung und Verschiebung ändern ihre
+  // Richtung nicht.
+  if (turned != 0) {
+    for (final index in _normalAccessors(json)) {
+      _schreibeFloats(json, bin, index,
+          _dreheUmY(readGltfFloats(json, bin, index), turned));
+    }
+  }
+
+  // 4. Vertexfarben raus.
+  //
+  // Roblox erwartet an einem Marktplatz-Körper VertexColor 1,1,1.
+  // Eine COLOR_0-Spur färbt das Netz zusätzlich ein, und die Farbe
+  // steckt dann doppelt drin: einmal in der Textur, einmal in den
+  // Punkten. Beim Hochladen sieht die Figur anders aus als in der
+  // Vorschau, und niemand findet den Grund.
+  var farbenWeg = 0;
+  for (final mesh in (json['meshes'] as List?) ?? const []) {
+    for (final prim in ((mesh as Map)['primitives'] as List?) ?? const []) {
+      final attribute = (prim as Map)['attributes'] as Map?;
+      if (attribute == null) continue;
+      final weg = [
+        for (final key in attribute.keys)
+          if (key is String && key.startsWith('COLOR_')) key,
+      ];
+      for (final key in weg) {
+        attribute.remove(key);
+        farbenWeg++;
+      }
+    }
+  }
+  if (farbenWeg > 0) {
+    steps.add('$farbenWeg Vertexfarben-Spur(en) entfernt – Roblox '
+        'erwartet VertexColor 1,1,1, sonst färbt sich die Figur '
+        'doppelt ein.');
+  }
+
+  if (steps.isEmpty) steps.add('Lag schon richtig – nichts geändert.');
+  return AutoSetupPrepResult(
+    joinGlb(json, bin),
+    AutoSetupPrepReport(
+      steps: steps,
+      scale: scale,
+      turnedDegrees: turned,
+      shift: shift,
+      colorsRemoved: farbenWeg,
+    ),
+  );
+}
+
+/// Dreht Punkte um die Hochachse in 90°-Schritten – ohne Sinus und
+/// Kosinus, damit keine Rundungsfehler entstehen.
+Float32List _dreheUmY(Float32List werte, int grad) {
+  if (grad % 360 == 0) return werte;
+  final out = Float32List(werte.length);
+  for (var i = 0; i + 2 < werte.length; i += 3) {
+    final x = werte[i], y = werte[i + 1], z = werte[i + 2];
+    switch (((grad % 360) + 360) % 360) {
+      case 90:
+        out[i] = -z;
+        out[i + 1] = y;
+        out[i + 2] = x;
+      case 180:
+        out[i] = -x;
+        out[i + 1] = y;
+        out[i + 2] = -z;
+      case 270:
+        out[i] = z;
+        out[i + 1] = y;
+        out[i + 2] = -x;
+      default:
+        out[i] = x;
+        out[i + 1] = y;
+        out[i + 2] = z;
+    }
+  }
+  return out;
+}
+
+(double, double, double, double, double, double) _spanne(
+    List<Float32List> listen) {
+  var minX = double.infinity, maxX = double.negativeInfinity;
+  var minY = double.infinity, maxY = double.negativeInfinity;
+  var minZ = double.infinity, maxZ = double.negativeInfinity;
+  for (final p in listen) {
+    for (var i = 0; i + 2 < p.length; i += 3) {
+      minX = math.min(minX, p[i]);
+      maxX = math.max(maxX, p[i]);
+      minY = math.min(minY, p[i + 1]);
+      maxY = math.max(maxY, p[i + 1]);
+      minZ = math.min(minZ, p[i + 2]);
+      maxZ = math.max(maxZ, p[i + 2]);
+    }
+  }
+  return (minX, maxX, minY, maxY, minZ, maxZ);
+}
+
+List<int> _positionAccessors(Map<String, dynamic> json) =>
+    _attributAccessors(json, 'POSITION');
+
+List<int> _normalAccessors(Map<String, dynamic> json) =>
+    _attributAccessors(json, 'NORMAL');
+
+List<int> _attributAccessors(Map<String, dynamic> json, String name) {
+  final out = <int>{};
+  for (final mesh in (json['meshes'] as List?) ?? const []) {
+    for (final prim in ((mesh as Map)['primitives'] as List?) ?? const []) {
+      final index = ((prim as Map)['attributes'] as Map?)?[name] as num?;
+      if (index != null) out.add(index.toInt());
+    }
+  }
+  return out.toList();
+}
+
+/// Schreibt einen VEC3-Kommazahlen-Accessor an derselben Stelle
+/// zurück und zieht min/max nach.
+void _schreibeFloats(Map<String, dynamic> json, Uint8List bin, int index,
+    Float32List werte) {
+  final accessor = (json['accessors'] as List)[index] as Map<String, dynamic>;
+  if (accessor['componentType'] != 5126 || accessor['type'] != 'VEC3') {
+    return;
+  }
+  final viewIndex = (accessor['bufferView'] as num?)?.toInt();
+  if (viewIndex == null) return;
+  final view =
+      (json['bufferViews'] as List)[viewIndex] as Map<String, dynamic>;
+  final start = ((view['byteOffset'] as num?)?.toInt() ?? 0) +
+      ((accessor['byteOffset'] as num?)?.toInt() ?? 0);
+  final stride = (view['byteStride'] as num?)?.toInt() ?? 12;
+  final data = ByteData.sublistView(bin);
+  final count = (accessor['count'] as num).toInt();
+  for (var i = 0; i < count && i * 3 + 2 < werte.length; i++) {
+    for (var k = 0; k < 3; k++) {
+      data.setFloat32(
+          start + i * stride + k * 4, werte[i * 3 + k], Endian.little);
+    }
+  }
+  if (accessor.containsKey('min') || accessor.containsKey('max')) {
+    final lo = [double.infinity, double.infinity, double.infinity];
+    final hi = [
+      double.negativeInfinity,
+      double.negativeInfinity,
+      double.negativeInfinity
+    ];
+    for (var i = 0; i + 2 < werte.length; i += 3) {
+      for (var k = 0; k < 3; k++) {
+        lo[k] = math.min(lo[k], werte[i + k]);
+        hi[k] = math.max(hi[k], werte[i + k]);
+      }
+    }
+    accessor['min'] = lo;
+    accessor['max'] = hi;
+  }
 }

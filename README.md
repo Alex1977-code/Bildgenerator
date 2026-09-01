@@ -1419,6 +1419,42 @@ wurden: Rigging aus, T-Pose aus, Smart Low-Poly an, PBR aus, Textur
 10.000, weil Auto Setup selbst nicht reduziert: Bei 9.627 Dreiecken bekam
 jede Gliedmaße 2.304 — bei einem Gruppenbudget von 1.248.
 
+### Gesichtsteile: fünf Netze, ohne die es keinen Marktplatz gibt
+
+Der Marktplatz ordnet dem Kopf eines Ganzkörper-Bundles den Typ
+`DynamicHead` zu und verlangt „FACS controls for at least 17 poses".
+Auto Setup erzeugt diese Posen — aber nur, wenn es etwas zu bewegen
+findet. Im ersten echten Lauf entstand ein leeres `FaceControls`, weil
+die Figur nur aufgemalte Augen hatte.
+
+Die App ergänzt deshalb fünf eigene Netze: **LeftEye, RightEye,
+UpperTeeth, LowerTeeth, Tongue**. Sie teilen **keine Punkte mit dem
+Kopf** — daran trennt Auto Setup sie vom Rest.
+
+**Die Figur bleibt trotzdem gesichtslos.** Die Augen sitzen im
+Kapuzenschatten, der Mund ist ein geschlossener Schlitz zwischen Ober-
+und Unterzähnen. Sichtbar ist davon fast nichts; der Segmentierer
+braucht die Volumen trotzdem.
+
+Zwei Entscheidungen dabei, beide aus einem Fehlschlag:
+
+- **Die Maße sind Anteile der gemessenen Kopfbreite**, keine absoluten
+  Studs. Roblox nennt die Teile, nicht ihre Größe — die hängt am Kopf.
+  An einer 5-Studs-Figur mit 1,5 Studs Kopfbreite ergibt das ein Auge
+  von 0,18 Studs Durchmesser.
+- **Die Höhe kommt aus dem Kopfband, nicht aus dem Mittelwert der
+  Punkte darin.** Ein grob unterteilter Kopf hat oft nur die obere
+  Kante im Band; der Mittelwert lag dann auf dem Scheitel, und die
+  Augen saßen über der Figur.
+
+Die Augen sind volle Kugeln, keine Halbkugeln: Eine Halbkugel hätte
+einen offenen Rand, und „wasserdicht ohne offene Löcher" gilt für jedes
+Netz in der Datei. Die hintere Hälfte steckt im Kopf. An den Polen
+entsteht nur **ein** Dreieck je Spalte — das zweite hätte zwei gleiche
+Ecken und damit keine Fläche.
+
+Zusammen kosten die fünf Teile rund 280 Dreiecke.
+
 ### Auto Setup: der kurze Weg, und warum er nötig ist
 
 Für den Marktplatz reicht ein R15-Rig aus dieser App nicht. Der
@@ -1451,6 +1487,56 @@ das Skript umgeht:
 
 `ValidateUGCFullBodyAsync` liefert Roblox' Urteil ohne Dialog und ohne
 Gebühr — der Weg, ein Modell zu prüfen, bevor man dafür bezahlt.
+
+### Face-Limit als freies Zahlenfeld
+
+Die App bot nur feste Stufen an — 20.000, 10.000, 4.000. Der
+Marktplatz-Weg braucht **7.000**, und den gab es dort nicht. Das war ein
+Fehler der App, nicht von Tripo: Die API nimmt jede ganze Zahl, mit
+Smart Low-Poly empfiehlt Tripo 1.000 bis 20.000.
+
+Jetzt steht dort ein Eingabefeld mit Chips für die gängigen Werte
+daneben. Das Feld hängt am Wert, nicht umgekehrt: Eine Vorlage setzt den
+Wert, das Feld zieht nach — sonst zeigte es eine Zahl, die nicht gilt.
+
+### Zwei Posen, zwei Empfänger
+
+Der Posen-Zusatz ist umschaltbar. **T-Pose** für den Roblox-Importer,
+**A-Pose** für Auto Setup: Dort wurden die waagerechten Arme der T-Pose
+vom Segmentierer dem Kopf und dem Rumpf zugeschlagen — heraus kam ein
+„UpperTorso" von 4,38 Studs Breite. Arme in 45° hängen frei und sind als
+Arme erkennbar.
+
+Nennt der Prompt schon eine Pose — gleich welche —, hängt die App nichts
+an. Geprüft wird auf beide: Stünde „A-pose" im Text und die App hängte
+die T-Pose an, widersprächen sich die Angaben.
+
+### Deterministischer Export für den Marktplatz
+
+Für den Marktplatz-Weg gibt es kein Skelett, also kann
+`prepareRigForRoblox` dort nicht greifen — es liest die Gelenke. Höhe,
+Front und Nullpunkt kommen deshalb aus der **Geometrie**:
+
+- **5,00 Studs.** Tripos `auto_size` liefert sie nicht; gemessen kamen
+  1,00 Einheiten zurück.
+- **Front nach −Z** (Auto Setups Vorgabe; der Importer-Weg dreht auf
+  +Z). Die Armspanne ist die größere waagerechte Achse — ein Lauf kam
+  mit ihr auf z herein.
+- **Nullpunkt mittig unter der Figur.**
+- **Vertexfarben raus.** Roblox erwartet `VertexColor 1,1,1`; eine
+  COLOR_0-Spur färbt zusätzlich ein, und die Farbe steckt dann doppelt
+  drin.
+
+Gedreht wird nur bei einem **eindeutigen** Signal. Bei einer vorn wie
+hinten gleichen Figur weiß niemand, wo vorn ist — dort würde ein
+zweiter Durchlauf sonst erneut drehen, und das Ergebnis hinge davon ab,
+wie oft man den Knopf gedrückt hat. Kann die App es nicht bestimmen,
+sagt sie das, statt zu raten.
+
+Vor dem Export laufen die vier Proportionsprüfungen, und **jede Meldung
+sagt, ob sie beim Prompt oder beim Export entsteht** — der Unterschied
+entscheidet, was zu tun ist: Ein Formfehler lässt sich nicht wegrechnen,
+da braucht der nächste Lauf einen anderen Prompt.
 
 ### Löcher schließen, ohne neue Fehler zu erzeugen
 

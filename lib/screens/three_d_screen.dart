@@ -8,7 +8,11 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart' hide XFile;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show Clipboard, ClipboardData, MaxLengthEnforcement;
+    show
+        Clipboard,
+        ClipboardData,
+        FilteringTextInputFormatter,
+        MaxLengthEnforcement;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -52,6 +56,8 @@ import '../services/roblox_export.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_install.dart';
 import '../services/roblox_prompt.dart';
+import '../services/roblox_face_parts.dart';
+import '../services/roblox_marketplace.dart';
 import '../services/roblox_rig.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
@@ -120,6 +126,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// T-Pose auch ohne Rigging – Figuren mit gespreizten Armen lassen
   /// sich deutlich besser räumlich rekonstruieren.
   bool _tPose = false;
+
+  /// Welche Pose der Zusatz beschreibt.
+  ///
+  /// T-Pose für den Roblox-Importer, A-Pose für Roblox' Auto Setup:
+  /// Dort wurden die waagerechten Arme der T-Pose dem Kopf und dem
+  /// Rumpf zugeschlagen.
+  PoseKind _poseKind = PoseKind.tPose;
 
   /// Bild-Modus: fehlende Ansichten (links/rechts/hinten) automatisch
   /// per Bild-KI aus der Vorderansicht ergänzen, damit ein konsistenter
@@ -259,6 +272,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Tripo: Obergrenze der Flächen (0 = Vorgabe des Anbieters).
   int _tripoFaceLimit = 0;
 
+  /// Das Eingabefeld zum Face-Limit. Es hängt am Wert, nicht
+  /// umgekehrt: Vorlagen und Ziele setzen [_tripoFaceLimit], und
+  /// [_syncFaceLimitField] zieht das Feld nach.
+  final _tripoFaceLimitCtrl = TextEditingController();
+
   /// Zuletzt angewendete Vorlage als Anzeigetext (nur informativ –
   /// danach lassen sich alle Optionen weiterhin einzeln ändern).
   String? _lastPresetInfo;
@@ -334,6 +352,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'Prompt-Vorlage mit Tiefe, Hals und getrennten Beinen'
     ),
   ];
+
+  /// Zieht das Eingabefeld auf den aktuellen Wert nach.
+  ///
+  /// Nur in eine Richtung: Das Feld ist die Anzeige, [_tripoFaceLimit]
+  /// die Wahrheit. Sonst würde eine Vorlage, die den Wert setzt, den
+  /// Text nicht ändern – und der Nutzer sähe eine Zahl, die nicht
+  /// gilt. Genau diese Klasse von Fehler hatte die App schon einmal
+  /// bei der Pixelangabe im Größen-Dropdown.
+  void _syncFaceLimitField() {
+    final text = _tripoFaceLimit == 0 ? '' : '$_tripoFaceLimit';
+    if (_tripoFaceLimitCtrl.text != text) _tripoFaceLimitCtrl.text = text;
+  }
 
   /// Wendet eine Vorlage an. Danach bleibt alles weiterhin einzeln
   /// änderbar – die Vorlage ist nur ein guter Startpunkt.
@@ -478,6 +508,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'rigging': _rigging,
         'rigType': _rigType,
         'tPose': _tPose,
+        'poseKind': _poseKind.name,
         'artStyle': _artStyle,
         'viewsFromText': _viewsFromText,
         'completeViews': _completeViews,
@@ -537,6 +568,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _rigging = pick('rigging', _rigging);
       _rigType = pick('rigType', _rigType);
       _tPose = pick('tPose', _tPose);
+      _poseKind = PoseKind.values.firstWhere(
+          (k) => k.name == pick('poseKind', _poseKind.name),
+          orElse: () => PoseKind.tPose);
       _artStyle = pick('artStyle', _artStyle);
       _viewsFromText = pick('viewsFromText', _viewsFromText);
       _completeViews = pick('completeViews', _completeViews);
@@ -556,6 +590,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _tripoDetailedTexture =
           pick('tripoDetailedTexture', _tripoDetailedTexture);
       _tripoFaceLimit = pick('tripoFaceLimit', _tripoFaceLimit);
+      _syncFaceLimitField();
       _robloxMode = pick('robloxMode', _robloxMode);
       _robloxTarget = RobloxTarget.values.firstWhere(
           (t) => t.name == pick('robloxTarget', _robloxTarget.name),
@@ -1134,11 +1169,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// T-Pose-Zusatz, sofern Rigging an ist und die Pose nicht schon im
   /// Text steht (siehe services/pose_prompt.dart).
   String _effectivePrompt(String prompt) =>
-      withTPose(prompt, wanted: _rigging || _tPose);
+      withPose(prompt, wanted: _rigging || _tPose, kind: _poseKind);
 
   /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
   int get _promptSuffixChars =>
-      tPoseExtraChars(_promptCtrl.text, wanted: _rigging || _tPose);
+      poseExtraChars(_promptCtrl.text,
+          wanted: _rigging || _tPose, kind: _poseKind);
 
   ModelRelay? _modelRelay;
 
@@ -1189,6 +1225,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     _runTicker?.cancel();
     _promptCtrl.dispose();
     _negative3dCtrl.dispose();
+    _tripoFaceLimitCtrl.dispose();
     _texturePromptCtrl.dispose();
     _falCustomCtrl.dispose();
     _replicateCustomCtrl.dispose();
@@ -3238,21 +3275,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _promptSubject = 'object';
         _rigging = false;
         _tPose = false;
+        _poseKind = PoseKind.tPose;
       } else if (target == RobloxTarget.marketplaceAvatar) {
         // Kein Rigging: Auto Setup baut sein eigenes R15-Rig und
         // verwirft ein mitgebrachtes – ohne Rigging kommt außerdem
         // das rohe Netz, das Tripos Rig-Schritt nicht angefasst hat.
         _promptSubject = 'figure';
         _rigging = false;
-        // Keine T-Pose: Ihre waagerechten Arme wurden vom
-        // Segmentierer dem Kopf und dem Rumpf zugeschlagen. Die
-        // A-Pose steht stattdessen im festen Schwanz der Vorlage.
-        _tPose = false;
+        // A-Pose statt T-Pose: Deren waagerechte Arme wurden vom
+        // Segmentierer dem Kopf und dem Rumpf zugeschlagen.
+        _tPose = true;
+        _poseKind = PoseKind.aPose;
       } else {
         _promptSubject = 'figure';
         _rigging = true;
         _rigType = 'biped';
         _tPose = true;
+        _poseKind = PoseKind.tPose;
       }
       // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
       // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
@@ -3270,6 +3309,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // Tripo und Rodin haben eigene Topologie-Schalter – halbiert
       // werden darf nur, wo wirklich Vierecke angefragt werden.
       _tripoFaceLimit = robloxPolygonBudget(goal, quad: _tripoQuad);
+      _syncFaceLimitField();
       _rodinPolycount = robloxPolygonBudget(goal, quad: _rodinQuad);
       // Die Stability-Auswahl kennt nur feste Stufen – es zählt die
       // größte, die unter dem Budget bleibt.
@@ -3541,7 +3581,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// auf ein hochgeladenes MeshPart, und das Hochladen samt Moderation
   /// passiert in Studio).
   Future<void> _prepareForRoblox(ThreeDResult result) async {
-    RobloxPrepareResult rig;
+    RobloxPrepareResult? rig;
+    Uint8List? marktplatzGlb;
     final repairs = <String>[];
     try {
       // Erst die Geometrie, dann die Textur, dann das Skelett: Löcher
@@ -3567,19 +3608,59 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         repairs.add('Textur von ${change.fromWidth} auf ${change.toWidth} '
             'px verkleinert (Roblox nimmt höchstens 1024).');
       }
-      rig = prepareRigForRoblox(
-        small.glb,
-        // Accessoires richten sich nach dem Körperteil, an dem sie
-        // sitzen – die bleiben, wie sie sind.
-        // Auch der Marktplatz-Körper muss auf 5 Studs stehen: Der
-        // Validator misst alle Grenzen bei dieser Höhe, und Tripos
-        // „auto_size" liefert sie nicht – gemessen kamen 1,00
-        // Einheiten zurück.
-        targetStuds: _robloxTarget == RobloxTarget.accessory
-            ? 0
-            : robloxCharacterStuds,
-      );
-      repairs.addAll(robloxPrepareSummary(rig.report));
+      if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
+        // Der Marktplatz-Weg geht ohne Skelett – „prepareRigForRoblox"
+        // liest die Gelenke und hätte hier nichts zu lesen. Höhe,
+        // Front und Nullpunkt kommen deshalb aus der Geometrie.
+        final vorbereitet = prepareForAutoSetup(small.glb,
+            targetStuds: robloxCharacterStuds);
+        repairs.addAll(vorbereitet.report.steps);
+        var glb = vorbereitet.glb;
+
+        // Die fünf Gesichtsteile. Ohne sie baut Auto Setup keinen
+        // dynamischen Kopf – im ersten echten Lauf entstand ein leeres
+        // FaceControls, weil die Figur nur aufgemalte Augen hatte.
+        try {
+          final gesicht = addFaceParts(glb);
+          glb = gesicht.glb;
+          repairs.add('${gesicht.report.parts.length} Gesichtsteile '
+              'ergänzt (${gesicht.report.triangles} Dreiecke): Augen, '
+              'Zähne und Zunge als eigene Netze. Ohne sie findet Auto '
+              'Setup nichts für die FACS-Posen.');
+        } on Exception catch (e) {
+          repairs.add('Gesichtsteile nicht möglich: $e Ohne sie bleibt '
+              'der dynamische Kopf leer, und der Marktplatz lehnt ab.');
+        }
+
+        // Und zuletzt die Proportionen messen – jeder Befund sagt,
+        // ob er beim Prompt oder beim Export entsteht.
+        try {
+          final mesh = await parseGlbForPreview(glb);
+          final befunde = checkMarketplaceFigure(
+              measureMarketplaceFigure(mesh.positions, mesh.indices));
+          mesh.dispose();
+          for (final f in befunde) {
+            if (f.level == MarketplaceLevel.ok) continue;
+            repairs.add('[${f.origin.label}] ${f.title}');
+          }
+        } catch (_) {
+          // Eine Datei, die sich nicht zeichnen lässt, scheitert schon
+          // an den Regeln davor.
+        }
+
+        marktplatzGlb = glb;
+        rig = null;
+      } else {
+        rig = prepareRigForRoblox(
+          small.glb,
+          // Accessoires richten sich nach dem Körperteil, an dem sie
+          // sitzen – die bleiben, wie sie sind.
+          targetStuds: _robloxTarget == RobloxTarget.accessory
+              ? 0
+              : robloxCharacterStuds,
+        );
+        repairs.addAll(robloxPrepareSummary(rig.report));
+      }
     } catch (e) {
       if (mounted) _showSnack('$e');
       return;
@@ -3593,15 +3674,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Boden. Der Wurzelknochen sitzt bei diesen Modellen auf Fußhöhe,
     // die Hüfte ist der Bezugspunkt – deshalb deren Höhe, nicht die
     // pauschalen 2,0 eines Standard-Rigs.
-    var hipHeight = rig.report.hipStuds > 0.2
-        ? double.parse(rig.report.hipStuds.toStringAsFixed(1))
+    var hipHeight = (rig?.report.hipStuds ?? 0) > 0.2
+        ? double.parse(rig!.report.hipStuds.toStringAsFixed(1))
         : 2.0;
     final saved = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setLocal) {
           final theme = Theme.of(context);
-          final report = rig.report.rig;
+          final report = rig?.report.rig;
           return AlertDialog(
             title: const Text('Für Roblox vorbereiten'),
             content: SizedBox(
@@ -3611,83 +3692,120 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                            report.complete
-                                ? Icons.check_circle_outline
-                                : Icons.warning_amber_outlined,
-                            size: 20,
-                            color: report.complete
-                                ? Colors.green.shade700
-                                : Colors.orange.shade800),
-                        const SizedBox(width: 8),
-                        Expanded(
+                    if (report == null) ...[
+                      // Der Marktplatz-Weg: kein Skelett, und das ist
+                      // richtig so.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.storefront_outlined,
+                              size: 20,
+                              color: theme.colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Marktplatz-Weg: Die Datei geht ohne '
+                              'Skelett heraus. Roblox\' Auto Setup '
+                              'baut Zerlegung, R15-Rig, Cages, '
+                              'Attachments und den dynamischen Kopf '
+                              'selbst – ein mitgebrachtes Skelett '
+                              'würde es verwerfen.',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (repairs.isNotEmpty) ...[
+                        Text('Dafür geändert:',
+                            style: theme.textTheme.labelMedium),
+                        for (final line in repairs)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text('• $line',
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        const SizedBox(height: 8),
+                      ],
+                    ] else ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                              report.complete
+                                  ? Icons.check_circle_outline
+                                  : Icons.warning_amber_outlined,
+                              size: 20,
+                              color: report.complete
+                                  ? Colors.green.shade700
+                                  : Colors.orange.shade800),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              report.complete
+                                  ? 'Alle 15 R15-Gelenke stehen – die '
+                                      'Figur taugt als Startfigur.'
+                                  : '${report.found} von '
+                                      '${robloxR15Bones.length} '
+                                      'R15-Gelenken. Es fehlen: '
+                                      '${report.missing.join(', ')}. '
+                                      'Damit bleibt der Import-Weg '
+                                      '„Custom" (Katalog-Animationen '
+                                      'laufen, Startfigur nicht).',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (report.renamed.isNotEmpty) ...[
+                        Text('Umbenannt (${report.renamed.length}):',
+                            style: theme.textTheme.labelMedium),
+                        Text(
+                          report.renamed.entries
+                              .take(6)
+                              .map((e) => '${e.key} → ${e.value}')
+                              .join(', ') +
+                              (report.renamed.length > 6
+                                  ? ' … (+${report.renamed.length - 6})'
+                                  : ''),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (report.rootAdded)
+                        Text(
+                          'Ein HumanoidRootPart wurde über der Hüfte '
+                          'eingezogen: im Ursprung, ohne Gewichtung – '
+                          'genau so verlangt es der Importer.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      if (repairs.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text('Dafür geändert:',
+                            style: theme.textTheme.labelMedium),
+                        for (final line in repairs)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text('• $line',
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (report.untouched.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            report.complete
-                                ? 'Alle 15 R15-Gelenke stehen – die '
-                                    'Figur taugt als Startfigur.'
-                                : '${report.found} von '
-                                    '${robloxR15Bones.length} '
-                                    'R15-Gelenken. Es fehlen: '
-                                    '${report.missing.join(', ')}. '
-                                    'Damit bleibt der Import-Weg '
-                                    '„Custom" (Katalog-Animationen '
-                                    'laufen, Startfigur nicht).',
-                            style: theme.textTheme.bodyMedium,
+                            'Unverändert blieben Knochen ohne '
+                            'R15-Gegenstück: '
+                            '${report.untouched.take(6).join(', ')}'
+                            '${report.untouched.length > 6 ? ' …' : ''}. '
+                            'Das ist in Ordnung – R15 kennt nur die 15.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.outline),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (report.renamed.isNotEmpty) ...[
-                      Text('Umbenannt (${report.renamed.length}):',
-                          style: theme.textTheme.labelMedium),
-                      Text(
-                        report.renamed.entries
-                            .take(6)
-                            .map((e) => '${e.key} → ${e.value}')
-                            .join(', ') +
-                            (report.renamed.length > 6
-                                ? ' … (+${report.renamed.length - 6})'
-                                : ''),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 8),
                     ],
-                    if (report.rootAdded)
-                      Text(
-                        'Ein HumanoidRootPart wurde über der Hüfte '
-                        'eingezogen: im Ursprung, ohne Gewichtung – '
-                        'genau so verlangt es der Importer.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    if (repairs.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text('Dafür geändert:',
-                          style: theme.textTheme.labelMedium),
-                      for (final line in repairs)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text('• $line',
-                              style: theme.textTheme.bodySmall),
-                        ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (report.untouched.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          'Unverändert blieben Knochen ohne '
-                          'R15-Gegenstück: '
-                          '${report.untouched.take(6).join(', ')}'
-                          '${report.untouched.length > 6 ? ' …' : ''}. '
-                          'Das ist in Ordnung – R15 kennt nur die 15.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline),
-                        ),
-                      ),
                     const Divider(height: 24),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
@@ -3816,12 +3934,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           scriptFile: scriptFile,
           luaFile: luaFile,
           autoSetupFile: autoSetupFile,
-          missingBones: rig.report.rig.missing,
+          missingBones: rig?.report.rig.missing ?? const [],
           repairs: repairs.map(_ohneUmlaute).toList(),
         ),
       };
       var message = await exportImageBytes(
-          rig.glb, glbFile, 'model/gltf-binary');
+          rig?.glb ?? marktplatzGlb!, glbFile, 'model/gltf-binary');
       for (final entry in texts.entries) {
         message = await exportImageBytes(
                 Uint8List.fromList(utf8.encode(entry.value)),
@@ -4594,10 +4712,48 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           setState(() => _artStyle = selection.first),
                     ),
                   ],
+                  // Welche Pose der Zusatz beschreibt. Zwei Empfänger,
+                  // zwei Antworten: Der Roblox-Importer will die
+                  // T-Pose, Roblox' Auto Setup die A-Pose – dort
+                  // wurden die waagerechten Arme dem Kopf und dem
+                  // Rumpf zugeschlagen.
+                  if (rigPoseActive || _tPose) ...[
+                    SegmentedButton<PoseKind>(
+                      segments: const [
+                        ButtonSegment(
+                            value: PoseKind.tPose,
+                            label: Text('T-Pose'),
+                            icon: Icon(Icons.accessibility_new)),
+                        ButtonSegment(
+                            value: PoseKind.aPose,
+                            label: Text('A-Pose'),
+                            icon: Icon(Icons.accessibility)),
+                      ],
+                      selected: {_poseKind},
+                      showSelectedIcon: false,
+                      onSelectionChanged: _running
+                          ? null
+                          : (selection) =>
+                              setState(() => _poseKind = selection.first),
+                    ),
+                    _optionInfo(_poseKind == PoseKind.aPose
+                        ? 'Arme hängen in etwa 45°. Für Roblox\' Auto '
+                            'Setup die richtige Wahl: Die waagerechten '
+                            'Arme der T-Pose wurden dort dem Kopf und '
+                            'dem Rumpf zugeschlagen. '
+                            '(${aPoseSuffix.length} Zeichen Zusatz.)'
+                        : 'Arme waagerecht. So verlangt es der '
+                            'Roblox-Importer für animierbare Figuren. '
+                            '(${tPoseSuffix.length} Zeichen Zusatz.) '
+                            'Nennt der Prompt schon eine Pose, hängt '
+                            'die App nichts an.'),
+                    const SizedBox(height: 4),
+                  ],
                   if (!rigPoseActive)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('T-Pose (für Figuren empfohlen)'),
+                      title: const Text('Pose-Zusatz (für Figuren '
+                          'empfohlen)'),
                       subtitle: Text(riggingForcesTPose
                           ? 'Durch Rigging automatisch aktiv – gespreizte '
                               'Arme lassen sich am besten rekonstruieren.'
@@ -5998,37 +6154,75 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ),
                       ],
                       if (isTripo) ...[
-                        DropdownMenu<int>(
-                          key: ValueKey('tripoface-$_tripoFaceLimit'),
-                          enabled: !_running,
-                          initialSelection: _tripoFaceLimit,
-                          label: const Text('Face-Limit (Flächen)'),
-                          expandedInsets: EdgeInsets.zero,
-                          dropdownMenuEntries: const [
-                            DropdownMenuEntry(
-                                value: 0, label: 'Standard (API-Vorgabe)'),
-                            DropdownMenuEntry(
-                                value: 20000,
-                                label: '≈ 20.000 (Roblox-Obergrenze)'),
-                            DropdownMenuEntry(
-                                value: 10000,
-                                label: '≈ 10.000 (Spiele/Roblox-Ziel)'),
-                            DropdownMenuEntry(
-                                value: 4000,
-                                label: '≈ 4.000 (UGC-Accessoire)'),
+                        // Freies Zahlenfeld, keine festen Stufen: Die
+                        // API nimmt jede ganze Zahl, und der
+                        // Marktplatz-Weg braucht 7.000 – ein Wert, den
+                        // die alte Auswahlliste gar nicht anbot. Die
+                        // vier gängigen Werte stehen als Chips
+                        // daneben, damit der Schnellzugriff bleibt.
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 180,
+                              child: TextField(
+                                controller: _tripoFaceLimitCtrl,
+                                enabled: !_running,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: const InputDecoration(
+                                  labelText: 'Face-Limit (Flächen)',
+                                  hintText: '0 = API-Vorgabe',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                onChanged: (text) => setState(() =>
+                                    _tripoFaceLimit =
+                                        int.tryParse(text.trim()) ?? 0),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  for (final (wert, name) in const [
+                                    (0, 'Standard'),
+                                    (20000, '20.000'),
+                                    (10000, '10.000'),
+                                    (robloxAutoSetupTriangles, '7.000'),
+                                    (4000, '4.000'),
+                                  ])
+                                    ActionChip(
+                                      label: Text(name),
+                                      onPressed: _running
+                                          ? null
+                                          : () => setState(() {
+                                                _tripoFaceLimit = wert;
+                                                _tripoFaceLimitCtrl.text =
+                                                    wert == 0 ? '' : '$wert';
+                                              }),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ],
-                          onSelected: (value) {
-                            if (value != null) {
-                              setState(() => _tripoFaceLimit = value);
-                            }
-                          },
                         ),
                         _optionInfo(
                             'Obergrenze der Flächen direkt bei der '
-                            'Generierung (face_limit). Deutlich weniger '
+                            'Generierung (face_limit). Jede ganze Zahl '
+                            'ist erlaubt; mit „Smart Low-Poly" empfiehlt '
+                            'Tripo 1.000 bis 20.000. Deutlich weniger '
                             'Ärger als nachträgliches Dezimieren – '
                             'wichtig für Engines mit harten Grenzen wie '
-                            'Roblox.'),
+                            'Roblox. Für Roblox\' Auto Setup sind '
+                            '${_n(robloxAutoSetupTriangles)} richtig: '
+                            'Das Werkzeug reduziert nicht selbst, und '
+                            'bei 9.627 Dreiecken bekam jede Gliedmaße '
+                            '2.304 bei einem Budget von 1.248.'),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Textur-Qualität „detailliert“'),
