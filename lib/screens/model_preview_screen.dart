@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +31,7 @@ import '../services/roblox_fix.dart';
 import '../services/roblox_rig.dart';
 import '../services/mesh_budget.dart';
 import '../services/roblox_specs_config.dart';
+import '../services/roblox_preflight.dart';
 import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stl_export.dart';
@@ -281,6 +283,14 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
           // gleich ein schlankeres Netz, und das sieht meist besser
           // aus als jede spätere Reduktion. Nur greift es eben nur
           // bei Tripo – dieser Regler gilt für jede GLB.
+          // Der Preflight: Was hindert dieses Modell daran, in
+          // Roblox zu landen? Zwei Stufen – Fehler blockieren den
+          // Export, Warnungen nicht.
+          IconButton(
+            tooltip: 'Preflight: für Roblox prüfen',
+            icon: const Icon(Icons.fact_check_outlined),
+            onPressed: _openPreflight,
+          ),
           IconButton(
             tooltip: 'Dreiecksbudget (Regler mit Ampel)',
             icon: const Icon(Icons.speed_outlined),
@@ -633,6 +643,29 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         showExport: widget.showExport,
       ),
     ));
+  }
+
+  /// Der Preflight-Bericht.
+  Future<void> _openPreflight() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final gewaehlt = await showModalBottomSheet<PreflightFix>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PreflightSheet(glb: widget.glbBytes),
+    );
+    if (gewaehlt == null || !mounted) return;
+    switch (gewaehlt) {
+      case PreflightFix.reduzieren:
+        await _openBudget();
+      case PreflightFix.huelleSchliessen:
+      case PreflightFix.texturVerkleinern:
+        await _makeRobloxReady(withRig: false);
+      case PreflightFix.rigHerrichten:
+        await _makeRobloxReady(withRig: true);
+      case PreflightFix.keine:
+        messenger.showSnackBar(const SnackBar(
+            content: Text('Dafür gibt es keine Reparatur in der App.')));
+    }
   }
 
   /// Der Dreiecksbudget-Regler als Blatt von unten.
@@ -1503,6 +1536,209 @@ class _BudgetSheetState extends State<_BudgetSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Der Preflight-Bericht als Blatt von unten.
+///
+/// Zwei Stufen, nach Wichtigkeit sortiert: Was in der Praxis zur
+/// Ablehnung führt, steht oben. Jeder Punkt sagt, warum – und wo die
+/// App reparieren kann, steht der Knopf daneben.
+class _PreflightSheet extends StatefulWidget {
+  const _PreflightSheet({required this.glb});
+
+  final Uint8List glb;
+
+  @override
+  State<_PreflightSheet> createState() => _PreflightSheetState();
+}
+
+class _PreflightSheetState extends State<_PreflightSheet> {
+  String _typ = 'rigidAccessory';
+  PreflightReport? _report;
+  String? _fehler;
+
+  @override
+  void initState() {
+    super.initState();
+    _pruefen();
+  }
+
+  AssetSpec get _spec =>
+      robloxSpecs[_typ] ?? robloxSpecs.assetTypes.values.first;
+
+  Future<void> _pruefen() async {
+    setState(() {
+      _report = null;
+      _fehler = null;
+    });
+    try {
+      final r = await preflightGlb(widget.glb, spec: _spec);
+      if (mounted) setState(() => _report = r);
+    } catch (e) {
+      if (mounted) setState(() => _fehler = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final report = _report;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Preflight', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            DropdownMenu<String>(
+              initialSelection: _typ,
+              expandedInsets: EdgeInsets.zero,
+              label: const Text('Asset-Typ'),
+              dropdownMenuEntries: [
+                for (final spec in robloxSpecs.assetTypes.values)
+                  DropdownMenuEntry(value: spec.id, label: spec.label),
+              ],
+              onSelected: (value) {
+                if (value == null) return;
+                setState(() => _typ = value);
+                _pruefen();
+              },
+            ),
+            const SizedBox(height: 12),
+            if (_fehler != null)
+              Text('Prüfung fehlgeschlagen: $_fehler',
+                  style: TextStyle(color: theme.colorScheme.error))
+            else if (report == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else ...[
+              Row(
+                children: [
+                  Icon(
+                      report.blocked
+                          ? Icons.block
+                          : Icons.check_circle_outline,
+                      size: 20,
+                      color: report.blocked
+                          ? theme.colorScheme.error
+                          : Colors.green.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(report.summary,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                            color: report.blocked
+                                ? theme.colorScheme.error
+                                : null)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: report.issues.length,
+                  itemBuilder: (context, i) {
+                    final issue = report.issues[i];
+                    final (icon, farbe) = switch (issue.severity) {
+                      PreflightSeverity.fehler => (
+                          Icons.error_outline,
+                          theme.colorScheme.error
+                        ),
+                      PreflightSeverity.warnung => (
+                          Icons.warning_amber_outlined,
+                          Colors.orange.shade800
+                        ),
+                      PreflightSeverity.hinweis => (
+                          Icons.info_outline,
+                          theme.colorScheme.outline
+                        ),
+                      PreflightSeverity.ok => (
+                          Icons.check,
+                          Colors.green.shade700
+                        ),
+                    };
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(icon, size: 18, color: farbe),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(issue.title,
+                                    style: theme.textTheme.bodyMedium
+                                        ?.copyWith(color: farbe)),
+                                if (issue.reason.isNotEmpty)
+                                  Text(issue.reason,
+                                      style: theme.textTheme.bodySmall),
+                                if (issue.fix != PreflightFix.keine)
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: () => Navigator.of(context)
+                                          .pop(issue.fix),
+                                      icon: const Icon(Icons.build_outlined,
+                                          size: 16),
+                                      label: Text(switch (issue.fix) {
+                                        PreflightFix.reduzieren =>
+                                          'Dreiecke reduzieren',
+                                        PreflightFix.huelleSchliessen =>
+                                          'Hülle schließen',
+                                        PreflightFix.texturVerkleinern =>
+                                          'Textur verkleinern',
+                                        PreflightFix.rigHerrichten =>
+                                          'Für Roblox anpassen',
+                                        PreflightFix.keine => '',
+                                      }),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Clipboard.setData(ClipboardData(
+                        text: preflightAsText(report, _spec))),
+                    icon: const Icon(Icons.copy_all_outlined, size: 18),
+                    label: const Text('Bericht kopieren'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Schließen'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

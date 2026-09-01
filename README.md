@@ -1210,6 +1210,43 @@ bleibt stehen; alles, was nach einer Beschreibung aussieht (ein Komma
 oder mehr als 40 Zeichen), weicht der Art. Der volle Prompt bleibt in
 der Galerie neben dem Modell stehen.
 
+### Preflight: zwei Stufen, mit Begründung und Reparaturknopf
+
+Im Viewer (Klemmbrett-Symbol) prüft der **Preflight** ein Modell gegen
+die Vorgaben des gewählten Asset-Typs. Neu ist die Trennung in zwei
+Stufen:
+
+- **Fehler** blockieren den Export — so nimmt Roblox das Modell nicht an.
+- **Warnungen** blockieren nicht, kosten aber Qualität oder Nacharbeit.
+- **Hinweise** sind Dinge, die sich aus der Datei nicht sehen lassen.
+  Sie stehen trotzdem im Bericht, sonst wirkte die Liste vollständiger,
+  als sie ist.
+
+Sortiert wird nach dem, was in der Praxis zur Ablehnung führt: **oben
+die Attachments und das Dreiecksbudget**, darunter Wasserdichtheit,
+Wicklung, Volumen, Hüllquader-Füllung, Texturen, UVs, Materialien,
+Transformationen, Maßstab, Cages, und ganz unten das, was die Datei
+nicht hergibt.
+
+Jeder Punkt sagt **warum** — eine Prüfliste, die nur „Fehler" meldet,
+verschiebt die Arbeit nur. Wo die App reparieren kann, steht der Knopf
+daneben: Dreiecke reduzieren, Hülle schließen, Textur verkleinern, für
+Roblox anpassen. „Bericht kopieren" gibt alles als Text.
+
+Drei Dinge kann die App **nicht** aus der Datei lesen, und sagt das
+auch:
+
+- **N-Gons** — glTF speichert ausschließlich Dreiecke. Die Zahl im
+  Bericht ist die nach der Triangulierung, also genau das, was Roblox
+  zählt.
+- **Material „Plastic", Transparency 0, VertexColor 1,1,1** — das sind
+  Eigenschaften des Teils in Studio, nicht der Datei. Das mitgelieferte
+  Lua-Skript setzt sie beim Anlegen.
+- **Cages** — Roblox verlangt ausdrücklich, dass sie aus den offiziellen
+  Vorlagen übernommen und nicht selbst gebaut werden. Solange die
+  Vorlage nicht vorliegt, meldet der Preflight ihr Fehlen, erzeugt aber
+  keine.
+
 ### Dreiecksbudget: Regler mit Ampel
 
 Im Viewer sitzt in der Werkzeugleiste ein Regler fürs Dreiecksbudget
