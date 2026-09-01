@@ -133,6 +133,20 @@ class SettingsService extends ChangeNotifier {
   /// anderen, nicht der versteckte Normalfall.
   String viewDirection = 'frei';
 
+  /// Eine selbst geladene Fassung von roblox_specs.json. Leer =
+  /// die mitgelieferte Datei gilt.
+  ///
+  /// Als Text abgelegt statt als Pfad: Auf Web und Handy gibt es
+  /// keinen Pfad, den die App beim nächsten Start wieder öffnen
+  /// könnte.
+  String robloxSpecsOverride = '';
+
+  void setRobloxSpecsOverride(String v) {
+    robloxSpecsOverride = v;
+    _persistString('robloxSpecsOverride', v);
+    notifyListeners();
+  }
+
   void setViewDirection(String v) {
     viewDirection = v;
     _persistString('viewDirection', v);
@@ -422,6 +436,8 @@ class SettingsService extends ChangeNotifier {
       gpuGuidance = prefs.getDouble('gpuGuidance') ?? -1;
       gpuSampler = prefs.getString('gpuSampler') ?? '';
       viewDirection = prefs.getString('viewDirection') ?? viewDirection;
+      robloxSpecsOverride =
+          prefs.getString('robloxSpecsOverride') ?? '';
       final storedPresets = prefs.getStringList('customPresets');
       if (storedPresets != null) {
         customPresets = [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +10,7 @@ import 'screens/three_d_screen.dart';
 import 'services/history_service.dart';
 import 'services/model_relay.dart';
 import 'services/prompt_relay.dart';
+import 'services/roblox_specs_config.dart';
 import 'services/settings_service.dart';
 
 Future<void> main() async {
@@ -17,6 +19,13 @@ Future<void> main() async {
   final history = HistoryService();
   await settings.init();
   await history.init();
+  // Die Roblox-Vorgaben aus der Datei, nicht aus dem Code. Schlägt das
+  // fehl, gelten die eingebauten Werte – der Grund steht danach in
+  // den Einstellungen.
+  await loadRobloxSpecs(rootBundle.loadString,
+      override: settings.robloxSpecsOverride.isEmpty
+          ? null
+          : settings.robloxSpecsOverride);
   runApp(BildgeneratorApp(settings: settings, history: history));
 }
 

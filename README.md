@@ -1210,6 +1210,37 @@ bleibt stehen; alles, was nach einer Beschreibung aussieht (ein Komma
 oder mehr als 40 Zeichen), weicht der Art. Der volle Prompt bleibt in
 der Galerie neben dem Modell stehen.
 
+### Die Roblox-Vorgaben stehen in einer Datei, nicht im Code
+
+`assets/roblox_specs.json` hält die Budgets, Texturgrenzen, Rig-Namen
+und Posen. Der Grund ist einfach: Roblox ändert seine Grenzen, und eine
+Zahl im Code altert still — auffallen tut das erst beim abgelehnten
+Upload.
+
+Jeder Block nennt **seine Quelle** (Pfad im offenen Repository
+`Roblox/creator-docs`), das **wörtliche Zitat** und das **Datum**, an
+dem zuletzt nachgesehen wurde. Sind die Daten älter als `maxAgeDays`
+(Vorgabe 90), sagt die App das in den Einstellungen unter
+„Roblox-Vorgaben".
+
+Startwerte:
+
+| Asset-Typ | Dreiecke | Textur (Ziel / max / Nicht-Albedo) | Sonstiges |
+| --- | --- | --- | --- |
+| Starres Accessoire (UGC) | 4.000 | 1024 / 2048 / 256 | ein Mesh, ein Attachment |
+| Generisches Mesh (Prop) | 20.000 | 1024 / 2048 / 1024 | — |
+| Charakterkörper (R15) | 10.742 | 1024 / 2048 / 1024 | 15 Meshes auf `_Geo`, Einzelbudgets Kopf 4.000, Rumpf 1.750, je Arm/Bein 1.248 |
+
+Dazu: höchstens 4 Bone-Einflüsse je Vertex, Vierecke wo möglich,
+Hüllquader mindestens zu 50 % gefüllt, Rig `Root > HumanoidRootNode >
+LowerTorso > …`, Posen I/A/T, Figurhöhe 5 Studs.
+
+**Eigene Werte**: Datei bearbeiten und in den Einstellungen laden. Die
+App prüft sie beim Übernehmen — passen die Einzelbudgets nicht zur
+Summe, liegt die Textur-Zielgröße über der harten Grenze oder fehlt ein
+Prüfdatum, steht das als Befund da. Was nicht lesbar ist, wird durch
+die eingebauten Werte ersetzt; die App läuft weiter und sagt, warum.
+
 ### Größenprüfung vor dem Hochladen
 
 Starre Accessoires haben je Art feste Höchstmaße in Studs. Die App

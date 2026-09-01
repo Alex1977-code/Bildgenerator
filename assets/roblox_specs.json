@@ -1,0 +1,130 @@
+{
+  "_hinweis": [
+    "Die Roblox-Vorgaben als bearbeitbare Datei. Die App liest sie beim",
+    "Start; Zahlen im Code sind nur noch der Rückfall, falls diese Datei",
+    "fehlt oder kaputt ist.",
+    "",
+    "Jeder Block nennt seine Quelle (Pfad im offentlichen Repository",
+    "Roblox/creator-docs, unter content/en-us/) und das Datum, an dem er",
+    "zuletzt dort nachgesehen wurde. Sind die Daten aelter als",
+    "maxAgeDays, sagt die App das beim Start – Roblox aendert seine",
+    "Grenzen, und eine veraltete Zahl faellt erst beim abgelehnten",
+    "Upload auf.",
+    "",
+    "Eigene Werte: Datei bearbeiten und ueber die Einstellungen laden.",
+    "Wer etwas aendert, sollte checked mitfuehren – sonst warnt die App",
+    "weiter mit dem alten Datum."
+  ],
+  "version": 1,
+  "maxAgeDays": 90,
+  "assetTypes": {
+    "rigidAccessory": {
+      "label": "Starres Accessoire (UGC)",
+      "triangles": 4000,
+      "singleMesh": true,
+      "attachments": 1,
+      "watertight": true,
+      "texture": {
+        "target": 1024,
+        "hardCap": 2048,
+        "nonAlbedo": 256
+      },
+      "quelle": "avatar/rigid-accessories/specifications.md",
+      "zitat": "Rigid accessories can't exceed 4k triangles. Rigid accessories must be a single mesh. All geometry must be watertight without exposed holes or backfaces.",
+      "checked": "2026-09-01"
+    },
+    "genericMesh": {
+      "label": "Generisches Mesh (Prop)",
+      "triangles": 20000,
+      "singleMesh": false,
+      "attachments": 0,
+      "watertight": true,
+      "texture": {
+        "target": 1024,
+        "hardCap": 2048,
+        "nonAlbedo": 1024
+      },
+      "quelle": "art/modeling/specifications.md",
+      "zitat": "Individual meshes can not exceed 20,000 triangles. All geometry must be watertight without exposed holes or backfaces.",
+      "checked": "2026-09-01"
+    },
+    "characterBody": {
+      "label": "Charakterkörper (R15)",
+      "triangles": 10742,
+      "singleMesh": false,
+      "attachments": 0,
+      "watertight": true,
+      "parts": {
+        "DynamicHead": 4000,
+        "Torso": 1750,
+        "LeftArm": 1248,
+        "RightArm": 1248,
+        "LeftLeg": 1248,
+        "RightLeg": 1248
+      },
+      "meshNames": [
+        "Head_Geo",
+        "UpperTorso_Geo",
+        "LowerTorso_Geo",
+        "LeftUpperArm_Geo",
+        "LeftLowerArm_Geo",
+        "LeftHand_Geo",
+        "RightUpperArm_Geo",
+        "RightLowerArm_Geo",
+        "RightHand_Geo",
+        "LeftUpperLeg_Geo",
+        "LeftLowerLeg_Geo",
+        "LeftFoot_Geo",
+        "RightUpperLeg_Geo",
+        "RightLowerLeg_Geo",
+        "RightFoot_Geo"
+      ],
+      "texture": {
+        "target": 1024,
+        "hardCap": 2048,
+        "nonAlbedo": 1024
+      },
+      "quelle": "avatar/character-bodies/specifications.md",
+      "zitat": "Total: Head, UpperTorso, LowerTorso, LeftUpperArm ... RightFoot = 10,742. Limbs must all be specifically named: UpperTorso_Geo, LowerTorso_Geo ... Head_Geo.",
+      "checked": "2026-09-01"
+    }
+  },
+  "geometry": {
+    "maxInfluences": 4,
+    "quadsPreferred": true,
+    "minBoundingBoxFill": 0.5,
+    "quelle": "art/modeling/specifications.md",
+    "zitat": "A vertex can not be influenced by more than 4 bones or joints. Meshes must be in quads where possible. Meshes cannot be 0 thickness and must have some volume.",
+    "checked": "2026-09-01"
+  },
+  "rig": {
+    "rootBone": "Root",
+    "rootNode": "HumanoidRootNode",
+    "hierarchy": {
+      "Root": ["HumanoidRootNode"],
+      "HumanoidRootNode": ["LowerTorso"],
+      "LowerTorso": ["UpperTorso", "LeftUpperLeg", "RightUpperLeg"],
+      "UpperTorso": ["Head", "LeftUpperArm", "RightUpperArm"],
+      "LeftUpperArm": ["LeftLowerArm"],
+      "LeftLowerArm": ["LeftHand"],
+      "RightUpperArm": ["RightLowerArm"],
+      "RightLowerArm": ["RightHand"],
+      "LeftUpperLeg": ["LeftLowerLeg"],
+      "LeftLowerLeg": ["LeftFoot"],
+      "RightUpperLeg": ["RightLowerLeg"],
+      "RightLowerLeg": ["RightFoot"]
+    },
+    "allowedPoses": ["I-Pose", "A-Pose", "T-Pose"],
+    "originAtZero": ["Root", "LowerTorso"],
+    "quelle": "avatar/character-bodies/specifications.md, art/characters/validation-tool.md",
+    "zitat": "Root > HumanoidRootNode > LowerTorso > UpperTorso ... The LowerTorso and Root bone or joint position must be set to 0, 0, 0. Export your character model in an I-Pose, A-Pose, or T-Pose. Joint Positions: Root and HumanoidRootNode bones exist.",
+    "checked": "2026-09-01"
+  },
+  "scale": {
+    "characterStuds": 5.0,
+    "studMeters": 0.28,
+    "importerUnit": "Der 3D-Importer setzt eine glTF-Einheit gleich einem Stud; die 0,28 m sind das physikalische Mass der Welt, keine Umrechnung beim Import.",
+    "quelle": "art/modeling/specifications.md",
+    "checked": "2026-09-01"
+  }
+}

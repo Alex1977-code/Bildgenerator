@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform,
     kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +11,7 @@ import '../build_info.dart';
 import '../models/models.dart';
 import '../services/generators.dart';
 import '../services/key_check.dart';
+import '../services/roblox_specs_config.dart';
 import '../services/self_host_service.dart';
 import '../services/server_setup.dart' as setup;
 import '../services/settings_service.dart';
@@ -185,6 +187,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   settings.tripoApiKey!.trim().isNotEmpty,
           onOpenUrl: _openUrl,
         ),
+        const SizedBox(height: 12),
+        const _RobloxSpecsCard(),
         const SizedBox(height: 12),
         const _WatermarkCard(),
         const SizedBox(height: 12),
@@ -2502,6 +2506,146 @@ class _UpdateCardState extends State<_UpdateCard> {
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Die Roblox-Vorgaben: woher sie kommen, wie alt sie sind, und was
+/// beim Lesen aufgefallen ist.
+///
+/// Sichtbar statt still: Eine veraltete oder kaputte Datei fällt sonst
+/// erst beim abgelehnten Upload auf.
+class _RobloxSpecsCard extends StatefulWidget {
+  const _RobloxSpecsCard();
+
+  @override
+  State<_RobloxSpecsCard> createState() => _RobloxSpecsCardState();
+}
+
+class _RobloxSpecsCardState extends State<_RobloxSpecsCard> {
+  Future<void> _laden(SettingsService settings) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final file = await openFile(acceptedTypeGroups: const [
+      XTypeGroup(label: 'Roblox-Vorgaben', extensions: ['json']),
+    ]);
+    if (file == null) return;
+    final text = await file.readAsString();
+    final geprueft = parseRobloxSpecs(text);
+    settings.setRobloxSpecsOverride(text);
+    await loadRobloxSpecs(rootBundle.loadString, override: text);
+    if (!mounted) return;
+    setState(() {});
+    messenger.showSnackBar(SnackBar(
+        content: Text(geprueft.problems.isEmpty
+            ? 'Vorgaben übernommen.'
+            : 'Übernommen, aber mit Befunden: '
+                '${geprueft.problems.first}')));
+  }
+
+  Future<void> _zuruecksetzen(SettingsService settings) async {
+    settings.setRobloxSpecsOverride('');
+    await loadRobloxSpecs(rootBundle.loadString);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final settings = context.watch<SettingsService>();
+    final specs = robloxSpecs;
+    final alter = specs.ageInDays();
+    final warnung = specs.staleWarning();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Roblox-Vorgaben', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              'Dreiecksbudgets, Texturgrenzen, Rig-Namen und Posen '
+              'stehen in assets/roblox_specs.json – nicht im Code. '
+              'Roblox ändert seine Grenzen; eine Zahl im Code altert '
+              'still.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            for (final spec in specs.assetTypes.values)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${spec.label}: ${spec.triangles} Dreiecke, Textur '
+                  '${spec.texture.target} px (max '
+                  '${spec.texture.hardCap})'
+                  '${spec.parts.isEmpty ? '' : ', ${spec.parts.length} '
+                      'Teile'}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                    warnung.isEmpty
+                        ? Icons.verified_outlined
+                        : Icons.warning_amber_outlined,
+                    size: 18,
+                    color: warnung.isEmpty
+                        ? Colors.green.shade700
+                        : theme.colorScheme.error),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    warnung.isEmpty
+                        ? 'Zuletzt geprüft vor ${alter ?? 0} Tagen '
+                            '(Grenze ${specs.maxAgeDays}).'
+                        : warnung,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: warnung.isEmpty
+                            ? null
+                            : theme.colorScheme.error),
+                  ),
+                ),
+              ],
+            ),
+            if (!specs.fromFile)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Es gelten die eingebauten Werte – die Datei wurde '
+                  'nicht gelesen.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.error),
+                ),
+              ),
+            for (final problem in specs.problems)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('• $problem',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.error)),
+              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _laden(settings),
+                  icon: const Icon(Icons.folder_open, size: 18),
+                  label: const Text('Eigene Datei laden'),
+                ),
+                if (settings.robloxSpecsOverride.isNotEmpty)
+                  TextButton(
+                    onPressed: () => _zuruecksetzen(settings),
+                    child: const Text('Mitgelieferte verwenden'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
