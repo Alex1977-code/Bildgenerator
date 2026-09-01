@@ -1210,6 +1210,39 @@ bleibt stehen; alles, was nach einer Beschreibung aussieht (ein Komma
 oder mehr als 40 Zeichen), weicht der Art. Der volle Prompt bleibt in
 der Galerie neben dem Modell stehen.
 
+### Dreiecksbudget: Regler mit Ampel
+
+Im Viewer sitzt in der Werkzeugleiste ein Regler fürs Dreiecksbudget
+(Tacho-Symbol). Er gilt für **jede GLB**, egal von welchem Anbieter sie
+kommt, und wirkt nach dem Herunterladen.
+
+- **Asset-Typ wählen** — starres Accessoire (4.000), Prop (20.000),
+  Charakterkörper (10.742). Die Zahlen kommen aus `roblox_specs.json`.
+- **Zähler und Ampel folgen dem Regler sofort.** Grün: unter 90 % des
+  Budgets. Gelb: 90–100 % — passt, aber Löcher schließen, Cage und Naht
+  bringen noch Dreiecke dazu. Rot: über dem Budget, so nimmt Roblox das
+  Modell nicht an.
+- **„Aufs Budget setzen"** stellt auf 85 % des Budgets.
+- Gerechnet wird erst beim **Übernehmen**. Die Reduktion sucht ihr
+  Raster binär und braucht bei einem großen Netz spürbar Zeit; bei
+  jedem Reglerschritt neu zu rechnen machte den Regler unbenutzbar.
+
+Der Regler ist **nicht linear** über die Dreieckszahl gelegt, sondern
+logarithmisch: Der interessante Bereich liegt zwischen ein paar hundert
+und ein paar tausend Dreiecken. Linear läge das alles im linken
+Zehntel.
+
+**Das Face-Limit für Tripo bleibt.** Es wirkt *vorher* — der Anbieter
+baut gleich ein schlankeres Netz, und das sieht meist besser aus als
+jede spätere Reduktion. Es greift nur eben bei Tripo; der Regler
+ergänzt es für alle anderen.
+
+**Ein Skelett übersteht das Reduzieren nicht** und die App sagt das
+auch: Beim Zusammenlegen von Punkten lässt sich nicht mitteln, welchem
+Knochen der neue Punkt gehört. Reihenfolge also: erst reduzieren, dann
+riggen. Texturen überstehen es dagegen — die UV-Koordinaten werden wie
+Position und Farbe gemittelt.
+
 ### Die Roblox-Vorgaben stehen in einer Datei, nicht im Code
 
 `assets/roblox_specs.json` hält die Budgets, Texturgrenzen, Rig-Namen

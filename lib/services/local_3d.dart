@@ -970,6 +970,12 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
       maxX - minX, math.max(maxY - minY, maxZ - minZ));
   if (maxExtent <= 0) return mesh;
   final hasColors = mesh.colors.length == pos.length;
+  // Texturkoordinaten mitteln wie Position und Farbe. Ohne sie
+  // verlöre ein texturiertes Modell beim Reduzieren seine Textur –
+  // die erste Fassung warf die UVs weg und lieferte ein graues Netz.
+  // An Nähten ist das Mitteln falsch, aber sichtbar erst bei starker
+  // Reduktion; verworfene UVs sind immer falsch.
+  final hasUvs = mesh.uvs.length == vCount * 2;
 
   (int, LocalMesh) attempt(int grid) {
     final cell = maxExtent / grid;
@@ -985,10 +991,10 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
       if (idx == null) {
         idx = cellIndex.length;
         cellIndex[key] = idx;
-        sums.addAll([0, 0, 0, 0, 0, 0, 0]);
+        sums.addAll([0, 0, 0, 0, 0, 0, 0, 0, 0]);
       }
       vertexMap[v] = idx;
-      final o = idx * 7;
+      final o = idx * 9;
       sums[o] += pos[v * 3];
       sums[o + 1] += pos[v * 3 + 1];
       sums[o + 2] += pos[v * 3 + 2];
@@ -997,13 +1003,18 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
         sums[o + 4] += mesh.colors[v * 3 + 1];
         sums[o + 5] += mesh.colors[v * 3 + 2];
       }
+      if (hasUvs) {
+        sums[o + 7] += mesh.uvs[v * 2];
+        sums[o + 8] += mesh.uvs[v * 2 + 1];
+      }
       sums[o + 6]++;
     }
     final out = LocalMesh();
     for (var i = 0; i < cellIndex.length; i++) {
-      final o = i * 7;
+      final o = i * 9;
       final n = sums[o + 6];
-      out.addVertex(sums[o] / n, sums[o + 1] / n, sums[o + 2] / n, 0, 0,
+      out.addVertex(sums[o] / n, sums[o + 1] / n, sums[o + 2] / n,
+          hasUvs ? sums[o + 7] / n : 0, hasUvs ? sums[o + 8] / n : 0,
           r: hasColors ? sums[o + 3] / n : null,
           g: hasColors ? sums[o + 4] / n : null,
           b: hasColors ? sums[o + 5] / n : null);

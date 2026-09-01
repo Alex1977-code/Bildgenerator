@@ -28,6 +28,8 @@ import '../services/glb_textures.dart';
 import '../services/roblox_check.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_rig.dart';
+import '../services/mesh_budget.dart';
+import '../services/roblox_specs_config.dart';
 import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stl_export.dart';
@@ -274,6 +276,16 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               icon: const Icon(Icons.auto_fix_high),
               onPressed: _addRig,
             ),
+          // Das Dreiecksbudget. Das Face-Limit von Tripo bleibt, wo
+          // es ist: Es wirkt vor der Generierung, der Anbieter baut
+          // gleich ein schlankeres Netz, und das sieht meist besser
+          // aus als jede spätere Reduktion. Nur greift es eben nur
+          // bei Tripo – dieser Regler gilt für jede GLB.
+          IconButton(
+            tooltip: 'Dreiecksbudget (Regler mit Ampel)',
+            icon: const Icon(Icons.speed_outlined),
+            onPressed: _openBudget,
+          ),
           // Roblox in zwei Schritten – an der Datei, nicht nur am
           // frisch erzeugten Ergebnis im 3D-Tab. Ein abgelegtes
           // Modell aus Blender oder aus einem alten Lauf kam dort nie
@@ -617,6 +629,32 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         // damit kann der Rig-Editor das Skelett neu aufbauen.
         unriggedGlb: widget.glbBytes,
         rigType: chosen,
+        onGlbUpdated: widget.onGlbUpdated,
+        showExport: widget.showExport,
+      ),
+    ));
+  }
+
+  /// Der Dreiecksbudget-Regler als Blatt von unten.
+  Future<void> _openBudget() async {
+    final mesh = _mesh;
+    if (mesh == null) return;
+    final ergebnis = await showModalBottomSheet<Uint8List>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _BudgetSheet(
+        glb: widget.glbBytes,
+        triangles: mesh.indices.length ~/ 3,
+        hasRig: mesh.rig != null,
+      ),
+    );
+    if (ergebnis == null || !mounted) return;
+    widget.onGlbUpdated?.call(ergebnis);
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: ergebnis,
+        title: widget.title,
+        provenance: widget.provenance,
         onGlbUpdated: widget.onGlbUpdated,
         showExport: widget.showExport,
       ),
@@ -1276,5 +1314,196 @@ class _RigTypeDialogState extends State<_RigTypeDialog> {
       if (value == type) return label;
     }
     return type;
+  }
+}
+
+
+/// Der Dreiecksbudget-Regler.
+///
+/// Der Zähler und die Ampel folgen dem Regler sofort – gerechnet wird
+/// erst beim Übernehmen. Das ist Absicht: Die Reduktion sucht ihr
+/// Raster binär und braucht bei einem großen Netz spürbar Zeit; bei
+/// jedem Reglerschritt neu zu rechnen machte den Regler unbenutzbar.
+class _BudgetSheet extends StatefulWidget {
+  const _BudgetSheet({
+    required this.glb,
+    required this.triangles,
+    required this.hasRig,
+  });
+
+  final Uint8List glb;
+  final int triangles;
+
+  /// Ob ein Skelett drinsteckt – dann warnt das Blatt, denn beim
+  /// Zusammenlegen von Punkten gehen die Gewichte verloren.
+  final bool hasRig;
+
+  @override
+  State<_BudgetSheet> createState() => _BudgetSheetState();
+}
+
+class _BudgetSheetState extends State<_BudgetSheet> {
+  late double _regler = 1.0;
+  String _typ = 'rigidAccessory';
+  bool _laeuft = false;
+
+  int get _ziel => targetForSlider(_regler, widget.triangles);
+
+  AssetSpec get _spec =>
+      robloxSpecs[_typ] ?? robloxSpecs.assetTypes.values.first;
+
+  Future<void> _anwenden() async {
+    setState(() => _laeuft = true);
+    try {
+      final klein = await decimateGlb(widget.glb, _ziel);
+      if (mounted) Navigator.of(context).pop(klein);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _laeuft = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reduzieren fehlgeschlagen: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final urteil = budgetVerdict(_ziel, _spec);
+    final farbe = switch (urteil.light) {
+      BudgetLight.gruen => Colors.green.shade700,
+      BudgetLight.gelb => Colors.orange.shade800,
+      BudgetLight.rot => theme.colorScheme.error,
+    };
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Dreiecksbudget', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'Gilt für jede GLB, egal von welchem Anbieter sie kommt. '
+            'Das Face-Limit von Tripo bleibt davon unberührt – das '
+            'wirkt vorher, beim Erzeugen.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          DropdownMenu<String>(
+            initialSelection: _typ,
+            expandedInsets: EdgeInsets.zero,
+            label: const Text('Asset-Typ'),
+            dropdownMenuEntries: [
+              for (final spec in robloxSpecs.assetTypes.values)
+                DropdownMenuEntry(
+                    value: spec.id,
+                    label: '${spec.label} (${spec.triangles})'),
+            ],
+            onSelected: (value) {
+              if (value != null) setState(() => _typ = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.circle, size: 14, color: farbe),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$_ziel Dreiecke '
+                  '${_ziel == widget.triangles ? '(unverändert)' : 'statt '
+                      '${widget.triangles}'}',
+                  style: theme.textTheme.titleSmall?.copyWith(color: farbe),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(
+            value: urteil.fill.clamp(0.0, 1.0),
+            color: farbe,
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ),
+          const SizedBox(height: 6),
+          Text(urteil.text,
+              style: theme.textTheme.bodySmall?.copyWith(color: farbe)),
+          Slider(
+            value: _regler,
+            onChanged:
+                _laeuft ? null : (v) => setState(() => _regler = v),
+          ),
+          if (widget.hasRig)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_outlined,
+                      size: 16, color: theme.colorScheme.error),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Dieses Modell hat ein Skelett. Beim Reduzieren '
+                      'werden Punkte zusammengelegt, und welchem '
+                      'Knochen der neue Punkt gehört, lässt sich nicht '
+                      'mitteln – das Skelett geht dabei verloren. '
+                      'Erst reduzieren, dann riggen.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.error),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: _laeuft || _spec.triangles <= 0
+                    ? null
+                    : () => setState(() => _regler = sliderForTarget(
+                        (_spec.triangles * 0.85).round(),
+                        widget.triangles)),
+                child: const Text('Aufs Budget setzen'),
+              ),
+              TextButton(
+                onPressed:
+                    _laeuft ? null : () => setState(() => _regler = 1.0),
+                child: const Text('Zurücksetzen'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed:
+                    _laeuft ? null : () => Navigator.of(context).pop(),
+                child: const Text('Abbrechen'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _laeuft || _ziel >= widget.triangles
+                    ? null
+                    : _anwenden,
+                icon: _laeuft
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.check, size: 18),
+                label: Text(_laeuft ? 'Rechnet …' : 'Übernehmen'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
