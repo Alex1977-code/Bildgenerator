@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'fbx_import.dart';
 import 'local_3d.dart' show LocalMesh, buildGlb;
 
 /// Import fremder 3D-Dateien für den Viewer: GLB wird durchgereicht,
-/// STL (binär und ASCII) und OBJ (inklusive Vertexfarben) werden über
-/// den eigenen glTF-Writer in GLB umgewandelt. Wirft [Exception] mit
+/// FBX (binär und Text, siehe `fbx_import.dart`), STL (binär und
+/// ASCII) und OBJ (inklusive Vertexfarben) werden über den eigenen
+/// glTF-Writer in GLB umgewandelt. Wirft [Exception] mit
 /// verständlicher Meldung bei unbekannten Formaten.
 Uint8List importModelToGlb(Uint8List bytes, String fileName) {
   if (bytes.length >= 4 &&
@@ -16,12 +18,16 @@ Uint8List importModelToGlb(Uint8List bytes, String fileName) {
   final lower = fileName.toLowerCase();
   if (lower.endsWith('.stl')) return _stlToGlb(bytes);
   if (lower.endsWith('.obj')) return _objToGlb(bytes);
+  if (lower.endsWith('.fbx')) return fbxToGlb(bytes);
   if (_looksLikeBinaryStl(bytes) || _looksLikeAsciiStl(bytes)) {
     return _stlToGlb(bytes);
   }
+  // Am Inhalt erkannt: Wer eine Datei ohne Endung ablegt, soll nicht
+  // an der Benennung scheitern.
+  if (looksLikeFbx(bytes)) return fbxToGlb(bytes);
   throw Exception(
-      'Nicht unterstütztes Format – bitte GLB-, STL- oder OBJ-Dateien '
-      'ablegen.');
+      'Nicht unterstütztes Format – bitte GLB-, FBX-, STL- oder '
+      'OBJ-Dateien ablegen.');
 }
 
 bool _looksLikeBinaryStl(Uint8List bytes) {

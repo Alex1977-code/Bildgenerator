@@ -24,6 +24,10 @@ import '../services/model_import.dart';
 import '../services/model_refine.dart' show rotateGlbQuarterTurns;
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
+import '../services/glb_textures.dart';
+import '../services/roblox_check.dart';
+import '../services/roblox_fix.dart';
+import '../services/roblox_rig.dart';
 import '../services/provenance.dart';
 import '../services/settings_service.dart';
 import '../services/stl_export.dart';
@@ -270,6 +274,36 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               icon: const Icon(Icons.auto_fix_high),
               onPressed: _addRig,
             ),
+          // Roblox in zwei Schritten – an der Datei, nicht nur am
+          // frisch erzeugten Ergebnis im 3D-Tab. Ein abgelegtes
+          // Modell aus Blender oder aus einem alten Lauf kam dort nie
+          // an.
+          PopupMenuButton<bool>(
+            tooltip: 'Für Roblox herrichten',
+            icon: const Icon(Icons.sports_esports_outlined),
+            onSelected: (withRig) => _makeRobloxReady(withRig: withRig),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: true,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.accessibility_new),
+                  title: Text('Roblox-konform riggen und anpassen'),
+                  subtitle: Text('Skelett mit R15-Namen, 5 Studs, '
+                      'geschlossene Hülle, Textur 1024'),
+                ),
+              ),
+              PopupMenuItem(
+                value: false,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.build_outlined),
+                  title: Text('Nur anpassen (ohne Skelett)'),
+                  subtitle: Text('Für Accessoires und Props'),
+                ),
+              ),
+            ],
+          ),
           // Zubehör zu dieser Figur. Steht auch hier, nicht nur an der
           // Ergebnisliste des 3D-Tabs: Die lebt nur im
           // Arbeitsspeicher, und nach einem Neustart sucht man die
@@ -583,6 +617,168 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         // damit kann der Rig-Editor das Skelett neu aufbauen.
         unriggedGlb: widget.glbBytes,
         rigType: chosen,
+        onGlbUpdated: widget.onGlbUpdated,
+        showExport: widget.showExport,
+      ),
+    ));
+  }
+
+  /// Das Modell in einem Zug Roblox-konform machen.
+  ///
+  /// Bisher lag das nur im 3D-Tab, am frisch erzeugten Ergebnis. Ein
+  /// abgelegtes Modell – aus Blender, aus dem Marktplatz, aus einem
+  /// alten Lauf – kam da nie an. Hier steht es an der Datei selbst:
+  ///
+  /// * **Riggen.** Ohne Skelett wird erst eines eingebaut (derselbe
+  ///   Weg wie „Skelett nachträglich einbauen"), danach werden die
+  ///   Knochen auf die R15-Namen gebracht und Root sowie
+  ///   HumanoidRootNode eingezogen.
+  /// * **Anpassen.** Löcher schließen, Wicklung vereinheitlichen,
+  ///   Texturen auf 1024 verkleinern, auf 5 Studs bringen, Nullpunkt
+  ///   an die Hüfte, Blick nach vorn.
+  ///
+  /// Beides zusammen ist der Knopf „Roblox-konform machen"; wer nur
+  /// die Geometrie will, nimmt „Nur anpassen".
+  Future<void> _makeRobloxReady({required bool withRig}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    var glb = widget.glbBytes;
+    var rigType = widget.rigType;
+    var unrigged = widget.unriggedGlb;
+    final schritte = <String>[];
+
+    // 1. Skelett – nur, wenn gewünscht und noch keines da ist.
+    if (withRig && _mesh?.rig == null) {
+      RigShape shape;
+      try {
+        shape = measureRigShapeOfGlb(glb);
+      } on Exception catch (e) {
+        messenger.showSnackBar(SnackBar(
+            content: Text('Kein Skelett möglich: '
+                '${e.toString().replaceFirst('Exception: ', '')}')));
+        return;
+      }
+      if (!mounted) return;
+      final chosen = await showDialog<String>(
+        context: context,
+        builder: (context) =>
+            _RigTypeDialog(guesses: guessRigType(shape), shape: shape),
+      );
+      if (chosen == null || !mounted) return;
+      try {
+        unrigged = glb;
+        glb = injectAutoRig(glb,
+            rigType: chosen, knownFrontSign: _mesh?.rig?.frontSign);
+        rigType = chosen;
+        schritte.add('Skelett eingebaut (Typ: $chosen).');
+      } on Exception catch (e) {
+        messenger.showSnackBar(SnackBar(
+            content: Text('Rigging fehlgeschlagen: '
+                '${e.toString().replaceFirst('Exception: ', '')}')));
+        return;
+      }
+    }
+
+    // 2. Geometrie und Textur – in dieser Reihenfolge, weil das
+    // Schließen von Löchern die Indexliste ändert.
+    try {
+      final fixed = fixGlbForRoblox(glb, closeHoles: true, fixWinding: true);
+      if (fixed.report.filledHoles > 0) {
+        schritte.add('${fixed.report.filledHoles} Loch/Löcher '
+            'geschlossen (${fixed.report.addedTriangles} neue Dreiecke, '
+            'keine neuen Vertices).');
+      }
+      if (fixed.report.flippedFaces > 0) {
+        schritte.add('${fixed.report.flippedFaces} Fläche(n) in die '
+            'einheitliche Wicklung gedreht.');
+      }
+      final small =
+          await shrinkGlbTextures(fixed.glb, maxSize: robloxMaxTexture);
+      for (final change in small.changed) {
+        schritte.add('Textur von ${change.fromWidth} auf '
+            '${change.toWidth} px verkleinert.');
+      }
+      glb = small.glb;
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e')));
+      return;
+    }
+
+    // 3. Skelett und Maßstab – nur sinnvoll, wenn eines da ist.
+    if (withRig) {
+      try {
+        final prepared =
+            prepareRigForRoblox(glb, targetStuds: robloxCharacterStuds);
+        glb = prepared.glb;
+        schritte.addAll(robloxPrepareSummary(prepared.report));
+      } catch (e) {
+        // Ohne Skelett wirft prepareRigForRoblox – die Geometrie ist
+        // trotzdem schon in Ordnung, das soll nicht verloren gehen.
+        schritte.add('Kein Skelett gefunden – Maßstab und Knochen '
+            'blieben unangetastet.');
+      }
+    }
+
+    if (!mounted) return;
+    if (schritte.isEmpty) {
+      schritte.add('Es war schon alles in Ordnung – nichts zu ändern.');
+    }
+    final uebernehmen = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Für Roblox angepasst'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final schritt in schritte)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.check, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(schritt)),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  'Die Prüfung darüber („Für Roblox prüfen") sagt, was '
+                  'danach noch offen ist. Was die App nicht kann: FBX '
+                  'schreiben und in Studio hochladen – dafür die GLB in '
+                  'Blender öffnen.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Verwerfen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+    if (uebernehmen != true || !mounted) return;
+    widget.onGlbUpdated?.call(glb);
+    navigator.pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: glb,
+        title: widget.title,
+        provenance: widget.provenance,
+        unriggedGlb: unrigged,
+        rigType: rigType,
         onGlbUpdated: widget.onGlbUpdated,
         showExport: widget.showExport,
       ),

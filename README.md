@@ -271,10 +271,20 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
     Vertexfarben für Blender/MeshLab. Druck: Datei in einen Slicer
     laden (PrusaSlicer, Cura, Bambu Studio …) oder beim
     Farbdruck-Dienst hochladen
-  - **Viewer als Drop-Ziel**: eigene GLB-, STL- und OBJ-Dateien lassen
-    sich per Drag & Drop in den 3D-Tab oder direkt in den Viewer
-    ziehen und werden dort angezeigt (STL/OBJ werden intern nach GLB
-    gewandelt)
+  - **Viewer als Drop-Ziel**: eigene GLB-, **FBX**-, STL- und
+    OBJ-Dateien lassen sich per Drag & Drop in den 3D-Tab oder direkt
+    in den Viewer ziehen und werden dort angezeigt (FBX/STL/OBJ werden
+    intern nach GLB gewandelt). Aus einer FBX kommt die **Geometrie**
+    – Skelett, Materialien und Animationen bleiben außen vor; das
+    Skelett baut die App ohnehin selbst
+  - **Für Roblox herrichten**, direkt am abgelegten Modell: „Roblox-
+    konform riggen und anpassen" baut bei Bedarf ein Skelett ein,
+    bringt die Knochen auf die R15-Namen (mit `Root` und
+    `HumanoidRootNode` darüber), schließt Löcher, vereinheitlicht die
+    Wicklung, verkleinert Texturen auf 1024 und skaliert auf 5 Studs.
+    „Nur anpassen" lässt das Skelett weg – für Accessoires und Props.
+    Vorher gab es das nur am frisch erzeugten Ergebnis im 3D-Tab; ein
+    abgelegtes Modell kam dort nie an
   - **Rig-Editor**: Bei selbst geriggten Modellen (Lokal/Stability)
     lassen sich die Gelenke im Viewer manuell verschieben („Rig
     anpassen“) – mit Symmetrie-Modus (links/rechts gespiegelt),

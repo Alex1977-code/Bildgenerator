@@ -1181,7 +1181,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final file = await openFile(acceptedTypeGroups: const [
       XTypeGroup(
         label: '3D-Modelle',
-        extensions: ['glb', 'gltf', 'stl', 'obj'],
+        extensions: ['glb', 'gltf', 'fbx', 'stl', 'obj'],
       ),
     ]);
     if (file == null) return;
@@ -1190,10 +1190,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       final format = detectModelFormat(bytes);
       if (format != ModelFormat.glb &&
           format != ModelFormat.obj &&
-          format != ModelFormat.stl) {
+          format != ModelFormat.stl &&
+          format != ModelFormat.fbxBinary &&
+          format != ModelFormat.fbxAscii) {
         if (mounted) {
           _showSnack('„${file.name}" ist ${modelFormatLabel(format)}. '
-              'Laden lassen sich GLB, OBJ und STL; '
+              'Laden lassen sich GLB, FBX, OBJ und STL; '
               '${modelFormatLimitation(format)}');
         }
         return;
@@ -1580,7 +1582,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       final name = file.name.toLowerCase();
       if (!name.endsWith('.glb') &&
           !name.endsWith('.stl') &&
-          !name.endsWith('.obj')) {
+          !name.endsWith('.obj') &&
+          !name.endsWith('.fbx')) {
         continue;
       }
       try {
@@ -6291,9 +6294,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         const SizedBox(height: 4),
         Text(
           'Generierte Modelle landen zusätzlich in der Galerie '
-          '(Web: nur für die aktuelle Sitzung). Eigene GLB-, STL- oder '
-          'OBJ-Dateien einfach per Drag & Drop hierher ziehen – sie '
-          'öffnen sich im Viewer.',
+          '(Web: nur für die aktuelle Sitzung). Eigene GLB-, FBX-, '
+          'STL- oder OBJ-Dateien einfach per Drag & Drop hierher '
+          'ziehen – sie öffnen sich im Viewer und lassen sich dort '
+          'nachträglich riggen und für Roblox herrichten. Aus einer '
+          'FBX kommt die Geometrie, nicht das Skelett.',
           style: theme.textTheme.bodySmall,
         ),
         if (_usageInfo != null) ...[
