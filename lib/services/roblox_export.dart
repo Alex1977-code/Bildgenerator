@@ -1,14 +1,9 @@
 /// Das Roblox-Paket: die Schritte, die zwischen einem geriggten
 /// Modell und einer spielbaren Figur liegen.
 ///
-/// Zwei davon kann diese App nicht selbst erledigen, und zwar aus
-/// handfesten Gründen:
+/// Einen davon kann diese App nicht selbst erledigen, und zwar aus
+/// einem handfesten Grund:
 ///
-/// * **FBX schreiben.** Mesh- und Animationsimport läuft bei Roblox
-///   über `.fbx`. Ein eigener FBX-Schreiber wäre ein großes Stück
-///   Arbeit, das sich hier nicht gegen Roblox testen ließe – deshalb
-///   erzeugt die App stattdessen ein Blender-Skript, das die
-///   Umwandlung in einem Rutsch macht.
 /// * **Die Figur einsetzen.** Ein Roblox-Platz verweist auf ein
 ///   hochgeladenes MeshPart (`rbxassetid://…`). Das Hochladen samt
 ///   Moderation passiert in Studio – von außen ginge das nur mit
@@ -19,6 +14,12 @@
 ///
 /// Beide Skripte sind reiner Text und werden neben dem Modell
 /// abgelegt.
+///
+/// **FBX schreibt die App inzwischen selbst** (`fbx_writer.dart`) –
+/// der Weg über Blender ist damit kein Muss mehr. Das Blender-Skript
+/// bleibt trotzdem hier: Wer ohnehin in Blender arbeitet, will die
+/// Umwandlung dort im Rutsch haben, und für Animationen führt der Weg
+/// weiterhin über Blender.
 library;
 
 /// Blender-Skript: GLB laden, Transformationen einfrieren, als FBX

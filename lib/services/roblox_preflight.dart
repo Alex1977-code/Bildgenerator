@@ -57,6 +57,10 @@ enum PreflightFix {
 
   /// Maßstab, Nullpunkt, Knochen und Ausrichtung herrichten.
   rigHerrichten,
+
+  /// Die Textur-Pipeline: ein UV-Satz, UVs in den 0–1-Raum, ein
+  /// Material je Mesh.
+  texturPipeline,
 }
 
 /// Ein Punkt des Berichts.
@@ -466,7 +470,8 @@ PreflightReport buildPreflightReport({
         'Studio nimmt genau einen UV-Satz je Objekt. Weitere Sätze '
             'gehen verloren – und das Ergebnis sieht anders aus als im '
             'Modellierprogramm.',
-        7);
+        7,
+        fix: PreflightFix.texturPipeline);
   }
   if (facts.uvMin < -0.001 || facts.uvMax > 1.001) {
     add(
@@ -477,8 +482,12 @@ PreflightReport buildPreflightReport({
             '${facts.uvMin.toStringAsFixed(2)} bis '
             '${facts.uvMax.toStringAsFixed(2)}). Außerhalb kachelt die '
             'Textur, und in Roblox sieht das anders aus als im '
-            'Modellierprogramm.',
-        7);
+            'Modellierprogramm. Liegt die ganze Insel um eine ganze '
+            'Kachel daneben, schiebt die Textur-Pipeline sie bildgleich '
+            'zurück; reicht sie über eine Kachelgrenze, muss das '
+            'UV-Layout neu gelegt werden.',
+        7,
+        fix: PreflightFix.texturPipeline);
   }
 
   // --- 8. Material und Mesh-Zahl --------------------------------
@@ -489,8 +498,11 @@ PreflightReport buildPreflightReport({
         '${facts.maxPrimitivesPerMesh} Materialien in einem Mesh',
         'Der Importer nimmt ein Material je Mesh. Mehrere Materialien '
             'zerlegen das Netz beim Import, und die Teile verlieren '
-            'ihren Zusammenhang.',
-        8);
+            'ihren Zusammenhang. Teilnetze mit demselben Material legt '
+            'die Textur-Pipeline zusammen; verschiedene Materialien '
+            'brauchen einen Textur-Atlas.',
+        8,
+        fix: PreflightFix.texturPipeline);
   }
   if (spec.singleMesh && facts.meshCount > 1) {
     add(

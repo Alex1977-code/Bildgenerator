@@ -17,9 +17,11 @@ import '../services/auto_rig.dart'
         rigTypeOptions,
         rigTypePromptRules;
 import '../services/rig_detect.dart';
+import '../services/export_presets.dart';
 import '../services/exporter.dart';
 import '../services/fbx_writer.dart';
 import '../services/roblox_accessory.dart';
+import '../services/texture_pipeline.dart';
 import '../services/glb_preview.dart';
 import '../services/mesh_check.dart';
 import '../services/model_relay.dart';
@@ -297,6 +299,14 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
             tooltip: 'Dreiecksbudget (Regler mit Ampel)',
             icon: const Icon(Icons.speed_outlined),
             onPressed: _openBudget,
+          ),
+          // Textur-Pipeline und Export-Presets: alles, was zwischen
+          // dem fertigen Netz und einer Datei liegt, die Roblox
+          // annimmt.
+          IconButton(
+            tooltip: 'Textur-Pipeline und Export-Presets',
+            icon: const Icon(Icons.output_outlined),
+            onPressed: _openExportSheet,
           ),
           // Roblox in zwei Schritten – an der Datei, nicht nur am
           // frisch erzeugten Ergebnis im 3D-Tab. Ein abgelegtes
@@ -664,6 +674,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         await _makeRobloxReady(withRig: false);
       case PreflightFix.rigHerrichten:
         await _makeRobloxReady(withRig: true);
+      case PreflightFix.texturPipeline:
+        await _openExportSheet();
       case PreflightFix.keine:
         messenger.showSnackBar(const SnackBar(
             content: Text('Dafür gibt es keine Reparatur in der App.')));
@@ -682,6 +694,30 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
         triangles: mesh.indices.length ~/ 3,
         hasRig: mesh.rig != null,
       ),
+    );
+    if (ergebnis == null || !mounted) return;
+    widget.onGlbUpdated?.call(ergebnis);
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: ergebnis,
+        title: widget.title,
+        provenance: widget.provenance,
+        onGlbUpdated: widget.onGlbUpdated,
+        showExport: widget.showExport,
+      ),
+    ));
+  }
+
+  /// Textur-Pipeline und Export-Presets als Blatt von unten.
+  ///
+  /// Ändert die Pipeline das Modell, kommt es hier zurück und ersetzt
+  /// den angezeigten Stand – sonst hätte man aufbereitet und würde
+  /// weiter das alte Netz sehen.
+  Future<void> _openExportSheet() async {
+    final ergebnis = await showModalBottomSheet<Uint8List>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ExportSheet(glb: widget.glbBytes, title: widget.title),
     );
     if (ergebnis == null || !mounted) return;
     widget.onGlbUpdated?.call(ergebnis);
@@ -1751,6 +1787,8 @@ class _PreflightSheetState extends State<_PreflightSheet> {
                                           'Textur verkleinern',
                                         PreflightFix.rigHerrichten =>
                                           'Für Roblox anpassen',
+                                        PreflightFix.texturPipeline =>
+                                          'Textur-Pipeline',
                                         PreflightFix.keine => '',
                                       }),
                                     ),
@@ -1783,6 +1821,285 @@ class _PreflightSheetState extends State<_PreflightSheet> {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Textur-Pipeline und Export-Presets in einem Blatt.
+///
+/// Warum zusammen: Beides gehört zum selben Schritt – erst die Textur
+/// in Ordnung bringen, dann in dem Format ausgeben, das zum Modell
+/// passt. Getrennt in zwei Menüs stünde die Reihenfolge nirgends.
+///
+/// Das Blatt gibt das aufbereitete Modell zurück, wenn die Pipeline
+/// etwas geändert hat.
+class _ExportSheet extends StatefulWidget {
+  const _ExportSheet({required this.glb, required this.title});
+
+  final Uint8List glb;
+  final String title;
+
+  @override
+  State<_ExportSheet> createState() => _ExportSheetState();
+}
+
+class _ExportSheetState extends State<_ExportSheet> {
+  late Uint8List _glb = widget.glb;
+
+  bool _verkleinern = true;
+  bool _einUvSatz = true;
+  bool _uvRaum = true;
+  bool _einMaterial = true;
+  bool _hautton = false;
+
+  String _preset = presetFbxRigged.id;
+  PivotMode _pivot = PivotMode.fuesse;
+
+  String? _bericht;
+  bool _laeuft = false;
+
+  bool get _geaendert => !identical(_glb, widget.glb);
+
+  /// Die Zielgröße für Texturen aus der Spezifikationsdatei. Sie ist
+  /// für alle Asset-Typen gleich, deshalb reicht der erste.
+  int get _texturZiel => robloxSpecs.assetTypes.values.first.texture.target;
+
+  Future<void> _aufbereiten() async {
+    setState(() {
+      _laeuft = true;
+      _bericht = null;
+    });
+    try {
+      final result = await runTexturePipeline(
+        _glb,
+        shrinkTextures: _verkleinern,
+        singleUvSet: _einUvSatz,
+        uvIntoUnitSquare: _uvRaum,
+        mergePrimitives: _einMaterial,
+        maxTextureSize: _texturZiel,
+      );
+      var glb = result.glb;
+      var text = result.report.text;
+      if (_hautton) {
+        final haut = await makeSkinToneReady(glb);
+        glb = haut.glb;
+        text = '$text\n${haut.changed ? '✔' : '–'} Hautton: ${haut.detail}';
+      }
+      if (!mounted) return;
+      setState(() {
+        _glb = glb;
+        _bericht = text;
+        _laeuft = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _bericht = 'Aufbereiten fehlgeschlagen: $e';
+        _laeuft = false;
+      });
+    }
+  }
+
+  Future<void> _exportieren() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final preset = exportPresetById(_preset);
+    setState(() => _laeuft = true);
+    try {
+      final vorbereitet = prepareForExport(_glb, pivot: _pivot);
+      final glb = vorbereitet.glb;
+      final name = exportFileName(preset, widget.title);
+      final Uint8List daten = switch (preset.format) {
+        ExportFormat.glb => glb,
+        ExportFormat.obj => await glbToObj(glb),
+        ExportFormat.fbx => await glbToFbx(glb,
+            name: robloxInstanceName(widget.title, fallback: 'Modell')),
+      };
+      await exportImageBytes(daten, name, preset.mimeType);
+
+      // Bei FBX liegt die Textur als eigene Datei daneben – FBX bettet
+      // Bilder nicht ein, und Roblox lädt sie ohnehin getrennt hoch.
+      var textur = false;
+      if (preset.textureSidecar) {
+        final png = firstGlbTexturePng(glb);
+        if (png != null) {
+          await exportImageBytes(
+              png, name.replaceAll('.fbx', '.png'), 'image/png');
+          textur = true;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _bericht = '${vorbereitet.report.text}\n\nGespeichert als $name'
+            '${textur ? ' – die Textur liegt als PNG daneben.' : '.'}';
+        _laeuft = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _laeuft = false);
+      messenger
+          .showSnackBar(SnackBar(content: Text('Export fehlgeschlagen: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preset = exportPresetById(_preset);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Textur-Pipeline und Export',
+                        style: theme.textTheme.titleMedium),
+                  ),
+                  if (_geaendert)
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).pop(_glb),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Übernehmen'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Erst die Textur in Ordnung bringen, dann in dem Format '
+                'ausgeben, das zum Modell passt.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const Divider(height: 24),
+              Text('Textur-Pipeline', style: theme.textTheme.titleSmall),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _verkleinern,
+                onChanged: (v) => setState(() => _verkleinern = v),
+                title: Text('Texturen auf $_texturZiel px verkleinern'),
+                subtitle: const Text(
+                    'Größere Bilder lehnt Roblox ab. Das Seitenverhältnis '
+                    'bleibt erhalten.'),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _einUvSatz,
+                onChanged: (v) => setState(() => _einUvSatz = v),
+                title: const Text('Nur einen UV-Satz behalten'),
+                subtitle: const Text(
+                    'Studio liest ohnehin nur den ersten; weitere Sätze '
+                    'verwirren den Importer.'),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _uvRaum,
+                onChanged: (v) => setState(() => _uvRaum = v),
+                title: const Text('UVs in den 0–1-Raum schieben'),
+                subtitle: const Text(
+                    'Nur um ganze Zahlen – das ist bildgleich, weil sich '
+                    'die Textur wiederholt. Alles andere würde sie '
+                    'verrutschen lassen.'),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _einMaterial,
+                onChanged: (v) => setState(() => _einMaterial = v),
+                title: const Text('Ein Material je Mesh'),
+                subtitle: const Text(
+                    'Teilnetze mit demselben Material werden zusammengelegt. '
+                    'Verschiedene Materialien brauchen einen Textur-Atlas.'),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _hautton,
+                onChanged: (v) => setState(() => _hautton = v),
+                title: const Text('Hautton-fähig machen'),
+                subtitle: const Text(
+                    'Die Textur wird auf Helligkeit reduziert, damit der '
+                    'Hautton aus dem Avatar-Editor darauf wirkt. Achtung: '
+                    'Die Farben der Vorlage gehen dabei verloren.'),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.tonalIcon(
+                onPressed: _laeuft ? null : _aufbereiten,
+                icon: const Icon(Icons.auto_fix_high),
+                label: const Text('Aufbereiten'),
+              ),
+              const Divider(height: 24),
+              Text('Export-Preset', style: theme.textTheme.titleSmall),
+              RadioGroup<String>(
+                groupValue: _preset,
+                onChanged: (v) => setState(() => _preset = v ?? _preset),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final p in exportPresets)
+                      RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: p.id,
+                        title: Text(p.label),
+                        subtitle: Text(p.purpose,
+                            style: theme.textTheme.bodySmall),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownMenu<PivotMode>(
+                initialSelection: _pivot,
+                expandedInsets: EdgeInsets.zero,
+                label: const Text('Nullpunkt'),
+                dropdownMenuEntries: const [
+                  DropdownMenuEntry(
+                      value: PivotMode.fuesse,
+                      label: 'Mittig unter das Modell (Figuren)'),
+                  DropdownMenuEntry(
+                      value: PivotMode.mitte,
+                      label: 'In die Mitte (drehende Teile)'),
+                  DropdownMenuEntry(
+                      value: PivotMode.unveraendert,
+                      label: 'Unverändert lassen'),
+                ],
+                onSelected: (v) => setState(() => _pivot = v ?? _pivot),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _laeuft ? null : _exportieren,
+                icon: const Icon(Icons.download),
+                label: Text('Als ${preset.extension.toUpperCase()} '
+                    'speichern'),
+              ),
+              if (_laeuft)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (_bericht case final text?) ...[
+                const Divider(height: 24),
+                SelectableText(text,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(fontFamily: 'monospace')),
+              ],
+            ],
+          ),
         ),
       ),
     );

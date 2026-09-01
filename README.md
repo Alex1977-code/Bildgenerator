@@ -1288,6 +1288,82 @@ Knochen der neue Punkt gehört. Reihenfolge also: erst reduzieren, dann
 riggen. Texturen überstehen es dagegen — die UV-Koordinaten werden wie
 Position und Farbe gemittelt.
 
+### Textur-Pipeline und Export-Presets
+
+Im Viewer (Symbol mit dem Pfeil aus dem Kasten) sitzt beides in einem
+Blatt, weil es zum selben Schritt gehört: erst die Textur in Ordnung
+bringen, dann in dem Format ausgeben, das zum Modell passt.
+
+**Die Textur-Pipeline** repariert vier Punkte, die der Preflight bisher
+nur genannt hat — jeder einzeln abschaltbar:
+
+| Schritt | Was passiert |
+| --- | --- |
+| Texturgröße | Alle eingebetteten Bilder auf 1.024 px, Seitenverhältnis bleibt |
+| UV-Sätze | `TEXCOORD_1` und höher fliegen raus — Studio liest ohnehin nur den ersten |
+| UV-Raum | UVs um **ganze Zahlen** in 0–1 geschoben |
+| Material | Teilnetze mit demselben Material werden zusammengelegt |
+
+Zwei Stellen, an denen die Pipeline **bewusst nichts tut**, statt etwas
+kaputtzumachen:
+
+- **UVs über einer Kachelgrenze.** Nur ganze Verschiebungen sind
+  bildgleich: Unter der Wiederholung (`REPEAT`, der glTF-Standard)
+  trifft u = 1,3 dasselbe Pixel wie u = 0,3. Reicht eine Insel dagegen
+  von 0,9 bis 1,5, bringt sie keine ganze Zahl nach innen — und eine
+  gebrochene würde die Textur verrutschen lassen. Dann steht im
+  Bericht, dass das UV-Layout im 3D-Programm neu gelegt werden muss.
+- **Verschiedene Materialien in einem Mesh.** Die ließen sich nur über
+  einen Textur-Atlas vereinen, und der gehört ins 3D-Programm. Der
+  Bericht sagt das, statt es heimlich zu versuchen.
+
+**Hautton-fähig machen** ist eine eigene Option, kein Pipeline-Schritt.
+Roblox multipliziert die Textur mit der Farbe des Teils, und die
+Hautfarbe kommt aus dem Avatar-Editor genau über diese Farbe. Steckt
+der Hautton schon in der Textur, wird er ein zweites Mal eingefärbt —
+der Regler im Editor tut dann scheinbar nichts Richtiges. Die Option
+reduziert die Basisfarbtextur deshalb auf Helligkeit (Rec. 709) und
+hellt sie über eine Gammakurve auf einen Mittelwert von 78 % auf; der
+Basisfarbfaktor geht auf Weiß. Schatten und Falten bleiben, **die
+Farben der Vorlage gehen verloren** — für eine Figur, deren Farbigkeit
+aus Kleidung besteht, ist das der falsche Knopf.
+
+**Drei Export-Presets**, jedes mit dem Grund dabei:
+
+| Preset | Wofür |
+| --- | --- |
+| **FBX für Roblox Studio** | Gerigte Figuren und Accessoires. Skelett, Gewichte und Bindepose gehen mit; die Textur liegt als PNG daneben |
+| **GLB mit eingebetteten Texturen** | Eine Datei mit allem drin — für die eigene Ablage, Blender und jedes glTF-Werkzeug |
+| **OBJ für statische Props** | Kisten, Möbel, Deko. Kennt weder Knochen noch Animation — genau deshalb für Unbewegtes das schlankeste Format |
+
+Vor jedem Export läuft dieselbe Vorbereitung:
+
+- **Transformationen einfrieren.** Eine gleichmäßige Skalierung über
+  der Szene wird in die Punkte gerechnet und vom Wurzelknoten genommen.
+  Bei einem Skelett wandern **Gelenke und inverse Bindematrizen mit** —
+  sonst reißt die Haut. Steht dort eine Drehung oder eine ungleiche
+  Skalierung, wird nichts angefasst und der Bericht sagt warum.
+- **Nullpunkt.** Mittig unter das Modell (Figuren, so setzt Roblox sie
+  ab), in die Mitte (drehende Teile) oder unverändert.
+- **Achsen.** +Y oben ist glTF-Gesetz und wird nur nachgeprüft. Die
+  Blickrichtung wird aus der Geometrie gemessen; schaut das Modell nach
+  −Z, steht das im Bericht — gedreht wird nichts, weil bei einem
+  Skelett Gelenke und Netz gemeinsam gedreht werden müssten (dafür gibt
+  es die 90°-Knöpfe im Viewer).
+- **Maßstab.** Der Importer setzt einen Meter gleich einem Stud; der
+  Bericht nennt die Höhe in Studs (ein Standard-Charakter misst 5).
+
+**Der Dateiname kommt automatisch**: `stamm_JJJJMMTT-HHMM.endung`.
+Umlaute werden ausgeschrieben (`Größe` → `Groesse`, nicht `Gre`), alles
+andere wird zu `_`, und nach 40 Zeichen ist Schluss — der Titel eines
+Laufs ist oft der ganze Prompt, und der ist als Dateiname unbrauchbar.
+Der Zeitstempel steht **hinten**, damit die alphabetische Sortierung im
+Ordner auch die zeitliche ist.
+
+Im Preflight tragen die drei Befunde „UV-Sätze", „UV-Raum" und
+„Material" jetzt den Knopf **Textur-Pipeline** — und ihre Begründung
+sagt gleich mit, wo die Pipeline aufhört.
+
 ### Die Roblox-Vorgaben stehen in einer Datei, nicht im Code
 
 `assets/roblox_specs.json` hält die Budgets, Texturgrenzen, Rig-Namen

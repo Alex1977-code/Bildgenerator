@@ -179,6 +179,29 @@ void main() {
           PreflightSeverity.fehler);
     });
 
+    test('UV- und Material-Befunde bieten die Textur-Pipeline an', () {
+      // Der Preflight nannte diese drei Punkte lange nur. Seit der
+      // Textur-Pipeline gibt es dafür einen Knopf – und die Oberfläche
+      // baut ihn allein aus dieser Angabe.
+      for (final (fakten, id) in [
+        (_gut(uvSets: 2), 'uv_saetze'),
+        (_gut(uvMax: 3.0), 'uv_raum'),
+        (_gut(maxPrimitivesPerMesh: 3), 'material'),
+      ]) {
+        expect(finde(bericht(fakten), id)!.fix, PreflightFix.texturPipeline,
+            reason: '$id ohne Reparatur');
+      }
+    });
+
+    test('die Begründung sagt, wo die Pipeline aufhört', () {
+      // Ein Knopf, der schweigend nichts tut, ist schlimmer als
+      // keiner: Beide Fälle stehen deshalb im Text.
+      expect(finde(bericht(_gut(uvMax: 3.0)), 'uv_raum')!.reason,
+          contains('Kachelgrenze'));
+      expect(finde(bericht(_gut(maxPrimitivesPerMesh: 3)), 'material')!.reason,
+          contains('Textur-Atlas'));
+    });
+
     test('Ein Accessoire muss ein einziges Mesh sein, ein Prop nicht',
         () {
       expect(finde(bericht(_gut(meshCount: 3)), 'ein_mesh')!.severity,
