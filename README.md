@@ -1506,6 +1506,27 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Die FBX liegt im Paket, statt daneben beschrieben zu sein
+
+Roblox importiert Rigs über `.fbx`, nicht über `.glb`. Im Roblox-Paket
+lag dafür bisher nur ein Blender-Skript, das die Umwandlung erledigt —
+obwohl die App FBX inzwischen selbst schreibt (7.4 binär, mit Skelett
+und Gewichten). Jetzt liegt das Ergebnis im Paket und nicht die
+Anleitung dorthin; das Skript bleibt als Rückfallweg dabei.
+
+Zwei Punkte dazu:
+
+- **Nur auf dem Rig-Weg.** Auf dem Marktplatz-Weg nimmt Auto Setup das
+  rohe Netz; eine zweite Fassung derselben Figur wäre dort nur eine
+  Quelle für Verwechslungen.
+- **Die Textur liegt daneben**, als PNG. Sie steckt nicht in der FBX
+  und wird in Studio getrennt aufs Mesh gelegt — die Anleitung sagt es
+  an, und ohne Textur im Modell bleibt der Punkt einfach weg.
+
+Nachgemessen in Blender, Paket-GLB gegen Paket-FBX: 1 Netz, 72
+Dreiecke, 18 Knochen mit identischen R15-Namen, höchstens 2 Einflüsse
+je Vertex, Höhe 5,0000 in beiden, größte Abweichung 0,00000021.
+
 ### Das Skelett fällt für Auto Setup weg
 
 Auf dem Marktplatz-Weg stand bisher eine Absage: „Die Datei trägt ein

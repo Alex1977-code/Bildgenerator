@@ -225,5 +225,40 @@ void main() {
       );
       expect(ohne, isNot(contains('auto_setup')));
     });
+
+    test('liegt die FBX dabei, entfällt der Umweg über Blender', () {
+      // Die App schreibt FBX inzwischen selbst. Dann gehört das
+      // Ergebnis ins Paket und nicht die Anleitung dorthin – das
+      // Skript bleibt als Rückfallweg.
+      final mit = robloxReadme(
+        glbFile: 'figur.glb',
+        fbxFile: 'figur.fbx',
+        scriptFile: 'figur.py',
+        luaFile: 'figur.lua',
+        missingBones: const [],
+        fbxIncluded: true,
+        textureFile: 'figur.png',
+      );
+      expect(mit, contains('liegt schon dabei'));
+      expect(mit, contains('Rueckfallweg'));
+      expect(mit, contains('figur.png'));
+      // Die Datei steht auch in der Liste oben.
+      final liste = mit.split('Zwei Wege').first;
+      expect(liste, contains('figur.fbx'));
+      expect(liste, contains('figur.png'));
+
+      // Ohne FBX bleibt es beim alten Weg, und nichts verspricht eine
+      // Datei, die nicht im Paket liegt.
+      final ohneFbx = robloxReadme(
+        glbFile: 'figur.glb',
+        fbxFile: 'figur.fbx',
+        scriptFile: 'figur.py',
+        luaFile: 'figur.lua',
+        missingBones: const [],
+      );
+      expect(ohneFbx, isNot(contains('liegt schon dabei')));
+      expect(ohneFbx, contains('blender --background'));
+      expect(ohneFbx.split('Zwei Wege').first, isNot(contains('figur.fbx')));
+    });
   });
 }

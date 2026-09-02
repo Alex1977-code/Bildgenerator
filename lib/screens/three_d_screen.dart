@@ -37,7 +37,9 @@ import '../services/model_import.dart';
 import '../services/model_relay.dart';
 import '../services/model_views.dart';
 import '../services/model_refine.dart';
+import '../services/fbx_writer.dart';
 import '../services/glb_textures.dart';
+import '../services/mesh_budget.dart';
 import '../services/model_format.dart';
 import '../services/obj_export.dart';
 import '../services/preview_animations.dart';
@@ -4177,6 +4179,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final scriptFile = '${base}_blender_fbx.py';
     final luaFile = '${base}_studio.lua';
     final autoSetupFile = '${base}_auto_setup.lua';
+    // Die FBX schreibt die App selbst.
+    //
+    // Roblox importiert Rigs über .fbx, nicht über .glb – und bis
+    // hierher lag im Paket nur ein Blender-Skript, das die Umwandlung
+    // erledigt. Den Schreiber gibt es inzwischen (FBX 7.4 binär, mit
+    // Skelett und Gewichten), also gehört das Ergebnis ins Paket und
+    // nicht die Anleitung dorthin. Das Skript bleibt als Rückfallweg
+    // dabei.
+    //
+    // Nur für den Rig-Weg: Auf dem Marktplatz-Weg nimmt Auto Setup das
+    // rohe Netz, dort wäre eine zweite Fassung derselben Figur nur eine
+    // Quelle für Verwechslungen.
+    Uint8List? fbxBytes;
+    var fbxNote = '';
+    if (rig != null) {
+      try {
+        fbxBytes = await glbToFbx(vorbereitet!, name: base);
+      } catch (e) {
+        fbxNote = 'Die FBX ließ sich nicht schreiben ($e) – im Paket '
+            'liegt der Weg über Blender.';
+      }
+    }
+    final texturBytes =
+        fbxBytes == null ? null : firstGlbTexturePng(vorbereitet!);
+    final texturFile = texturBytes == null ? '' : '$base.png';
+
     try {
       final texts = <String, String>{
         scriptFile: blenderFbxScript(glbFile: glbFile, fbxFile: fbxFile),
@@ -4199,10 +4227,24 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           autoSetupFile: autoSetupFile,
           missingBones: rig?.report.rig.missing ?? const [],
           repairs: repairs.map(_ohneUmlaute).toList(),
+          fbxIncluded: fbxBytes != null,
+          textureFile: texturFile,
         ),
       };
       var message = await exportImageBytes(
           vorbereitet!, glbFile, 'model/gltf-binary');
+      if (fbxBytes != null) {
+        message = await exportImageBytes(
+                fbxBytes, fbxFile, 'application/octet-stream') ??
+            message;
+      }
+      if (texturBytes != null) {
+        // Die Textur steckt nicht in der FBX – sie liegt daneben und
+        // wird in Studio getrennt aufs Mesh gelegt.
+        message =
+            await exportImageBytes(texturBytes, texturFile, 'image/png') ??
+                message;
+      }
       for (final entry in texts.entries) {
         message = await exportImageBytes(
                 Uint8List.fromList(utf8.encode(entry.value)),
@@ -4211,8 +4253,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             message;
       }
       if (message != null && mounted) {
-        _showSnack('Roblox-Paket gespeichert (4 Dateien) – '
-            '$message');
+        final anzahl = 1 + texts.length + (fbxBytes == null ? 0 : 1) +
+            (texturBytes == null ? 0 : 1);
+        _showSnack('Roblox-Paket gespeichert ($anzahl Dateien'
+            '${fbxBytes == null ? '' : ', FBX dabei'}) – $message'
+            '${fbxNote.isEmpty ? '' : ' $fbxNote'}');
       }
     } catch (e) {
       if (mounted) _showSnack('Speichern fehlgeschlagen: $e');

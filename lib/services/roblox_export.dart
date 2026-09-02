@@ -257,6 +257,8 @@ String robloxReadme({
   required List<String> missingBones,
   List<String> repairs = const [],
   String autoSetupFile = '',
+  bool fbxIncluded = false,
+  String textureFile = '',
 }) =>
     '''
 Roblox-Paket
@@ -265,7 +267,7 @@ Roblox-Paket
 Diese Dateien gehoeren zusammen:
 
   $glbFile      Das Modell, Knochen bereits auf R15 benannt
-  $scriptFile   Blender-Skript: macht daraus $fbxFile
+${fbxIncluded ? '  $fbxFile      Dasselbe Modell als FBX - das nimmt Studio fuer Rigs\n' : ''}${textureFile.isEmpty ? '' : '  $textureFile      Die Textur; FBX verweist auf sie, statt sie zu tragen\n'}  $scriptFile   Blender-Skript: GLB zu FBX${fbxIncluded ? ' (Rueckfallweg)' : ''}
   $luaFile      Luau-Skript fuer die Befehlsleiste in Roblox Studio
 ${autoSetupFile.isEmpty ? '' : '  $autoSetupFile  Luau-Skript fuer Roblox Auto Setup (Marktplatz-Weg)\n'}
 Zwei Wege, und sie fuehren nicht zum selben Ziel
@@ -290,16 +292,30 @@ ${missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt a
 \${repairs.isEmpty ? '' : 'Was die App an der Datei geaendert hat\n'
     '--------------------------------------\n'
     '\${repairs.map((e) => '  * \$e').join('\n')}\n'}
-Schritt 1 - FBX erzeugen
-------------------------
+Schritt 1 - FBX
+---------------
 Roblox importiert Meshes mit Rig ueber .fbx, nicht ueber .glb.
+${fbxIncluded ? '''
+Die FBX liegt schon dabei - $fbxFile. Die App schreibt sie selbst
+(FBX 7.4 binaer, Skelett und Gewichte inbegriffen); der Umweg ueber
+Blender entfaellt. Weiter mit Schritt 2.
+${textureFile.isEmpty ? '' : '''
+Die Textur steckt nicht in der FBX, sondern liegt als $textureFile
+daneben. In Studio nach dem Import auf das Mesh legen (SurfaceAppearance
+oder TextureID).
+'''}
+Falls Studio die Datei doch nicht mag, liegt der alte Weg als
+Rueckfallweg im Paket:
 
+  blender --background --python $scriptFile
+''' : '''
   blender --background --python $scriptFile
 
 Oder in Blender: Datei -> Importieren -> glTF, dann Datei ->
 Exportieren -> FBX. Das Skript nimmt einem dabei die drei Stellen ab,
 an denen es sonst schiefgeht: Transformationen einfrieren, hoechstens
 vier Knochen je Vertex, keine leeren Endknochen.
+'''}
 
 Schritt 2 - In Studio importieren
 ---------------------------------
