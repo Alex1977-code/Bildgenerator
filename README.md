@@ -1540,6 +1540,44 @@ Dafür gibt es die Gegenstandsart **„Kapuze"**: offene Vorderseite, hohl
 innen, mit dem Negativ-Zusatz gegen den Kopf darin — sonst kommt eine
 halbe Figur statt eines Accessoires zurück.
 
+### Reparatur-Modus: die Figur anpassen statt neu erzeugen
+
+Bisher endete jede Prüfung mit einer Liste und einem neuen Lauf. Ein
+Lauf kostet Credits und würfelt die Figur neu — wer nur 0,45 Studs zu
+tief ist, will keine andere Figur, sondern dieselbe etwas flacher.
+
+**„Export/Roblox → Marktplatz-Reparatur …"** misst, behebt und misst
+nach. Sechs Eingriffe, alle direkt auf den Punkten:
+
+| Regel | Was die App tut | Grenze, ab der sie es lässt |
+|---|---|---|
+| Tiefe | staucht auf 1,95 Studs | über 2,60 wäre die Figur ein Brett |
+| Hals | schnürt das Halsband glockenförmig ein (cos² über ±6 % der Höhe) | — |
+| Beine getrennt | löscht den Saum: Dreiecke, deren **drei** Punkte unter der Hüfte und im Mittelstreifen liegen | — |
+| Beinform | Zylinder-Klemme mit 0,75 Studs Radius um jede Beinachse | — |
+| Beinbreite | schmälert auf 1,45 | über 1,80 bliebe vom Bein nichts übrig |
+| Pose | dreht die Arme um 45° ums Schultergelenk, weicher Anlauf über 4 % der Höhe | — |
+
+Danach laufen Lochschluss und Wicklungskorrektur (der Schnitt
+hinterlässt Löcher), die Dezimierung auf 6.800 Dreiecke — etwas unter
+der Grenze, damit die Gesichtsteile noch hineinpassen — und zuletzt die
+Gesichtsteile.
+
+**Jede Zeile sagt, wer dran ist.** Grüner Haken: Die App hat es
+behoben. Stift: Das muss der Prompt richten, weil die Korrektur die
+Figur so verformen würde, dass sie nicht mehr wie das Konzept aussieht.
+Die zweite Spalte der Tabelle oben ist genau diese Schwelle.
+
+**Übernommen wird nur auf Wunsch.** Eine Reparatur formt die Figur um;
+wer sie nicht wiedererkennt, klickt „Verwerfen" und behält das
+Original. Auf „Übernehmen" arbeitet auch die Prüfung ab da auf dem
+reparierten Stand — dieselbe Lehre wie beim Herrichten: Jede Prüfung
+läuft auf dem Export-Puffer, nicht auf einer Arbeitskopie.
+
+**Vorher wird immer hergerichtet.** Die Messungen brauchen eine Figur
+von 5,00 Studs mit den Zehen auf +Z; in Bändern von 2 % der Höhe misst
+man sonst etwas anderes, als man glaubt.
+
 ### Die Front war spiegelverkehrt
 
 Der schwerste Fund aus dem Pflichtenheft, und er kostet Läufe: **Studios
@@ -1573,10 +1611,26 @@ Viewer nachsehen und notfalls mit den 90°-Knöpfen nachhelfen.
   Schulter, die schmaler ist als der Hals, mit dem Textbaustein dagegen.
 - **T-Pose am Ergebnis, nicht am Prompt.** Zweimal stand der A-Pose-Text
   im Prompt und die Figur kam trotzdem waagerecht zurück. Gemessen wird
-  jetzt am Netz: Armspanne ≥ 0,95 × Höhe **und** ein Band über 3,5 Studs
-  in der oberen Hälfte. Beide Bedingungen zusammen, weil jede für sich
-  täuscht — eine breite Figur hat auch in A-Pose eine große Armspanne,
-  und ein breites Band allein kann ein Umhang sein.
+  jetzt am Netz — und zwar an der **Höhe der breitesten Stelle**, nicht
+  an der Breite: In der T-Pose ist die Figur an der Schulter am
+  breitesten (rund 77 % der Höhe), in der A-Pose an den Händen, und die
+  hängen bei 45° auf etwa 40 %. Die Regel greift ab 68 %, zusammen mit
+  einer Armspanne ≥ 0,95 × Höhe; die zweite Bedingung schützt davor,
+  einen Sonnenhut für eine Schulter zu halten.
+
+  **Warum nicht über die Breite.** Der erste Anlauf maß „Armspanne
+  ≥ 0,95 × Höhe **und** ein Band über 3,5 Studs oben" — und das war in
+  sich widersprüchlich, was erst eine Testfigur ans Licht gebracht hat.
+  Der Marktplatz **verlangt** mindestens 6,22 Studs Armspanne bei 5,00
+  Studs Höhe, also 1,24 × Höhe. Jede zulässige Figur liegt damit über
+  der 0,95er-Schwelle, auch eine tadellose A-Pose: Die Breite kann die
+  Posen gar nicht trennen. Die alte Regel hätte für **jede** Figur, die
+  die Armspannen-Regel erfüllt, eine T-Pose gemeldet. Aufgefallen ist
+  es an der Test-Vorlage „gute Figur", die selbst waagerechte Arme
+  hatte — der Prüfer hatte recht, die Vorlage war falsch. Sie steht
+  jetzt in A-Pose, aus fünf Stufen von der Schulter (3,85) zur Hand
+  (1,95), 1,90 nach außen auf 1,90 nach unten: genau 45°, Spanne 6,40,
+  breiteste Stelle auf 47 % der Höhe.
 
 Dazu eine Grenze nachgezogen: **Beine getrennt in ≥ 90 %** der Bänder
 statt 80 %.

@@ -44,14 +44,31 @@ class _Bau {
 /// Eine Figur, die die Marktplatz-Regeln einhält: flach, schlanke
 /// getrennte Beine, erkennbarer Hals, Arme weit auseinander.
 /// Maße in Einheiten, die auf 5 Studs Höhe hochgerechnet werden.
+///
+/// Die Arme stehen in **A-Pose**, aus Treppenstufen gebaut: von der
+/// Schulter bei 3,85 schräg nach unten außen bis zur Hand auf 1,95.
+/// Vorher lagen sie waagerecht, und das war ein Fehler in der Vorlage,
+/// keiner in der Prüfung – die Figur stand in T-Pose und der Prüfer
+/// hat recht behalten, als er das gemeldet hat.
 _Bau _guteFigur() {
   final b = _Bau();
   // Die Hüfte sitzt bei 45 % der Höhe – so steht ein R15-Körper.
   b.quader(-1.3, 2.25, -0.6, 1.3, 3.9, 0.6); // Rumpf
   b.quader(-0.35, 3.9, -0.35, 0.35, 4.2, 0.35); // Hals, schmal
   b.quader(-0.8, 4.2, -0.7, 0.8, 5.0, 0.7); // Kopf
-  b.quader(-3.2, 2.6, -0.4, -1.3, 3.85, 0.4); // Arm links
-  b.quader(1.3, 2.6, -0.4, 3.2, 3.85, 0.4); // Arm rechts
+  // Arme, je fünf Stufen von der Schulter (x 1,30 / y 3,85) zur Hand
+  // (x 3,20 / y 1,95): 1,90 nach außen auf 1,90 nach unten, also
+  // genau 45°. Die Armspanne bleibt bei 6,40 – über den geforderten
+  // 6,22 –, aber die breiteste Stelle liegt jetzt unten.
+  const stufen = 5;
+  for (var i = 0; i < stufen; i++) {
+    final xa = 1.3 + 1.9 * i / stufen;
+    final xb = 1.3 + 1.9 * (i + 1) / stufen;
+    final yo = 3.85 - 1.9 * i / stufen;
+    final yu = yo - 0.5;
+    b.quader(-xb, yu, -0.4, -xa, yo, 0.4); // Arm links
+    b.quader(xa, yu, -0.4, xb, yo, 0.4); // Arm rechts
+  }
   b.quader(-0.95, 0.0, -0.45, -0.25, 2.25, 0.45); // Bein links
   b.quader(0.25, 0.0, -0.45, 0.95, 2.25, 0.45); // Bein rechts
   return b;
@@ -165,7 +182,8 @@ void main() {
 
     test('T-Pose wird am Ergebnis erkannt, nicht am Prompt', () {
       // Zweimal stand der A-Pose-Text im Prompt, und zweimal kam die
-      // Figur waagerecht zurück. Armspanne 5,06 bei 5,00 Höhe.
+      // Figur waagerecht zurück. Armspanne 5,06 bei 5,00 Höhe, und die
+      // breiteste Stelle sitzt auf Schulterhöhe.
       const tPose = MarketplaceMeasurement(
         height: 5,
         width: 5.06,
@@ -178,20 +196,24 @@ void main() {
         legWidth: 0.5,
         scale: 1,
         topBandWidth: 4.4,
+        widestBandHeight: 0.77,
       );
       expect(tPose.looksLikeTPose, isTrue);
       final f = checkMarketplaceFigure(tPose).where((f) => f.id == 'pose');
       expect(f, hasLength(1));
       expect(f.single.origin, MarketplaceOrigin.prompt);
       expect(f.single.title, contains('T-Pose gemessen'));
+      expect(f.single.title, contains('77 %'));
 
-      // Beide Bedingungen müssen zusammenkommen: Eine breite Figur mit
-      // hängenden Armen ist keine T-Pose, und ein breites Band allein
-      // kann ein Umhang sein.
+      // Dieselbe Spanne, aber die breiteste Stelle liegt unten: Das
+      // sind hängende Arme, keine T-Pose. Der Unterschied ist die
+      // Höhe, nicht die Breite – die Armspanne **muss** über
+      // 1,24 × Höhe liegen, sonst fällt die Figur an der
+      // Armspannen-Regel durch.
       expect(
           const MarketplaceMeasurement(
             height: 5,
-            width: 5.06,
+            width: 6.4,
             depth: 1.5,
             widthAxis: 0,
             headWidth: 1.3,
@@ -200,9 +222,12 @@ void main() {
             legSeparation: 1,
             legWidth: 0.5,
             scale: 1,
-            topBandWidth: 2.0,
+            topBandWidth: 5.4,
+            widestBandHeight: 0.47,
           ).looksLikeTPose,
           isFalse);
+      // Und eine schmale Figur ist auch dann keine T-Pose, wenn sie
+      // oben am breitesten ist – das kann ein Sonnenhut sein.
       expect(
           const MarketplaceMeasurement(
             height: 5,
@@ -215,7 +240,8 @@ void main() {
             legSeparation: 1,
             legWidth: 0.5,
             scale: 1,
-            topBandWidth: 4.4,
+            topBandWidth: 3.0,
+            widestBandHeight: 0.9,
           ).looksLikeTPose,
           isFalse);
     });
@@ -223,10 +249,11 @@ void main() {
 
   group('Die gute Figur besteht', () {
     late List<MarketplaceFinding> befunde;
+    late MarketplaceMeasurement mass;
     setUpAll(() {
       final b = _guteFigur();
-      befunde =
-          checkMarketplaceFigure(measureMarketplaceFigure(b.positions, b.i));
+      mass = measureMarketplaceFigure(b.positions, b.i);
+      befunde = checkMarketplaceFigure(mass);
     });
 
     test('keine Fehler', () {
@@ -248,6 +275,21 @@ void main() {
 
     test('Bein-Breite unter der Grenze', () {
       expect(_finde(befunde, 'bein_breite').level, MarketplaceLevel.ok);
+    });
+
+    test('die A-Pose wird nicht als T-Pose gemeldet', () {
+      // Der Punkt, an dem die frühere Erkennung zerbrach: Die
+      // Armspanne muss über 6,22 Studs liegen, also über 1,24 × Höhe –
+      // damit ist die Spanne allein nie ein Unterscheidungsmerkmal.
+      expect(mass.width, greaterThanOrEqualTo(marketplaceMinArmSpan));
+      expect(mass.width,
+          greaterThan(mass.height * marketplaceTPoseSpan));
+      // Entscheidend ist die Höhe der breitesten Stelle: an den
+      // hängenden Händen, nicht an der Schulter.
+      expect(mass.widestBandHeight,
+          lessThan(marketplaceTPoseHeight));
+      expect(mass.looksLikeTPose, isFalse);
+      expect(befunde.where((f) => f.id == 'pose'), isEmpty);
     });
   });
 

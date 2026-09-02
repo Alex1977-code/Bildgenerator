@@ -81,6 +81,24 @@ const double marketplaceTPoseSpan = 0.95;
 /// Und ab welcher Bandbreite in der oberen Hälfte.
 const double marketplaceTPoseBand = 3.5;
 
+/// Wie hoch das breiteste Band liegen muss, damit es die Schulter ist.
+///
+/// Die Armspanne allein reicht als Erkennungsmerkmal **nicht**, und
+/// das ist kein Feinschliff, sondern ein Widerspruch: Der Marktplatz
+/// verlangt mindestens [marketplaceMinArmSpan] = 6,22 Studs Spanne bei
+/// 5,00 Studs Höhe, also 1,24 × Höhe. Jede zulässige Figur liegt damit
+/// über den 0,95 × Höhe, ab denen die Spanne allein nach T-Pose
+/// aussieht – auch eine tadellose A-Pose. Wer nur die Spanne misst,
+/// meldet für jede Figur, die die Armspannen-Regel erfüllt, eine
+/// T-Pose.
+///
+/// Der Unterschied liegt nicht in der Breite, sondern in der **Höhe**:
+/// In der T-Pose ist die Figur an der Schulter am breitesten (rund
+/// 77 % der Höhe), in der A-Pose an den Händen, und die hängen bei
+/// 45° auf etwa 40 %. 68 % trennt beides sauber und lässt leicht
+/// gesenkte Arme (rund 20°) noch durch.
+const double marketplaceTPoseHeight = 0.68;
+
 /// Wie viel Prozent seines Hüllkörpers ein Teil aus welcher Richtung
 /// ausfüllen muss. Standardwerte aus `UGCValidation/flags/`.
 ///
@@ -147,6 +165,7 @@ class MarketplaceMeasurement {
     required this.legWidth,
     this.waistWidth = 0,
     this.topBandWidth = 0,
+    this.widestBandHeight = 0,
     required this.scale,
   });
 
@@ -195,9 +214,18 @@ class MarketplaceMeasurement {
   /// Das breiteste Band in der oberen Hälfte.
   ///
   /// Waagerechte Arme auf Schulterhöhe machen daraus ein Band von
-  /// über 3,5 Studs. Zusammen mit der Armspanne ist das die Signatur
-  /// der T-Pose – gemessen am Ergebnis, nicht am Prompt.
+  /// über 3,5 Studs.
   final double topBandWidth;
+
+  /// Auf welcher Höhe das breiteste Band liegt – 0 am Boden, 1 am
+  /// Scheitel.
+  ///
+  /// Das ist die eigentliche Signatur der Pose: In der T-Pose ist die
+  /// breiteste Stelle die Schulter und liegt oben, in der A-Pose sind
+  /// es die Hände, und die hängen tief. Gemessen am Ergebnis, nicht am
+  /// Prompt – zweimal stand der A-Pose-Text drin und die Figur kam
+  /// trotzdem waagerecht zurück.
+  final double widestBandHeight;
 
   /// Mit welchem Faktor auf [marketplaceFigureStuds] gerechnet wurde.
   final double scale;
@@ -217,13 +245,14 @@ class MarketplaceMeasurement {
 
   /// Steht die Figur in T-Pose?
   ///
-  /// Zwei Bedingungen zusammen, weil jede für sich täuscht: Eine
-  /// breite Figur hat auch in A-Pose eine große Armspanne, und ein
-  /// breites Band allein kann ein Umhang sein.
+  /// Zwei Bedingungen zusammen, weil jede für sich täuscht: Ein hoch
+  /// liegendes breitestes Band allein kann ein Umhang oder ein
+  /// Sonnenhut sein, und eine große Armspanne hat auch die A-Pose –
+  /// sie **muss** sie sogar haben, siehe [marketplaceTPoseHeight].
   bool get looksLikeTPose =>
       height > 0 &&
       width >= height * marketplaceTPoseSpan &&
-      topBandWidth > marketplaceTPoseBand;
+      widestBandHeight >= marketplaceTPoseHeight;
 }
 
 /// Misst eine Figur aus ihrer Geometrie.
@@ -374,11 +403,17 @@ MarketplaceMeasurement measureMarketplaceFigure(
   final kopfBreite = breiten[kopfBand];
 
   // Schulter: von dort nach unten das erste Band, das mehr als das
-  // Doppelte der Kopfbreite misst – dort setzen die Arme an. Findet
-  // sich keines, gilt das breiteste Band darunter.
+  // **Anderthalbfache** der Kopfbreite misst – dort setzen die Arme
+  // an. Findet sich keines, gilt das breiteste Band darunter.
+  //
+  // Vorher stand hier das Doppelte, und das war zu streng: Eine Figur
+  // mit Armen von nur 1,9 × Kopfbreite hatte danach gar keine
+  // Schulter, und ohne Schulterband gibt es kein Halsband – die
+  // Halsprüfung meldete für jede solche Figur „Kopfbreite gleich
+  // Halsbreite" und damit 100 %.
   var schulterBand = kopfBand;
   for (var b = kopfBand - 1; b >= 0; b--) {
-    if (breiten[b] > kopfBreite * 2) {
+    if (breiten[b] > kopfBreite * 1.5) {
       schulterBand = b;
       break;
     }
@@ -404,12 +439,31 @@ MarketplaceMeasurement measureMarketplaceFigure(
     if (taille <= 0 || breiten[b] < taille) taille = breiten[b];
   }
 
-  // Das breiteste Band in der oberen Hälfte – zusammen mit der
-  // Armspanne die Signatur der T-Pose.
+  // Das breiteste Band in der oberen Hälfte.
   var obenBreit = 0.0;
   for (var b = (bands / 2).floor(); b < bands; b++) {
     obenBreit = math.max(obenBreit, breiten[b]);
   }
+
+  // Auf welcher Höhe die Figur am breitesten ist – die Signatur der
+  // Pose. Genommen wird das **oberste** Band, das (bis auf 2 %) die
+  // größte Breite erreicht: In der T-Pose ist der ganze Armbalken vom
+  // Achselband bis zur Schulter gleich breit, und die Schulter oben
+  // ist die aussagekräftige Kante. In der A-Pose steht ohnehin nur
+  // die Hand ganz außen.
+  var maxBreite = 0.0;
+  for (final w in breiten) {
+    maxBreite = math.max(maxBreite, w);
+  }
+  var breitestesBand = 0;
+  for (var b = bands - 1; b >= 0; b--) {
+    if (breiten[b] >= maxBreite * 0.98) {
+      breitestesBand = b;
+      break;
+    }
+  }
+  final breitesteHoehe =
+      bands <= 1 ? 0.0 : (breitestesBand + 0.5) / bands;
 
   // Beine: In der unteren Zone muss der Querschnitt in zwei Inseln
   // zerfallen.
@@ -442,6 +496,9 @@ MarketplaceMeasurement measureMarketplaceFigure(
     legSeparation: gezaehlt == 0 ? 0 : getrennt / gezaehlt,
     legWidth: beinBreite,
     scale: scale,
+    waistWidth: taille,
+    topBandWidth: obenBreit,
+    widestBandHeight: maxBreite <= 0 ? 0 : breitesteHoehe,
   );
 }
 
@@ -716,10 +773,9 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
     add(
         'pose',
         MarketplaceLevel.fehler,
-        'T-Pose gemessen (Armspanne '
-            '${m.width.toStringAsFixed(2)} bei '
-            '${m.height.toStringAsFixed(2)} Höhe, breitestes Band oben '
-            '${m.topBandWidth.toStringAsFixed(2)})',
+        'T-Pose gemessen (breiteste Stelle auf '
+            '${(m.widestBandHeight * 100).round()} % der Höhe, '
+            'Armspanne ${m.width.toStringAsFixed(2)})',
         'Waagerechte Arme auf Schulterhöhe schlägt der Segmentierer '
             'dem Kopf und dem Rumpf zu; zweimal wurden daraus ein '
             '„Head" von über 3 Studen Breite und Arme, die zu Beinen '

@@ -62,6 +62,7 @@ import '../services/roblox_prompt.dart';
 import '../services/asset_pack.dart';
 import '../services/roblox_face_parts.dart';
 import '../services/roblox_marketplace.dart';
+import '../services/roblox_repair.dart';
 import '../services/roblox_rig.dart';
 import '../services/roblox_spec.dart';
 import '../services/self_host_service.dart';
@@ -2076,6 +2077,124 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     await _runPack(plan);
   }
 
+  /// Der Reparatur-Modus: messen, beheben, nachmessen.
+  ///
+  /// Vorher läuft die Vorbereitung, denn die Messungen brauchen eine
+  /// Figur von 5,00 Studs mit den Zehen auf +Z – in Bändern von 2 %
+  /// der Höhe misst man sonst etwas anderes, als man glaubt.
+  ///
+  /// Nach dem Lauf entscheidet der Nutzer: Das Ergebnis übernimmt die
+  /// reparierte Datei nur auf Wunsch. Eine Reparatur formt die Figur
+  /// um, und wer sie nicht wiedererkennt, will sie nicht behalten.
+  Future<void> _repairForMarketplace(ThreeDResult result) async {
+    if (!result.usableInApp) return;
+    setState(() {
+      _running = true;
+      _stage = 'Figur wird vermessen und angepasst …';
+    });
+    RepairResult reparatur;
+    try {
+      final vorbereitet = prepareForAutoSetup(result.glbBytes,
+          targetStuds: _studsValue ?? robloxCharacterStuds);
+      reparatur = await repairForMarketplace(vorbereitet.glb,
+          targetStuds: _studsValue ?? robloxCharacterStuds,
+          addFace: _addFaceParts);
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Reparatur fehlgeschlagen: '
+            '${e.toString().replaceFirst('Exception: ', '')}');
+        setState(() {
+          _running = false;
+          _stage = '';
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _running = false;
+      _stage = '';
+    });
+
+    final theme = Theme.of(context);
+    final uebernehmen = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Marktplatz-Reparatur'),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (reparatur.report.steps.isEmpty)
+                  const Text('Nichts zu tun – die Figur hält alle '
+                      'Regeln ein.')
+                else
+                  for (final schritt in reparatur.report.steps) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                            schritt.origin == RepairOrigin.app
+                                ? Icons.check_circle_outline
+                                : Icons.edit_note,
+                            size: 18,
+                            color: schritt.origin == RepairOrigin.app
+                                ? Colors.green.shade700
+                                : Colors.orange.shade800),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  '${schritt.rule}: ${schritt.before} → '
+                                  '${schritt.after}',
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(
+                                          fontWeight: FontWeight.w600)),
+                              Text(schritt.note,
+                                  style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                const SizedBox(height: 6),
+                Text(
+                  'Der grüne Haken heißt: Die App hat es behoben. Der '
+                  'Stift heißt: Das muss der Prompt richten – die '
+                  'Korrektur würde die Figur sonst so verformen, dass '
+                  'sie nicht mehr wie das Konzept aussieht.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Verwerfen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+    if (uebernehmen != true || !mounted) return;
+    setState(() => result.glbBytes = reparatur.glb);
+    _showSnack('Reparierte Figur übernommen – die Prüfung zeigt jetzt '
+        'diesen Stand.');
+  }
+
   /// Zeigt das Urteil des Konzept-Gates und fragt, ob trotzdem.
   ///
   /// Eine Rückfrage, keine Sperre. Das Gate liest Wörter, keine
@@ -3619,6 +3738,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ? () {
                       Navigator.of(sheetContext).pop();
                       _prepareForRoblox(result);
+                    }
+                  : null,
+            ),
+            ListTile(
+              enabled: result.usableInApp,
+              leading: const Icon(Icons.healing_outlined),
+              title: const Text('Marktplatz-Reparatur …'),
+              subtitle: Text(result.usableInApp
+                  ? 'Messen, beheben, nachmessen: Tiefe, Hals, Beine, '
+                      'Pose. Jede Zeile sagt, ob die App es konnte oder '
+                      'der Prompt dran ist.'
+                  : 'Rechnet auf der GLB – diese Datei ist '
+                      '${modelFormatLabel(result.format)}'),
+              onTap: result.usableInApp
+                  ? () {
+                      Navigator.of(sheetContext).pop();
+                      _repairForMarketplace(result);
                     }
                   : null,
             ),
