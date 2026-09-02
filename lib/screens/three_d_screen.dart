@@ -56,6 +56,7 @@ import '../services/roblox_export.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_install.dart';
 import '../services/roblox_prompt.dart';
+import '../services/asset_pack.dart';
 import '../services/roblox_face_parts.dart';
 import '../services/roblox_marketplace.dart';
 import '../services/roblox_rig.dart';
@@ -845,6 +846,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String? _usageInfo;
   final List<ThreeDResult> _results = [];
 
+  // Pack-Modus: ein Satz zusammengehöriger Gegenstände mit gesperrtem
+  // Stil.
+  bool _packRun = false;
+  int _packDone = 0;
+  int _packTotal = 0;
+  String _packCurrent = '';
+  String _packText = '';
+  int? _packSeed;
+  bool _packLockSeed = true;
+  final _packSeedCtrl = TextEditingController();
+
   /// Stilvorlage für die Gegenstände: ein gerendertes Bild der Figur.
   /// Nur gesetzt, solange ein Gegenstands-Lauf läuft.
   ReferenceImage? _itemStyleImage;
@@ -1226,6 +1238,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     _promptCtrl.dispose();
     _negative3dCtrl.dispose();
     _tripoFaceLimitCtrl.dispose();
+    _packSeedCtrl.dispose();
     _texturePromptCtrl.dispose();
     _falCustomCtrl.dispose();
     _replicateCustomCtrl.dispose();
@@ -1774,6 +1787,231 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         ],
       ),
     );
+  }
+
+  /// Der Pack-Modus: einen ganzen Satz in einem Zug, mit gesperrtem
+  /// Stil.
+  ///
+  /// Gebaut wie der Item-Lauf darüber, samt der teuer bezahlten
+  /// Einzelheit: Gezählt wird, was **wirklich** entstanden ist. Ein
+  /// Blick auf `_error` reicht nicht – `_generate` bricht auch still
+  /// ab, etwa wenn ein Schlüssel fehlt, und dann liefe die Reihe
+  /// weiter und zeigte denselben Dialog für jeden Gegenstand noch
+  /// einmal.
+  Future<void> _runPack(PackPlan plan) async {
+    if (!plan.isValid) return;
+    final savedPrompt = _promptCtrl.text;
+    final savedNegative = _negative3dCtrl.text;
+    setState(() {
+      _packRun = true;
+      _packDone = 0;
+      _packTotal = plan.jobs.length;
+    });
+    try {
+      for (final job in plan.jobs) {
+        if (!mounted || !_packRun) break;
+        setState(() {
+          _packCurrent = job.item.name;
+          _promptCtrl.text = job.prompt;
+          _negative3dCtrl.text = job.negative;
+          // Jeder Gegenstand fängt bei den Ansichten von vorn an –
+          // sonst erbt die Kiste die Ansichten des Fasses.
+          for (final key in _views.keys.toList()) {
+            _views[key] = null;
+          }
+        });
+        final vorher = _results.length;
+        await _generate();
+        if (!mounted) break;
+        if (_results.length == vorher) {
+          _showSnack('Abgebrochen bei „${job.item.name}"'
+              '${_error == null ? '.' : ': $_error'}');
+          break;
+        }
+        setState(() => _packDone++);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _packRun = false;
+          _packCurrent = '';
+          _promptCtrl.text = savedPrompt;
+          _negative3dCtrl.text = savedNegative;
+        });
+      }
+    }
+    if (mounted) {
+      _showSnack('$_packDone von ${plan.jobs.length} Gegenständen '
+          'erzeugt – alle mit demselben Stilblock.');
+    }
+  }
+
+  /// Das Blatt für den Pack-Modus: Text hinein, Plan heraus.
+  Future<void> _openPackSheet() async {
+    final ctrl = TextEditingController(text: _packText);
+    final plan = await showModalBottomSheet<PackPlan>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(builder: (context, setLocal) {
+        final theme = Theme.of(context);
+        final (:items, :style) = parsePackText(ctrl.text,
+            seed: _packSeed, lockSeed: _packLockSeed);
+        final vorschau = buildPack(items, style);
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.85),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Pack-Modus',
+                            style: theme.textTheme.titleMedium),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(
+                              ClipboardData(text: packBriefing()));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Vorlage kopiert – in '
+                                        'die Prompt-KI einfügen.')));
+                          }
+                        },
+                        icon: const Icon(Icons.copy_all, size: 18),
+                        label: const Text('Vorlage'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Ein Satz zusammengehöriger Gegenstände. Der '
+                    'Stilblock wird einmal geschrieben und für jeden '
+                    'Gegenstand wörtlich wiederverwendet – deshalb '
+                    'sehen sie am Ende wie aus einer Hand aus.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ctrl,
+                    minLines: 6,
+                    maxLines: 14,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'Fass: a wooden barrel with three iron '
+                          'bands\nKiste: a wooden crate\n\nSTIL: '
+                          'low-poly game asset, matte painted wood\n'
+                          'NEGATIV: text, logo',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 150,
+                        child: TextField(
+                          controller: _packSeedCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: const InputDecoration(
+                            labelText: 'Seed',
+                            hintText: 'leer = gewürfelt',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onChanged: (t) => setLocal(() =>
+                              _packSeed = int.tryParse(t.trim())),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: SwitchListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: _packLockSeed,
+                          onChanged: (v) =>
+                              setLocal(() => _packLockSeed = v),
+                          title: const Text('Seed sperren'),
+                          subtitle: const Text('Aus, wenn sich die '
+                              'Gegenstände sonst zu ähnlich werden.'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Text(
+                    vorschau.jobs.isEmpty
+                        ? 'Noch kein Gegenstand erkannt.'
+                        : '${vorschau.jobs.length} Gegenstand/Gegenstände'
+                            '${vorschau.styleLocked ? ', Stil gesperrt' : ''}',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  for (final i in vorschau.issues)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                              i.blocking
+                                  ? Icons.block
+                                  : Icons.info_outline,
+                              size: 16,
+                              color: i.blocking
+                                  ? theme.colorScheme.error
+                                  : theme.colorScheme.outline),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text('$i',
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (vorschau.jobs.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('So geht der erste Auftrag heraus:',
+                        style: theme.textTheme.labelMedium),
+                    SelectableText(vorschau.jobs.first.prompt,
+                        style: theme.textTheme.bodySmall),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: vorschau.isValid
+                        ? () {
+                            _packText = ctrl.text;
+                            Navigator.of(context).pop(vorschau);
+                          }
+                        : null,
+                    icon: const Icon(Icons.playlist_play),
+                    label: Text(vorschau.jobs.isEmpty
+                        ? 'Satz erzeugen'
+                        : '${vorschau.jobs.length} Gegenstände erzeugen'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+    ctrl.dispose();
+    if (plan == null || !mounted) return;
+    await _runPack(plan);
   }
 
   Future<void> _generate() async {
@@ -5472,7 +5710,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         ),
                     ],
                   );
-                  final panel = CostQualityPanel(estimate: estimate);
+                  final panel = CostQualityPanel(
+                      estimate: estimate,
+                      provider: settings.threeDProvider);
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       if (constraints.maxWidth >= 460) {
@@ -6500,6 +6740,28 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             setState(() => _cancelRequested = true),
                         child: const Text('Abbrechen'),
                       ),
+                    ] else ...[
+                      const SizedBox(width: 8),
+                      // Der Pack-Modus: ein ganzer Satz statt eines
+                      // Modells. Ein Spiel braucht selten ein Fass,
+                      // sondern Fass, Kiste, Sack und Laterne – und
+                      // einzeln erzeugt sehen die vier aus wie von
+                      // vier verschiedenen Leuten.
+                      Tooltip(
+                        message: 'Pack-Modus: mehrere Gegenstände in '
+                            'einem Zug, alle mit demselben Stilblock',
+                        child: OutlinedButton.icon(
+                          onPressed: _packRun || _itemRun
+                              ? null
+                              : _openPackSheet,
+                          icon: const Icon(Icons.playlist_add),
+                          label: const Padding(
+                            padding:
+                                EdgeInsets.symmetric(vertical: 14),
+                            child: Text('Satz …'),
+                          ),
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -6622,6 +6884,43 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       // bezahlten Lauf abzubrechen brächte nichts
                       // zurück.
                       onPressed: () => setState(() => _itemRun = false),
+                      child: const Text('Nach diesem beenden'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (_packRun)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Card(
+              margin: EdgeInsets.zero,
+              color: theme.colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Satz: $_packDone von $_packTotal fertig'
+                        '${_packCurrent.isEmpty ? '' : ' – gerade '
+                            '„$_packCurrent"'}. Alle mit demselben '
+                            'Stilblock.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                    TextButton(
+                      // Wie beim Item-Lauf: Der laufende Auftrag wird
+                      // zu Ende gebracht. Mitten in einem bezahlten
+                      // Lauf abzubrechen bringt nichts zurück.
+                      onPressed: () => setState(() => _packRun = false),
                       child: const Text('Nach diesem beenden'),
                     ),
                   ],

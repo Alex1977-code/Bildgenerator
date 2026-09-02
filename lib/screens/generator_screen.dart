@@ -1787,7 +1787,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
             // breiten Layouts rechts daneben, auf schmalen darunter.
             LayoutBuilder(builder: (context, constraints) {
               final panel =
-                  CostQualityPanel(estimate: estimateImageRun(settings));
+                  CostQualityPanel(
+                      estimate: estimateImageRun(settings),
+                      provider: settings.provider.name);
               final modelControls = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

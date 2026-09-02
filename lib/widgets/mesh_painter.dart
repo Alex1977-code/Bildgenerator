@@ -21,6 +21,8 @@ class MeshPainter extends CustomPainter {
     required this.normals,
     required this.skeleton,
     required this.skeletonParents,
+    this.mannequin,
+    this.mannequinBottom = 0,
     required this.rotX,
     required this.rotY,
     required this.zoom,
@@ -44,6 +46,18 @@ class MeshPainter extends CustomPainter {
   final Float32List normals;
   final Float32List? skeleton; // x,y,z je Gelenk (Weltkoordinaten)
   final List<int>? skeletonParents;
+
+  /// Der Größenmaßstab: Strecken zu je sechs Zahlen (x1,y1,z1,x2,y2,z2)
+  /// in Studs, Füße bei y = 0.
+  ///
+  /// Ein Drahtgitter, kein Körper – es soll **hinter** dem Modell
+  /// stehen und die Sicht nicht wegnehmen, für die es da ist. Deshalb
+  /// wird es vor dem Netz gezeichnet und nicht darüber.
+  final Float32List? mannequin;
+
+  /// Auf welcher Höhe die Füße des Modells stehen. Das Mannequin wird
+  /// dorthin geschoben, sonst schwebt eines von beiden.
+  final double mannequinBottom;
   final double rotX;
   final double rotY;
   final double zoom;
@@ -157,6 +171,23 @@ class MeshPainter extends CustomPainter {
       final y2 = y * cosX - z1 * sinX;
       final z2 = y * sinX + z1 * cosX;
       return (cx + x1 * scale, cy - y2 * scale, z2);
+    }
+
+    // Der Größenmaßstab, **vor** dem Netz: Er soll dahinter stehen und
+    // die Sicht nicht wegnehmen, für die er da ist.
+    final masstab = mannequin;
+    if (masstab != null && masstab.length >= 6) {
+      final linie = Paint()
+        ..color = const Color(0x66607D8B)
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i + 5 < masstab.length; i += 6) {
+        final (ax, ay, _) = project(masstab[i],
+            masstab[i + 1] + mannequinBottom, masstab[i + 2]);
+        final (bx, by, _) = project(masstab[i + 3],
+            masstab[i + 4] + mannequinBottom, masstab[i + 5]);
+        canvas.drawLine(Offset(ax, ay), Offset(bx, by), linie);
+      }
     }
 
     final vertexCount = positions.length ~/ 3;
@@ -349,6 +380,8 @@ class MeshPainter extends CustomPainter {
       oldDelegate.positions != positions ||
       oldDelegate.normals != normals ||
       oldDelegate.skeleton != skeleton ||
+      oldDelegate.mannequin != mannequin ||
+      oldDelegate.mannequinBottom != mannequinBottom ||
       oldDelegate.rotX != rotX ||
       oldDelegate.rotY != rotY ||
       oldDelegate.zoom != zoom ||

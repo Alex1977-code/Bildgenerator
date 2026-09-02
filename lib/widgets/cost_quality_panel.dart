@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../services/cost_estimator.dart';
+import '../services/cost_unit.dart';
 
 /// Grafische Anzeige neben den Modell-Einstellungen: Qualitätsstufe
 /// (5er-Skala) und geschätzte Gesamtkosten pro Lauf mit Aufschlüsselung.
 class CostQualityPanel extends StatelessWidget {
-  const CostQualityPanel({super.key, required this.estimate});
+  const CostQualityPanel(
+      {super.key, required this.estimate, this.provider = ''});
 
   final CostQualityEstimate estimate;
+
+  /// Der Anbieter – für die normierte Einheit. Leer heißt: nur die
+  /// Spanne anzeigen, wie bisher.
+  final String provider;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +81,38 @@ class CostQualityPanel extends StatelessWidget {
                 style: theme.textTheme.labelSmall,
               ),
             ),
+          // Die normierte Einheit. Zwei Anbieter mit überlappenden
+          // Spannen lassen sich als Spanne nicht ordnen – als Zahl
+          // schon, und die Frage dahinter ist ohnehin: Wie viele
+          // Assets bekomme ich für zehn Euro?
+          if (provider.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('VERGLEICHSWERT',
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: scheme.outline, letterSpacing: 0.6)),
+            const SizedBox(height: 2),
+            Builder(builder: (context) {
+              final ae = unitCostOf(estimate,
+                  provider: provider,
+                  label: provider,
+                  basis: basisOf(provider));
+              return Tooltip(
+                message: ae.basis.caveat,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(ae.perTenEuroLabel,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    Text('${ae.centsLabel} je Asset · ${ae.basis.label}',
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: scheme.outline)),
+                  ],
+                ),
+              );
+            }),
+          ],
           const SizedBox(height: 4),
           Text(
             'Schätzwerte laut Preisliste – realer Abzug siehe '

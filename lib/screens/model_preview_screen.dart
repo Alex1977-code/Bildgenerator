@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
@@ -33,6 +34,8 @@ import '../services/glb_textures.dart';
 import '../services/roblox_check.dart';
 import '../services/roblox_fix.dart';
 import '../services/roblox_rig.dart';
+import '../services/asset_sidecar.dart';
+import '../services/mannequin.dart';
 import '../services/mesh_budget.dart';
 import '../services/roblox_specs_config.dart';
 import '../services/roblox_preflight.dart';
@@ -115,6 +118,13 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   int _clipIndex = -1;
   bool _playing = false;
   bool _showSkeleton = false;
+
+  /// Der Größenmaßstab neben dem Modell – leer heißt aus.
+  ///
+  /// Ob eine Figur 3 oder 7 Studs hoch ist, sieht man ihr im Viewer
+  /// nicht an: Dort füllt jedes Modell das Fenster. Erst neben einem
+  /// Standard-Avatar wird es sichtbar.
+  String _mannequinId = '';
 
   /// „Animationen ans Modell hängen“: Exporte (Viewer und Ergebnis)
   /// betten die Testanimationen als glTF-Clips in die GLB ein.
@@ -308,6 +318,23 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
             icon: const Icon(Icons.output_outlined),
             onPressed: _openExportSheet,
           ),
+          // Der Größenmaßstab. Eine Figur mit 1,20 Einheiten kam in
+          // Roblox kniehoch an, und im Viewer war ihr das nicht
+          // anzusehen – dort füllt jedes Modell das Fenster.
+          if (_mesh case final mesh?)
+            IconButton(
+              tooltip: _mannequinId.isEmpty
+                  ? 'Größenmaßstab einblenden'
+                  : 'Größenmaßstab: '
+                      '${mannequinById(_mannequinId).label}',
+              icon: Icon(_mannequinId.isEmpty
+                  ? Icons.straighten_outlined
+                  : Icons.straighten),
+              color: _mannequinId.isEmpty
+                  ? null
+                  : theme.colorScheme.primary,
+              onPressed: () => _chooseMannequin(mesh),
+            ),
           // Roblox in zwei Schritten – an der Datei, nicht nur am
           // frisch erzeugten Ergebnis im 3D-Tab. Ein abgelegtes
           // Modell aus Blender oder aus einem alten Lauf kam dort nie
@@ -657,6 +684,91 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     ));
   }
 
+  /// Auf welcher Höhe das Modell steht – dorthin kommen die Füße des
+  /// Mannequins, sonst schwebt eines von beiden.
+  double _modelBottom(PreviewMesh mesh) {
+    var lo = double.infinity;
+    final p = _posedPositions ?? mesh.positions;
+    for (var i = 1; i < p.length; i += 3) {
+      if (p[i] < lo) lo = p[i];
+    }
+    return lo.isFinite ? lo : 0;
+  }
+
+  /// Die Höhe des Modells in Datei-Einheiten – zugleich die Höhe in
+  /// Studs, weil der Roblox-Importer eine Einheit gleich einem Stud
+  /// setzt.
+  double _modelHeightStuds(PreviewMesh mesh) {
+    var lo = double.infinity, hi = double.negativeInfinity;
+    final p = _posedPositions ?? mesh.positions;
+    for (var i = 1; i < p.length; i += 3) {
+      if (p[i] < lo) lo = p[i];
+      if (p[i] > hi) hi = p[i];
+    }
+    return hi > lo ? hi - lo : 0;
+  }
+
+  /// Den Größenmaßstab wählen.
+  Future<void> _chooseMannequin(PreviewMesh mesh) async {
+    final gewaehlt = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final hoehe = _modelHeightStuds(mesh);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Text('Größenmaßstab',
+                    style: theme.textTheme.titleMedium),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Ein Drahtgitter hinter dem Modell. Es ist aus den '
+                  'Proportionen eines R15-Körpers gebaut, nicht aus '
+                  'Roblox\' Vorlagendateien – als Maßstab genügt das, '
+                  'als Cage nicht.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_off_outlined),
+                title: const Text('Aus'),
+                selected: _mannequinId.isEmpty,
+                onTap: () => Navigator.of(context).pop(''),
+              ),
+              for (final m in mannequins)
+                ListTile(
+                  leading: const Icon(Icons.accessibility_new),
+                  title: Text('${m.label} – '
+                      '${m.studs.toStringAsFixed(2)} Studs'),
+                  subtitle: Text(
+                    hoehe > 0
+                        ? MannequinComparison(
+                            mannequin: m,
+                            modelStuds: hoehe,
+                            modelShoulder: 0,
+                            modelDepth: 0,
+                          ).heightText
+                        : m.note,
+                  ),
+                  selected: _mannequinId == m.id,
+                  onTap: () => Navigator.of(context).pop(m.id),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+    if (gewaehlt == null || !mounted) return;
+    setState(() => _mannequinId = gewaehlt);
+  }
+
   /// Der Preflight-Bericht.
   Future<void> _openPreflight() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -960,6 +1072,66 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
     }
   }
 
+  /// Das Herkunftsprotokoll als JSON neben dem Modell.
+  ///
+  /// Der Erstellungsnachweis als PDF gibt es schon – der ist für
+  /// Menschen. Diese Datei ist das Gegenstück für Maschinen: dieselben
+  /// Angaben, aber so, dass ein Skript oder ein Asset-Verwalter sie
+  /// lesen kann.
+  Future<void> _exportSidecar() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final info = widget.provenance;
+    try {
+      final stempel = DateTime.now();
+      final basis =
+          'modell_${stempel.millisecondsSinceEpoch}.glb';
+      final protokoll = AssetSidecar(
+        fileName: basis,
+        kind: info?.kind ?? '3D-Modell',
+        provider: _providerKey(info?.providerLabel ?? ''),
+        createdAt: stempel,
+        model: info?.model ?? '',
+        prompt: info?.description ?? '',
+        settings: {
+          for (final e in info?.details.entries ?? const <MapEntry<String,
+              String>>[])
+            e.key: e.value,
+        },
+        checksum: assetChecksum(widget.glbBytes),
+      );
+      var message = await exportImageBytes(
+          widget.glbBytes, basis, 'model/gltf-binary');
+      message = await exportImageBytes(
+            Uint8List.fromList(utf8.encode(protokoll.toJsonText())),
+            AssetSidecar.sidecarNameFor(basis),
+            'application/json',
+          ) ??
+          message;
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Herkunftsprotokoll fehlgeschlagen: $e')));
+    }
+  }
+
+  /// Die Anbieterkennung aus der Anzeigebezeichnung.
+  ///
+  /// Der Nachweis führt „OpenAI (GPT Image)", das Protokoll braucht
+  /// `openai` – daran hängt die Lizenzangabe.
+  String _providerKey(String label) {
+    final klein = label.toLowerCase();
+    for (final key in providerLicenses.keys) {
+      if (klein.contains(key)) return key;
+    }
+    if (klein.contains('gemini') || klein.contains('nano banana')) {
+      return 'gemini';
+    }
+    if (klein.contains('lokal')) return 'local';
+    return klein.isEmpty ? '' : klein.split(' ').first;
+  }
+
   /// OBJ-Export (mit Vertexfarben, Originalmaße).
   Future<void> _exportObj() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -1111,6 +1283,8 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                   _export3mf();
                 case 'nachweis':
                   _exportProvenance();
+                case 'herkunft':
+                  _exportSidecar();
               }
             },
             itemBuilder: (context) => [
@@ -1136,6 +1310,9 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                 const PopupMenuItem(
                     value: 'nachweis',
                     child: Text('Erstellungsnachweis (PDF) …')),
+              const PopupMenuItem(
+                  value: 'herkunft',
+                  child: Text('GLB + Herkunftsprotokoll (JSON)')),
             ],
           ),
         ],
@@ -1200,6 +1377,11 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
                                           ? _jointPositions
                                           : null,
                                       skeletonParents: rig?.jointParents,
+                                      mannequin: _mannequinId.isEmpty
+                                          ? null
+                                          : mannequinSegments(
+                                              mannequinById(_mannequinId)),
+                                      mannequinBottom: _modelBottom(mesh),
                                       rotX: _rotX,
                                       rotY: _rotY,
                                       zoom: _zoom,

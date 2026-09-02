@@ -1649,6 +1649,141 @@ Im Preflight tragen die drei Befunde „UV-Sätze", „UV-Raum" und
 „Material" jetzt den Knopf **Textur-Pipeline** — und ihre Begründung
 sagt gleich mit, wo die Pipeline aufhört.
 
+### Modul 8: Größenmaßstab in der Vorschau
+
+Ob eine Figur 3 oder 7 Studs hoch ist, sieht man ihr im Viewer nicht an
+— dort füllt jedes Modell das Fenster. Und die Größe ist keine
+Kleinigkeit: Eine Figur mit 1,20 Einheiten kam in Roblox kniehoch an,
+und niemand hat es vor dem Import gemerkt.
+
+Der Knopf mit dem Lineal blendet ein Mannequin als **Drahtgitter hinter
+dem Modell** ein — kein Körper, der die Sicht wegnähme, für die er da
+ist. Drei Bauarten stehen zur Wahl:
+
+| Typ | Höhe | Wofür |
+| --- | --- | --- |
+| Classic | 5,00 Studs | Der Bezug, auf den die App skaliert und an dem der Marktplatz-Validator alle Grenzen misst |
+| Rthro Normal | 5,75 Studs | Die menschlichere Bauart; die Accessoire-Grenzen sind darauf bezogen |
+| Rthro Slender | 6,50 Studs | Die höchste — wer für sie baut, hat bei den anderen Luft |
+
+Daneben steht der Vergleich im Klartext: „1,20 Studs — 76 % kleiner als
+das Classic-Mannequin. So klein kommt die Figur kniehoch an."
+
+**Woher die Maße kommen, und woher nicht.** Das Gitter ist aus den
+Proportionen eines R15-Körpers gebaut, **nicht** aus Roblox'
+Vorlagendateien. Als Maßstab genügt das und hat den Vorteil, ohne
+Dateien zu funktionieren, die die App nicht mitliefern darf. Als **Cage**
+taugt es nicht — wer die echten Hüllkörper braucht, braucht die
+offiziellen Dateien. Das steht auch in der Oberfläche.
+
+### Modul 9: Pack-Modus mit Stil-Sperre
+
+Ein Spiel braucht selten ein Modell, sondern einen Satz: Fass, Kiste,
+Sack, Laterne. Einzeln erzeugt sehen die vier aus wie von vier
+verschiedenen Leuten — eines glänzend, eines matt, eines mit
+Kantenrundung, eines ohne. Nicht weil der Prompt schlecht war, sondern
+weil er jedes Mal ein bisschen anders lautete.
+
+Der Knopf **„Satz …"** neben „3D-Modell generieren" nimmt eine Liste
+entgegen:
+
+```
+Fass: a wooden barrel with three iron bands
+Kiste: a wooden crate with iron corners
+
+STIL: low-poly game asset, matte painted wood and iron, soft even lighting
+NEGATIV: text, logo, floating parts
+```
+
+Der Stilblock wird **einmal geschrieben und für jeden Gegenstand
+wörtlich wiederverwendet** — nicht sinngemäß, nicht umformuliert.
+Text→3D-Modelle reagieren auf jede Umstellung; schon eine andere
+Reihenfolge derselben Wörter ergibt ein anderes Ergebnis. Dazu derselbe
+**Seed** für den ganzen Satz, wo der Anbieter einen nimmt.
+
+Das Motiv steht **vorn**, der Stil hinten: Text→3D-Modelle wichten frühe
+Begriffe stärker.
+
+Die Prüfung meldet, was die Sperre aufhebt:
+
+- **Stilwörter im Motiv** (`glossy`, `matte`, `lighting`, `4k` …). Steht
+  „glossy" bei einem von vier Gegenständen, sieht genau dieser anders
+  aus — und dafür ist der Modus da. Das blockiert nicht, wird aber
+  benannt.
+- **Doppelte Namen**, weil die zweite Datei die erste überschriebe.
+- **Kein Stilblock** — dann ist es nur eine Liste.
+- **Kein Seed**: Der Anbieter würfelt für jeden Gegenstand neu. Der Text
+  ist gesperrt, das Ergebnis wird trotzdem ungleichmäßiger.
+
+Der Seed lässt sich auch **absichtlich entsperren**: Vier Fässer mit
+demselben Seed würden sich zu ähnlich.
+
+**Was der Modus nicht kann:** aus vier Läufen einen machen. Jeder
+Gegenstand kostet, was er kostet — die Sperre spart keine Kosten,
+sondern Nacharbeit.
+
+### Modul 10: Eine Kosteneinheit über alle Anbieter
+
+Die Anbieter rechnen in verschiedenen Währungen im wörtlichen Sinn:
+Stability nimmt Credits mit festem Dollarwert, fal und Replicate rechnen
+je Lauf oder nach GPU-Sekunden, Meshy und Tripo verkaufen Abo-Credits,
+deren Wert vom gebuchten Paket abhängt. „0,10 bis 0,40 $" ist deshalb
+ehrlich, aber zum Vergleichen unbrauchbar: Zwei Anbieter mit
+überlappenden Spannen lassen sich so nicht ordnen.
+
+Die Kostenanzeige nennt jetzt zusätzlich einen **Vergleichswert**: den
+Preis eines fertigen Assets in Cent (AE) und die Zahl, die man beim
+Vergleichen wirklich sucht — **wie viele Assets für zehn Euro**.
+
+Drei Regeln machen ihn vergleichbar:
+
+1. **Ein Asset ist ein Asset**, nicht ein Aufruf und nicht ein Credit.
+   Ein Lauf mit vier Ansichten plus Modell kostet vier Bildpreise plus
+   einen Modellpreis — zusammen eine Einheit.
+2. **Gerechnet wird der obere Rand der Spanne.** Wer plant, plant nicht
+   mit dem besten Fall, und bei Abo-Credits ist der untere Rand ein
+   Paket, das man vielleicht gar nicht hat.
+3. **Eigene Hardware ist nicht kostenlos**, sie kostet nur nichts
+   *zusätzlich*. Sie steht bei 0 AE, und daneben steht, dass Strom und
+   Anschaffung nicht drin sind.
+
+Dazu sagt jede Zahl, **wie belastbar sie ist**: fester Listenpreis,
+Abo-Credits (eine Obergrenze — mit größerem Paket wird es billiger, nie
+teurer) oder Rechenzeit (schwankt mit der Motivgröße).
+
+### Modul 11: Herkunftsprotokoll neben jedem Asset
+
+Den **Erstellungsnachweis als PDF** gibt es schon — der ist für
+Menschen, mit Unterschriftszeile und Prüfsumme. Das Herkunftsprotokoll
+ist das Gegenstück für Maschinen: dieselben Angaben als JSON neben der
+Werkdatei (`modell.glb` → `modell.herkunft.json`), damit ein Skript, ein
+Asset-Verwalter oder der nächste Lauf sie lesen kann.
+
+Nach zwanzig Läufen weiß niemand mehr, welches Modell aus welchem Prompt
+kam. Genau diese Angaben entscheiden aber, ob sich ein Ergebnis
+wiederholen lässt — und ob man belegen kann, womit es entstanden ist.
+
+Was drinsteht, und warum jedes Feld:
+
+- **Anbieter und Modellfassung**, getrennt geführt. „Tripo" allein
+  reicht nicht: P1 und v2.5 liefern grundverschiedene Netze.
+- **Prompt und Zusatz getrennt** — der getippte Text und das, was die
+  App angehängt hat (Pose, fester Schwanz). Wer nur den ersten
+  speichert, kann den Lauf nicht wiederholen.
+- **Seed**, und zwar auch als `null`, wenn keiner geliefert wurde: Das
+  ist eine Aussage, ein fehlendes Feld wäre eine andere.
+- **Zeitpunkt als ISO 8601** mit Zeitzone. „31.08.2026, 22:26" ist für
+  Menschen lesbar und für Maschinen mehrdeutig.
+- **Nachbearbeitung** in der Reihenfolge, in der sie passiert ist.
+- **Lizenz** des Anbieters für erzeugte Inhalte — mit **Stand**. Sie
+  ändert sich, und dann gilt fürs alte Asset weiterhin die alte. Für
+  einen unbekannten Anbieter sagt das Protokoll, dass es nichts weiß,
+  statt etwas zu behaupten.
+- **SHA-256 der Werkdatei**, die Protokoll und Datei eindeutig
+  verknüpft.
+
+Ältere Protokolle bleiben lesbar: Fehlende Felder sind kein Fehler.
+
 ### Die Roblox-Vorgaben stehen in einer Datei, nicht im Code
 
 `assets/roblox_specs.json` hält die Budgets, Texturgrenzen, Rig-Namen
