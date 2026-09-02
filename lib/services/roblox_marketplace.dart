@@ -729,6 +729,7 @@ class AutoSetupPrepReport {
     required this.turnedDegrees,
     required this.shift,
     this.colorsRemoved = 0,
+    this.bonesRemoved = 0,
   });
 
   final List<String> steps;
@@ -739,11 +740,16 @@ class AutoSetupPrepReport {
   /// Wie viele Vertexfarben-Spuren entfernt wurden.
   final int colorsRemoved;
 
+  /// Wie viele Knochen entfernt wurden – Auto Setup baut sein eigenes
+  /// Rig.
+  final int bonesRemoved;
+
   bool get changed =>
       (scale - 1).abs() > 1e-6 ||
       turnedDegrees != 0 ||
       shift.any((v) => v.abs() > 1e-6) ||
-      colorsRemoved > 0;
+      colorsRemoved > 0 ||
+      bonesRemoved > 0;
 
   String get text => ['Für Auto Setup vorbereitet', ...steps].join('\n');
 }
@@ -780,14 +786,18 @@ AutoSetupPrepResult prepareForAutoSetup(
 }) {
   final parts = splitGlb(glb);
   final json = parts.json;
-  if (((json['skins'] as List?) ?? const []).isNotEmpty) {
-    throw Exception('Die Datei trägt ein Skelett. Auto Setup erwartet '
-        'ein ungeriggtes Netz – es baut sein eigenes R15-Rig und '
-        'würde dieses verwerfen. Bei Tripo also ohne Rigging '
-        'erzeugen.');
-  }
   final bin = Uint8List.fromList(parts.bin);
   final steps = <String>[];
+
+  // 0. Ein mitgebrachtes Skelett fällt weg.
+  //
+  // Vorher stand hier eine Absage („bei Tripo ohne Rigging erzeugen").
+  // Die war richtig gemeint und in der Sache falsch: Sie ließ den
+  // Marktplatz-Weg für jede vorhandene geriggte Figur ins Leere
+  // laufen, obwohl die Datei sich in zwei Handgriffen brauchbar machen
+  // lässt. Auto Setup verwirft das Skelett ohnehin.
+  final skelett = stripRigForAutoSetup(json);
+  steps.addAll(skelett.notes);
 
   // 1. Ausrichtung. Erst so drehen, dass die Armspanne auf x liegt –
   // danach greift die vorhandene Zehen-Heuristik, die entlang z misst.
@@ -900,6 +910,7 @@ AutoSetupPrepResult prepareForAutoSetup(
       turnedDegrees: turned,
       shift: shift,
       colorsRemoved: farbenWeg,
+      bonesRemoved: skelett.bones,
     ),
   );
 }
@@ -1007,4 +1018,228 @@ void _schreibeFloats(Map<String, dynamic> json, Uint8List bin, int index,
     accessor['min'] = lo;
     accessor['max'] = hi;
   }
+}
+
+/// Was beim Entfernen des Skeletts weggefallen ist.
+class RigStripReport {
+  const RigStripReport({
+    required this.bones,
+    required this.animations,
+    required this.meshes,
+    required this.notes,
+  });
+
+  /// Entfernte Knochenknoten.
+  final int bones;
+
+  /// Entfernte Animationen – ihre Spuren zeigten auf die Knochen.
+  final int animations;
+
+  /// Netze, die ihre Gewichte verloren haben.
+  final int meshes;
+
+  final List<String> notes;
+
+  bool get didSomething => bones > 0 || meshes > 0 || animations > 0;
+}
+
+/// Nimmt einer Datei Skelett und Gewichte – für Auto Setup.
+///
+/// **Warum das richtig ist.** Roblox' Auto Setup zerlegt das rohe Netz
+/// selbst, baut sein eigenes R15-Rig, die Cages und die Attachments.
+/// Ein mitgebrachtes Skelett verwirft es. Es bleibt also im besten Fall
+/// wirkungslos, kostet Dateigröße, und im schlechteren Fall macht es
+/// die Datei mehrdeutig: Der Importer sieht ein geriggtes Modell, wo
+/// ein Netz erwartet wird.
+///
+/// **Warum sich dabei nichts bewegt.** Bei einem Netz in Bindepose
+/// sind die Punkte in der Datei genau die Punkte, die man sieht: Die
+/// Skinning-Matrix ist Gelenk-Weltmatrix × inverse Bindematrix, und in
+/// der Bindepose ist das die Einheitsmatrix. Fällt das Skelett weg,
+/// bleibt die Geometrie also stehen — **wenn** zwei Dinge stimmen, und
+/// um die kümmert sich diese Funktion:
+///
+/// * Die glTF-Regel „bei einem geskinnten Netz wird die Transformation
+///   des Knotens **und seiner Eltern** ignoriert". Fällt das Skelett
+///   weg, gilt sie nicht mehr, und eine Elterntransformation würde die
+///   Figur auf einmal verschieben. Das Netz hängt danach deshalb
+///   direkt in der Szene, mit Einheitsmatrix.
+/// * Die Gelenke stehen in der Bindepose. Steht die Figur in der Datei
+///   in einer anderen Haltung als in den Bindematrizen, wäre das
+///   Ergebnis eine andere Haltung – das steht als Hinweis im Bericht,
+///   messen lässt es sich hier nicht.
+///
+/// Übrig bleiben ungenutzte Accessoren (die Bindematrizen). Sie stören
+/// keinen Importer; die Datei wird davon nicht kleiner.
+RigStripReport stripRigForAutoSetup(Map<String, dynamic> json) {
+  final skins = (json['skins'] as List?) ?? const [];
+  final nodes = (json['nodes'] as List?) ?? const [];
+  final notes = <String>[];
+  if (skins.isEmpty || nodes.isEmpty) {
+    return const RigStripReport(
+        bones: 0, animations: 0, meshes: 0, notes: []);
+  }
+
+  // 1. Wer ist Gelenk?
+  final gelenke = <int>{};
+  for (final skin in skins) {
+    for (final j in ((skin as Map)['joints'] as List?) ?? const []) {
+      gelenke.add((j as num).toInt());
+    }
+    final wurzel = (skin['skeleton'] as num?)?.toInt();
+    if (wurzel != null) gelenke.add(wurzel);
+  }
+
+  // 2. Die geskinnten Netze lösen: kein Skin, keine Gewichte, keine
+  // geerbte Transformation.
+  var netze = 0;
+  final losgeloest = <int>[];
+  for (var i = 0; i < nodes.length; i++) {
+    final node = nodes[i] as Map<String, dynamic>;
+    if (!node.containsKey('skin')) continue;
+    node.remove('skin');
+    for (final key in ['matrix', 'translation', 'rotation', 'scale']) {
+      node.remove(key);
+    }
+    losgeloest.add(i);
+    final mesh = (node['mesh'] as num?)?.toInt();
+    if (mesh == null) continue;
+    final meshes = (json['meshes'] as List?) ?? const [];
+    if (mesh >= meshes.length) continue;
+    var beruehrt = false;
+    for (final prim
+        in ((meshes[mesh] as Map)['primitives'] as List?) ?? const []) {
+      final attribute = (prim as Map)['attributes'] as Map?;
+      if (attribute == null) continue;
+      final weg = [
+        for (final key in attribute.keys)
+          if (key is String &&
+              (key.startsWith('JOINTS_') || key.startsWith('WEIGHTS_')))
+            key,
+      ];
+      for (final key in weg) {
+        attribute.remove(key);
+        beruehrt = true;
+      }
+    }
+    if (beruehrt) netze++;
+  }
+
+  // 3. Skelett und Animationen weg. Die Animationsspuren zeigen auf
+  // die Gelenke; ohne sie wäre die Datei ungültig.
+  json.remove('skins');
+  final anim = ((json['animations'] as List?) ?? const []).length;
+  if (anim > 0) json.remove('animations');
+
+  // 4. Knochenknoten aus dem Baum nehmen – aber nur solche, an denen
+  // keine Geometrie hängt. Ein Knochen mit einem Netz darunter (etwa
+  // ein Gegenstand in der Hand) bleibt samt seiner Transformation
+  // stehen; ihn zu entfernen würde das Netz verschieben.
+  final behalten = List<bool>.filled(nodes.length, false);
+  void markiere(int index) {
+    if (index < 0 || index >= nodes.length || behalten[index]) return;
+    behalten[index] = true;
+    final node = nodes[index] as Map<String, dynamic>;
+    for (final c in (node['children'] as List?) ?? const []) {
+      markiere((c as num).toInt());
+    }
+  }
+
+  bool hatGeometrie(int index, Set<int> gesehen) {
+    if (!gesehen.add(index)) return false;
+    final node = nodes[index] as Map<String, dynamic>;
+    if (node.containsKey('mesh') || node.containsKey('camera')) return true;
+    for (final c in (node['children'] as List?) ?? const []) {
+      if (hatGeometrie((c as num).toInt(), gesehen)) return true;
+    }
+    return false;
+  }
+
+  for (var i = 0; i < nodes.length; i++) {
+    if (gelenke.contains(i) && !hatGeometrie(i, <int>{})) continue;
+    behalten[i] = true;
+  }
+  // Kinder eines behaltenen Knotens bleiben ebenfalls – sonst reißt der
+  // Baum. (Ein Gelenk unter einem Netzknoten kommt vor.)
+  for (var i = 0; i < nodes.length; i++) {
+    if (behalten[i] && !gelenke.contains(i)) markiere(i);
+  }
+
+  final knochen = behalten.where((b) => !b).length;
+
+  // 5. Neu durchnummerieren.
+  final neuerIndex = List<int>.filled(nodes.length, -1);
+  final neueNodes = <dynamic>[];
+  for (var i = 0; i < nodes.length; i++) {
+    if (!behalten[i]) continue;
+    neuerIndex[i] = neueNodes.length;
+    neueNodes.add(nodes[i]);
+  }
+  for (final node in neueNodes) {
+    final kinder = (node as Map<String, dynamic>)['children'] as List?;
+    if (kinder == null) continue;
+    final neu = [
+      for (final c in kinder)
+        if (neuerIndex[(c as num).toInt()] >= 0) neuerIndex[c.toInt()],
+    ];
+    if (neu.isEmpty) {
+      node.remove('children');
+    } else {
+      node['children'] = neu;
+    }
+  }
+  json['nodes'] = neueNodes;
+
+  // 6. Die gelösten Netze hängen jetzt direkt in der Szene – und sonst
+  // nirgends mehr.
+  for (final scene in (json['scenes'] as List?) ?? const []) {
+    final map = scene as Map<String, dynamic>;
+    final wurzeln = <int>{
+      for (final n in (map['nodes'] as List?) ?? const [])
+        if (neuerIndex[(n as num).toInt()] >= 0) neuerIndex[n.toInt()],
+    };
+    for (final alt in losgeloest) {
+      if (neuerIndex[alt] >= 0) wurzeln.add(neuerIndex[alt]);
+    }
+    map['nodes'] = wurzeln.toList()..sort();
+  }
+  // Ein gelöstes Netz darf nicht zusätzlich Kind eines anderen Knotens
+  // bleiben – es käme sonst zweimal vor, einmal mit fremder
+  // Transformation.
+  final geloest = {
+    for (final alt in losgeloest)
+      if (neuerIndex[alt] >= 0) neuerIndex[alt],
+  };
+  for (final node in neueNodes) {
+    final kinder = (node as Map<String, dynamic>)['children'] as List?;
+    if (kinder == null) continue;
+    final neu = [
+      for (final c in kinder)
+        if (!geloest.contains((c as num).toInt())) c,
+    ];
+    if (neu.length == kinder.length) continue;
+    if (neu.isEmpty) {
+      node.remove('children');
+    } else {
+      node['children'] = neu;
+    }
+  }
+
+  if (netze > 0) {
+    notes.add('$knochen Knochen und die Gewichte von $netze Netz(en) '
+        'entfernt: Auto Setup baut Zerlegung, R15-Rig, Cages und '
+        'Attachments selbst und verwirft ein mitgebrachtes Skelett.');
+    notes.add('Die Punkte bleiben, wo sie waren – in der Bindepose ist '
+        'die Skinning-Matrix die Einheitsmatrix. Das Netz hängt jetzt '
+        'ohne Elterntransformation direkt in der Szene, damit das auch '
+        'so bleibt. Stand die Figur in der Datei in einer anderen '
+        'Haltung als in den Bindematrizen, sieht man sie danach in der '
+        'Bindepose – im Viewer nachsehen.');
+  }
+  if (anim > 0) {
+    notes.add('$anim Animation(en) entfernt: Ihre Spuren zeigten auf '
+        'die Knochen.');
+  }
+  return RigStripReport(
+      bones: knochen, animations: anim, meshes: netze, notes: notes);
 }

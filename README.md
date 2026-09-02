@@ -1506,6 +1506,41 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Das Skelett fällt für Auto Setup weg
+
+Auf dem Marktplatz-Weg stand bisher eine Absage: „Die Datei trägt ein
+Skelett … bei Tripo also ohne Rigging erzeugen." Richtig gemeint, in der
+Sache falsch — für jede vorhandene geriggte Figur lief der Weg damit ins
+Leere, obwohl Auto Setup das Skelett ohnehin verwirft und die Datei sich
+in zwei Handgriffen brauchbar machen lässt.
+
+Sie fallen jetzt weg: Skin, Gewichte (`JOINTS_*`/`WEIGHTS_*`), die
+Knochenknoten und die Animationen, deren Spuren auf die Knochen zeigten.
+
+**Warum sich dabei nichts bewegt.** Bei einem Netz in Bindepose sind die
+Punkte in der Datei genau die Punkte, die man sieht: Die
+Skinning-Matrix ist Gelenk-Weltmatrix × inverse Bindematrix, und in der
+Bindepose ist das die Einheitsmatrix. Zwei Dinge müssen dafür stimmen,
+und um beide kümmert sich der Schnitt:
+
+- Die glTF-Regel „bei einem geskinnten Netz wird die Transformation des
+  Knotens **und seiner Eltern** ignoriert" gilt danach nicht mehr. Eine
+  geerbte Transformation würde die Figur auf einmal verschieben. Das
+  Netz hängt deshalb anschließend ohne Transformation direkt in der
+  Szene — und nirgends zusätzlich als Kind.
+- Ein Knochen, an dem Geometrie hängt (ein Gegenstand in der Hand),
+  bleibt samt seiner Transformation stehen. Ihn zu entfernen würde das
+  Netz verschieben.
+
+Nachgemessen in Blender, mit ausgewertetem Armature-Modifier gegen das
+entriggte Netz: 48 zu 48 Punkte, größte Abweichung 0,00000024 Studs —
+Float-Rundung. Übrig bleiben ungenutzte Accessoren (die Bindematrizen);
+sie stören keinen Importer, die Datei wird davon nicht kleiner.
+
+Was der Schnitt nicht messen kann: Stand die Figur in der Datei in einer
+anderen Haltung als in den Bindematrizen, sieht man sie danach in der
+Bindepose. Der Bericht sagt es an, nachsehen muss man im Viewer.
+
 ### Was vorbereitet wurde, wird auch geprüft
 
 „Für Roblox vorbereiten" schrieb die reparierte Figur bisher nur ins

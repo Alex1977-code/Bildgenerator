@@ -321,12 +321,98 @@ void main() {
       expect(ergebnis.report.text, contains('nicht bestimmbar'));
     });
 
-    test('mit Skelett gibt es eine verständliche Absage', () {
+    test('ein mitgebrachtes Skelett fällt weg, die Punkte bleiben', () {
+      // Vorher gab es hier eine Absage. Die war in der Sache falsch:
+      // Auto Setup verwirft das Skelett ohnehin, und die Datei lässt
+      // sich in zwei Handgriffen brauchbar machen.
       final geriggt = injectAutoRig(wieVomAnbieter(), rigType: 'biped');
-      expect(
-        () => prepareForAutoSetup(geriggt),
-        throwsA(predicate((e) => '$e'.contains('ungeriggtes Netz'))),
-      );
+      final vorher = splitGlb(geriggt).json;
+      expect((vorher['skins'] as List).length, greaterThan(0));
+
+      final ergebnis = prepareForAutoSetup(geriggt);
+      final json = splitGlb(ergebnis.glb).json;
+
+      // Kein Skelett, keine Gewichte.
+      expect(json.containsKey('skins'), isFalse);
+      expect(json.containsKey('animations'), isFalse);
+      for (final mesh in (json['meshes'] as List).cast<Map>()) {
+        for (final prim in (mesh['primitives'] as List).cast<Map>()) {
+          final attribute = (prim['attributes'] as Map).keys.cast<String>();
+          expect(attribute.where((k) => k.startsWith('JOINTS_')), isEmpty);
+          expect(attribute.where((k) => k.startsWith('WEIGHTS_')), isEmpty);
+        }
+      }
+      expect(ergebnis.report.bonesRemoved, greaterThan(0));
+      expect(ergebnis.report.text, contains('Bindepose'));
+
+      // Das Netz hängt ohne Elterntransformation direkt in der Szene.
+      // Ohne Skin gilt die glTF-Regel nicht mehr, dass die
+      // Transformation ignoriert wird – eine geerbte würde die Figur
+      // verschieben.
+      final nodes = (json['nodes'] as List).cast<Map>();
+      final wurzeln =
+          (((json['scenes'] as List)[0] as Map)['nodes'] as List).cast<int>();
+      final netzKnoten = [
+        for (var i = 0; i < nodes.length; i++)
+          if (nodes[i].containsKey('mesh')) i,
+      ];
+      expect(netzKnoten, isNotEmpty);
+      for (final i in netzKnoten) {
+        expect(wurzeln, contains(i), reason: 'Netz hängt nicht in der Szene');
+        for (final key in ['matrix', 'translation', 'rotation', 'scale']) {
+          expect(nodes[i].containsKey(key), isFalse, reason: key);
+        }
+        // Und es ist nirgends zusätzlich Kind – sonst käme es zweimal
+        // vor, einmal mit fremder Transformation.
+        for (final node in nodes) {
+          expect(((node['children'] as List?) ?? const []).cast<int>(),
+              isNot(contains(i)));
+        }
+      }
+      // Kein Kind zeigt ins Leere.
+      for (final node in nodes) {
+        for (final c in ((node['children'] as List?) ?? const []).cast<int>()) {
+          expect(c, lessThan(nodes.length));
+        }
+      }
+    });
+
+    test('das Entfernen selbst rührt die Punkte nicht an', () {
+      // prepareForAutoSetup skaliert und verschiebt danach – das darf
+      // den Nachweis nicht verwischen. Deshalb hier nur der Schnitt.
+      final geriggt = injectAutoRig(wieVomAnbieter(), rigType: 'biped');
+      final teil = splitGlb(geriggt);
+      final json = teil.json;
+      final vorher = [
+        for (final mesh in (json['meshes'] as List).cast<Map>())
+          for (final prim in (mesh['primitives'] as List).cast<Map>())
+            readGltfFloats(json, teil.bin,
+                (prim['attributes'] as Map)['POSITION'] as int),
+      ];
+      final bericht = stripRigForAutoSetup(json);
+      expect(bericht.didSomething, isTrue);
+      final nachher = [
+        for (final mesh in (json['meshes'] as List).cast<Map>())
+          for (final prim in (mesh['primitives'] as List).cast<Map>())
+            readGltfFloats(json, teil.bin,
+                (prim['attributes'] as Map)['POSITION'] as int),
+      ];
+      expect(nachher.length, vorher.length);
+      for (var i = 0; i < vorher.length; i++) {
+        expect(nachher[i].length, vorher[i].length);
+        for (var k = 0; k < vorher[i].length; k++) {
+          expect(nachher[i][k], vorher[i][k]);
+        }
+      }
+    });
+
+    test('ohne Skelett ändert sich nichts', () {
+      final json = splitGlb(wieVomAnbieter()).json;
+      final vorher = (json['nodes'] as List).length;
+      final bericht = stripRigForAutoSetup(json);
+      expect(bericht.didSomething, isFalse);
+      expect(bericht.bones, 0);
+      expect((json['nodes'] as List).length, vorher);
     });
   });
 }
