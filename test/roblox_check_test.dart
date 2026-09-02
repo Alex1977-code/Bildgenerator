@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/services/roblox_check.dart';
+import 'package:bildgenerator/services/roblox_face_parts.dart';
 import 'package:bildgenerator/services/roblox_rig.dart';
 
 /// Ein Modell, das alle Regeln einhält – Grundlage der Einzelfälle.
@@ -27,6 +28,7 @@ RobloxFacts _good({
   bool rootAtOrigin = true,
   bool rootWeighted = false,
   List<int>? meshTriangles,
+  List<String>? meshNames,
   int maxPrimitivesPerMesh = 1,
   List<double> size = const [1.4, 5.0, 1.1],
   int reversedEdges = 0,
@@ -41,6 +43,7 @@ RobloxFacts _good({
       // Ein regelkonformes Modell trägt die R15-Namen.
       boneNames: boneNames ?? robloxR15Bones,
       meshTriangles: meshTriangles ?? [triangles],
+      meshNames: meshNames ?? const [],
       maxPrimitivesPerMesh: maxPrimitivesPerMesh,
       size: size,
       reversedEdges: reversedEdges,
@@ -75,6 +78,66 @@ String _text(List<RobloxFinding> findings) =>
     findings.map((f) => '${f.title} ${f.detail}').join(' | ');
 
 void main() {
+  group('Gesichtsteile in der Datei', () {
+    test('alle fünf da: grüner Haken mit Netzzahl', () {
+      final findings = checkRobloxFacts(
+          _good(
+              meshCount: 6,
+              meshNames: const [
+                'Modell',
+                ...faceMeshNames,
+              ]),
+          RobloxTarget.marketplaceAvatar);
+      final treffer = findings
+          .where((f) => f.title.startsWith('Gesichtsteile'))
+          .single;
+      expect(treffer.level, RobloxLevel.ok);
+      expect(treffer.detail, contains('6 Netze'));
+    });
+
+    test('fehlende werden beim Namen genannt', () {
+      // Genau der Fall aus dem Bericht: Körper und zwei Augen, der
+      // Mund fehlt. Vorher stand darüber nur eine Zahl, die man mit
+      // den Gesichtsteilen verwechseln konnte.
+      final findings = checkRobloxFacts(
+          _good(
+              meshCount: 3,
+              meshNames: const ['Modell', 'LeftEye', 'RightEye']),
+          RobloxTarget.marketplaceAvatar);
+      final treffer = findings
+          .where((f) => f.title.startsWith('Gesichtsteile'))
+          .single;
+      expect(treffer.level, RobloxLevel.warning);
+      expect(treffer.title, contains('3 von 5'));
+      expect(treffer.detail, contains('UpperTeeth'));
+      expect(treffer.detail, contains('LowerTeeth'));
+      expect(treffer.detail, contains('Tongue'));
+      expect(treffer.detail, contains('LeftEye'));
+    });
+
+    test('bei anderen Zielen steht die Frage nicht an', () {
+      for (final ziel in [RobloxTarget.character, RobloxTarget.accessory]) {
+        expect(
+            checkRobloxFacts(_good(), ziel)
+                .where((f) => f.title.startsWith('Gesichtsteile')),
+            isEmpty,
+            reason: '$ziel');
+      }
+    });
+
+    test('„Stücke" heißt Inseln, nicht Netze', () {
+      // Der Wicklungsbefund zählt zusammenhängende Dreiecksinseln.
+      // Vorher hieß das „Teile" – und wurde prompt für die
+      // Gesichtsteile gehalten.
+      final text = _text(
+          checkRobloxFacts(_good(partVolumes: const [1.0, 0.5, 0.2]),
+              RobloxTarget.character));
+      expect(text, contains('zusammenhängenden Stücke'));
+      expect(text, contains('Inseln aus zusammenhängenden Dreiecken'));
+      expect(text, isNot(contains('3 Teile')));
+    });
+  });
+
   group('Roblox-Regeln beurteilen', () {
     test('Ein regelkonformes Modell hat keine Blocker', () {
       final findings =

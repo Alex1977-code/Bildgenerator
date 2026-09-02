@@ -1506,6 +1506,58 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Export: ein Ordner, ein Name, wählbare Textur
+
+Vier kleine Dinge, die zusammen den Unterschied zwischen „Datei
+gespeichert" und „Paket fertig" ausmachen:
+
+- **Ein Dialog statt sieben.** Das Roblox-Paket öffnete je Datei ein
+  „Speichern unter" — mit FBX und Textur sind das sieben Fenster für
+  einen Vorgang, obwohl die Dateien ohnehin zusammen in einen Ordner
+  gehören. Jetzt wird einmal nach dem Ordner gefragt, wie beim
+  Sammel-Download in der Galerie.
+- **Name = Datei = Node.** Das Paket hieß `roblox_figur_1788…`, und
+  das Netz in der Datei hieß gar nichts — Studio nennt ein namenloses
+  Netz „Mesh". Der Name kommt jetzt aus der Bezeichnung des
+  Ergebnisses und steht an allen drei Stellen. Die fünf Gesichtsteile
+  bleiben ausgenommen: Auto Setup erkennt sie an ihren Namen.
+- **Textur-Größe wählbar:** wie sie ist / 2048 / 1024. Vorher wurde
+  fest auf 1024 verkleinert. Der Marktplatz nimmt **2048** — dort ist
+  Verkleinern freiwillig und kostet Schärfe, die man im Gesicht sieht.
+  Die Vorgabe folgt dem Ziel: Marktplatz 2048, Importer-Weg 1024.
+
+### Die Prüfung sieht die Gesichtsteile
+
+„Für das Gesichtsrig müssen es sechs Meshes sein — das sehe ich erst in
+der gespeicherten Datei." Muss man nicht mehr: Beim Ziel
+„Marktplatz-Avatar" nennt die Prüfung die fünf Netze beim Namen und
+sagt, welche fehlen.
+
+Dazu eine Wortkorrektur mit Anlass. Der Wicklungsbefund zählt
+**zusammenhängende Dreiecksinseln** und schrieb dafür „Teile" — was
+prompt für die Gesichtsteile gehalten wurde („alle 3 Teile" = Körper
+plus zwei Augen?). Es heißt jetzt „zusammenhängende Stücke", mit dem
+Satz dazu, dass ein Körper mit freistehenden Armen allein schon
+mehrere mitbringt.
+
+### Die Marktplatz-Vorlage: Pose nach vorn
+
+Im ersten Lauf kam die Figur trotz A-Pose-Vorlage in T-Pose zurück
+(Armspanne 5,06 bei 5,00 Höhe). Der Text war drin — die App hängt
+korrekt nichts an, wenn der Prompt schon eine Pose nennt, und die
+Vorlage nannte sie. Tripo hat ihn übergangen.
+
+Drei Änderungen an der Vorlage:
+
+- **Die Pose steht jetzt vorn.** Text→3D-Modelle wichten frühe
+  Begriffe stärker; sie stand an vierter Stelle.
+- **Klarer formuliert:** `arms straight and angled 45 degrees down in
+  an A-pose, never horizontal` statt `arms in a relaxed A-pose about 45
+  degrees from the body`. „Relaxed" lässt hängende Arme zu.
+- **Ein Widerspruch raus:** Die Vorlage verlangte im selben Satz
+  „eyes and a mouth modelled as separate volumes" und „single mesh".
+  Jetzt heißt es „one single body mesh".
+
 ### Der Posen-Zusatz steht für sich
 
 Bisher waren es zwei Bedienelemente: ein Schalter „Pose-Zusatz", den

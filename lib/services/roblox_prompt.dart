@@ -60,17 +60,17 @@ const String robloxAccessoryTail =
 /// „chunky" fehlt hier bewusst: Genau dieses Wort hat die Tiefe
 /// bestellt, die jetzt abgelehnt wird.
 const String robloxMarketplaceTail =
-    'single connected body, symmetrical, body depth less than two '
-    'fifths of body height, flat chest and back, narrow visible neck '
-    'clearly separating head from shoulders, arms in a relaxed '
-    'A-pose about 45 degrees from the body, mitten hands without '
-    'fingers, garment hem ending at the hip bone, thighs uncovered, '
-    'two separate leg tubes from the hips down, slim straight legs '
-    'each narrower than one third of body height, two hemisphere '
-    'eyes and a mouth modelled as separate volumes, solid closed '
-    'volumes with visible wall thickness, closed watertight shell, '
-    'single mesh, smooth simple surfaces, few flat separated color '
-    'areas, uniform material';
+    'arms straight and angled 45 degrees down in an A-pose, never '
+    'horizontal, single connected body, symmetrical, body depth less '
+    'than two fifths of body height, flat chest and back, narrow visible neck clearly '
+    'separating head from shoulders, mitten hands without fingers, '
+    'garment hem ending at the hip bone, thighs uncovered, two '
+    'separate leg tubes from the hips down, slim straight legs each '
+    'narrower than one third of body height, two hemisphere eyes and '
+    'a mouth modelled as separate volumes, solid closed volumes with '
+    'visible wall thickness, closed watertight shell, one single body '
+    'mesh, smooth simple surfaces, few flat separated color areas, '
+    'uniform material';
 
 /// Die NEGATIV-Zeile für einen Marktplatz-Körper.
 ///

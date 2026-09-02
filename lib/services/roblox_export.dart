@@ -22,6 +22,11 @@
 /// weiterhin über Blender.
 library;
 
+import 'dart:typed_data';
+
+import 'glb_preview.dart' show splitGlb, joinGlb;
+import 'roblox_face_parts.dart' show faceMeshNames;
+
 /// Blender-Skript: GLB laden, Transformationen einfrieren, als FBX
 /// ausgeben.
 ///
@@ -486,3 +491,66 @@ end)
 print("Auto Setup laeuft. Studio bleibt bedienbar; die Ausgabe "
 	.. "meldet den Fortschritt.")
 ''';
+
+/// Ein Name für Datei, Netz und Knoten – aus einem Prompt gemacht.
+///
+/// Der Prompt taugt nicht als Dateiname: Er hat Kommas, Umlaute,
+/// Schrägstriche und ist gern 400 Zeichen lang. Hier wird daraus ein
+/// Bezeichner, der in allen drei Rollen funktioniert: als Dateiname
+/// unter Windows, als `Mesh.Name` in Studio und als Knotenname in der
+/// GLB. Kleinbuchstaben, Ziffern und Unterstriche, höchstens 40
+/// Zeichen, nie leer.
+String exportBaseNameFrom(String raw, {String fallback = 'modell'}) {
+  final flach = raw
+      .toLowerCase()
+      .replaceAll('ä', 'ae')
+      .replaceAll('ö', 'oe')
+      .replaceAll('ü', 'ue')
+      .replaceAll('ß', 'ss')
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+  final kurz = flach.length > 40 ? flach.substring(0, 40) : flach;
+  final sauber = kurz.replaceAll(RegExp(r'_$'), '');
+  return sauber.isEmpty ? fallback : sauber;
+}
+
+/// Schreibt [name] in die Netze und Knoten der Datei.
+///
+/// **Warum das zählt.** Studio übernimmt beim Import den Namen aus der
+/// Datei: Ein Netz ohne Namen heißt danach „Mesh", und bei drei
+/// Modellen im Arbeitsbereich weiß niemand mehr, welches welches ist.
+/// Tripo liefert die Netze namenlos.
+///
+/// **Was ausgenommen bleibt:** die fünf Gesichtsteile. Auto Setup
+/// erkennt sie an ihren Namen (`LeftEye`, `UpperTeeth` …); sie
+/// umzubenennen würde den dynamischen Kopf kosten.
+Uint8List applyExportName(Uint8List glb, String name) {
+  final teile = splitGlb(glb);
+  final json = teile.json;
+  var n = 0;
+  for (final mesh in (json['meshes'] as List?) ?? const []) {
+    final map = mesh as Map<String, dynamic>;
+    if (faceMeshNames.contains(map['name'])) continue;
+    map['name'] = n == 0 ? name : '${name}_$n';
+    n++;
+  }
+  var k = 0;
+  for (final node in (json['nodes'] as List?) ?? const []) {
+    final map = node as Map<String, dynamic>;
+    if (!map.containsKey('mesh')) continue;
+    final meshIndex = (map['mesh'] as num).toInt();
+    final meshes = (json['meshes'] as List?) ?? const [];
+    if (meshIndex >= meshes.length) continue;
+    final meshName = (meshes[meshIndex] as Map)['name'];
+    if (faceMeshNames.contains(meshName)) continue;
+    map['name'] = k == 0 ? name : '${name}_$k';
+    k++;
+  }
+  final scenes = (json['scenes'] as List?) ?? const [];
+  if (scenes.isNotEmpty) {
+    (scenes[(json['scene'] as num?)?.toInt() ?? 0] as Map<String, dynamic>)
+        ['name'] = name;
+  }
+  return joinGlb(json, teile.bin);
+}

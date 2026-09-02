@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import 'glb_preview.dart';
 import 'mesh_check.dart';
 import 'roblox_rig.dart';
+import 'roblox_face_parts.dart' show faceMeshNames;
 import 'roblox_spec.dart';
 
 /// Wofür das Modell gedacht ist – davon hängt die Dreiecksgrenze ab.
@@ -186,6 +187,7 @@ class RobloxFacts {
     required this.partVolumes,
     required this.textures,
     this.meshTriangles = const [],
+    this.meshNames = const [],
     this.maxPrimitivesPerMesh = 1,
     this.size = const [0.0, 0.0, 0.0],
     this.reversedEdges = 0,
@@ -211,6 +213,12 @@ class RobloxFacts {
   /// Dreiecke je einzelnem Mesh. Roblox deckelt **je Mesh**, nicht das
   /// ganze Modell – ein Modell aus fünf Teilen à 6.000 geht durch.
   final List<int> meshTriangles;
+
+  /// Die Namen der Netze, in derselben Reihenfolge wie
+  /// [meshTriangles]. Daran hängt die Frage, ob die fünf
+  /// Gesichtsteile in der Datei stehen – ohne sie baut Auto Setup
+  /// keinen dynamischen Kopf.
+  final List<String> meshNames;
 
   /// Meiste Primitive in einem einzelnen Mesh – mehr als eines heißt
   /// mehr als ein Material in diesem Mesh.
@@ -468,10 +476,10 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,
         'Nach innen gewickelt: ${_n(facts.invertedParts)} von '
-            '${_n(facts.partVolumes.length)} Teil(en)',
+            '${_n(facts.partVolumes.length)} zusammenhängenden Stücken',
         'Die Wicklung ist einheitlich, aber verkehrt herum – diese '
-            'Teile sind im Spiel von außen unsichtbar. Gemessen wird '
-            'das Volumen mit Vorzeichen **je zusammenhängendem Teil**: '
+            'Stücke sind im Spiel von außen unsichtbar. Gemessen wird '
+            'das Volumen mit Vorzeichen **je zusammenhängendem Stück**: '
             'positiv heißt außen. Die Summe allein genügt nicht, ein '
             'großer richtiger Körper überdeckt darin eine falsch '
             'gewickelte Kugel. „In Ordnung bringen" dreht jedes Teil '
@@ -482,10 +490,51 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         'Normalen nach außen',
         facts.partVolumes.length > 1
             ? 'Einheitliche Wicklung, und alle '
-                '${_n(facts.partVolumes.length)} Teile haben ein '
-                'positives Volumen – keine Backfaces.'
+                '${_n(facts.partVolumes.length)} zusammenhängenden '
+                'Stücke haben ein positives Volumen – keine Backfaces. '
+                'Gezählt sind Inseln aus zusammenhängenden Dreiecken, '
+                'nicht Netze: Ein Körper, dessen Arme frei stehen, '
+                'bringt allein schon mehrere mit.'
             : 'Einheitliche Wicklung, positives Volumen – keine '
                 'Backfaces.'));
+  }
+
+  // 3b2. Die fünf Gesichtsteile – nur beim Marktplatz-Ziel.
+  //
+  // Ob sie in der Datei stehen, ließ sich bisher nur durch Öffnen der
+  // GLB beantworten. Das ist genau die Frage, die vor dem Hochladen
+  // ansteht: Ohne Augen und Mund als eigene Netze baut Auto Setup
+  // keinen dynamischen Kopf, und ohne den lehnt der Marktplatz das
+  // Ganzkörper-Bundle ab („FACS controls for at least 17 poses").
+  if (target == RobloxTarget.marketplaceAvatar) {
+    final vorhanden = [
+      for (final name in faceMeshNames)
+        if (facts.meshNames.contains(name)) name,
+    ];
+    final fehlend = [
+      for (final name in faceMeshNames)
+        if (!facts.meshNames.contains(name)) name,
+    ];
+    if (fehlend.isEmpty) {
+      findings.add(RobloxFinding(
+          RobloxLevel.ok,
+          'Gesichtsteile: alle fünf da',
+          'LeftEye, RightEye, UpperTeeth, LowerTeeth und Tongue stehen '
+              'als eigene Netze in der Datei – zusammen mit dem Körper '
+              'also ${_n(facts.meshCount)} Netze. Daran erkennt Auto '
+              'Setup, was es für die FACS-Posen bewegen kann.'));
+    } else {
+      findings.add(RobloxFinding(
+          RobloxLevel.warning,
+          'Gesichtsteile: ${_n(fehlend.length)} von 5 fehlen',
+          '${fehlend.join(', ')} ${fehlend.length == 1 ? 'fehlt' : 'fehlen'} '
+              'in der Datei${vorhanden.isEmpty ? '' : ' (da sind: '
+                  '${vorhanden.join(', ')})'}. Ohne Augen und Mund als '
+              'eigene Netze baut Auto Setup keinen dynamischen Kopf, '
+              'und der Marktplatz lehnt das Ganzkörper-Bundle ab. „Für '
+              'Roblox vorbereiten" ergänzt sie, solange der Schalter '
+              '„Gesichtsteile ergänzen" an ist.'));
+    }
   }
 
   // 3c. Nullstärke – genau der Fehler, vor dem der Prompt bei
@@ -846,6 +895,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
   final meshes = json['meshes'] as List? ?? const [];
   final materials = <int>{};
   final meshTriangles = <int>[];
+  final meshNames = <String>[];
   var primitiveCount = 0;
   var maxPrimitivesPerMesh = 0;
   var uvSets = 0;
@@ -889,6 +939,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
     }
     if (primitivesInMesh == 0) continue;
     meshTriangles.add(trianglesInMesh);
+    meshNames.add((mesh['name'] as String?) ?? '');
     if (primitivesInMesh > maxPrimitivesPerMesh) {
       maxPrimitivesPerMesh = primitivesInMesh;
     }
@@ -999,6 +1050,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
       triangles: mesh.triangleCount,
       meshCount: meshTriangles.length,
       meshTriangles: meshTriangles,
+      meshNames: meshNames,
       maxPrimitivesPerMesh:
           maxPrimitivesPerMesh == 0 ? 1 : maxPrimitivesPerMesh,
       size: orientation.size,

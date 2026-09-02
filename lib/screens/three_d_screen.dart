@@ -62,6 +62,7 @@ import '../services/asset_pack.dart';
 import '../services/roblox_face_parts.dart';
 import '../services/roblox_marketplace.dart';
 import '../services/roblox_rig.dart';
+import '../services/roblox_spec.dart';
 import '../services/self_host_service.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
@@ -125,6 +126,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// konsistente Ansichten-Bilder per Bild-KI erzeugen und daraus das
   /// Modell bauen. Beim lokalen Generator ist das im Text-Modus immer so.
   bool _viewsFromText = false;
+
+  /// Textur-Größe beim Vorbereiten: 0 heißt „unverändert lassen".
+  ///
+  /// Vorher stand hier fest 1024. Für den Marktplatz ist 2048 erlaubt
+  /// – Verkleinern ist dort freiwillig und kostet Schärfe, die man
+  /// beim Gesicht sieht. Für den Importer-Weg bleibt 1024 die
+  /// Vorgabe.
+  int _exportTextureSize = specMarketplaceTexture;
 
   /// Zielhöhe in Studs, auf die das Vorbereiten die Figur bringt.
   ///
@@ -545,6 +554,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'pose': _pose?.name ?? 'keine',
         'studs': _studsCtrl.text,
         'addFaceParts': _addFaceParts,
+        'exportTextureSize': _exportTextureSize,
         'artStyle': _artStyle,
         'viewsFromText': _viewsFromText,
         'completeViews': _completeViews,
@@ -608,6 +618,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // stillschweigend die Pose verlieren.
       _studsCtrl.text = pick('studs', _studsCtrl.text);
       _addFaceParts = pick('addFaceParts', _addFaceParts);
+      _exportTextureSize =
+          pick('exportTextureSize', _exportTextureSize);
       final poseName = pick('pose', '');
       if (poseName.isEmpty) {
         _pose = pick('tPose', false)
@@ -3566,6 +3578,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // Erst die Pose- und Skelett-Frage klären: Ob Tripo überhaupt
       // ein Quad-Netz bekommt, hängt am Rigging – und davon wiederum
       // hängt das Polygonbudget ab.
+      // Textur: Der Marktplatz nimmt 2048, der Importer-Weg 1024.
+      _exportTextureSize = target == RobloxTarget.marketplaceAvatar
+          ? specMarketplaceTexture
+          : robloxMaxTexture;
       if (target == RobloxTarget.accessory) {
         _promptSubject = 'object';
         _rigging = false;
@@ -3816,6 +3832,39 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   ],
                 ),
               ],
+              if (_robloxTarget != RobloxTarget.accessory) ...[
+                const SizedBox(height: 12),
+                Text('Textur beim Vorbereiten',
+                    style: theme.textTheme.labelLarge),
+                const SizedBox(height: 6),
+                SegmentedButton<int>(
+                  segments: [
+                    const ButtonSegment(value: 0, label: Text('Wie sie ist')),
+                    ButtonSegment(
+                        value: specMarketplaceTexture,
+                        label: Text('$specMarketplaceTexture px')),
+                    ButtonSegment(
+                        value: robloxMaxTexture,
+                        label: Text('$robloxMaxTexture px')),
+                  ],
+                  selected: {_exportTextureSize},
+                  showSelectedIcon: false,
+                  onSelectionChanged: _running
+                      ? null
+                      : (auswahl) => setState(
+                          () => _exportTextureSize = auswahl.first),
+                ),
+                _optionInfo(switch (_exportTextureSize) {
+                  0 => 'Bleibt, wie der Anbieter sie geliefert hat. '
+                      'Nichts geht verloren, die Datei bleibt groß.',
+                  specMarketplaceTexture =>
+                    'Der Marktplatz nimmt bis $specMarketplaceTexture px. '
+                        'Verkleinern ist dort freiwillig – und kostet '
+                        'Schärfe, die man im Gesicht sieht.',
+                  _ => 'Die sichere Grenze für den Importer-Weg. Für den '
+                      'Marktplatz wäre $specMarketplaceTexture erlaubt.',
+                }),
+              ],
               if (_robloxTarget == RobloxTarget.marketplaceAvatar)
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -3957,16 +4006,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         repairs.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
             'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
       }
-      final small = await shrinkGlbTextures(fixed.glb, maxSize: 1024);
-      for (final change in small.changed) {
-        repairs.add('Textur von ${change.fromWidth} auf ${change.toWidth} '
-            'px verkleinert (Roblox nimmt höchstens 1024).');
+      // Textur-Größe nach Wahl. 0 heißt: so lassen, wie sie kam.
+      var kleinerGlb = fixed.glb;
+      if (_exportTextureSize > 0) {
+        final small = await shrinkGlbTextures(fixed.glb,
+            maxSize: _exportTextureSize);
+        kleinerGlb = small.glb;
+        for (final change in small.changed) {
+          repairs.add('Textur von ${change.fromWidth} auf '
+              '${change.toWidth} px verkleinert.');
+        }
+      } else {
+        repairs.add('Textur unverändert gelassen. Der Marktplatz nimmt '
+            'bis $specMarketplaceTexture px; für den Importer-Weg sind '
+            '$robloxMaxTexture die sichere Grenze.');
       }
       if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
         // Der Marktplatz-Weg geht ohne Skelett – „prepareRigForRoblox"
         // liest die Gelenke und hätte hier nichts zu lesen. Höhe,
         // Front und Nullpunkt kommen deshalb aus der Geometrie.
-        final vorbereitet = prepareForAutoSetup(small.glb,
+        final vorbereitet = prepareForAutoSetup(kleinerGlb,
             targetStuds: _studsValue ?? robloxCharacterStuds);
         repairs.addAll(vorbereitet.report.steps);
         var glb = vorbereitet.glb;
@@ -4022,7 +4081,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         rig = null;
       } else {
         rig = prepareRigForRoblox(
-          small.glb,
+          kleinerGlb,
           // Accessoires richten sich nach dem Körperteil, an dem sie
           // sitzen – die bleiben, wie sie sind.
           targetStuds: _robloxTarget == RobloxTarget.accessory
@@ -4297,13 +4356,20 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // selbst", was stimmt und trotzdem wie ein Widerspruch aussah.
     // Ab jetzt zeigt jede Prüfung und jeder weitere Export das, was
     // geschrieben wurde.
-    final vorbereitet = rig?.glb ?? marktplatzGlb;
-    if (vorbereitet != null && !identical(vorbereitet, result.glbBytes)) {
-      setState(() => result.glbBytes = vorbereitet);
+    var vorbereitet = rig?.glb ?? marktplatzGlb;
+    final frisch = vorbereitet;
+    if (frisch != null && !identical(frisch, result.glbBytes)) {
+      setState(() => result.glbBytes = frisch);
     }
 
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final base = 'roblox_figur_$ts';
+    // Ein Name für alles: Datei, Netz und Knoten.
+    //
+    // Vorher hieß das Paket „roblox_figur_1788…" und das Netz in der
+    // Datei gar nichts – Studio nennt ein namenloses Netz „Mesh", und
+    // bei drei Modellen im Arbeitsbereich weiß niemand mehr, welches
+    // welches ist. Der Name kommt jetzt aus der Bezeichnung des
+    // Ergebnisses und steht an allen drei Stellen.
+    final base = exportBaseNameFrom(result.label, fallback: 'roblox_figur');
     final glbFile = '$base.glb';
     final fbxFile = '$base.fbx';
     final scriptFile = '${base}_blender_fbx.py';
@@ -4321,6 +4387,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Nur für den Rig-Weg: Auf dem Marktplatz-Weg nimmt Auto Setup das
     // rohe Netz, dort wäre eine zweite Fassung derselben Figur nur eine
     // Quelle für Verwechslungen.
+    // Der Name geht in die Datei – die Gesichtsteile bleiben davon
+    // ausgenommen, Auto Setup erkennt sie an ihren Namen.
+    if (vorbereitet != null) {
+      try {
+        final benannt = applyExportName(vorbereitet, base);
+        vorbereitet = benannt;
+        setState(() => result.glbBytes = benannt);
+      } catch (_) {
+        // Ein Name ist kein Grund, den Export scheitern zu lassen.
+      }
+    }
+
     Uint8List? fbxBytes;
     var fbxNote = '';
     if (rig != null) {
@@ -4361,32 +4439,42 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           textureFile: texturFile,
         ),
       };
-      var message = await exportImageBytes(
-          vorbereitet!, glbFile, 'model/gltf-binary');
-      if (fbxBytes != null) {
-        message = await exportImageBytes(
-                fbxBytes, fbxFile, 'application/octet-stream') ??
-            message;
-      }
-      if (texturBytes != null) {
+      // **Ein** Dialog für das ganze Paket.
+      //
+      // Vorher ging je Datei ein „Speichern unter" auf – mit FBX und
+      // Textur sind das sieben Fenster für einen Vorgang, und die
+      // Dateien gehören ohnehin zusammen in einen Ordner. Denselben
+      // Weg nimmt seit kurzem auch der Sammel-Download in der Galerie.
+      final dateien = <({Uint8List bytes, String fileName, String mimeType})>[
+        (
+          bytes: vorbereitet!,
+          fileName: glbFile,
+          mimeType: 'model/gltf-binary'
+        ),
+        if (fbxBytes != null)
+          (
+            bytes: fbxBytes,
+            fileName: fbxFile,
+            mimeType: 'application/octet-stream'
+          ),
         // Die Textur steckt nicht in der FBX – sie liegt daneben und
         // wird in Studio getrennt aufs Mesh gelegt.
-        message =
-            await exportImageBytes(texturBytes, texturFile, 'image/png') ??
-                message;
-      }
-      for (final entry in texts.entries) {
-        message = await exportImageBytes(
-                Uint8List.fromList(utf8.encode(entry.value)),
-                entry.key,
-                'text/plain') ??
-            message;
-      }
-      if (message != null && mounted) {
-        final anzahl = 1 + texts.length + (fbxBytes == null ? 0 : 1) +
-            (texturBytes == null ? 0 : 1);
-        _showSnack('Roblox-Paket gespeichert ($anzahl Dateien'
-            '${fbxBytes == null ? '' : ', FBX dabei'}) – $message'
+        if (texturBytes != null)
+          (bytes: texturBytes, fileName: texturFile, mimeType: 'image/png'),
+        for (final entry in texts.entries)
+          (
+            bytes: Uint8List.fromList(utf8.encode(entry.value)),
+            fileName: entry.key,
+            mimeType: 'text/plain'
+          ),
+      ];
+      final gespeichert =
+          await exportManyBytes(dateien, suggestedFolderName: base);
+      if (gespeichert != null && mounted) {
+        _showSnack('Roblox-Paket gespeichert '
+            '(${gespeichert.written} Dateien'
+            '${fbxBytes == null ? '' : ', FBX dabei'}) – '
+            '${gespeichert.message}'
             '${fbxNote.isEmpty ? '' : ' $fbxNote'}');
       }
     } catch (e) {
