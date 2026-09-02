@@ -30,6 +30,8 @@ RobloxFacts _good({
   int maxPrimitivesPerMesh = 1,
   List<double> size = const [1.4, 5.0, 1.1],
   int reversedEdges = 0,
+  int rawOpenEdges = 0,
+  List<double>? partVolumes,
   double signedVolume = 0.05,
   double volumeRatio = 0.02,
   int degenerateTriangles = 0,
@@ -53,6 +55,8 @@ RobloxFacts _good({
       uvMin: uvMin,
       uvMax: uvMax,
       openEdges: openEdges,
+      rawOpenEdges: rawOpenEdges < openEdges ? openEdges : rawOpenEdges,
+      partVolumes: partVolumes ?? [signedVolume],
       textures: textures,
       jointSets: jointSets,
       boneCount: boneCount,
@@ -294,7 +298,14 @@ void main() {
       expect(_text(mixed), contains('Für Roblox anpassen'));
       final inverted = checkRobloxFacts(
           _good(signedVolume: -0.05), RobloxTarget.character);
-      expect(_text(inverted), contains('nach innen'));
+      expect(_text(inverted), contains('Nach innen gewickelt: 1 von 1'));
+      // Und der Fall, den die Summe allein verschweigt: ein großer
+      // richtiger Körper und eine falsch gewickelte Kugel darin. Die
+      // Summe ist positiv, das kleine Teil trotzdem verkehrt herum.
+      final gemischt = checkRobloxFacts(
+          _good(partVolumes: const [10.4, -0.003]),
+          RobloxTarget.character);
+      expect(_text(gemischt), contains('Nach innen gewickelt: 1 von 2'));
       // Ein sauberes Modell bekommt den grünen Haken.
       expect(
           checkRobloxFacts(_good(), RobloxTarget.character)

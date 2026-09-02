@@ -182,6 +182,8 @@ class RobloxFacts {
     required this.uvMin,
     required this.uvMax,
     required this.openEdges,
+    required this.rawOpenEdges,
+    required this.partVolumes,
     required this.textures,
     this.meshTriangles = const [],
     this.maxPrimitivesPerMesh = 1,
@@ -246,6 +248,17 @@ class RobloxFacts {
 
   /// Kanten, die nur zu einem Dreieck gehören (Löcher im Netz).
   final int openEdges;
+
+  /// Dieselbe Zählung ohne Verschweißen – so, wie die Datei
+  /// geschrieben wird. Roblox verschweißt nicht.
+  final int rawOpenEdges;
+
+  /// Vorzeichenbehaftetes Volumen je zusammenhängendem Teil, größtes
+  /// zuerst. Negativ heißt: nach innen gewickelt.
+  final List<double> partVolumes;
+
+  /// Wie viele Teile nach innen zeigen.
+  int get invertedParts => partVolumes.where((v) => v < 0).length;
 
   final List<RobloxTexture> textures;
 
@@ -415,11 +428,29 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
         RobloxLevel.warning,
         'Offene Kanten: ${_n(facts.openEdges)}',
         'Das Netz ist nicht wasserdicht. Löcher werden im Spiel von '
-            'hinten durchsichtig. In Blender schließen '
-            '(Mesh → Clean Up) oder das Modell dicker generieren.'));
+            'hinten durchsichtig. **Das macht die App selbst**: „In '
+            'Ordnung bringen" schließt die Löcher, ohne neue Punkte '
+            'anzulegen – UVs und Gewichte bleiben. Nur was danach '
+            'übrig ist, gehört nach Blender (Mesh → Clean Up).'));
   } else {
     findings.add(const RobloxFinding(RobloxLevel.ok, 'Wasserdicht',
         'Keine offenen Kanten – keine Löcher im Netz.'));
+  }
+
+  // 3a. Und dieselbe Zählung ohne Verschweißen: Die App rechnet sonst
+  // an einer Arbeitskopie, die es in der Datei nicht gibt.
+  if (facts.rawOpenEdges > facts.openEdges) {
+    findings.add(RobloxFinding(
+        RobloxLevel.hint,
+        'Doppelte Punkte: ${_n(facts.rawOpenEdges - facts.openEdges)} '
+            'Randkanten mehr',
+        'Die Zahl darüber gilt nach dem Verschweißen nach Position – '
+            'eine Textur-Naht verdoppelt Punkte, ist aber kein Loch. '
+            'Ungeschweißt zählt die Datei ${_n(facts.rawOpenEdges)} '
+            'Randkanten, und so sieht Blender sie, so sieht Roblox '
+            'sie. Wo eine Naht in der Textur sitzt, ist das richtig '
+            'so; an einem Teil ohne UVs sind doppelte Punkte ein '
+            'Modellierfehler.'));
   }
 
   // 3b. Backfaces: nach innen zeigende oder uneinheitliche Normalen.
@@ -433,18 +464,28 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             '„Für Roblox anpassen" vereinheitlicht die Wicklung und '
             'rechnet die Normalen neu. Blender braucht es dafür nicht '
             'mehr.'));
-  } else if (facts.signedVolume < 0) {
-    findings.add(const RobloxFinding(
+  } else if (facts.invertedParts > 0) {
+    findings.add(RobloxFinding(
         RobloxLevel.warning,
-        'Normalen zeigen nach innen',
-        'Die Wicklung ist zwar einheitlich, aber verkehrt herum – das '
-            'ganze Modell wird im Spiel von außen unsichtbar. In '
-            'Blender: Mesh → Normals → Flip.'));
+        'Nach innen gewickelt: ${_n(facts.invertedParts)} von '
+            '${_n(facts.partVolumes.length)} Teil(en)',
+        'Die Wicklung ist einheitlich, aber verkehrt herum – diese '
+            'Teile sind im Spiel von außen unsichtbar. Gemessen wird '
+            'das Volumen mit Vorzeichen **je zusammenhängendem Teil**: '
+            'positiv heißt außen. Die Summe allein genügt nicht, ein '
+            'großer richtiger Körper überdeckt darin eine falsch '
+            'gewickelte Kugel. „In Ordnung bringen" dreht jedes Teil '
+            'einzeln.'));
   } else {
-    findings.add(const RobloxFinding(
+    findings.add(RobloxFinding(
         RobloxLevel.ok,
         'Normalen nach außen',
-        'Einheitliche Wicklung, keine Backfaces.'));
+        facts.partVolumes.length > 1
+            ? 'Einheitliche Wicklung, und alle '
+                '${_n(facts.partVolumes.length)} Teile haben ein '
+                'positives Volumen – keine Backfaces.'
+            : 'Einheitliche Wicklung, positives Volumen – keine '
+                'Backfaces.'));
   }
 
   // 3c. Nullstärke – genau der Fehler, vor dem der Prompt bei
@@ -971,6 +1012,8 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
       uvMin: uvMin,
       uvMax: uvMax,
       openEdges: check.openEdges,
+      rawOpenEdges: check.rawOpenEdges,
+      partVolumes: orientation.partVolumes,
       textures: textures,
       jointSets: jointSets,
       boneCount: boneCount,

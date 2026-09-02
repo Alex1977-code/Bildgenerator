@@ -227,7 +227,46 @@ void main() {
     // rund 0,5 × Radius. Mehr als 0,6 darf es nie werden.
     expect(b.depth - a.depth, lessThanOrEqualTo(heraus + 1e-6));
     expect(b.depth - a.depth, greaterThan(heraus * 0.7));
-    expect(ergebnis.report.text, contains('0.05 Studs aus'));
+    // Der Bericht addiert nicht den Radius, sondern misst den
+    // Hüllkörper vorher und nachher – nur so stimmt die Aussage auch
+    // dort, wo die Augen hinter dem Kapuzenrand liegen.
+    expect(ergebnis.report.text, contains('Tiefe des Hüllkörpers: 1.40'));
+    expect(ergebnis.report.text, contains('kosten 0.05 Studs'));
+  });
+
+  test('hinter der vordersten Kante kosten die Augen keine Tiefe', () {
+    // Kapuze: ein Schirm, der weiter vorn steht als das Gesicht. Die
+    // Augen sitzen dahinter, der Hüllkörper wächst nicht.
+    final m = LocalMesh();
+    void quader(double x0, double y0, double z0, double x1, double y1,
+        double z1) {
+      final p = [
+        m.addVertex(x0, y0, z0, 0, 0),
+        m.addVertex(x1, y0, z0, 1, 0),
+        m.addVertex(x1, y1, z0, 1, 1),
+        m.addVertex(x0, y1, z0, 0, 1),
+        m.addVertex(x0, y0, z1, 0, 0),
+        m.addVertex(x1, y0, z1, 1, 0),
+        m.addVertex(x1, y1, z1, 1, 1),
+        m.addVertex(x0, y1, z1, 0, 1),
+      ];
+      m.addQuad(p[0], p[3], p[2], p[1]);
+      m.addQuad(p[4], p[5], p[6], p[7]);
+      m.addQuad(p[0], p[1], p[5], p[4]);
+      m.addQuad(p[2], p[3], p[7], p[6]);
+      m.addQuad(p[1], p[2], p[6], p[5]);
+      m.addQuad(p[0], p[4], p[7], p[3]);
+    }
+
+    quader(-1.3, 2.25, -0.6, 1.3, 3.9, 0.6);
+    quader(-0.75, 3.9, -0.7, 0.75, 5.0, 0.7); // Kopf
+    // Der Kapuzenschirm steht 0,3 Studs vor dem Gesicht.
+    quader(-0.75, 4.75, -1.0, 0.75, 5.0, -0.7);
+    quader(-0.95, 0.0, -0.45, -0.25, 2.25, 0.45);
+    quader(0.25, 0.0, -0.45, 0.95, 2.25, 0.45);
+    final r = addFaceParts(buildGlb(m));
+    expect(r.report.text, contains('unverändert'));
+    expect(r.report.text, isNot(contains('kosten 0')));
   });
 
   test('ohne Kopf gibt es eine verständliche Absage', () {

@@ -4118,6 +4118,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       'Platz mit Freunden teilen lässt.',
                       style: theme.textTheme.bodySmall,
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Das Ergebnis in der Liste übernimmt dabei die '
+                      'vorbereitete Datei. Sonst prüft und exportiert '
+                      'die App danach das rohe Modell weiter, und die '
+                      'Roblox-Prüfung meldet Fehler, die im Paket längst '
+                      'behoben sind. „Abbrechen" ändert nichts.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.primary),
+                    ),
                   ],
                 ),
               ),
@@ -4144,6 +4154,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       ),
     );
     if (saved != true || !mounted) return;
+
+    // Das Ergebnis übernimmt die vorbereitete Datei.
+    //
+    // Ohne diese Zeile lagen zwei Modelle nebeneinander: das
+    // reparierte im Paket und das rohe in der Liste. Die
+    // Roblox-Prüfung liest die Liste – und meldete danach offene
+    // Kanten und uneinheitliche Wicklung, die im gespeicherten Paket
+    // längst behoben waren. Der Prüftext sagte dazu „das macht die App
+    // selbst", was stimmt und trotzdem wie ein Widerspruch aussah.
+    // Ab jetzt zeigt jede Prüfung und jeder weitere Export das, was
+    // geschrieben wurde.
+    final vorbereitet = rig?.glb ?? marktplatzGlb;
+    if (vorbereitet != null && !identical(vorbereitet, result.glbBytes)) {
+      setState(() => result.glbBytes = vorbereitet);
+    }
 
     final ts = DateTime.now().millisecondsSinceEpoch;
     final base = 'roblox_figur_$ts';
@@ -4177,7 +4202,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         ),
       };
       var message = await exportImageBytes(
-          rig?.glb ?? marktplatzGlb!, glbFile, 'model/gltf-binary');
+          vorbereitet!, glbFile, 'model/gltf-binary');
       for (final entry in texts.entries) {
         message = await exportImageBytes(
                 Uint8List.fromList(utf8.encode(entry.value)),

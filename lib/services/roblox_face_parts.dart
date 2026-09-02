@@ -33,9 +33,14 @@
 ///
 /// **„Versenkt" heißt hier:** Der Mittelpunkt sitzt 0,4 × Radius
 /// hinter der Gesichtsfläche, das Auge schaut also um 0,6 × Radius
-/// heraus. Läge der Mittelpunkt auf P, wäre es die halbe Kugel. Wie
-/// weit die Augen die Tiefe der Figur vergrößern, steht im Bericht –
-/// der Marktplatz misst höchstens 2,00 Studs Tiefe.
+/// heraus. Läge der Mittelpunkt auf P, wäre es die halbe Kugel.
+///
+/// Ob das Tiefe kostet, sagt nur der **Hüllkörper**, nicht der
+/// Radius: Die Augen zählen zur 2,00-Studs-Grenze allein dann, wenn
+/// sie den Hüllkörper nach vorn vergrößern. Bei einer Kapuze liegt die
+/// Gesichtsfläche hinter dem Kapuzenrand, dann kosten sie nichts. Der
+/// Bericht misst deshalb vorher und nachher, statt den Radius zu
+/// addieren.
 ///
 /// **33 % und 0,01 × H widersprechen sich.** Bei 36 % und 33 % mit je
 /// 0,03 × H Höhe stoßen die Zahnreihen genau aneinander; für den
@@ -234,13 +239,25 @@ FacePartsResult addFaceParts(
     throw Exception('Keine Geometrie gefunden – ohne Kopf lassen sich '
         'die Gesichtsteile nicht platzieren.');
   }
-  var minY = double.infinity, maxY = double.negativeInfinity;
+  final huelleVorMin = [
+    double.infinity,
+    double.infinity,
+    double.infinity
+  ];
+  final huelleVorMax = [
+    double.negativeInfinity,
+    double.negativeInfinity,
+    double.negativeInfinity
+  ];
   for (final p in alle) {
-    for (var i = 1; i < p.length; i += 3) {
-      minY = math.min(minY, p[i]);
-      maxY = math.max(maxY, p[i]);
+    for (var i = 0; i + 2 < p.length; i += 3) {
+      for (var k = 0; k < 3; k++) {
+        huelleVorMin[k] = math.min(huelleVorMin[k], p[i + k]);
+        huelleVorMax[k] = math.max(huelleVorMax[k], p[i + k]);
+      }
     }
   }
+  final minY = huelleVorMin[1], maxY = huelleVorMax[1];
   final gesamtHoehe = maxY - minY;
   if (gesamtHoehe <= 0) throw Exception('Das Modell hat keine Höhe.');
   final kopfAb = maxY - gesamtHoehe * headTopFraction;
@@ -320,11 +337,24 @@ FacePartsResult addFaceParts(
   final neueMeshes = <Map<String, dynamic>>[];
   final berichte = <FacePart>[];
 
+  // Der Hüllkörper wächst mit den Teilen – gemessen, nicht gerechnet.
+  final huelleNachMin = [...huelleVorMin];
+  final huelleNachMax = [...huelleVorMax];
+  void merken(Float32List pos) {
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      for (var k = 0; k < 3; k++) {
+        huelleNachMin[k] = math.min(huelleNachMin[k], pos[i + k]);
+        huelleNachMax[k] = math.max(huelleNachMax[k], pos[i + k]);
+      }
+    }
+  }
+
   void kugel(String name, double cx, double cy, double cz, double rx,
       double ry, double rz, int steps) {
     final (pos, idx) = _ellipsoid(cx, cy, cz, rx, ry, rz, steps);
     berichte.add(FacePart(name, idx.length ~/ 3, [cx, cy, cz]));
     neueMeshes.add(_mesh(anhang, name, pos, idx));
+    merken(pos);
   }
 
   void quader(String name, double cx, double cy, double cz, double bx,
@@ -332,6 +362,7 @@ FacePartsResult addFaceParts(
     final (pos, idx) = _quader(cx, cy, cz, bx, by, bz);
     berichte.add(FacePart(name, idx.length ~/ 3, [cx, cy, cz]));
     neueMeshes.add(_mesh(anhang, name, pos, idx));
+    merken(pos);
   }
 
   kugel('LeftEye', mitteX - augeX, augeY, augeZ, augeR, augeR, augeR,
@@ -381,10 +412,18 @@ FacePartsResult addFaceParts(
   notes.add('Augenradius ${augeR.toStringAsFixed(2)}, Augenabstand '
       '${(augeX * 2).toStringAsFixed(2)}, Zahnreihe '
       '${zahnBreite.toStringAsFixed(2)} Studs breit.');
-  final heraus = augeR * (1 - proportions.eyeSink);
-  notes.add('Die Augen schauen höchstens ${heraus.toStringAsFixed(2)} '
-      'Studs aus der Gesichtsfläche heraus – so viel kann die Figur an '
-      'Tiefe zulegen. Der Marktplatz misst höchstens 2,00 Studs.');
+  final tiefeVor = huelleVorMax[2] - huelleVorMin[2];
+  final tiefeNach = huelleNachMax[2] - huelleNachMin[2];
+  final zuwachs = tiefeNach - tiefeVor;
+  notes.add(zuwachs > 0.005
+      ? 'Tiefe des Hüllkörpers: ${tiefeVor.toStringAsFixed(2)} → '
+          '${tiefeNach.toStringAsFixed(2)} Studs. Die Augen ragen '
+          'vorn heraus und kosten ${zuwachs.toStringAsFixed(2)} Studs. '
+          'Der Marktplatz misst höchstens 2,00.'
+      : 'Tiefe des Hüllkörpers unverändert bei '
+          '${tiefeNach.toStringAsFixed(2)} Studs: Die Augen liegen '
+          'hinter der vordersten Kante und kosten nichts. Der '
+          'Marktplatz misst höchstens 2,00.');
   final budget = specBodyPartTriangles['DynamicHead'] ?? 4000;
   final summe = berichte.fold(0, (a, p) => a + p.triangles);
   notes.add('$summe Dreiecke, die zum Kopfbudget von $budget zählen – '

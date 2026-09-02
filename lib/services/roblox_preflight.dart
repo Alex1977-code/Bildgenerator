@@ -423,13 +423,17 @@ PreflightReport buildPreflightReport({
             'innen und ist im Spiel unsichtbar. Die App dreht sie um.',
         3,
         fix: PreflightFix.huelleSchliessen);
-  } else if (facts.signedVolume < 0) {
+  } else if (facts.invertedParts > 0) {
     add(
         'normalen',
         PreflightSeverity.fehler,
-        'Normalen zeigen nach innen',
-        'Das eingeschlossene Volumen ist negativ – das ganze Netz ist '
-            'umgestülpt. Von außen sieht man dann nichts.',
+        '${facts.invertedParts} von ${facts.partVolumes.length} '
+            'Teil(en) nach innen gewickelt',
+        'Gemessen wird das eingeschlossene Volumen mit Vorzeichen je '
+            'zusammenhängendem Teil: positiv heißt außen. Die Summe '
+            'allein genügt nicht – ein großer richtiger Körper '
+            'überdeckt darin eine falsch gewickelte Kugel. Von außen '
+            'sieht man diese Teile nicht.',
         3,
         fix: PreflightFix.huelleSchliessen);
   }

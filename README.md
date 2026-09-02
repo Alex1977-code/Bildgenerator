@@ -1464,32 +1464,60 @@ Drei Entscheidungen dabei, jede aus einem Fehlschlag:
   Bericht sagt es an: Zwei Netze, die sich berühren, sind die Sorte
   Geometrie, an der der Validator hängen bleibt.
 - **„Versenkt" heißt: Mittelpunkt 0,4 × Radius hinter der Fläche.** Das
-  Auge schaut also um 0,6 × Radius heraus, und um so viel kann die
-  Tiefe der Figur wachsen. Der Bericht nennt die Zahl in Studs — der
-  Marktplatz misst höchstens 2,00.
+  Auge schaut also um 0,6 × Radius heraus. Ob das Tiefe kostet, sagt
+  aber nur der **Hüllkörper**, nicht der Radius: Der Bericht misst
+  vorher und nachher. Bei einer Kapuze liegt die Gesichtsfläche hinter
+  dem Kapuzenrand — dann kosten die Augen nichts, und der Bericht sagt
+  „unverändert" statt einer erfundenen Zahl. Der Marktplatz misst
+  höchstens 2,00 Studs Tiefe.
 
 Die Augen sind volle Kugeln, keine Halbkugeln: Eine Halbkugel hätte
 einen offenen Rand, und „wasserdicht ohne offene Löcher" gilt für jedes
 Netz in der Datei. Die hintere Hälfte steckt im Kopf.
 
-**Zwei Fehler, die erst Blender zeigte.** Die App prüft Wasserdichtheit
-nach dem Verschweißen nach Position — eine UV-Naht ist kein Loch — und
-Wicklung nur auf Einheitlichkeit. Beides ließ eine kaputte Kugel durch:
+**Zwei Fehler, die erst Blender zeigte** — und beide gehen auf
+dieselbe Ursache zurück: Die App prüfte etwas anderes, als sie schrieb.
 
 - Ein doppelter Punkt je Pol und eine wiederholte Nahtspalte ergaben
-  **46 offene Kanten je Auge**. Blender und Roblox verschweißen nicht.
-  Jetzt steht jeder Punkt genau einmal.
+  **46 offene Kanten je Auge**. Die Prüfung verschweißt vor dem Zählen
+  nach Position und meldete null. Blender und Roblox verschweißen
+  nicht. Jetzt steht jeder Punkt genau einmal.
 - Die Kugeln waren **nach innen gewickelt** (negatives Volumen, während
-  Quader und Figur positiv waren). Einheitlich falsch herum ist
-  einheitlich — deshalb sah die Prüfung nichts.
+  Quader und Figur positiv waren). Die Wicklungsprüfung achtet auf
+  Einheitlichkeit — und einheitlich falsch herum ist einheitlich.
 
-Beides prüfen jetzt zwei Tests, die roh über die Indizes gehen: offene
-Kanten ohne Verschweißen, und das Vorzeichen des Volumens. Gegen den
-alten Stand schlagen beide fehl.
+Die Lehre daraus steht jetzt in der Prüfung selbst, für jedes Modell,
+nicht nur für die Gesichtsteile:
+
+- **Beide Zahlen für die Randkanten.** Die verschweißte sagt, ob es
+  Löcher gibt; die rohe sagt, was in der Datei steht. Die Differenz
+  sind doppelte Punkte: an einer Textur-Naht richtig, an einem Teil
+  ohne UVs ein Modellierfehler.
+- **Das Volumen mit Vorzeichen je zusammenhängendem Teil.** Die Summe
+  allein genügt nicht — ein Körper mit +10,4 überdeckt eine Kugel mit
+  −0,003, und genau das ist passiert. Positiv heißt außen, und das gilt
+  für jedes Teil einzeln, für den Körper wie für die Augen.
+
+Geprüft ist beides von Tests, die roh über die Indizes gehen; gegen den
+alten Stand schlagen sie fehl. Die 46 Randkanten aus Blender kommen
+darin auf die Kante genau heraus.
 
 Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
+
+### Was vorbereitet wurde, wird auch geprüft
+
+„Für Roblox vorbereiten" schrieb die reparierte Figur bisher nur ins
+gespeicherte Paket. In der Ergebnisliste blieb das rohe Modell stehen —
+und die Roblox-Prüfung liest die Liste. Sie meldete deshalb offene
+Kanten und uneinheitliche Wicklung, die im Paket längst behoben waren,
+und schrieb daneben „das macht die App selbst". Beides stimmte, und
+zusammen sah es wie ein Widerspruch aus.
+
+Das Ergebnis übernimmt jetzt die vorbereitete Datei, sobald das Paket
+gespeichert wird. „Abbrechen" ändert nichts. Damit zeigen Prüfung,
+GLB-Export und Herkunftsprotokoll dieselben Bytes.
 
 ### Auto Setup: der kurze Weg, und warum er nötig ist
 

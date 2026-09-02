@@ -9,19 +9,40 @@ class MeshCheckResult {
   const MeshCheckResult({
     required this.triangles,
     required this.openEdges,
+    required this.rawOpenEdges,
     required this.nonManifoldEdges,
   });
 
   final int triangles;
 
   /// Kanten, die nur zu einem Dreieck gehören (Loch im Netz).
+  ///
+  /// Gezählt **nach** dem Verschweißen nach Position: Eine UV-Naht
+  /// verdoppelt Punkte, ist aber kein Loch.
   final int openEdges;
+
+  /// Dieselbe Zählung **ohne** Verschweißen – so, wie die Datei
+  /// geschrieben wird.
+  ///
+  /// Wer nicht verschweißt, sieht jede Naht und jeden doppelten Punkt
+  /// als Rand. Blender tut das, Roblox tut das. Die Differenz zu
+  /// [openEdges] sind genau die doppelten Punkte: bei einer Textur
+  /// harmlos, bei einem doppelten Kugelpol ein Modellierfehler. Die
+  /// App hat sich an dieser Stelle selbst belogen, bis Blender an
+  /// einem erzeugten Auge 46 Randkanten zählte, wo sie 0 meldete.
+  final int rawOpenEdges;
 
   /// Kanten mit mehr als zwei Dreiecken (Berührungsstellen) – für
   /// Slicer in der Regel unkritisch.
   final int nonManifoldEdges;
 
   bool get watertight => openEdges == 0;
+
+  /// Wasserdicht auch für ein Werkzeug, das nicht verschweißt.
+  bool get watertightUnwelded => rawOpenEdges == 0;
+
+  /// Randkanten, die es nur wegen doppelter Punkte gibt.
+  int get seamEdges => rawOpenEdges - openEdges;
 }
 
 MeshCheckResult checkMeshWatertight(
@@ -59,13 +80,15 @@ MeshCheckResult checkMeshWatertight(
     welded[v] = canonical.putIfAbsent(key, () => weldedCount++);
   }
 
-  // Ungerichtete Kanten zählen.
+  // Ungerichtete Kanten zählen – einmal verschweißt, einmal roh.
   final edgeUse = <int, int>{};
+  final rawEdgeUse = <int, int>{};
   var triangles = 0;
   for (var t = 0; t < indices.length; t += 3) {
-    final a = welded[indices[t]];
-    final b = welded[indices[t + 1]];
-    final c = welded[indices[t + 2]];
+    final ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
+    final a = welded[ia];
+    final b = welded[ib];
+    final c = welded[ic];
     if (a == b || b == c || a == c) continue; // degeneriert
     triangles++;
     for (final (p, q) in [(a, b), (b, c), (c, a)]) {
@@ -73,6 +96,12 @@ MeshCheckResult checkMeshWatertight(
       final high = p < q ? q : p;
       final key = low * weldedCount + high;
       edgeUse[key] = (edgeUse[key] ?? 0) + 1;
+    }
+    for (final (p, q) in [(ia, ib), (ib, ic), (ic, ia)]) {
+      final low = p < q ? p : q;
+      final high = p < q ? q : p;
+      final key = low * vertexCount + high;
+      rawEdgeUse[key] = (rawEdgeUse[key] ?? 0) + 1;
     }
   }
 
@@ -85,9 +114,14 @@ MeshCheckResult checkMeshWatertight(
       nonManifoldEdges++;
     }
   }
+  var rawOpenEdges = 0;
+  for (final count in rawEdgeUse.values) {
+    if (count == 1) rawOpenEdges++;
+  }
   return MeshCheckResult(
     triangles: triangles,
     openEdges: openEdges,
+    rawOpenEdges: rawOpenEdges,
     nonManifoldEdges: nonManifoldEdges,
   );
 }
@@ -108,6 +142,7 @@ class MeshOrientationResult {
   const MeshOrientationResult({
     required this.reversedEdges,
     required this.signedVolume,
+    required this.partVolumes,
     required this.degenerateTriangles,
     required this.size,
   });
@@ -124,8 +159,21 @@ class MeshOrientationResult {
   /// Linie).
   final int degenerateTriangles;
 
+  /// Das vorzeichenbehaftete Volumen **je zusammenhängendem Teil**,
+  /// größtes zuerst.
+  ///
+  /// Die Summe allein genügt nicht: Ein Modell aus Körper und fünf
+  /// Gesichtsteilen kann insgesamt positiv sein und trotzdem eine
+  /// nach innen gewickelte Kugel enthalten – der große positive
+  /// Körper überdeckt sie. Genau so ist es passiert. Positiv heißt
+  /// außen, und das gilt für jedes Teil einzeln.
+  final List<double> partVolumes;
+
   /// Ausdehnung der Bounding Box in x, y, z.
   final List<double> size;
+
+  /// Teile, deren Wicklung nach innen zeigt.
+  int get invertedParts => partVolumes.where((v) => v < 0).length;
 
   double get largestSide => size.reduce((a, b) => a > b ? a : b);
   double get smallestSide => size.reduce((a, b) => a < b ? a : b);
@@ -212,6 +260,7 @@ MeshOrientationResult checkMeshOrientation(
   return MeshOrientationResult(
     reversedEdges: reversed,
     signedVolume: volume,
+    partVolumes: _partVolumes(positions, indices, welded, weldedCount),
     degenerateTriangles: degenerate,
     size: size,
   );
@@ -234,4 +283,68 @@ Int32List _weldByPosition(Float32List positions, List<double> size) {
     welded[v] = canonical.putIfAbsent(key, () => next++);
   }
   return welded;
+}
+
+/// Das vorzeichenbehaftete Volumen je zusammenhängendem Teil.
+///
+/// Zusammenhang wird über die **verschweißten** Punkte bestimmt – ein
+/// Körper, dessen Textur ihn in UV-Inseln zerlegt, ist trotzdem ein
+/// Teil. Das Volumen selbst kommt aus den echten Positionen, so wie
+/// sie in der Datei stehen.
+List<double> _partVolumes(Float32List positions, Uint32List indices,
+    Int32List welded, int weldedCount) {
+  if (weldedCount == 0) return const [];
+  // Union-Find über die Dreieckskanten.
+  final eltern = Int32List(weldedCount);
+  for (var i = 0; i < weldedCount; i++) {
+    eltern[i] = i;
+  }
+  int wurzel(int a) {
+    var r = a;
+    while (eltern[r] != r) {
+      r = eltern[r];
+    }
+    // Pfad kürzen, sonst wird das bei zehntausend Dreiecken zäh.
+    var k = a;
+    while (eltern[k] != r) {
+      final next = eltern[k];
+      eltern[k] = r;
+      k = next;
+    }
+    return r;
+  }
+
+  void verbinde(int a, int b) {
+    final ra = wurzel(a), rb = wurzel(b);
+    if (ra != rb) eltern[ra] = rb;
+  }
+
+  for (var t = 0; t + 2 < indices.length; t += 3) {
+    final a = welded[indices[t]];
+    final b = welded[indices[t + 1]];
+    final c = welded[indices[t + 2]];
+    verbinde(a, b);
+    verbinde(b, c);
+  }
+
+  final proTeil = <int, double>{};
+  for (var t = 0; t + 2 < indices.length; t += 3) {
+    final ia = indices[t], ib = indices[t + 1], ic = indices[t + 2];
+    final a = welded[ia], b = welded[ib], c = welded[ic];
+    if (a == b || b == c || a == c) continue;
+    final ax = positions[ia * 3], ay = positions[ia * 3 + 1],
+        az = positions[ia * 3 + 2];
+    final bx = positions[ib * 3], by = positions[ib * 3 + 1],
+        bz = positions[ib * 3 + 2];
+    final cx = positions[ic * 3], cy = positions[ic * 3 + 1],
+        cz = positions[ic * 3 + 2];
+    final det = ax * (by * cz - bz * cy) -
+        ay * (bx * cz - bz * cx) +
+        az * (bx * cy - by * cx);
+    final schluessel = wurzel(a);
+    proTeil[schluessel] = (proTeil[schluessel] ?? 0) + det / 6.0;
+  }
+  final werte = proTeil.values.toList()
+    ..sort((a, b) => b.abs().compareTo(a.abs()));
+  return werte;
 }
