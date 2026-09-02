@@ -227,16 +227,17 @@ void main() {
     expect(() => sculptFaceIntoHead(mit), throwsA(isA<Exception>()));
   });
 
-  test('ein erzeugtes Netz braucht keinen Kasten-Sonderfall', () async {
-    // Ein Kopf, der schon feiner ist: Die Standardwerte (drei
-    // Durchgänge, 1.500 Dreiecke) müssen dann reichen.
+  test('ein zweiter Eingriff lässt ein fertiges Gesicht in Ruhe', () async {
+    // Eine vorbereitete Figur kommt über die Reparatur ein zweites
+    // Mal vorbei. Ein zweiter Eingriff gräbe die Höhlen doppelt tief –
+    // deshalb: Höhlen da, nichts anfassen.
     final r0 = await sculptFaceIntoHead(figur(), proportions: grob);
-    // Das Ergebnis noch einmal als Eingabe – jetzt ist das Gesicht
-    // fein, und die Standardwerte greifen. Die Höhlen werden dabei
-    // tiefer, das ist hier egal; es geht um die Durchgänge.
     final r1 = await sculptFaceIntoHead(r0.glb);
-    expect(r1.report.passes, lessThanOrEqualTo(3));
-    expect(r1.report.addedTriangles, lessThanOrEqualTo(1500));
+    expect(r1.report.passes, 0);
+    expect(r1.report.addedTriangles, 0);
+    expect(r1.report.notes.join(' '), contains('schon da'));
+    expect(r1.report.after.leftEyeDepth,
+        closeTo(r0.report.after.leftEyeDepth, 1e-6));
   });
 
   test('die Prüfung meldet das Gesicht im Netz – vorher fehlend, '

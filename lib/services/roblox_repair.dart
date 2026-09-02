@@ -367,10 +367,15 @@ Future<RepairResult> repairForMarketplace(
   double targetStuds = marketplaceFigureStuds,
   bool addFace = true,
   bool sculptFace = true,
+  FaceSculptProportions sculptProportions = const FaceSculptProportions(),
   bool decimate = true,
 }) async {
   final schritte = <RepairStep>[];
-  var arbeit = glb;
+  // Ohne die fünf Gesichtsteile: Eine schon vorbereitete Figur bringt
+  // sie mit, und der Umbau unten verschmölze sie mit dem Körper –
+  // danach kämen fünf neue dazu, und die alten Augäpfel steckten im
+  // Kopf. Sie werden am Ende neu gesetzt.
+  var arbeit = withoutFaceMeshes(glb);
 
   var vorschau = await parseGlbForPreview(arbeit);
   var pos = Float32List.fromList(vorschau.positions);
@@ -555,7 +560,8 @@ Future<RepairResult> repairForMarketplace(
   // dem Kopf).
   if (sculptFace) {
     try {
-      final gesicht = await sculptFaceIntoHead(arbeit);
+      final gesicht =
+          await sculptFaceIntoHead(arbeit, proportions: sculptProportions);
       arbeit = gesicht.glb;
       final r = gesicht.report;
       notiere(

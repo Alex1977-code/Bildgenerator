@@ -1640,6 +1640,41 @@ behoben:
   auf Aus, und die Vorlage sagt das jetzt. „Figur für Bild→3D" nannte
   die A-Pose „Arme seitlich ausgestreckt"; das ist die T-Pose.
 
+### Aus dem Text eine Marktplatz-Figur
+
+Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
+marktplatzfähig wurde sie erst durch drei Klicks danach. Der feste
+Marktplatz-Schwanz stand nur in der kopierbaren Vorlage — wer ihn nicht
+über die Prompt-KI zurück ins Feld holte, schickte ein nacktes Motiv,
+und die Figur kannte keine der Formregeln. Jetzt ist der Weg
+geschlossen:
+
+- **Der Schwanz hängt von selbst dran.** Beim Ziel Marktplatz-Avatar
+  geht an Tripo das Motiv plus der feste Schwanz (mit A-Pose, also
+  ohne zweiten Posen-Zusatz) und die feste NEGATIV-Zeile — eigene
+  Negativ-Begriffe vorn, dann die festen, ohne Doppelte, in Tripos
+  Grenze. Steht der Schwanz schon im Text (Vorlage zurückkopiert),
+  bleibt es bei einem. Der Hinweis unter dem Feld zählt den fertigen
+  Text und nennt, was dem Motiv bleibt: 335 Zeichen.
+- **Nach dem Lauf wird von selbst hergerichtet.** Löcher schließen,
+  Textur auf 2048, 5 Studs, Zehen nach +Z, Gesicht ins Kopfnetz,
+  Gesichtsteile, Messung. Das Ergebnis in der Liste ist danach die
+  **vorbereitete** Datei, und die Karte sagt, was die Messung ergab.
+- **Ohne Fehler geht es ohne Rückfrage weiter** zum Export. Mit
+  Fehlern öffnet sich die Reparatur — sie fragt vor dem Übernehmen,
+  weil sie die Figur verformt. Das ist die eine Entscheidung, die
+  bleibt.
+
+Damit die Reparatur eine schon hergerichtete Figur verträgt: Sie
+nimmt die fünf Gesichtsteile vorher heraus und setzt sie am Ende neu
+(sonst verschmölzen die alten Augäpfel mit dem Kopf, und fünf neue
+kämen dazu), und der Gesichts-Eingriff lässt ein fertiges Gesicht in
+Ruhe (sonst gräbe er die Höhlen doppelt tief). Ein Test hält beides
+fest.
+
+Was der Weg **nicht** entscheidet: ob Roblox' Auto Setup die Figur
+annimmt. Das passiert in Studio, und das ist Lauf 6.
+
 ### Das Gesicht nachträglich ins Kopfnetz bauen
 
 Fünf Läufe haben entschieden, was Auto Setup für den dynamischen Kopf

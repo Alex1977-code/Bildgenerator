@@ -379,6 +379,11 @@ class ThreeDResult {
   });
 
   Uint8List glbBytes;
+
+  /// Was der Marktplatz-Weg nach dem Lauf festgestellt hat – leer,
+  /// wenn es kein Marktplatz-Lauf war. Änderbar, weil die Vorbereitung
+  /// nach dem Einfügen in die Liste läuft.
+  String robloxNote = '';
   final String label;
   final String providerLabel;
   final Uint8List? thumbnailBytes;

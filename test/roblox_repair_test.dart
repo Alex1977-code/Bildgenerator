@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/roblox_face_parts.dart';
+import 'package:bildgenerator/services/roblox_face_sculpt.dart';
 import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:bildgenerator/services/roblox_repair.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -223,6 +224,39 @@ void main() {
         addFace: false, sculptFace: false, decimate: false);
     expect(ohne.report.steps.map((s) => s.rule),
         isNot(contains('Gesicht im Kopfnetz')));
+  });
+
+  test('eine schon vorbereitete Figur lässt sich reparieren, ohne dass '
+      'die Augen doppelt werden', () async {
+    // Der Weg aus Text: Nach dem Lauf richtet die App die Figur von
+    // selbst her (Höhlen, Gesichtsteile) und bietet bei Fehlern die
+    // Reparatur an. Die bekommt also eine Figur **mit** Teilen.
+    // Der Kastenkopf ist grob – mit dem Standardbudget bleiben die
+    // Höhlen unter der Grenze, und der zweite Lauf gräbt zu Recht
+    // weiter. Ein erzeugtes Netz ist feiner; hier stehen dafür mehr
+    // Durchgänge.
+    const fein = FaceSculptProportions(maxPasses: 6, maxExtraTriangles: 6000);
+    final erst = await repairForMarketplace(figur(tiefe: 2.45),
+        decimate: false, sculptProportions: fein);
+    final json0 = splitGlb(erst.glb).json;
+    expect((json0['meshes'] as List).length, 1 + faceMeshNames.length);
+
+    final zweit = await repairForMarketplace(erst.glb,
+        decimate: false, sculptProportions: fein);
+    final namen = [
+      for (final mesh in (splitGlb(zweit.glb).json['meshes'] as List).cast<Map>())
+        mesh['name'] as String?,
+    ];
+    // Genau fünf Teile, jedes einmal – die alten sind raus, nicht im
+    // Körper verschmolzen.
+    for (final teil in faceMeshNames) {
+      expect(namen.where((n) => n == teil), hasLength(1), reason: teil);
+    }
+    expect(namen.length, 1 + faceMeshNames.length);
+    // Und das Gesicht wurde nicht ein zweites Mal gegraben.
+    final gesicht = zweit.report.steps
+        .firstWhere((s) => s.rule == 'Gesicht im Kopfnetz');
+    expect(gesicht.note, contains('schon da'));
   });
 
   test('die Gesichtsteile kommen zuletzt', () async {

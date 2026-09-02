@@ -4,6 +4,7 @@ import 'roblox_check.dart'
         robloxGoalTriangles,
         robloxMaxTexture,
         robloxCharacterStuds;
+import 'item_prompt.dart' show mergeTerms;
 import 'pose_prompt.dart' show tPoseSuffix;
 import 'roblox_spec.dart';
 import 'tripo_service.dart' show TripoService;
@@ -89,6 +90,87 @@ const String robloxMarketplaceTail =
     'solid closed volumes with visible wall thickness, closed '
     'watertight shell, one single body mesh, smooth simple surfaces, '
     'few flat separated color areas, uniform material';
+
+/// Ein Stück des Schwanzes, das in keinem Motiv vorkommt – daran
+/// erkennt die App, dass er schon im Prompt steht.
+const String robloxMarketplaceTailMarker = 'one single body mesh';
+
+/// Der fertige Marktplatz-Prompt aus einem Motiv.
+class MarketplacePrompt {
+  const MarketplacePrompt({
+    required this.prompt,
+    required this.negative,
+    required this.tailAppended,
+    required this.motifChars,
+    required this.motifBudget,
+    required this.notes,
+  });
+
+  /// Was an Tripo geht: Motiv plus fester Schwanz (mit A-Pose).
+  final String prompt;
+
+  /// Die NEGATIV-Zeile: eigene Begriffe zuerst, dann die festen, ohne
+  /// Doppelte, in Tripos Grenze.
+  final String negative;
+
+  /// False, wenn der Schwanz schon im Motiv stand.
+  final bool tailAppended;
+
+  final int motifChars;
+
+  /// Was dem Motiv bleibt, wenn der Schwanz drin sein soll.
+  final int motifBudget;
+
+  final List<String> notes;
+
+  bool get motifTooLong => motifChars > motifBudget;
+}
+
+/// Macht aus einem Motiv den Prompt, der beim Marktplatz-Ziel wirklich
+/// an Tripo geht.
+///
+/// Bisher stand der feste Schwanz nur in der kopierbaren Vorlage: Wer
+/// ihn nicht über die Prompt-KI zurück ins Feld holte, schickte ein
+/// nacktes Motiv plus A-Pose – und bekam eine Figur, die keine der
+/// Formregeln kannte. Jetzt hängt die App ihn selbst an, sobald das
+/// Ziel Marktplatz-Avatar ist. Steht er schon im Text (die Vorlage
+/// wurde zurückkopiert), bleibt es bei einem.
+MarketplacePrompt marketplacePrompt(String motif, {String negative = ''}) {
+  final text = motif.trim();
+  final notes = <String>[];
+  final budget = TripoService.maxPromptChars - robloxMarketplaceTail.length - 2;
+  final schonDa = text.toLowerCase().contains(robloxMarketplaceTailMarker);
+  final prompt = schonDa || text.isEmpty
+      ? text
+      : '$text, $robloxMarketplaceTail';
+  if (schonDa) {
+    notes.add('Der feste Marktplatz-Schwanz steht schon im Prompt – er '
+        'wird nicht ein zweites Mal angehängt.');
+  } else if (text.length > budget) {
+    notes.add('Das Motiv hat ${text.length} Zeichen, mit dem festen '
+        'Schwanz bleiben ihm $budget. Tripo kürzt hinten – und hinten '
+        'stehen die Regeln. Das Motiv kürzen.');
+  }
+  final eigene = negative.trim();
+  var neg = eigene.isEmpty
+      ? robloxMarketplaceNegative
+      : mergeTerms([eigene, robloxMarketplaceNegative]);
+  if (neg.length > TripoService.maxNegativePromptChars) {
+    final vorher = neg.length;
+    neg = TripoService.clipToLimit(neg, TripoService.maxNegativePromptChars);
+    notes.add('Die NEGATIV-Zeile hatte $vorher Zeichen, Tripo nimmt '
+        '${TripoService.maxNegativePromptChars}: hinten gekürzt, die '
+        'eigenen Begriffe vorn bleiben.');
+  }
+  return MarketplacePrompt(
+    prompt: prompt,
+    negative: neg,
+    tailAppended: !schonDa && text.isNotEmpty,
+    motifChars: text.length,
+    motifBudget: budget,
+    notes: notes,
+  );
+}
 
 /// Die NEGATIV-Zeile für einen Marktplatz-Körper.
 ///

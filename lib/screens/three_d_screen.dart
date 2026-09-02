@@ -401,9 +401,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       'Roblox: Marktplatz-Avatar',
       Icons.storefront_outlined,
       'tripo',
-      'Für Roblox\' Auto Setup: ohne Rigging, A-Pose, Smart Low-Poly, '
-          'face_limit 7.000, eine 1024er-Textur – dazu die '
-          'Prompt-Vorlage mit Tiefe, Hals und getrennten Beinen'
+      'Aus dem Text eine Marktplatz-Figur: Die App hängt den festen '
+          'Schwanz mit Tiefe, Hals, getrennten Beinen und Gesicht '
+          'selbst an, Tripo ohne Rigging in A-Pose mit face_limit '
+          '5.500 (1.500 bleiben fürs Gesicht), 2048er-Textur – und '
+          'nach dem Lauf wird die Figur von selbst hergerichtet, '
+          'vermessen und bei Fehlern zur Reparatur angeboten'
     ),
   ];
 
@@ -1251,11 +1254,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
   }
 
-  /// Der Prompt, wie er tatsächlich an den Anbieter geht – mit dem
-  /// T-Pose-Zusatz, sofern Rigging an ist und die Pose nicht schon im
-  /// Text steht (siehe services/pose_prompt.dart).
-  String _effectivePrompt(String prompt) =>
-      withPose(prompt, wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
+  /// Ob der Lauf eine Marktplatz-Figur aus Text ist – dann hängt die
+  /// App den festen Marktplatz-Schwanz selbst an und bereitet das
+  /// Ergebnis von selbst vor.
+  bool get _marketplaceText =>
+      _robloxMode &&
+      _robloxTarget == RobloxTarget.marketplaceAvatar &&
+      !_imageMode;
+
+  /// Der Prompt, wie er tatsächlich an den Anbieter geht – beim
+  /// Marktplatz-Ziel mit dem festen Schwanz (der die A-Pose schon
+  /// enthält), sonst mit dem Posen-Zusatz, sofern der Schalter an ist
+  /// und die Pose nicht schon im Text steht.
+  String _effectivePrompt(String prompt) {
+    final basis = _marketplaceText ? marketplacePrompt(prompt).prompt : prompt;
+    return withPose(basis, wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
+  }
+
+  /// Die NEGATIV-Zeile, wie sie geht: beim Marktplatz-Ziel die eigenen
+  /// Begriffe vorn, dann die festen, ohne Doppelte, in Tripos Grenze.
+  String _effectiveNegative() {
+    final eigene = _negative3dCtrl.text.trim();
+    if (!_marketplaceText) return eigene;
+    return marketplacePrompt(_promptCtrl.text, negative: eigene).negative;
+  }
 
   /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
   int get _promptSuffixChars =>
@@ -2116,6 +2138,69 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     await _runPack(plan);
   }
 
+  /// Nach einem Marktplatz-Lauf aus Text: von selbst herrichten,
+  /// vermessen, und bei Fehlern gleich die Reparatur anbieten.
+  ///
+  /// Das Ergebnis in der Liste ist danach die **vorbereitete** Datei –
+  /// 5 Studs, Zehen nach +Z, Gesicht im Kopfnetz, Gesichtsteile –,
+  /// und die Prüfung rechnet auf ihr. Die Reparatur bleibt eine
+  /// Rückfrage, weil sie die Figur verformt; ohne Fehler geht es ohne
+  /// Rückfrage weiter zum Export.
+  Future<void> _autoMarketplace(ThreeDResult result) async {
+    if (!mounted || _running || !result.usableInApp) return;
+    setState(() {
+      _running = true;
+      _stage = 'Marktplatz-Figur wird hergerichtet und vermessen …';
+    });
+    _MarketplacePrep markt;
+    try {
+      final fixed = fixGlbForRoblox(result.glbBytes,
+          closeHoles: true, fixWinding: true);
+      var glb = fixed.glb;
+      if (_exportTextureSize > 0) {
+        glb = (await shrinkGlbTextures(glb, maxSize: _exportTextureSize)).glb;
+      }
+      markt = await _prepareMarketplace(glb);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stage = null;
+        });
+        _showSnack('Herrichten fehlgeschlagen: '
+            '${e.toString().replaceFirst('Exception: ', '')} – das '
+            'Ergebnis bleibt, wie es kam.');
+      }
+      return;
+    }
+    if (!mounted) return;
+    final fehler = markt.befunde.where((f) => f.blocks).toList();
+    final warnungen = markt.befunde
+        .where((f) => !f.blocks && f.level != MarketplaceLevel.ok)
+        .toList();
+    setState(() {
+      result.glbBytes = markt.glb;
+      result.robloxNote = fehler.isEmpty
+          ? 'Marktplatz: hergerichtet und vermessen, keine Fehler'
+              '${warnungen.isEmpty ? '' : ', ${warnungen.length} '
+                  'Warnung${warnungen.length == 1 ? '' : 'en'}'}. '
+              'Bereit für Export/Roblox-Paket.'
+          : 'Marktplatz: hergerichtet, ${fehler.length} '
+              'Fehler: ${fehler.map((f) => f.title).join('; ')}.';
+      _running = false;
+      _stage = null;
+    });
+    if (fehler.isEmpty) {
+      _showSnack('Marktplatz-Figur hergerichtet und vermessen: keine '
+          'Fehler${warnungen.isEmpty ? '' : ', '
+              '${warnungen.length} Warnung${warnungen.length == 1 ? '' : 'en'}'}. '
+          'Export/Roblox-Paket ist der nächste Schritt.');
+      return;
+    }
+    // Fehler: Die Reparatur anbieten – sie fragt vor dem Übernehmen.
+    await _repairForMarketplace(result);
+  }
+
   /// Der Reparatur-Modus: messen, beheben, nachmessen.
   ///
   /// Vorher läuft die Vorbereitung, denn die Messungen brauchen eine
@@ -2600,6 +2685,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         ),
       );
     });
+    // Eine Marktplatz-Figur aus Text wird gleich hergerichtet und
+    // vermessen – das ist der Weg, den der Nutzer bestellt hat: Aus
+    // dem Text soll eine hochladbare Figur werden, nicht ein Rohling
+    // und drei Klicks.
+    if (_marketplaceText && itemKind == null && format == ModelFormat.glb) {
+      final ergebnis = _results.first;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_autoMarketplace(ergebnis));
+      });
+    }
     // Für die Empfehlungen mitschreiben: Einstellungen und – sobald
     // gemessen – die Beschaffenheit des Netzes. Läuft nebenher, ein
     // Fehlschlag darf das Ergebnis nicht aufhalten.
@@ -3239,7 +3334,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           quadTopology: _quadTopology,
           targetPolycount: _meshyPolycount,
           symmetryMode: _symmetryMode,
-          negativePrompt: _negative3dCtrl.text.trim(),
+          negativePrompt: _effectiveNegative(),
         );
         status = await service.waitForTask(
           taskPath,
@@ -3388,7 +3483,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         smartLowPoly: _tripoSmartLowPoly,
         pbr: _pbr,
         autoSize: _tripoAutoSize,
-        negativePrompt: _negative3dCtrl.text.trim(),
+        negativePrompt: _effectiveNegative(),
       );
     }
     if (_quadTopology && !_tripoQuad) {
@@ -4250,13 +4345,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final effective = _effectivePrompt(_promptCtrl.text).length;
     final suffix = _promptSuffixChars;
     final poseName = _pose == PoseKind.aPose ? 'A-Pose' : 'T-Pose';
-    final anhang = suffix > 0
-        ? ' Dazu kommen $suffix Zeichen $poseName-Zusatz – zusammen '
-            '$effective.'
-        : _pose != null
-            ? ' Eine Pose steht schon im Prompt, deshalb hängt die App '
-                'nichts an.'
-            : '';
+    final markt = _marketplaceText ? marketplacePrompt(_promptCtrl.text) : null;
+    final anhang = markt != null
+        ? (markt.tailAppended
+            ? ' Dazu kommt der feste Marktplatz-Schwanz '
+                '(${robloxMarketplaceTail.length} Zeichen, A-Pose '
+                'enthalten) – zusammen $effective. Fürs Motiv bleiben '
+                '${markt.motifBudget}.'
+            : markt.motifChars == 0
+                ? ' Beim Erzeugen kommt der feste Marktplatz-Schwanz '
+                    '(${robloxMarketplaceTail.length} Zeichen, A-Pose '
+                    'enthalten) ans Motiv; dem bleiben '
+                    '${markt.motifBudget} Zeichen.'
+                : ' Der feste Marktplatz-Schwanz steht schon drin.')
+        : suffix > 0
+            ? ' Dazu kommen $suffix Zeichen $poseName-Zusatz – zusammen '
+                '$effective.'
+            : _pose != null
+                ? ' Eine Pose steht schon im Prompt, deshalb hängt die '
+                    'App nichts an.'
+                : '';
     if (!_tripoPromptTooLong) {
       return '$raw von ${TripoService.maxPromptChars} Zeichen.$anhang '
           'Knapp bleiben: Objektklasse zuerst, dann Silhouette, dann '
@@ -4298,52 +4406,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Roblox-Platz setzen (dafür das Studio-Skript – ein Platz verweist
   /// auf ein hochgeladenes MeshPart, und das Hochladen samt Moderation
   /// passiert in Studio).
-  Future<void> _prepareForRoblox(ThreeDResult result) async {
-    RobloxPrepareResult? rig;
-    Uint8List? marktplatzGlb;
+  /// Der Marktplatz-Weg für eine Figur: 5 Studs, Zehen nach +Z, das
+  /// Gesicht ins Kopfnetz, die Gesichtsteile, die Messung.
+  ///
+  /// Ohne Skelett – „prepareRigForRoblox" liest die Gelenke und hätte
+  /// hier nichts zu lesen. Höhe, Front und Nullpunkt kommen aus der
+  /// Geometrie. Steht für sich, weil er zweimal gebraucht wird: von
+  /// Hand über „Für Roblox vorbereiten" und von selbst nach jedem
+  /// Marktplatz-Lauf aus Text.
+  Future<_MarketplacePrep> _prepareMarketplace(Uint8List kleinerGlb) async {
     final repairs = <String>[];
-    try {
-      // Erst die Geometrie, dann die Textur, dann das Skelett: Löcher
-      // schließen ändert die Indexliste, und das Skelett rechnet auf
-      // der fertigen Geometrie.
-      final fixed = fixGlbForRoblox(result.glbBytes,
-          closeHoles: true, fixWinding: true);
-      if (fixed.report.filledHoles > 0) {
-        repairs.add('${fixed.report.filledHoles} Loch/Löcher geschlossen '
-            '(${fixed.report.addedTriangles} neue Dreiecke, keine neuen '
-            'Vertices – UVs und Gewichte bleiben).');
-      }
-      if (fixed.report.flippedFaces > 0) {
-        repairs.add('${fixed.report.flippedFaces} Fläche(n) in die '
-            'einheitliche Wicklung gedreht, Normalen neu gerechnet.');
-      }
-      if (fixed.report.degenerateRemoved > 0) {
-        repairs.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
-            'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
-      }
-      // Textur-Größe nach Wahl. 0 heißt: so lassen, wie sie kam.
-      var kleinerGlb = fixed.glb;
-      if (_exportTextureSize > 0) {
-        final small = await shrinkGlbTextures(fixed.glb,
-            maxSize: _exportTextureSize);
-        kleinerGlb = small.glb;
-        for (final change in small.changed) {
-          repairs.add('Textur von ${change.fromWidth} auf '
-              '${change.toWidth} px verkleinert.');
-        }
-      } else {
-        repairs.add('Textur unverändert gelassen. Der Marktplatz nimmt '
-            'bis $specMarketplaceTexture px; für den Importer-Weg sind '
-            '$robloxMaxTexture die sichere Grenze.');
-      }
-      if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
-        // Der Marktplatz-Weg geht ohne Skelett – „prepareRigForRoblox"
-        // liest die Gelenke und hätte hier nichts zu lesen. Höhe,
-        // Front und Nullpunkt kommen deshalb aus der Geometrie.
-        final vorbereitet = prepareForAutoSetup(kleinerGlb,
-            targetStuds: _studsValue ?? robloxCharacterStuds);
-        repairs.addAll(vorbereitet.report.steps);
-        var glb = vorbereitet.glb;
+    var befunde = <MarketplaceFinding>[];
+    final vorbereitet = prepareForAutoSetup(kleinerGlb,
+        targetStuds: _studsValue ?? robloxCharacterStuds);
+    repairs.addAll(vorbereitet.report.steps);
+    var glb = vorbereitet.glb;
 
         // Erst das Gesicht ins Kopfnetz: Höhlen und Grate. Danach die
         // Teile – in dieser Reihenfolge, sonst verschmölzen die Teile
@@ -4408,7 +4485,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // ob er beim Prompt oder beim Export entsteht.
         try {
           final mesh = await parseGlbForPreview(glb);
-          final befunde = checkMarketplaceFigure(
+          befunde = checkMarketplaceFigure(
               measureMarketplaceFigure(mesh.positions, mesh.indices));
           mesh.dispose();
           for (final f in befunde) {
@@ -4420,7 +4497,51 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           // an den Regeln davor.
         }
 
-        marktplatzGlb = glb;
+    return _MarketplacePrep(glb, repairs, befunde);
+  }
+
+  Future<void> _prepareForRoblox(ThreeDResult result) async {
+    RobloxPrepareResult? rig;
+    Uint8List? marktplatzGlb;
+    final repairs = <String>[];
+    try {
+      // Erst die Geometrie, dann die Textur, dann das Skelett: Löcher
+      // schließen ändert die Indexliste, und das Skelett rechnet auf
+      // der fertigen Geometrie.
+      final fixed = fixGlbForRoblox(result.glbBytes,
+          closeHoles: true, fixWinding: true);
+      if (fixed.report.filledHoles > 0) {
+        repairs.add('${fixed.report.filledHoles} Loch/Löcher geschlossen '
+            '(${fixed.report.addedTriangles} neue Dreiecke, keine neuen '
+            'Vertices – UVs und Gewichte bleiben).');
+      }
+      if (fixed.report.flippedFaces > 0) {
+        repairs.add('${fixed.report.flippedFaces} Fläche(n) in die '
+            'einheitliche Wicklung gedreht, Normalen neu gerechnet.');
+      }
+      if (fixed.report.degenerateRemoved > 0) {
+        repairs.add('${fixed.report.degenerateRemoved} Dreieck(e) ohne '
+            'Fläche entfernt – der Marktplatz-Validator lehnt sie ab.');
+      }
+      // Textur-Größe nach Wahl. 0 heißt: so lassen, wie sie kam.
+      var kleinerGlb = fixed.glb;
+      if (_exportTextureSize > 0) {
+        final small = await shrinkGlbTextures(fixed.glb,
+            maxSize: _exportTextureSize);
+        kleinerGlb = small.glb;
+        for (final change in small.changed) {
+          repairs.add('Textur von ${change.fromWidth} auf '
+              '${change.toWidth} px verkleinert.');
+        }
+      } else {
+        repairs.add('Textur unverändert gelassen. Der Marktplatz nimmt '
+            'bis $specMarketplaceTexture px; für den Importer-Weg sind '
+            '$robloxMaxTexture die sichere Grenze.');
+      }
+      if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
+        final markt = await _prepareMarketplace(kleinerGlb);
+        repairs.addAll(markt.repairs);
+        marktplatzGlb = markt.glb;
         rig = null;
       } else {
         rig = prepareRigForRoblox(
@@ -4893,6 +5014,14 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         'zustande: ${result.rigNote}',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: Colors.orange.shade800)),
+                  if (result.robloxNote.isNotEmpty)
+                    // Der Stand des Marktplatz-Wegs: hergerichtet,
+                    // vermessen, und was die Messung ergab.
+                    Text(result.robloxNote,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            color: result.robloxNote.contains('Fehler:')
+                                ? theme.colorScheme.error
+                                : Colors.green.shade700)),
                   if (result.limitNote.isNotEmpty)
                     // Ohne diese Zeile bleibt offen, ob die App die
                     // Grenze nicht mitgeschickt oder der Anbieter sie
@@ -7963,4 +8092,12 @@ class _ItemDialogState extends State<_ItemDialog> {
   /// entstehen sie immer in derselben Ordnung, egal wie geklickt wurde.
   List<ItemKind> get _selected =>
       [for (final kind in itemKinds) if (_chosen.contains(kind.id)) kind];
+}
+
+/// Was der Marktplatz-Weg liefert: die Datei, die Schritte, die Befunde.
+class _MarketplacePrep {
+  const _MarketplacePrep(this.glb, this.repairs, this.befunde);
+  final Uint8List glb;
+  final List<String> repairs;
+  final List<MarketplaceFinding> befunde;
 }

@@ -237,6 +237,68 @@ void main() {
     });
   });
 
+  group('Der Marktplatz-Prompt, wie er wirklich geht', () {
+    test('das Motiv bekommt den festen Schwanz und das feste Negativ',
+        () {
+      final m = marketplacePrompt('small stocky creature, big round eyes');
+      expect(m.tailAppended, isTrue);
+      expect(m.prompt, startsWith('small stocky creature, big round eyes, '));
+      expect(m.prompt, endsWith(robloxMarketplaceTail));
+      expect(m.negative, robloxMarketplaceNegative);
+      // Die A-Pose steht im Schwanz – die App hängt keine zweite an.
+      expect(promptHasPose(m.prompt), isTrue);
+      expect(m.prompt.length, lessThanOrEqualTo(TripoService.maxPromptChars));
+      expect(m.notes, isEmpty);
+    });
+
+    test('steht der Schwanz schon drin, bleibt es bei einem', () {
+      final zurueck = robloxMarketplaceExample
+          .split('\n')
+          .first
+          .replaceFirst('PROMPT: ', '');
+      final m = marketplacePrompt(zurueck);
+      expect(m.tailAppended, isFalse);
+      expect(m.prompt, zurueck);
+      expect(robloxMarketplaceTailMarker.allMatches(m.prompt).length, 1);
+      expect(m.notes.join(' '), contains('nicht ein zweites Mal'));
+    });
+
+    test('eigene Negativ-Begriffe stehen vorn, ohne Doppelte, in der '
+        'Grenze', () {
+      final m = marketplacePrompt('x', negative: 'cape, purple, hood');
+      expect(m.negative, startsWith('cape, purple, hood, '));
+      expect('cape, '.allMatches('${m.negative}, ').length, 1);
+      expect('hood, '.allMatches('${m.negative}, ').length, 1);
+      expect(m.negative.length,
+          lessThanOrEqualTo(TripoService.maxNegativePromptChars));
+      // Zu viel Eigenes: hinten gekürzt, und der Bericht sagt es.
+      final lang = marketplacePrompt('x',
+          negative: List.generate(30, (i) => 'term$i').join(', '));
+      expect(lang.negative.length,
+          lessThanOrEqualTo(TripoService.maxNegativePromptChars));
+      expect(lang.negative, startsWith('term0, term1'));
+      expect(lang.notes.join(' '), contains('gekürzt'));
+    });
+
+    test('ein zu langes Motiv wird angesagt, nicht stillschweigend '
+        'gekürzt', () {
+      final m = marketplacePrompt('y' * 400);
+      expect(m.motifTooLong, isTrue);
+      expect(m.motifBudget,
+          TripoService.maxPromptChars - robloxMarketplaceTail.length - 2);
+      expect(m.notes.join(' '), contains('Tripo kürzt hinten'));
+      // Der Prompt selbst bleibt ungekürzt – kürzen tut die
+      // Anfrage, und das Feld zeigt es vorher an.
+      expect(m.prompt.length, greaterThan(TripoService.maxPromptChars));
+    });
+
+    test('ein leeres Motiv bekommt keinen Schwanz', () {
+      final m = marketplacePrompt('   ');
+      expect(m.prompt, '');
+      expect(m.tailAppended, isFalse);
+    });
+  });
+
   group('Auto-Setup-Skript', () {
     final lua = autoSetupLua(modelName: 'kapuzzee');
 

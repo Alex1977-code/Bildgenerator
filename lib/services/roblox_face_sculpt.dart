@@ -244,6 +244,25 @@ Future<FaceSculptResult> sculptFaceIntoHead(
   final vorher = _messeHoehlen(pos, idx, kopf, proportions);
   final dreieckeVorher = idx.length ~/ 3;
 
+  // Schon da? Dann nichts anfassen. Eine vorbereitete Figur kommt
+  // über die Reparatur ein zweites Mal hier vorbei, und ein zweiter
+  // Eingriff gräbe die Höhlen doppelt tief.
+  if (vorher.hasFace) {
+    return FaceSculptResult(
+      glb,
+      FaceSculptReport(
+        before: vorher,
+        after: vorher,
+        trianglesBefore: dreieckeVorher,
+        trianglesAfter: dreieckeVorher,
+        passes: 0,
+        notes: const [
+          'Augenhöhlen und Mundhöhle sind schon da – nichts verändert.',
+        ],
+      ),
+    );
+  }
+
   // 1. Verfeinern.
   final b = kopf.width;
   final zielKante = proportions.targetEdge * b;
