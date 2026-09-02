@@ -31,6 +31,13 @@
 /// Kopfbands. Bei einer Kapuze liegt die Kante am Kapuzenrand, das
 /// Gesicht aber tiefer; ein Auge an der Kante schwebte davor.
 ///
+/// **Vorn ist +Z.** Die Figur schaut dorthin, wohin ihre Zehen zeigen,
+/// und die stehen nach der Vorbereitung auf +Z – Studios glTF-Import
+/// spiegelt die Z-Achse (siehe `prepareForAutoSetup`). Als der Export
+/// noch auf −Z drehte, gehörte das Gesicht dorthin; wer eine Seite
+/// ändert und die andere vergisst, setzt die Augen an den
+/// Hinterkopf.
+///
 /// **„Versenkt" heißt hier:** Der Mittelpunkt sitzt 0,4 × Radius
 /// hinter der Gesichtsfläche, das Auge schaut also um 0,6 × Radius
 /// heraus. Läge der Mittelpunkt auf P, wäre es die halbe Kugel.
@@ -190,7 +197,7 @@ const List<String> faceMeshNames = [
 /// Hängt die fünf Gesichtsteile an eine Figur.
 ///
 /// Erwartet eine Figur, die schon auf ihre Endgröße gebracht ist
-/// (Front nach −Z, Füße auf y = 0) – die Teile richten sich nach dem
+/// (Zehen nach +Z, Füße auf y = 0) – die Teile richten sich nach dem
 /// gemessenen Kopf, und ein schiefer Maßstab verschöbe sie mit.
 ///
 /// [headTopFraction] sagt, welcher obere Anteil der Höhe als Kopf
@@ -263,7 +270,7 @@ FacePartsResult addFaceParts(
   final kopfAb = maxY - gesamtHoehe * headTopFraction;
 
   var kopfMinX = double.infinity, kopfMaxX = double.negativeInfinity;
-  var kopfMinZ = double.infinity;
+  var kopfMaxZ = double.negativeInfinity;
   var kopfPunkte = 0;
   for (final p in alle) {
     for (var i = 0; i + 2 < p.length; i += 3) {
@@ -271,7 +278,7 @@ FacePartsResult addFaceParts(
       kopfPunkte++;
       kopfMinX = math.min(kopfMinX, p[i]);
       kopfMaxX = math.max(kopfMaxX, p[i]);
-      kopfMinZ = math.min(kopfMinZ, p[i + 2]);
+      kopfMaxZ = math.max(kopfMaxZ, p[i + 2]);
     }
   }
   if (kopfPunkte == 0) {
@@ -283,7 +290,7 @@ FacePartsResult addFaceParts(
   final h = maxY - kopfAb;
   final mitteX = (kopfMinX + kopfMaxX) / 2;
 
-  // 2. Der Gesichtspunkt P: ein Strahl von vorn (−z) auf die
+  // 2. Der Gesichtspunkt P: ein Strahl von vorn (+z) auf die
   // Kopfmitte, auf Augenhöhe. Trifft er nichts – etwa weil die
   // Kopfmitte hohl ist –, bleibt die vorderste Kante des Bands als
   // Notnagel, und das steht dann auch im Bericht.
@@ -297,21 +304,21 @@ FacePartsResult addFaceParts(
         'Kopfbands. Bei einer Kapuze sitzen die Teile dann zu weit '
         'vorn – bitte im Viewer nachsehen.');
   }
-  final augeFront = augeTreffer ?? kopfMinZ;
+  final augeFront = augeTreffer ?? kopfMaxZ;
   // Ober- und Unterzähne teilen sich **einen** Strahl. Zwei Strahlen
   // auf einem schrägen Gesicht ergäben zwei verschiedene Tiefen, und
   // die Zahnreihen stünden versetzt.
-  final mundFront = mundTreffer ?? kopfMinZ;
+  final mundFront = mundTreffer ?? kopfMaxZ;
 
-  // 3. Die Maße. Front ist −z, „nach hinten" heißt also +z.
+  // 3. Die Maße. Front ist +z, „nach hinten" heißt also −z.
   final augeR = b * proportions.eyeRadius;
   final augeX = b * proportions.eyeSeparation;
-  final augeZ = augeFront + augeR * proportions.eyeSink;
+  final augeZ = augeFront - augeR * proportions.eyeSink;
 
   final zahnBreite = b * proportions.teethWidth;
   final zahnHoehe = h * proportions.teethHeight;
   final zahnTiefe = b * proportions.teethDepth;
-  final zahnZ = mundFront + zahnTiefe / 2;
+  final zahnZ = mundFront - zahnTiefe / 2;
   final oberY = mundY;
   // Der Abstand hat Vorrang vor den 33 %: siehe oben.
   final wunschUnterY = kopfAb + h * proportions.lowerTeethHeight;
@@ -327,9 +334,9 @@ FacePartsResult addFaceParts(
         'geht vor.');
   }
 
-  final zungeZ = zahnZ +
-      zahnTiefe / 2 +
-      b * proportions.tongueSetback +
+  final zungeZ = zahnZ -
+      zahnTiefe / 2 -
+      b * proportions.tongueSetback -
       b * proportions.tongueDepth / 2;
   final zungeY = (oberY - zahnHoehe / 2 + unterY + zahnHoehe / 2) / 2;
 
@@ -441,15 +448,15 @@ FacePartsResult addFaceParts(
   );
 }
 
-/// Der vorderste Treffer eines Strahls von −z auf (x, y).
+/// Der vorderste Treffer eines Strahls von +z auf (x, y).
 ///
 /// Gerechnet wird in der Aufsicht: Enthält das Dreieck in der
 /// XY-Ebene den Punkt, liefert die baryzentrische Mischung sein z.
-/// Der kleinste Wert gewinnt – das ist die Fläche, die man von vorn
-/// sieht. Dreiecke unterhalb von [abY] bleiben außen vor, damit eine
-/// erhobene Hand nicht als Gesicht durchgeht.
+/// Der **größte** Wert gewinnt – das ist die Fläche, die man von vorn
+/// sieht, denn vorn ist +z. Dreiecke unterhalb von [abY] bleiben außen
+/// vor, damit eine erhobene Hand nicht als Gesicht durchgeht.
 double? _frontHit(List<double> tris, double x, double y, double abY) {
-  var best = double.infinity;
+  var best = double.negativeInfinity;
   for (var t = 0; t + 8 < tris.length; t += 9) {
     final ay = tris[t + 1], by = tris[t + 4], cy = tris[t + 7];
     if (ay < abY && by < abY && cy < abY) continue;
@@ -461,7 +468,7 @@ double? _frontHit(List<double> tris, double x, double y, double abY) {
     final l3 = 1 - l1 - l2;
     if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
     final z = l1 * tris[t + 2] + l2 * tris[t + 5] + l3 * tris[t + 8];
-    if (z < best) best = z;
+    if (z > best) best = z;
   }
   return best.isFinite ? best : null;
 }

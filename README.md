@@ -1506,6 +1506,47 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Die Front war spiegelverkehrt
+
+Der schwerste Fund aus dem Pflichtenheft, und er kostet Läufe: **Studios
+glTF-Import spiegelt die Z-Achse.** Was in der GLB auf −Z liegt, kommt
+in Studio auf +Z heraus. Roblox verlangt die Front auf −Z — also müssen
+die Zehen **in der Datei nach +Z** zeigen.
+
+Die App hat auf −Z gedreht, der Dokumentation folgend statt der Messung.
+Zwei Auto-Setup-Läufe standen deshalb rückwärts. Jetzt dreht sie auf
++Z, und der Doc-Kommentar sagt, warum das verkehrt aussieht und wie man
+es in Studio nachprüft (EditableMesh: mittleres Z der untersten 8 %
+minus mittleres Z bei 15–25 % muss negativ sein).
+
+**Die Gesichtsteile mussten mit.** Die Figur schaut dorthin, wo ihre
+Zehen hinzeigen — wer eine Seite dreht und die andere vergisst, setzt
+die Augen an den Hinterkopf. Nachgemessen in Blender an der ganzen
+Kette: gedreht um 180°, Zehen bei glTF-z +0,28, Gesicht bei +0,53,
+dieselbe Seite.
+
+Dabei ist noch etwas sichtbar geworden: Ist die Blickrichtung **nicht
+bestimmbar** (Signal unter der Schwelle), dreht die App nicht — und dann
+kann das Gesicht auf der Rückseite landen. Der Bericht sagt es an; im
+Viewer nachsehen und notfalls mit den 90°-Knöpfen nachhelfen.
+
+### Zwei Prüfungen aus dem Lauf-Protokoll
+
+- **Taille.** Auto Setup setzt die Kopf-Rumpf-Grenze an die schmalste
+  Stelle. „hoodie ending at the hip bone" hat einen Bund erzeugt, der
+  schmaler war als der Hals (0,68 gegen 0,81) — heraus kam ein „Head"
+  von 3,16 Studs Breite. Die Prüfung meldet jede Stelle unter der
+  Schulter, die schmaler ist als der Hals, mit dem Textbaustein dagegen.
+- **T-Pose am Ergebnis, nicht am Prompt.** Zweimal stand der A-Pose-Text
+  im Prompt und die Figur kam trotzdem waagerecht zurück. Gemessen wird
+  jetzt am Netz: Armspanne ≥ 0,95 × Höhe **und** ein Band über 3,5 Studs
+  in der oberen Hälfte. Beide Bedingungen zusammen, weil jede für sich
+  täuscht — eine breite Figur hat auch in A-Pose eine große Armspanne,
+  und ein breites Band allein kann ein Umhang sein.
+
+Dazu eine Grenze nachgezogen: **Beine getrennt in ≥ 90 %** der Bänder
+statt 80 %.
+
 ### Export: ein Ordner, ein Name, wählbare Textur
 
 Vier kleine Dinge, die zusammen den Unterschied zwischen „Datei

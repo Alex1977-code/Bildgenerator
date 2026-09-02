@@ -119,6 +119,108 @@ void main() {
     });
   });
 
+  group('Taille und Pose, gemessen am Ergebnis', () {
+    test('eine Taille unter der Schulter ist ein Prompt-Fehler', () {
+      // „hoodie ending at the hip bone" hat einen Bund erzeugt, der
+      // schmaler war als der Hals. Auto Setup setzt die
+      // Kopf-Rumpf-Grenze an die schmalste Stelle – bei Kapuzzeee kam
+      // ein „Head" von 3,16 Studen Breite heraus.
+      final m = const MarketplaceMeasurement(
+        height: 5,
+        width: 3.2,
+        depth: 1.5,
+        widthAxis: 0,
+        headWidth: 1.3,
+        neckWidth: 0.81,
+        shoulderWidth: 2.6,
+        legSeparation: 1,
+        legWidth: 0.5,
+        scale: 1,
+        waistWidth: 0.68,
+      );
+      expect(m.hasWaist, isTrue);
+      final f = checkMarketplaceFigure(m).where((f) => f.id == 'taille');
+      expect(f, hasLength(1));
+      expect(f.single.level, MarketplaceLevel.fehler);
+      expect(f.single.origin, MarketplaceOrigin.prompt);
+      expect(f.single.reason, contains('cinched waist'));
+
+      // Ohne Bund keine Meldung.
+      expect(
+          checkMarketplaceFigure(const MarketplaceMeasurement(
+            height: 5,
+            width: 3.2,
+            depth: 1.5,
+            widthAxis: 0,
+            headWidth: 1.3,
+            neckWidth: 0.6,
+            shoulderWidth: 2.6,
+            legSeparation: 1,
+            legWidth: 0.5,
+            scale: 1,
+            waistWidth: 1.4,
+          )).where((f) => f.id == 'taille'),
+          isEmpty);
+    });
+
+    test('T-Pose wird am Ergebnis erkannt, nicht am Prompt', () {
+      // Zweimal stand der A-Pose-Text im Prompt, und zweimal kam die
+      // Figur waagerecht zurück. Armspanne 5,06 bei 5,00 Höhe.
+      const tPose = MarketplaceMeasurement(
+        height: 5,
+        width: 5.06,
+        depth: 1.5,
+        widthAxis: 0,
+        headWidth: 1.3,
+        neckWidth: 0.6,
+        shoulderWidth: 2.6,
+        legSeparation: 1,
+        legWidth: 0.5,
+        scale: 1,
+        topBandWidth: 4.4,
+      );
+      expect(tPose.looksLikeTPose, isTrue);
+      final f = checkMarketplaceFigure(tPose).where((f) => f.id == 'pose');
+      expect(f, hasLength(1));
+      expect(f.single.origin, MarketplaceOrigin.prompt);
+      expect(f.single.title, contains('T-Pose gemessen'));
+
+      // Beide Bedingungen müssen zusammenkommen: Eine breite Figur mit
+      // hängenden Armen ist keine T-Pose, und ein breites Band allein
+      // kann ein Umhang sein.
+      expect(
+          const MarketplaceMeasurement(
+            height: 5,
+            width: 5.06,
+            depth: 1.5,
+            widthAxis: 0,
+            headWidth: 1.3,
+            neckWidth: 0.6,
+            shoulderWidth: 2.6,
+            legSeparation: 1,
+            legWidth: 0.5,
+            scale: 1,
+            topBandWidth: 2.0,
+          ).looksLikeTPose,
+          isFalse);
+      expect(
+          const MarketplaceMeasurement(
+            height: 5,
+            width: 3.0,
+            depth: 1.5,
+            widthAxis: 0,
+            headWidth: 1.3,
+            neckWidth: 0.6,
+            shoulderWidth: 2.6,
+            legSeparation: 1,
+            legWidth: 0.5,
+            scale: 1,
+            topBandWidth: 4.4,
+          ).looksLikeTPose,
+          isFalse);
+    });
+  });
+
   group('Die gute Figur besteht', () {
     late List<MarketplaceFinding> befunde;
     setUpAll(() {
@@ -291,16 +393,24 @@ void main() {
           reason: zweimal.report.text);
     });
 
-    test('eine Figur mit Zehen wird auf −Z gedreht', () {
-      // Zehen nach +z: Auto Setup will die Front nach −z, also muss
-      // die Figur sich umdrehen. Die Beine bekommen dafür einen Ring
-      // auf Schienbeinhöhe – die Heuristik misst den Fuß gegen das
-      // Schienbein, und ein Quader hat dort keine Punkte.
+    /// Baut die Testfigur mit Zehen in die angegebene Richtung.
+    ///
+    /// Die Beine bekommen dafür einen Ring auf Schienbeinhöhe – die
+    /// Heuristik misst den Fuß gegen das Schienbein, und ein Quader
+    /// hat dort keine Punkte.
+    Uint8List mitZehen(double richtung) {
       final b = _guteFigur()
         ..quader(-0.95, 0.35, -0.45, -0.25, 1.2, 0.45)
-        ..quader(0.25, 0.35, -0.45, 0.95, 1.2, 0.45)
-        ..quader(-0.95, 0.0, 0.45, -0.25, 0.35, 1.1)
-        ..quader(0.25, 0.0, 0.45, 0.95, 0.35, 1.1);
+        ..quader(0.25, 0.35, -0.45, 0.95, 1.2, 0.45);
+      if (richtung > 0) {
+        b
+          ..quader(-0.95, 0.0, 0.45, -0.25, 0.35, 1.1)
+          ..quader(0.25, 0.0, 0.45, 0.95, 0.35, 1.1);
+      } else {
+        b
+          ..quader(-0.95, 0.0, -1.1, -0.25, 0.35, -0.45)
+          ..quader(0.25, 0.0, -1.1, 0.95, 0.35, -0.45);
+      }
       final mesh = LocalMesh();
       for (var i = 0; i + 2 < b.p.length; i += 3) {
         mesh.addVertex(b.p[i], b.p[i + 1], b.p[i + 2], 0, 0);
@@ -308,11 +418,28 @@ void main() {
       for (var i = 0; i + 2 < b.i.length; i += 3) {
         mesh.addTriangle(b.i[i], b.i[i + 1], b.i[i + 2]);
       }
-      final ergebnis = prepareForAutoSetup(buildGlb(mesh));
-      expect(ergebnis.report.turnedDegrees, 180);
-      expect(ergebnis.report.text, contains('−Z'));
+      return buildGlb(mesh);
+    }
+
+    test('die Zehen müssen in der Datei nach +Z zeigen', () {
+      // Verkehrt herum gedacht und trotzdem richtig: Roblox verlangt
+      // die Front auf −Z, aber Studios glTF-Import spiegelt Z. Was in
+      // der GLB auf −Z liegt, kommt in Studio auf +Z heraus. Zwei
+      // Auto-Setup-Läufe sind mit einer rückwärts stehenden Figur
+      // gelaufen, weil die Vorbereitung der Doku gefolgt ist statt der
+      // Messung.
+      //
+      // Zehen schon auf +Z: nichts zu tun.
+      final schon = prepareForAutoSetup(mitZehen(1));
+      expect(schon.report.turnedDegrees, 0);
+
+      // Zehen auf −Z: umdrehen.
+      final gedreht = prepareForAutoSetup(mitZehen(-1));
+      expect(gedreht.report.turnedDegrees, 180);
+      expect(gedreht.report.text, contains('spiegelt Z'));
+
       // Und danach ist Schluss: ein zweiter Durchlauf dreht nicht.
-      expect(prepareForAutoSetup(ergebnis.glb).report.turnedDegrees, 0);
+      expect(prepareForAutoSetup(gedreht.glb).report.turnedDegrees, 0);
     });
 
     test('bei unklarer Blickrichtung wird nichts gedreht, und das '

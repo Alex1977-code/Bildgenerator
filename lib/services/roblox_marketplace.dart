@@ -69,7 +69,17 @@ const double marketplaceLegZone = 0.45;
 /// Kapuzzee: 50 % – der Hoodie-Saum verband beide Beine. Nach der
 /// Prompt-Änderung 76 %, immer noch unter der Grenze, weil Tripo
 /// „hip-length" als Mitte Oberschenkel gelesen hat.
-const double marketplaceLegSeparation = 0.80;
+const double marketplaceLegSeparation = 0.90;
+
+/// Ab welcher Armspanne (× Höhe) die Arme waagerecht liegen.
+///
+/// Gemessen an drei Läufen: Kapuzzeee kam mit 5,06 bei 5,00 Höhe
+/// zurück, also 1,01. Roblox' eigenes Mannequin steht in A-Pose und
+/// liegt deutlich darunter.
+const double marketplaceTPoseSpan = 0.95;
+
+/// Und ab welcher Bandbreite in der oberen Hälfte.
+const double marketplaceTPoseBand = 3.5;
 
 /// Wie viel Prozent seines Hüllkörpers ein Teil aus welcher Richtung
 /// ausfüllen muss. Standardwerte aus `UGCValidation/flags/`.
@@ -135,6 +145,8 @@ class MarketplaceMeasurement {
     required this.shoulderWidth,
     required this.legSeparation,
     required this.legWidth,
+    this.waistWidth = 0,
+    this.topBandWidth = 0,
     required this.scale,
   });
 
@@ -172,6 +184,21 @@ class MarketplaceMeasurement {
   /// der Hüfte, geteilt durch zwei. Null, wenn dort nichts liegt.
   final double legWidth;
 
+  /// Das schmalste Band **unter** der Schulter und über der Beinzone.
+  ///
+  /// „hoodie ending at the hip bone" hat einen Bund erzeugt, der
+  /// schmaler war als der Hals (0,68 gegen 0,81). Der Segmentierer
+  /// setzt die Kopf-Rumpf-Grenze an die schmalste Stelle – also an die
+  /// Taille, und der halbe Oberkörper wurde zum Kopf.
+  final double waistWidth;
+
+  /// Das breiteste Band in der oberen Hälfte.
+  ///
+  /// Waagerechte Arme auf Schulterhöhe machen daraus ein Band von
+  /// über 3,5 Studs. Zusammen mit der Armspanne ist das die Signatur
+  /// der T-Pose – gemessen am Ergebnis, nicht am Prompt.
+  final double topBandWidth;
+
   /// Mit welchem Faktor auf [marketplaceFigureStuds] gerechnet wurde.
   final double scale;
 
@@ -182,6 +209,21 @@ class MarketplaceMeasurement {
   }
 
   bool get hasNeck => neckRatio <= marketplaceNeckRatio;
+
+  /// Gibt es unter der Schulter eine Stelle, die schmaler ist als der
+  /// Hals? Dann setzt der Segmentierer dort die Kopfgrenze.
+  bool get hasWaist =>
+      waistWidth > 0 && neckWidth > 0 && waistWidth < neckWidth;
+
+  /// Steht die Figur in T-Pose?
+  ///
+  /// Zwei Bedingungen zusammen, weil jede für sich täuscht: Eine
+  /// breite Figur hat auch in A-Pose eine große Armspanne, und ein
+  /// breites Band allein kann ein Umhang sein.
+  bool get looksLikeTPose =>
+      height > 0 &&
+      width >= height * marketplaceTPoseSpan &&
+      topBandWidth > marketplaceTPoseBand;
 }
 
 /// Misst eine Figur aus ihrer Geometrie.
@@ -351,9 +393,27 @@ MarketplaceMeasurement measureMarketplaceFigure(
     if (breiten[b] > 0 && breiten[b] < breiten[halsBand]) halsBand = b;
   }
 
+  // Taille: das schmalste Band unter der Schulter und über der
+  // Beinzone. Der Segmentierer setzt die Kopf-Rumpf-Grenze an die
+  // schmalste Stelle – liegt die unter der Schulter, wird der halbe
+  // Oberkörper zum Kopf.
+  final beinZone = (bands * marketplaceLegZone).floor();
+  var taille = 0.0;
+  for (var b = beinZone; b < schulterBand; b++) {
+    if (breiten[b] <= 0) continue;
+    if (taille <= 0 || breiten[b] < taille) taille = breiten[b];
+  }
+
+  // Das breiteste Band in der oberen Hälfte – zusammen mit der
+  // Armspanne die Signatur der T-Pose.
+  var obenBreit = 0.0;
+  for (var b = (bands / 2).floor(); b < bands; b++) {
+    obenBreit = math.max(obenBreit, breiten[b]);
+  }
+
   // Beine: In der unteren Zone muss der Querschnitt in zwei Inseln
   // zerfallen.
-  final beinBis = (bands * marketplaceLegZone).floor();
+  final beinBis = beinZone;
   var getrennt = 0, gezaehlt = 0;
   var beinBreite = 0.0;
   for (var b = 0; b < beinBis; b++) {
@@ -631,6 +691,43 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
         '');
   }
 
+  // Taille: Der Segmentierer setzt die Kopf-Rumpf-Grenze an die
+  // schmalste Stelle. Liegt die unter der Schulter, wird der halbe
+  // Oberkörper zum Kopf – bei Kapuzzeee kam ein „Head" von 3,16 Studen
+  // Breite heraus.
+  if (m.hasWaist) {
+    add(
+        'taille',
+        MarketplaceLevel.fehler,
+        'Taille schmaler als der Hals '
+            '(${m.waistWidth.toStringAsFixed(2)} gegen '
+            '${m.neckWidth.toStringAsFixed(2)})',
+        'Auto Setup sucht die Kopf-Rumpf-Grenze an der schmalsten '
+            'Stelle. Ist die Taille schmaler als der Hals, liegt die '
+            'Grenze dort, und der halbe Oberkörper wird zum Kopf. Der '
+            'Bund kommt meist von „hoodie ending at the hip bone". In '
+            'den Prompt: „straight boxy hoodie without a cinched '
+            'waist".');
+  }
+
+  // Pose am Ergebnis, nicht am Prompt. Zweimal ist der A-Pose-Text im
+  // Prompt gelandet und die Figur kam trotzdem waagerecht zurück.
+  if (m.looksLikeTPose) {
+    add(
+        'pose',
+        MarketplaceLevel.fehler,
+        'T-Pose gemessen (Armspanne '
+            '${m.width.toStringAsFixed(2)} bei '
+            '${m.height.toStringAsFixed(2)} Höhe, breitestes Band oben '
+            '${m.topBandWidth.toStringAsFixed(2)})',
+        'Waagerechte Arme auf Schulterhöhe schlägt der Segmentierer '
+            'dem Kopf und dem Rumpf zu; zweimal wurden daraus ein '
+            '„Head" von über 3 Studen Breite und Arme, die zu Beinen '
+            'wurden. Der Prompt allein hat das nicht verhindert – der '
+            'A-Pose-Text stand drin, Tripo hat ihn übergangen. Neu '
+            'erzeugen oder die Arme im Reparatur-Modus um 45° drehen.');
+  }
+
   if (m.legWidth > 0) {
     if (m.legWidth > marketplaceMaxLegWidth) {
       add(
@@ -761,8 +858,8 @@ class AutoSetupPrepResult {
 }
 
 /// Bringt ein **ungeriggtes** Netz in die Lage, die Roblox' Auto Setup
-/// erwartet: [targetStuds] hoch, Front nach −Z, Nullpunkt mittig unter
-/// der Figur.
+/// erwartet: [targetStuds] hoch, Zehen in der Datei nach +Z, Nullpunkt
+/// mittig unter der Figur.
 ///
 /// Warum eigens und nicht über `prepareRigForRoblox`: Das dort ist an
 /// ein Skelett gebunden – es liest die Gelenke, um Vorn und Hüfte zu
@@ -777,9 +874,15 @@ class AutoSetupPrepResult {
 /// bestimmbar – die Armspanne ist die größere waagerechte Achse, und
 /// wohin die Figur schaut, verraten die Zehen.
 ///
-/// **Front nach −Z**, nicht nach +Z: Das ist die Vorgabe für Auto
-/// Setup und der Unterschied zum Importer-Weg, wo diese App auf +Z
-/// dreht.
+/// **Die Zehen zeigen in der Datei nach +Z.** Das klingt verkehrt –
+/// Roblox verlangt die Front auf −Z –, ist aber gemessen: Studios
+/// glTF-Import spiegelt die Z-Achse, was in der GLB auf −Z liegt,
+/// kommt in Studio auf +Z heraus. Zwei Auto-Setup-Läufe standen
+/// rückwärts, weil die Vorbereitung der Dokumentation gefolgt ist
+/// statt der Messung (Übergabe 02.09.2026). Nachprüfen lässt es sich
+/// nur in Studio: EditableMesh laden, mittleres Z der untersten 8 %
+/// (Zehen) minus mittleres Z bei 15–25 % (Schienbein) muss negativ
+/// sein.
 AutoSetupPrepResult prepareForAutoSetup(
   Uint8List glb, {
   double targetStuds = marketplaceFigureStuds,
@@ -811,19 +914,31 @@ AutoSetupPrepResult prepareForAutoSetup(
     alle = [for (final p in alle) _dreheUmY(p, turned)];
     steps.add('Um 90° gedreht: Die Armspanne lag auf z statt auf x.');
   }
-  // Jetzt sagt das Signal, wohin die Figur schaut. Auto Setup will
-  // sie nach −z.
+  // Jetzt sagt das Signal, wohin die Figur schaut.
+  //
+  // **Die Zehen müssen in der Datei nach +Z zeigen.** Das steht so in
+  // keiner Dokumentation und klingt verkehrt herum – Roblox verlangt
+  // die Front auf −Z. Studios glTF-Import spiegelt aber die Z-Achse:
+  // Was in der GLB auf −Z liegt, kommt in Studio auf +Z heraus. Zwei
+  // Auto-Setup-Läufe sind mit einer rückwärts stehenden Figur
+  // gelaufen, weil die Vorbereitung der Doku gefolgt ist statt der
+  // Messung (Übergabe 02.09.2026).
+  //
+  // Nachprüfen lässt es sich nur in Studio: EditableMesh laden,
+  // mittleres Z der untersten 8 % (Zehen) minus mittleres Z bei 15–25 %
+  // (Schienbein) muss **negativ** sein.
   //
   // Gedreht wird nur bei einem **eindeutigen** Signal. Bei einer vorn
   // wie hinten gleichen Figur weiß niemand, wo vorn ist – dort würde
   // ein zweiter Durchlauf sonst erneut drehen, und das Ergebnis hinge
   // davon ab, wie oft man den Knopf gedrückt hat.
   final signal = estimateFrontSignal(alle);
-  if (signal > marketplaceFrontThreshold) {
+  if (signal < -marketplaceFrontThreshold) {
     turned = (turned + 180) % 360;
     alle = [for (final p in alle) _dreheUmY(p, 180)];
-    steps.add('Um 180° gedreht: Auto Setup erwartet die Front nach −Z, '
-        'und die Zehen zeigten nach +Z.');
+    steps.add('Um 180° gedreht: Die Zehen zeigten in der Datei nach −Z. '
+        'Studios glTF-Import spiegelt Z – für eine Front auf −Z in '
+        'Studio müssen sie in der GLB nach +Z zeigen.');
   } else if (signal.abs() <= marketplaceFrontThreshold) {
     steps.add('Blickrichtung nicht bestimmbar (Signal '
         '${signal.toStringAsFixed(3)}): Die Figur ist von vorn und '

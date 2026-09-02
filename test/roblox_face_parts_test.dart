@@ -141,16 +141,18 @@ void main() {
 
   test('die Augen sitzen an der Gesichtsfläche, nicht an der Bandkante',
       () {
-    // Der Strahl trifft die Vorderfläche des Kopfes bei z = −0,7. Der
-    // Mittelpunkt liegt 0,4 × Radius dahinter, das Auge schaut also um
-    // 0,6 × Radius heraus.
+    // Vorn ist +z: Die Figur schaut dorthin, wohin ihre Zehen zeigen,
+    // und die stehen nach der Vorbereitung auf +Z (Studios glTF-Import
+    // spiegelt die Achse). Der Strahl trifft die Vorderfläche bei
+    // z = +0,7; der Mittelpunkt liegt 0,4 × Radius dahinter, das Auge
+    // schaut um 0,6 × Radius heraus.
     final r = 1.5 * 0.06;
     final auge = ergebnis.report.parts.firstWhere((p) => p.name == 'LeftEye');
-    expect(auge.center[2], closeTo(-0.7 + 0.4 * r, 1e-6));
+    expect(auge.center[2], closeTo(0.7 - 0.4 * r, 1e-6));
     // Und die Zahnreihen stehen mit ihrer Vorderkante auf der Fläche.
     final zahn =
         ergebnis.report.parts.firstWhere((p) => p.name == 'UpperTeeth');
-    expect(zahn.center[2], closeTo(-0.7 + 1.5 * 0.04 / 2, 1e-6));
+    expect(zahn.center[2], closeTo(0.7 - 1.5 * 0.04 / 2, 1e-6));
   });
 
   test('die Dreieckszahlen bleiben in den genannten Grenzen', () {
@@ -178,8 +180,8 @@ void main() {
     expect(links[0], lessThan(0));
     expect(rechts[0], greaterThan(0));
     expect(links[1], closeTo(rechts[1], 1e-6));
-    // Front ist −z: Die Augen liegen vor der Kopfmitte.
-    expect(links[2], lessThan(0));
+    // Vorn ist +z: Die Augen liegen vor der Kopfmitte.
+    expect(links[2], greaterThan(0));
   });
 
   test('der Mund liegt unter den Augen, die Zunge dahinter', () {
@@ -191,8 +193,8 @@ void main() {
         .center[2];
     expect(y('UpperTeeth'), lessThan(y('LeftEye')));
     expect(y('UpperTeeth'), greaterThan(y('LowerTeeth')));
-    // Hinter den Zähnen heißt: weiter weg von der Front (−z).
-    expect(z('Tongue'), greaterThan(z('UpperTeeth')));
+    // Hinter den Zähnen heißt: weiter weg von der Front, also −z.
+    expect(z('Tongue'), lessThan(z('UpperTeeth')));
   });
 
   test('das Ergebnis bleibt lesbar und wächst nur um die Teile',
@@ -260,8 +262,8 @@ void main() {
 
     quader(-1.3, 2.25, -0.6, 1.3, 3.9, 0.6);
     quader(-0.75, 3.9, -0.7, 0.75, 5.0, 0.7); // Kopf
-    // Der Kapuzenschirm steht 0,3 Studs vor dem Gesicht.
-    quader(-0.75, 4.75, -1.0, 0.75, 5.0, -0.7);
+    // Der Kapuzenschirm steht 0,3 Studs vor dem Gesicht – vorn ist +z.
+    quader(-0.75, 4.75, 0.7, 0.75, 5.0, 1.0);
     quader(-0.95, 0.0, -0.45, -0.25, 2.25, 0.45);
     quader(0.25, 0.0, -0.45, 0.95, 2.25, 0.45);
     final r = addFaceParts(buildGlb(m));
