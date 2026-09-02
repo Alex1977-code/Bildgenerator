@@ -1640,6 +1640,83 @@ behoben:
   auf Aus, und die Vorlage sagt das jetzt. „Figur für Bild→3D" nannte
   die A-Pose „Arme seitlich ausgestreckt"; das ist die T-Pose.
 
+### Das Gesicht nachträglich ins Kopfnetz bauen
+
+Fünf Läufe haben entschieden, was Auto Setup für den dynamischen Kopf
+braucht: **Höhlen im Kopfnetz**, nicht Teile davor. Augen und Zähne als
+eigene Netze ergaben „Cannot detect mouth open / left eye close
+expression" — die FACS-Posen bewegen Lider und Lippen, und ohne
+Vertiefung dahinter sieht man beim Schließen und Öffnen keinen
+Unterschied. Ob Tripo aus „eye sockets with eyelids" Geometrie macht,
+ist nicht verlässlich. Also baut die App sie selbst: nach dem Lauf,
+vor den Gesichtsteilen. Schalter „Gesicht ins Kopfnetz bauen" beim
+Ziel Marktplatz-Avatar, an in „Für Roblox vorbereiten" und im
+Reparatur-Modus.
+
+**Zwei Eingriffe, beide rein geometrisch.**
+
+1. **Verfeinern, wo es nötig ist.** Ein Kopf mit 1.500 Dreiecken hat
+   um das Auge herum vielleicht acht; daraus wird keine Höhle mit Rand.
+   Die Dreiecke im Gesichtsbereich werden geteilt — **konform**: Jede
+   geteilte Kante teilt auch das Nachbardreieck, sonst entstehen
+   T-Stöße, und die reißen die Hülle. Ein Dreieck mit einer markierten
+   Kante wird zu zwei, mit zwei zu drei, mit drei zu vier. Geteilt wird
+   nur, was noch zu grob ist, die gröbsten zuerst, bis die Kanten
+   0,035 × Kopfbreite kurz sind oder das Budget von 1.500 Dreiecken
+   erreicht ist.
+2. **Verschieben.** Punkte um das Augenzentrum wandern nach hinten
+   (die Höhle, 0,06 × B tief bei 0,10 × B Radius), der Rand darum
+   leicht nach vorn (der Lidgrat, 0,015 × B). Dasselbe elliptisch für
+   den Mund: Mitte bei 34 % von H, damit beide Zahnreihen darin Platz
+   haben, 0,08 × B tief. Verschoben wird **nur entlang Z**: Die
+   Verschiebung hängt allein von x und y ab, deshalb bewegen sich
+   doppelte Punkte an UV-Nähten gleich, und die Hülle bleibt
+   geschlossen.
+
+Danach setzen die Gesichtsteile die Augen **in** die Höhle: Der
+Strahl auf das Augenzentrum trifft den Höhlenboden, und liegt der
+tiefer als die Kopfmitte, sitzt der Augapfel dort — hinter dem
+Lidgrat, wie ein Auge hinter Lidern. Der Mittelstrahl bleibt die
+Grundlage für alles andere.
+
+**Das Budget gehört zum face_limit.** Wer mit 7.000 erzeugt und das
+Gesicht einbaut, landet bei 8.500. Deshalb zieht die Marktplatz-Vorgabe
+die 1.500 vorher ab (Tripo bekommt 5.500), und die Reparatur dezimiert
+auf 6.800 minus 1.500. Der Eingriff füllt auf.
+
+**Der Fund aus Blender.** Der Kastentest war sauber, zwei echte
+Tripo-Netze nicht: nach dem Eingriff 90 bzw. 162 Randkanten. Die
+Verfeinerung hatte Kanten über die **rohen** Indizes markiert. An einer
+UV-Naht hat das Nachbardreieck andere Indizes an derselben Stelle, sah
+seine Kante als unmarkiert und blieb ungeteilt — ein T-Stoß je
+Nahtkante. Der Kasten teilt seine acht Eckpunkte über alle Flächen
+und hat keine Nähte, darum konnte er das nicht zeigen. Jetzt wird
+über **verschweißte** Punkte markiert, die Mittelpunkte entstehen
+trotzdem je roher Kante mit eigenen UVs. Ein Nahtkasten (jede Fläche
+mit eigenen vier Punkten) hält das im Test fest, und Blender bestätigt
+es an beiden Netzen: nach dem Verschweißen null Randkanten, vorher wie
+nachher.
+
+| Netz | Dreiecke | Augenhöhlen vorher → nachher | Zeit |
+| --- | --- | --- | --- |
+| Kapuzzee (Tripo, 9.554) | +1.672 | −0,01 / 0,05 → 0,11 / 0,16 Studs | 0,3 s |
+
+**Die Prüfung misst es nach.** Beim Ziel Marktplatz-Avatar sagt sie
+jetzt „Gesicht im Kopfnetz: Augenhöhlen und Mundhöhle da" oder was
+fehlt — gemessen am Export-Puffer, per Strahl von vorn: Rand minus
+Mitte muss mindestens 3 % der Kopfbreite tief sein. Der Rand ist ein
+Ring auf dem Grat, und es zählt der **niedrigste** Treffer: Mit dem
+höchsten sähe jedes Gesicht unter einer Kapuze nach Höhle aus, weil
+die äußeren Strahlen den Kapuzenrand treffen. Gemessen wird am Kopf
+**ohne** die Gesichtsteile, sonst träfe der Strahl den Augapfel statt
+den Boden.
+
+**Was es nicht ist.** Ein Lidgrat ist kein Überhang; ein echtes
+Oberlid hängt über den Augapfel, und das entsteht nicht durch
+Verschieben vorhandener Punkte. Ob Auto Setup aus Höhle plus Grat
+FACS-Posen baut, entscheidet Lauf 6. Hier steht die beste Näherung,
+die ohne neue Topologie geht.
+
 ### Gesichtsteile: fünf Netze, ohne die es keinen Marktplatz gibt
 
 Der Marktplatz ordnet dem Kopf eines Ganzkörper-Bundles den Typ

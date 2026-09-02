@@ -20,6 +20,8 @@ import 'glb_preview.dart';
 import 'mesh_check.dart';
 import 'roblox_rig.dart';
 import 'roblox_face_parts.dart' show faceMeshNames;
+import 'roblox_face_sculpt.dart'
+    show FaceCavities, measureFaceCavities, withoutFaceMeshes;
 import 'roblox_spec.dart';
 
 /// Wofür das Modell gedacht ist – davon hängt die Dreiecksgrenze ab.
@@ -188,6 +190,7 @@ class RobloxFacts {
     required this.textures,
     this.meshTriangles = const [],
     this.meshNames = const [],
+    this.faceCavities,
     this.maxPrimitivesPerMesh = 1,
     this.size = const [0.0, 0.0, 0.0],
     this.reversedEdges = 0,
@@ -219,6 +222,10 @@ class RobloxFacts {
   /// Gesichtsteile in der Datei stehen – ohne sie baut Auto Setup
   /// keinen dynamischen Kopf.
   final List<String> meshNames;
+
+  /// Augenhöhlen und Mundhöhle im Kopfnetz, per Strahl von vorn
+  /// gemessen – null, wenn kein Kopf zu finden war.
+  final FaceCavities? faceCavities;
 
   /// Meiste Primitive in einem einzelnen Mesh – mehr als eines heißt
   /// mehr als ein Material in diesem Mesh.
@@ -534,6 +541,45 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
               'und der Marktplatz lehnt das Ganzkörper-Bundle ab. „Für '
               'Roblox vorbereiten" ergänzt sie, solange der Schalter '
               '„Gesichtsteile ergänzen" an ist.'));
+    }
+
+    // 3b3. Das Gesicht **im** Kopfnetz – gemessen am Export-Puffer.
+    //
+    // Lauf 5 hat entschieden: Teile davor reichen nicht, Auto Setup
+    // braucht Augenhöhlen mit Lidern und eine Mundhöhle mit Lippen im
+    // Kopf. Ob die da sind, sagt ein Strahl von vorn: Rand minus Mitte
+    // muss mindestens 3 % der Kopfbreite tief sein.
+    final hoehlen = facts.faceCavities;
+    if (hoehlen != null) {
+      final grenze = hoehlen.headWidth * FaceCavities.minDepthOfHeadWidth;
+      String t(double v) => v.toStringAsFixed(2);
+      if (hoehlen.hasFace) {
+        findings.add(RobloxFinding(
+            RobloxLevel.ok,
+            'Gesicht im Kopfnetz: Augenhöhlen und Mundhöhle da',
+            'Augenhöhlen ${t(hoehlen.leftEyeDepth)} / '
+                '${t(hoehlen.rightEyeDepth)} Studs, Mundhöhle '
+                '${t(hoehlen.mouthDepth)} Studs tief – gemessen als Rand '
+                'minus Mitte, Grenze ${t(grenze)}. Das ist, was Auto '
+                'Setup für die FACS-Posen bewegen kann.'));
+      } else {
+        final fehlt = [
+          if (!hoehlen.hasEyeSockets) 'Augenhöhlen',
+          if (!hoehlen.hasMouthCavity) 'Mundhöhle',
+        ].join(' und ');
+        findings.add(RobloxFinding(
+            RobloxLevel.warning,
+            'Gesicht im Kopfnetz: $fehlt fehlen',
+            'Gemessen: Augenhöhlen ${t(hoehlen.leftEyeDepth)} / '
+                '${t(hoehlen.rightEyeDepth)}, Mundhöhle '
+                '${t(hoehlen.mouthDepth)} Studs tief bei einer Grenze '
+                'von ${t(grenze)}. Ohne Höhlen im Kopfnetz sieht Auto '
+                'Setup beim Schließen der Lider und Öffnen des Munds '
+                'keinen Unterschied – „Cannot detect mouth open / left '
+                'eye close expression", so endete Lauf 5. „Für Roblox '
+                'vorbereiten" baut sie, solange „Gesicht ins Kopfnetz '
+                'bauen" an ist.'));
+      }
     }
   }
 
@@ -979,6 +1025,15 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
   // Geometrie und Skelett über den Vorschau-Parser – der kennt alle
   // Accessor-Spielarten schon.
   final mesh = await parseGlbForPreview(glb);
+  // Die Höhlen am Kopf **ohne** die Gesichtsteile messen: Mit den
+  // Augen in der Datei träfe der Strahl den Augapfel statt den Boden.
+  FaceCavities? hoehlen;
+  {
+    final ohne = withoutFaceMeshes(glb);
+    final kopf = identical(ohne, glb) ? mesh : await parseGlbForPreview(ohne);
+    hoehlen = measureFaceCavities(kopf.positions, kopf.indices.toList());
+    if (!identical(kopf, mesh)) kopf.dispose();
+  }
   try {
     final check = checkMeshWatertight(mesh.positions, mesh.indices);
     final orientation =
@@ -1051,6 +1106,7 @@ Future<RobloxFacts> readRobloxFacts(Uint8List glb) async {
       meshCount: meshTriangles.length,
       meshTriangles: meshTriangles,
       meshNames: meshNames,
+      faceCavities: hoehlen,
       maxPrimitivesPerMesh:
           maxPrimitivesPerMesh == 0 ? 1 : maxPrimitivesPerMesh,
       size: orientation.size,

@@ -98,7 +98,7 @@ void main() {
   test('eine Figur ohne Mängel wird nicht verformt', () async {
     final vorher = await miss(figur());
     final r = await repairForMarketplace(figur(),
-        addFace: false, decimate: false);
+        addFace: false, sculptFace: false, decimate: false);
     final nachher = await miss(r.glb);
     expect(nachher.depth, closeTo(vorher.depth, 0.02));
     expect(nachher.width, closeTo(vorher.width, 0.02));
@@ -204,6 +204,25 @@ void main() {
     expect(r.report.text, contains('[Prompt]'));
     expect(r.report.text, contains('[App]'));
     expect(r.report.anythingLeft, isTrue);
+  });
+
+  test('das Gesicht kommt vor den Teilen ins Kopfnetz', () async {
+    final r = await repairForMarketplace(figur(), decimate: false);
+    final regeln = r.report.steps.map((s) => s.rule).toList();
+    final gesicht = regeln.indexOf('Gesicht im Kopfnetz');
+    final teile = regeln.indexOf('Gesichtsteile');
+    expect(gesicht, greaterThanOrEqualTo(0));
+    expect(teile, greaterThan(gesicht), reason: 'erst Höhlen, dann Teile');
+    // Der Kastenkopf ist grob; mit dem Standardbudget wird die Höhle
+    // flacher als die Grenze – das steht dann als Prompt-Punkt drin,
+    // nicht als stiller Erfolg.
+    final schritt = r.report.steps[gesicht];
+    expect(schritt.note, contains('Dreiecke'));
+    // Und beides lässt sich abschalten.
+    final ohne = await repairForMarketplace(figur(),
+        addFace: false, sculptFace: false, decimate: false);
+    expect(ohne.report.steps.map((s) => s.rule),
+        isNot(contains('Gesicht im Kopfnetz')));
   });
 
   test('die Gesichtsteile kommen zuletzt', () async {

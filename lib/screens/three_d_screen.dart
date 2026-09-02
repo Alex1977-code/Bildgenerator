@@ -63,6 +63,7 @@ import '../services/roblox_install.dart';
 import '../services/roblox_prompt.dart';
 import '../services/asset_pack.dart';
 import '../services/roblox_face_parts.dart';
+import '../services/roblox_face_sculpt.dart';
 import '../services/roblox_marketplace.dart';
 import '../services/roblox_repair.dart';
 import '../services/roblox_rig.dart';
@@ -166,6 +167,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Abschaltbar, weil eine Figur, die ihre Augen schon als Netze
   /// mitbringt, sie nicht doppelt braucht.
   bool _addFaceParts = true;
+
+  /// Das Gesicht ins Kopfnetz bauen: Augenhöhlen mit Lidgrat,
+  /// Mundhöhle mit Lippengrat – vor den Gesichtsteilen.
+  bool _sculptFace = true;
 
   /// Welche Pose der Zusatz beschreibt – oder keine.
   ///
@@ -559,6 +564,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'pose': _pose?.name ?? 'keine',
         'studs': _studsCtrl.text,
         'addFaceParts': _addFaceParts,
+        'sculptFace': _sculptFace,
         'exportTextureSize': _exportTextureSize,
         'artStyle': _artStyle,
         'viewsFromText': _viewsFromText,
@@ -623,6 +629,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // stillschweigend die Pose verlieren.
       _studsCtrl.text = pick('studs', _studsCtrl.text);
       _addFaceParts = pick('addFaceParts', _addFaceParts);
+      _sculptFace = pick('sculptFace', _sculptFace);
       _exportTextureSize =
           pick('exportTextureSize', _exportTextureSize);
       final poseName = pick('pose', '');
@@ -2130,7 +2137,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           targetStuds: _studsValue ?? robloxCharacterStuds);
       reparatur = await repairForMarketplace(vorbereitet.glb,
           targetStuds: _studsValue ?? robloxCharacterStuds,
-          addFace: _addFaceParts);
+          addFace: _addFaceParts,
+          sculptFace: _sculptFace);
     } catch (e) {
       if (mounted) {
         _showSnack('Reparatur fehlgeschlagen: '
@@ -3888,8 +3896,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       // selbst, und bei 9.627 Dreiecken bekam jede Gliedmaße 2.304 –
       // bei einem Budget von 1.248. Deshalb muss die Eingabe schon
       // darunter liegen.
+      // Und mit Platz für das Gesicht: Der Einbau von Augenhöhlen
+      // und Mundhöhle fügt bis zu 1.500 Dreiecke hinzu, die im
+      // Budget von 7.000 Platz haben müssen.
       final goal = target == RobloxTarget.marketplaceAvatar
-          ? robloxAutoSetupTriangles
+          ? robloxAutoSetupTriangles -
+              (_sculptFace ? faceSculptTriangleBudget : 0)
           : target.goalTriangles;
       final budget = robloxPolygonBudget(goal, quad: _quadTopology);
       _meshyPolycount = budget;
@@ -4162,6 +4174,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       ? null
                       : (v) => setState(() => _addFaceParts = v),
                 ),
+              if (_robloxTarget == RobloxTarget.marketplaceAvatar)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Gesicht ins Kopfnetz bauen'),
+                  subtitle: Text(_sculptFace
+                      ? 'Augenhöhlen mit Lidgrat und eine Mundhöhle '
+                          'mit Lippengrat werden ins Kopfnetz geformt, '
+                          'die Augen sitzen danach in den Höhlen. Das '
+                          'ist, was Auto Setup für die FACS-Posen '
+                          'braucht – fünf Läufe haben gezeigt, dass '
+                          'Teile davor nicht reichen.'
+                      : 'Aus. Nur richtig, wenn die Figur Augenhöhlen '
+                          'und Mundhöhle schon im Kopfnetz hat – die '
+                          'Prüfung sagt es.'),
+                  value: _sculptFace,
+                  onChanged: _running
+                      ? null
+                      : (v) {
+                          setState(() => _sculptFace = v);
+                          // Das Dreiecksziel hängt daran: mit Gesicht
+                          // 1.500 weniger für den Lauf.
+                          _applyRobloxTarget(_robloxTarget);
+                        },
+                ),
               const SizedBox(height: 8),
               Text(_robloxBudgetNote(settings),
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -4308,6 +4344,34 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             targetStuds: _studsValue ?? robloxCharacterStuds);
         repairs.addAll(vorbereitet.report.steps);
         var glb = vorbereitet.glb;
+
+        // Erst das Gesicht ins Kopfnetz: Höhlen und Grate. Danach die
+        // Teile – in dieser Reihenfolge, sonst verschmölzen die Teile
+        // bei der Verfeinerung mit dem Kopf.
+        if (!_sculptFace) {
+          repairs.add('Gesicht ins Kopfnetz übersprungen (Schalter '
+              'aus). Ohne Augenhöhlen und Mundhöhle im Kopfnetz baut '
+              'Auto Setup keine FACS-Posen – richtig ist das nur, wenn '
+              'die Figur sie schon mitbringt.');
+        } else {
+          try {
+            final gesicht = await sculptFaceIntoHead(glb);
+            glb = gesicht.glb;
+            final r = gesicht.report;
+            repairs.add('Gesicht ins Kopfnetz gebaut: Augenhöhlen '
+                '${r.after.leftEyeDepth.toStringAsFixed(2)} / '
+                '${r.after.rightEyeDepth.toStringAsFixed(2)}, Mundhöhle '
+                '${r.after.mouthDepth.toStringAsFixed(2)} Studs tief '
+                '(vorher ${r.before.leftEyeDepth.toStringAsFixed(2)} / '
+                '${r.before.rightEyeDepth.toStringAsFixed(2)} / '
+                '${r.before.mouthDepth.toStringAsFixed(2)}), '
+                '+${r.addedTriangles} Dreiecke in ${r.passes} '
+                'Durchgängen.');
+            repairs.addAll(r.notes);
+          } on Exception catch (e) {
+            repairs.add('Gesicht ins Kopfnetz nicht möglich: $e');
+          }
+        }
 
         // Die fünf Gesichtsteile. Ohne sie baut Auto Setup keinen
         // dynamischen Kopf – im ersten echten Lauf entstand ein leeres

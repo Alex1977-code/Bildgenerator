@@ -31,6 +31,7 @@ import 'local_3d.dart';
 import 'mesh_budget.dart'
     show decimateGlb, firstGlbTexturePng, glbTriangleCount;
 import 'roblox_face_parts.dart';
+import 'roblox_face_sculpt.dart';
 import 'roblox_fix.dart';
 import 'roblox_marketplace.dart';
 
@@ -365,6 +366,7 @@ Future<RepairResult> repairForMarketplace(
   Uint8List glb, {
   double targetStuds = marketplaceFigureStuds,
   bool addFace = true,
+  bool sculptFace = true,
   bool decimate = true,
 }) async {
   final schritte = <RepairStep>[];
@@ -530,12 +532,44 @@ Future<RepairResult> repairForMarketplace(
   // 7. Dezimierung – nach der Geometrie, vor den Gesichtsteilen.
   if (decimate) {
     final vorher = await glbTriangleCount(arbeit);
-    if (vorher > robloxAutoSetupTrianglesLocal) {
-      arbeit = await decimateGlb(arbeit, repairTriangleGoal);
+    // Mit Platz für das Gesicht: Der Einbau fügt bis zu
+    // [faceSculptTriangleBudget] Dreiecke hinzu, und die müssen unter
+    // dem Ziel bleiben – sonst käme die Figur mit 8.300 zurück.
+    final ziel = repairTriangleGoal -
+        (sculptFace ? faceSculptTriangleBudget : 0);
+    if (vorher > ziel) {
+      arbeit = await decimateGlb(arbeit, ziel);
       final nachher = await glbTriangleCount(arbeit);
       notiere('Dreiecke', '$vorher', '$nachher', RepairOrigin.app,
           'Auto Setup reduziert selbst nicht; bei 9.627 bekam jede '
-              'Gliedmaße 2.304 bei einem Budget von 1.248.');
+              'Gliedmaße 2.304 bei einem Budget von 1.248.'
+              '${sculptFace ? ' Ziel $ziel statt $repairTriangleGoal, '
+                  'damit das Gesicht mit bis zu '
+                  '$faceSculptTriangleBudget Dreiecken noch Platz hat.' : ''}');
+    }
+  }
+
+  // 7b. Das Gesicht ins Kopfnetz: Augenhöhlen mit Lidgrat, Mundhöhle
+  // mit Lippengrat – nach der Dezimierung (sonst glättete sie die
+  // Höhlen wieder weg) und vor den Teilen (sonst verschmölzen die mit
+  // dem Kopf).
+  if (sculptFace) {
+    try {
+      final gesicht = await sculptFaceIntoHead(arbeit);
+      arbeit = gesicht.glb;
+      final r = gesicht.report;
+      notiere(
+          'Gesicht im Kopfnetz',
+          r.before.hasFace ? 'Höhlen da' : 'keine Höhlen',
+          r.after.hasFace
+              ? 'Höhlen ${r.after.leftEyeDepth.toStringAsFixed(2)} / '
+                  '${r.after.mouthDepth.toStringAsFixed(2)} tief'
+              : 'zu flach',
+          r.after.hasFace ? RepairOrigin.app : RepairOrigin.prompt,
+          '+${r.addedTriangles} Dreiecke in ${r.passes} Durchgängen. '
+              '${r.notes.join(' ')}');
+    } on Exception catch (e) {
+      notiere('Gesicht im Kopfnetz', '–', '–', RepairOrigin.prompt, '$e');
     }
   }
 
@@ -546,9 +580,12 @@ Future<RepairResult> repairForMarketplace(
       arbeit = gesicht.glb;
       notiere('Gesichtsteile', '0', '${gesicht.report.parts.length}',
           RepairOrigin.app,
-          '${gesicht.report.triangles} Dreiecke. Ohne Lider und Lippen '
-              'im Kopfnetz baut Auto Setup trotzdem keine FACS-Posen – '
-              'das ist der offene Punkt.');
+          '${gesicht.report.triangles} Dreiecke. '
+              '${sculptFace ? 'Die Augen sitzen in den Höhlen hinter '
+                  'dem Lidgrat. Ob Auto Setup daraus FACS-Posen baut, '
+                  'zeigt der Lauf.' : 'Ohne Lider und Lippen im '
+                  'Kopfnetz baut Auto Setup keine FACS-Posen – dafür '
+                  'ist „Gesicht ins Kopfnetz bauen" da.'}');
     } on Exception catch (e) {
       notiere('Gesichtsteile', '0', '0', RepairOrigin.prompt, '$e');
     }

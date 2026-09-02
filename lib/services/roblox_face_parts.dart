@@ -296,8 +296,8 @@ FacePartsResult addFaceParts(
   // Notnagel, und das steht dann auch im Bericht.
   final augeY = kopfAb + h * proportions.eyeHeight;
   final mundY = kopfAb + h * proportions.upperTeethHeight;
-  final augeTreffer = _frontHit(flaechen, mitteX, augeY, kopfAb);
-  final mundTreffer = _frontHit(flaechen, mitteX, mundY, kopfAb);
+  final augeTreffer = faceFrontHitZ(flaechen, mitteX, augeY, kopfAb);
+  final mundTreffer = faceFrontHitZ(flaechen, mitteX, mundY, kopfAb);
   if (augeTreffer == null || mundTreffer == null) {
     notes.add('Der Strahl auf die Kopfmitte traf keine Fläche; als '
         'Gesichtsfläche gilt deshalb die vorderste Kante des '
@@ -313,7 +313,29 @@ FacePartsResult addFaceParts(
   // 3. Die Maße. Front ist +z, „nach hinten" heißt also −z.
   final augeR = b * proportions.eyeRadius;
   final augeX = b * proportions.eyeSeparation;
-  final augeZ = augeFront - augeR * proportions.eyeSink;
+
+  // Je Auge noch ein Strahl auf sein eigenes Zentrum: Hat der Kopf
+  // dort eine **Höhle** (etwa aus `sculptFaceIntoHead`), sitzt der
+  // Augapfel in ihrem Boden – hinter dem Lidgrat, wie ein Auge hinter
+  // Lidern. Ohne Höhle bleibt es beim Mittelstrahl: Auf einem
+  // gewölbten Gesicht liegt das Augenzentrum weiter hinten als die
+  // Mitte, und ein Auge auf dieser Tiefe versänke halb im Kopf.
+  double augeTiefe(double x, String seite) {
+    final treffer = faceFrontHitZ(flaechen, x, augeY, kopfAb);
+    final hoehle = treffer != null &&
+        treffer < augeFront - augeR * 0.5;
+    if (hoehle) {
+      notes.add('$seite: Die Fläche am Augenzentrum liegt '
+          '${(augeFront - treffer).toStringAsFixed(2)} hinter der '
+          'Kopfmitte (Höhle oder zurückweichendes Gesicht) – das Auge '
+          'sitzt dort, nicht auf der Tiefe der Mitte.');
+      return treffer - augeR * proportions.eyeSink;
+    }
+    return augeFront - augeR * proportions.eyeSink;
+  }
+
+  final augeZLinks = augeTiefe(mitteX - augeX, 'LeftEye');
+  final augeZRechts = augeTiefe(mitteX + augeX, 'RightEye');
 
   final zahnBreite = b * proportions.teethWidth;
   final zahnHoehe = h * proportions.teethHeight;
@@ -372,10 +394,10 @@ FacePartsResult addFaceParts(
     merken(pos);
   }
 
-  kugel('LeftEye', mitteX - augeX, augeY, augeZ, augeR, augeR, augeR,
+  kugel('LeftEye', mitteX - augeX, augeY, augeZLinks, augeR, augeR, augeR,
       eyeSteps);
-  kugel('RightEye', mitteX + augeX, augeY, augeZ, augeR, augeR, augeR,
-      eyeSteps);
+  kugel('RightEye', mitteX + augeX, augeY, augeZRechts, augeR, augeR,
+      augeR, eyeSteps);
   quader('UpperTeeth', mitteX, oberY, zahnZ, zahnBreite, zahnHoehe,
       zahnTiefe);
   quader('LowerTeeth', mitteX, unterY, zahnZ, zahnBreite, zahnHoehe,
@@ -455,7 +477,7 @@ FacePartsResult addFaceParts(
 /// Der **größte** Wert gewinnt – das ist die Fläche, die man von vorn
 /// sieht, denn vorn ist +z. Dreiecke unterhalb von [abY] bleiben außen
 /// vor, damit eine erhobene Hand nicht als Gesicht durchgeht.
-double? _frontHit(List<double> tris, double x, double y, double abY) {
+double? faceFrontHitZ(List<double> tris, double x, double y, double abY) {
   var best = double.negativeInfinity;
   for (var t = 0; t + 8 < tris.length; t += 9) {
     final ay = tris[t + 1], by = tris[t + 4], cy = tris[t + 7];
