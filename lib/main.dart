@@ -143,7 +143,7 @@ class _HomeShellState extends State<HomeShell> {
           onOpenSettings: () => setState(() => _index = 3),
           isActive: _index == 1,
         ),
-        const GalleryScreen(),
+        GalleryScreen(isActive: _index == 2),
         const SettingsScreen(),
       ],
     );

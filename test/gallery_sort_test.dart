@@ -95,4 +95,51 @@ void main() {
     expect(imDialog('Raumschiff'), findsOneWidget,
         reason: 'Der leere Ordner fehlte in der Auswahl');
   });
+
+  testWidgets('Der Auswahlmodus überlebt den Tab-Wechsel nicht',
+      (tester) async {
+    // Die Tabs liegen in einem IndexedStack und bleiben am Leben –
+    // das ist gewollt, sonst wären Suchbegriff und Ordner nach jedem
+    // Wechsel weg. Die Häkchen aber will beim Zurückkommen niemand
+    // wiederfinden: Man klickt sie versehentlich an.
+    tester.view.physicalSize = const Size(1200, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService(keyStore: InMemoryKeyStore());
+    final history = HistoryService(store: MemoryHistoryStore());
+    await settings.init();
+    await history.init();
+    await history.addModel(
+      glbBytes: Uint8List.fromList(const [1, 2, 3]),
+      label: 'Turm',
+      providerLabel: 'Test',
+    );
+
+    await tester.pumpWidget(
+        BildgeneratorApp(settings: settings, history: history));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Galerie').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Auswählen'));
+    await tester.pumpAndSettle();
+    // Im Auswahlmodus steht oben die Auswahlleiste.
+    expect(find.text('Einsortieren …'), findsOneWidget,
+        reason: 'Auswahlmodus nicht an');
+
+    // In einen anderen Tab und wieder zurück. Gesucht wird in der
+    // Navigationsleiste – „3D" steht auch auf Kacheln der Galerie.
+    Finder tab(String label) => find.descendant(
+        of: find.byType(NavigationRail), matching: find.text(label));
+    await tester.tap(tab('3D'));
+    await tester.pumpAndSettle();
+    await tester.tap(tab('Galerie'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Einsortieren …'), findsNothing,
+        reason: 'Die Häkchen stehen noch');
+    expect(find.text('Auswählen'), findsOneWidget,
+        reason: 'Der Knopf zum Einschalten muss wieder da sein');
+  });
 }

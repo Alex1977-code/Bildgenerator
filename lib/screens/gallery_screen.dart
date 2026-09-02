@@ -16,7 +16,18 @@ import 'model_preview_screen.dart';
 
 /// Galerie mit allen bisher generierten Bildern.
 class GalleryScreen extends StatefulWidget {
-  const GalleryScreen({super.key});
+  const GalleryScreen({super.key, this.isActive = true});
+
+  /// Ob dieser Tab gerade sichtbar ist.
+  ///
+  /// Die Tabs liegen in einem `IndexedStack` und bleiben deshalb am
+  /// Leben, wenn man sie verlässt – das ist gewollt, sonst wären
+  /// Suchbegriff und geöffneter Ordner nach jedem Wechsel weg. Der
+  /// **Auswahlmodus** ist aber kein Zustand, den man wiederfinden
+  /// will: Wer die Galerie verlässt und später zurückkommt, findet
+  /// sonst Häkchen auf den Kacheln, die er vor einer Stunde gesetzt
+  /// hat, und klickt sie versehentlich an.
+  final bool isActive;
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
@@ -30,12 +41,19 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _downloadDone = 0;
   int _downloadTotal = 0;
 
-  /// Alle gerade angezeigten Einträge nacheinander herunterladen.
+  /// Alle gerade angezeigten Einträge herunterladen – mit **einem**
+  /// Dialog für alle.
   ///
-  /// Nacheinander und nicht gleichzeitig: Im Browser zählt jeder
-  /// Download einzeln, und ein Schwall von vierzig Anfragen auf einmal
-  /// wird blockiert. Beim ersten Mal fragt Chrome, ob die Seite
-  /// mehrere Dateien speichern darf – das einmal erlauben.
+  /// Vorher lief das über den Einzel-Export je Datei, und damit ging
+  /// für jedes Bild ein „Speichern unter" auf. Bei vierzig Bildern
+  /// sind das vierzig Dialoge; niemand klickt die durch. Jetzt wird
+  /// einmal nach dem Ordner gefragt und alles dort abgelegt (im
+  /// Browser fragt der Browser einmal, ob die Seite mehrere Dateien
+  /// speichern darf – mehr geht dort nicht).
+  ///
+  /// Gelesen wird trotzdem nacheinander: Vierzig Bilder gleichzeitig
+  /// in den Speicher zu holen ist bei großen Modellen eine schlechte
+  /// Idee, und der Fortschritt soll sichtbar bleiben.
   Future<void> _downloadAll(List<HistoryEntry> entries) async {
     final history = context.read<HistoryService>();
     final messenger = ScaffoldMessenger.of(context);
@@ -45,6 +63,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
       _downloadTotal = entries.length;
     });
     var failed = 0;
+    final dateien =
+        <({Uint8List bytes, String fileName, String mimeType})>[];
     try {
       for (final entry in entries) {
         try {
@@ -52,29 +72,39 @@ class _GalleryScreenState extends State<GalleryScreen> {
           if (bytes == null) {
             failed++;
           } else {
-            await exportImageBytes(
-                bytes, entry.downloadFileName, entry.mimeType);
+            dateien.add((
+              bytes: bytes,
+              fileName: entry.downloadFileName,
+              mimeType: entry.mimeType,
+            ));
           }
         } catch (_) {
           failed++;
         }
         if (!mounted) return;
         setState(() => _downloadDone++);
-        // Kleine Pause, damit der Browser die Downloads einzeln
-        // annimmt statt sie als Schwall abzuweisen.
-        await Future<void>.delayed(const Duration(milliseconds: 150));
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
     if (!mounted) return;
+    if (dateien.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Nichts zu speichern – die Dateien sind nicht '
+              'mehr im Speicher.')));
+      return;
+    }
+    final ergebnis = await exportManyBytes(dateien);
+    if (!mounted) return;
+    if (ergebnis == null) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Abgebrochen – nichts gespeichert.')));
+      return;
+    }
     messenger.showSnackBar(SnackBar(
       content: Text(failed == 0
-          ? '${entries.length} '
-              '${entries.length == 1 ? 'Datei' : 'Dateien'} '
-              'heruntergeladen.'
-          : '${entries.length - failed} von ${entries.length} '
-              'heruntergeladen, $failed nicht mehr im Speicher.'),
+          ? ergebnis.message
+          : '${ergebnis.message} ($failed nicht mehr im Speicher.)'),
     ));
   }
 
@@ -108,6 +138,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
   String? _anchor;
 
   bool get _selecting => _selectMode || _selected.isNotEmpty;
+
+  @override
+  void didUpdateWidget(GalleryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Beim Verlassen die Auswahl fallenlassen. Suchbegriff und Ordner
+    // bleiben – die sucht man beim Zurückkommen wieder, die Häkchen
+    // nicht.
+    if (oldWidget.isActive && !widget.isActive && _selecting) {
+      setState(() {
+        _selectMode = false;
+        _selected.clear();
+        _anchor = null;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -650,7 +695,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       : const Icon(Icons.download_for_offline_outlined,
                           size: 18),
                   label: Text(_downloading
-                      ? 'Lädt … $_downloadDone von $_downloadTotal'
+                      // „Sammelt" statt „Lädt": Der Speichern-Dialog
+                      // kommt erst danach, einmal für alle.
+                      ? 'Sammelt … $_downloadDone von $_downloadTotal'
                       : needle.isEmpty
                           ? 'Alle herunterladen'
                           : 'Gefundene herunterladen'),

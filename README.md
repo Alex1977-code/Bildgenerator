@@ -1649,6 +1649,34 @@ Im Preflight tragen die drei Befunde „UV-Sätze", „UV-Raum" und
 „Material" jetzt den Knopf **Textur-Pipeline** — und ihre Begründung
 sagt gleich mit, wo die Pipeline aufhört.
 
+### Galerie: zwei Ärgernisse abgestellt
+
+**Der Auswahlmodus blieb an.** Wer die Galerie im Auswahlmodus verließ
+und später zurückkam, fand Häkchen auf den Kacheln, die er vor einer
+Stunde gesetzt hatte — und klickte sie versehentlich an. Ursache: Die
+Tabs liegen in einem `IndexedStack` und bleiben deshalb am Leben. Das
+ist gewollt (sonst wären Suchbegriff und geöffneter Ordner nach jedem
+Wechsel weg), gilt aber nicht für die Auswahl. Sie fällt jetzt beim
+Verlassen weg; Suchbegriff und Ordner bleiben.
+
+**„Alle herunterladen" öffnete einen Dialog je Bild.** Bei vierzig
+Bildern waren das vierzig „Speichern unter"-Fenster; niemand klickt die
+durch. Jetzt wird **einmal nach dem Ordner** gefragt und alles dort
+abgelegt.
+
+Je Plattform so nah an „einmal fragen", wie es geht:
+
+| | Verhalten |
+| --- | --- |
+| Desktop | Ein Ordner-Dialog, danach alle Dateien hinein. Gleichnamige bekommen `-2`, `-3` … statt überschrieben zu werden |
+| Handy | Ein einziger Teilen-Vorgang mit allen Dateien |
+| Web | Der Browser fragt einmal, ob die Seite mehrere Dateien speichern darf — einen Ordner-Dialog gibt es dort nicht |
+
+Gelesen wird weiterhin nacheinander, mit Fortschrittsanzeige: Vierzig
+Modelle gleichzeitig in den Speicher zu holen ist eine schlechte Idee.
+Der Knopf heißt während dieser Phase deshalb „Sammelt …" — der
+Speichern-Dialog kommt danach.
+
 ### Modul 8: Größenmaßstab in der Vorschau
 
 Ob eine Figur 3 oder 7 Studs hoch ist, sieht man ihr im Viewer nicht an
