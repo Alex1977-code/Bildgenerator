@@ -126,16 +126,48 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Modell bauen. Beim lokalen Generator ist das im Text-Modus immer so.
   bool _viewsFromText = false;
 
-  /// T-Pose auch ohne Rigging – Figuren mit gespreizten Armen lassen
-  /// sich deutlich besser räumlich rekonstruieren.
-  bool _tPose = false;
+  /// Zielhöhe in Studs, auf die das Vorbereiten die Figur bringt.
+  ///
+  /// Als Feld und nicht als Konstante, weil der Validator alle
+  /// Grenzen bei einer Höhe misst: 5,00 ist der Standard-Charakter,
+  /// aber es gibt Figuren, die absichtlich kleiner oder größer sind,
+  /// und dann verschieben sich Tiefe, Beinbreite und Armspanne mit.
+  /// Der Wert hat mit Tripos „auto_size" nichts zu tun – der Schalter
+  /// sorgt nur für eine Größenordnung, das Maß macht diese Zahl.
+  final _studsCtrl =
+      TextEditingController(text: robloxCharacterStuds.toStringAsFixed(2));
 
-  /// Welche Pose der Zusatz beschreibt.
+  /// Die eingetippte Höhe, oder null bei Unsinn.
+  double? get _studsValue {
+    final wert =
+        double.tryParse(_studsCtrl.text.trim().replaceAll(',', '.'));
+    if (wert == null || wert < 0.5 || wert > 50) return null;
+    return wert;
+  }
+
+  /// Die fünf Gesichtsteile beim Marktplatz-Weg ergänzen.
+  ///
+  /// An, weil Auto Setup ohne Augen und Mund als Geometrie keinen
+  /// dynamischen Kopf baut und der Marktplatz genau den verlangt.
+  /// Abschaltbar, weil eine Figur, die ihre Augen schon als Netze
+  /// mitbringt, sie nicht doppelt braucht.
+  bool _addFaceParts = true;
+
+  /// Welche Pose der Zusatz beschreibt – oder keine.
+  ///
+  /// **Ein Schalter, drei Werte**, und er hängt an nichts anderem.
+  /// Vorher waren es zwei Bedienelemente: ein Schalter „Pose-Zusatz",
+  /// den eingeschaltetes Rigging erzwang und dann ausgraute, und
+  /// daneben die Wahl zwischen T und A. Wer eine geriggte Figur ohne
+  /// Posen-Zusatz wollte, kam nicht hin, und wo der Schalter aus war,
+  /// war die Wahl unsichtbar.
   ///
   /// T-Pose für den Roblox-Importer, A-Pose für Roblox' Auto Setup:
   /// Dort wurden die waagerechten Arme der T-Pose dem Kopf und dem
-  /// Rumpf zugeschlagen.
-  PoseKind _poseKind = PoseKind.tPose;
+  /// Rumpf zugeschlagen. Rigging **setzt** die Pose weiterhin vor –
+  /// gespreizte Arme lassen sich besser rekonstruieren –, aber es
+  /// erzwingt sie nicht mehr.
+  PoseKind? _pose;
 
   /// Bild-Modus: fehlende Ansichten (links/rechts/hinten) automatisch
   /// per Bild-KI aus der Vorderansicht ergänzen, damit ein konsistenter
@@ -382,7 +414,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _pbr = true;
       _refineProjectTexture = true;
       _refineSymmetrize = false;
-      _tPose = false;
+      _pose = null;
       _falCustomCtrl.clear();
       _replicateCustomCtrl.clear();
       switch (id) {
@@ -510,8 +542,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'texture': _texture,
         'rigging': _rigging,
         'rigType': _rigType,
-        'tPose': _tPose,
-        'poseKind': _poseKind.name,
+        'pose': _pose?.name ?? 'keine',
+        'studs': _studsCtrl.text,
+        'addFaceParts': _addFaceParts,
         'artStyle': _artStyle,
         'viewsFromText': _viewsFromText,
         'completeViews': _completeViews,
@@ -570,10 +603,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _texture = pick('texture', _texture);
       _rigging = pick('rigging', _rigging);
       _rigType = pick('rigType', _rigType);
-      _tPose = pick('tPose', _tPose);
-      _poseKind = PoseKind.values.firstWhere(
-          (k) => k.name == pick('poseKind', _poseKind.name),
-          orElse: () => PoseKind.tPose);
+      // Alte Stände trugen zwei Felder: einen Schalter und die Wahl.
+      // Beide werden weiter gelesen, damit gespeicherte Vorlagen nicht
+      // stillschweigend die Pose verlieren.
+      _studsCtrl.text = pick('studs', _studsCtrl.text);
+      _addFaceParts = pick('addFaceParts', _addFaceParts);
+      final poseName = pick('pose', '');
+      if (poseName.isEmpty) {
+        _pose = pick('tPose', false)
+            ? PoseKind.values.firstWhere(
+                (k) => k.name == pick('poseKind', 'tPose'),
+                orElse: () => PoseKind.tPose)
+            : null;
+      } else {
+        _pose = PoseKind.values
+            .where((k) => k.name == poseName)
+            .firstOrNull;
+      }
       _artStyle = pick('artStyle', _artStyle);
       _viewsFromText = pick('viewsFromText', _viewsFromText);
       _completeViews = pick('completeViews', _completeViews);
@@ -1183,12 +1229,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// T-Pose-Zusatz, sofern Rigging an ist und die Pose nicht schon im
   /// Text steht (siehe services/pose_prompt.dart).
   String _effectivePrompt(String prompt) =>
-      withPose(prompt, wanted: _rigging || _tPose, kind: _poseKind);
+      withPose(prompt, wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
 
   /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
   int get _promptSuffixChars =>
       poseExtraChars(_promptCtrl.text,
-          wanted: _rigging || _tPose, kind: _poseKind);
+          wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
 
   ModelRelay? _modelRelay;
 
@@ -1240,6 +1286,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     _promptCtrl.dispose();
     _negative3dCtrl.dispose();
     _tripoFaceLimitCtrl.dispose();
+    _studsCtrl.dispose();
     _packSeedCtrl.dispose();
     _texturePromptCtrl.dispose();
     _falCustomCtrl.dispose();
@@ -1375,7 +1422,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final savedNegative = _negative3dCtrl.text;
     final savedRigging = _rigging;
     final savedRigType = _rigType;
-    final savedTPose = _tPose;
+    final savedPose = _pose;
     final savedImageMode = _imageMode;
     setState(() {
       _itemRun = true;
@@ -1384,7 +1431,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _itemStyleImage = style;
       _itemFigureGlb = result.glbBytes;
       _rigging = false;
-      _tPose = false;
+      _pose = null;
       _imageMode = false;
     });
     try {
@@ -1438,7 +1485,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _negative3dCtrl.text = savedNegative;
           _rigging = savedRigging;
           _rigType = savedRigType;
-          _tPose = savedTPose;
+          _pose = savedPose;
           _imageMode = savedImageMode;
         });
       }
@@ -2106,8 +2153,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 isRodin ||
                 isReplicate)) {
           pose = rigPoseParts[_rigType];
-        } else if (_rigging || _tPose) {
-          pose = rigPoseParts['biped'];
+        } else if (_pose != null) {
+          // Die gewählte Pose, nicht pauschal die T-Pose: Wer hier die
+          // A-Pose einstellt, bekam sonst trotzdem waagerechte Arme in
+          // den Ansichten – die Wahl lief ins Leere.
+          pose = poseSuffix(_pose!);
         }
         final generated = await generateViewsFromText(
           settings: settings,
@@ -2812,7 +2862,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       quadTopology: _rodinQuad,
       targetPolycount: _rodinPolycount,
       // Rodins eigener T/A-Pose-Parameter ersetzt den Prompt-Zusatz.
-      taPose: !useImages && (_rigging || _tPose),
+      taPose: !useImages && _pose != null,
     );
     await service.waitForTask(subscriptionKey,
         onProgress: progress, isCancelled: cancelled);
@@ -3182,7 +3232,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               'Ansichten wird automatisch die passende Rig-Pose '
               'verwendet.'),
           value: _rigging,
-          onChanged: _running ? null : (v) => setState(() => _rigging = v),
+          onChanged: _running
+              ? null
+              : (v) => setState(() {
+                    _rigging = v;
+                    if (v && _pose == null) _pose = PoseKind.tPose;
+                  }),
         ),
         if (_rigging) ...[
           DropdownMenu<String>(
@@ -3514,8 +3569,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (target == RobloxTarget.accessory) {
         _promptSubject = 'object';
         _rigging = false;
-        _tPose = false;
-        _poseKind = PoseKind.tPose;
+        _pose = null;
       } else if (target == RobloxTarget.marketplaceAvatar) {
         // Kein Rigging: Auto Setup baut sein eigenes R15-Rig und
         // verwirft ein mitgebrachtes – ohne Rigging kommt außerdem
@@ -3524,14 +3578,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _rigging = false;
         // A-Pose statt T-Pose: Deren waagerechte Arme wurden vom
         // Segmentierer dem Kopf und dem Rumpf zugeschlagen.
-        _tPose = true;
-        _poseKind = PoseKind.aPose;
+        _pose = PoseKind.aPose;
       } else {
         _promptSubject = 'figure';
         _rigging = true;
         _rigType = 'biped';
-        _tPose = true;
-        _poseKind = PoseKind.tPose;
+        _pose = PoseKind.tPose;
       }
       // Roblox zählt Dreiecke. Die Anbieter zählen Polygone – bei
       // Quad-Topologie wird aus jedem Viereck beim Export ein Paar
@@ -3721,6 +3773,67 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 },
                 style: theme.textTheme.bodySmall,
               ),
+              // Höhe und Gesichtsteile: zwei Angaben, die beim
+              // Vorbereiten greifen und die bisher fest im Code
+              // standen.
+              if (_robloxTarget != RobloxTarget.accessory) ...[
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 150,
+                      child: TextField(
+                        controller: _studsCtrl,
+                        enabled: !_running,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          labelText: 'Höhe in Studs',
+                          isDense: true,
+                          border: const OutlineInputBorder(),
+                          errorText: _studsValue == null
+                              ? 'Zahl zwischen 0,5 und 50'
+                              : null,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Auf diese Höhe bringt „Für Roblox '
+                        'vorbereiten" die Figur. Der Validator misst '
+                        'alle Grenzen bei einer Höhe – Tiefe, '
+                        'Beinbreite und Armspanne verschieben sich '
+                        'mit. 5,00 ist der Standard-Charakter. Mit '
+                        'Tripos „auto_size" hat der Wert nichts zu '
+                        'tun: Der Schalter sorgt nur für eine '
+                        'Größenordnung.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (_robloxTarget == RobloxTarget.marketplaceAvatar)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Gesichtsteile ergänzen'),
+                  subtitle: Text(_addFaceParts
+                      ? 'Zwei Augen, Ober- und Unterzähne und eine '
+                          'Zunge als eigene Netze, ohne gemeinsame '
+                          'Punkte mit dem Kopf. Ohne sie findet Auto '
+                          'Setup nichts für die FACS-Posen, und der '
+                          'Marktplatz lehnt den Kopf ab.'
+                      : 'Aus. Nur richtig, wenn die Figur Augen und '
+                          'Mund schon als eigene Netze mitbringt – '
+                          'sonst bleibt der dynamische Kopf leer.'),
+                  value: _addFaceParts,
+                  onChanged: _running
+                      ? null
+                      : (v) => setState(() => _addFaceParts = v),
+                ),
               const SizedBox(height: 8),
               Text(_robloxBudgetNote(settings),
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -3772,11 +3885,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final raw = _promptCtrl.text.trim().length;
     final effective = _effectivePrompt(_promptCtrl.text).length;
     final suffix = _promptSuffixChars;
+    final poseName = _pose == PoseKind.aPose ? 'A-Pose' : 'T-Pose';
     final anhang = suffix > 0
-        ? ' Dazu kommen $suffix Zeichen T-Pose-Zusatz (Rigging ist an) '
-            '– zusammen $effective.'
-        : (_rigging || _tPose)
-            ? ' Die T-Pose steht schon im Prompt, deshalb hängt die App '
+        ? ' Dazu kommen $suffix Zeichen $poseName-Zusatz – zusammen '
+            '$effective.'
+        : _pose != null
+            ? ' Eine Pose steht schon im Prompt, deshalb hängt die App '
                 'nichts an.'
             : '';
     if (!_tripoPromptTooLong) {
@@ -3853,23 +3967,39 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // liest die Gelenke und hätte hier nichts zu lesen. Höhe,
         // Front und Nullpunkt kommen deshalb aus der Geometrie.
         final vorbereitet = prepareForAutoSetup(small.glb,
-            targetStuds: robloxCharacterStuds);
+            targetStuds: _studsValue ?? robloxCharacterStuds);
         repairs.addAll(vorbereitet.report.steps);
         var glb = vorbereitet.glb;
 
         // Die fünf Gesichtsteile. Ohne sie baut Auto Setup keinen
         // dynamischen Kopf – im ersten echten Lauf entstand ein leeres
         // FaceControls, weil die Figur nur aufgemalte Augen hatte.
-        try {
-          final gesicht = addFaceParts(glb);
-          glb = gesicht.glb;
-          repairs.add('${gesicht.report.parts.length} Gesichtsteile '
-              'ergänzt (${gesicht.report.triangles} Dreiecke): Augen, '
-              'Zähne und Zunge als eigene Netze. Ohne sie findet Auto '
-              'Setup nichts für die FACS-Posen.');
-        } on Exception catch (e) {
-          repairs.add('Gesichtsteile nicht möglich: $e Ohne sie bleibt '
-              'der dynamische Kopf leer, und der Marktplatz lehnt ab.');
+        if (!_addFaceParts) {
+          repairs.add('Gesichtsteile übersprungen (Schalter aus). Ohne '
+              'Augen und Mund als Geometrie baut Auto Setup keinen '
+              'dynamischen Kopf – richtig ist das nur, wenn die Figur '
+              'sie schon mitbringt.');
+        } else {
+          try {
+            final gesicht = addFaceParts(glb);
+            glb = gesicht.glb;
+            // Jedes Teil einzeln: Wo es sitzt und was es kostet, ist
+            // die Angabe, mit der man im Viewer nachsehen kann. Eine
+            // Summenzeile sagt nur, dass irgendetwas passiert ist.
+            repairs.add('${gesicht.report.parts.length} Gesichtsteile '
+                'ergänzt, ${gesicht.report.triangles} Dreiecke '
+                '(Kopfbreite ${gesicht.report.headWidth.toStringAsFixed(2)}, '
+                'Kopfhöhe ${gesicht.report.headHeight.toStringAsFixed(2)}):');
+            for (final teil in gesicht.report.parts) {
+              repairs.add('   ${teil.name}: ${teil.triangles} Dreiecke '
+                  'bei ${teil.center.map((v) => v.toStringAsFixed(2)).join(' / ')}');
+            }
+            repairs.addAll(gesicht.report.notes);
+          } on Exception catch (e) {
+            repairs.add('Gesichtsteile nicht möglich: $e Ohne sie '
+                'bleibt der dynamische Kopf leer, und der Marktplatz '
+                'lehnt ab.');
+          }
         }
 
         // Und zuletzt die Proportionen messen – jeder Befund sagt,
@@ -3897,7 +4027,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           // sitzen – die bleiben, wie sie sind.
           targetStuds: _robloxTarget == RobloxTarget.accessory
               ? 0
-              : robloxCharacterStuds,
+              : (_studsValue ?? robloxCharacterStuds),
         );
         repairs.addAll(robloxPrepareSummary(rig.report));
       }
@@ -4540,7 +4670,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       return;
     }
     final studs = _robloxTarget == RobloxTarget.character
-        ? robloxCharacterStuds
+        ? (_studsValue ?? robloxCharacterStuds)
         : 0.0;
     setState(() {
       _running = true;
@@ -4711,7 +4841,6 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final isSelfHost = settings.threeDProvider == 'selfhost';
     final isRodin = settings.threeDProvider == 'rodin';
     final isReplicate = settings.threeDProvider == 'replicate';
-    final riggingForcesTPose = _rigging;
     // Beim eigenen Auto-Rigging kommt die Pose aus dem Figurtyp –
     // der T-Pose-Schalter wäre dann irreführend.
     final rigPoseActive = _rigging &&
@@ -5020,61 +5149,71 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           setState(() => _artStyle = selection.first),
                     ),
                   ],
-                  // Welche Pose der Zusatz beschreibt. Zwei Empfänger,
-                  // zwei Antworten: Der Roblox-Importer will die
-                  // T-Pose, Roblox' Auto Setup die A-Pose – dort
-                  // wurden die waagerechten Arme dem Kopf und dem
-                  // Rumpf zugeschlagen.
-                  if (rigPoseActive || _tPose) ...[
-                    SegmentedButton<PoseKind>(
-                      segments: const [
-                        ButtonSegment(
-                            value: PoseKind.tPose,
-                            label: Text('T-Pose'),
-                            icon: Icon(Icons.accessibility_new)),
-                        ButtonSegment(
-                            value: PoseKind.aPose,
-                            label: Text('A-Pose'),
-                            icon: Icon(Icons.accessibility)),
-                      ],
-                      selected: {_poseKind},
-                      showSelectedIcon: false,
-                      onSelectionChanged: _running
-                          ? null
-                          : (selection) =>
-                              setState(() => _poseKind = selection.first),
-                    ),
-                    _optionInfo(_poseKind == PoseKind.aPose
-                        ? 'Arme hängen in etwa 45°. Für Roblox\' Auto '
-                            'Setup die richtige Wahl: Die waagerechten '
-                            'Arme der T-Pose wurden dort dem Kopf und '
-                            'dem Rumpf zugeschlagen. '
-                            '(${aPoseSuffix.length} Zeichen Zusatz.)'
-                        : 'Arme waagerecht. So verlangt es der '
-                            'Roblox-Importer für animierbare Figuren. '
-                            '(${tPoseSuffix.length} Zeichen Zusatz.) '
-                            'Nennt der Prompt schon eine Pose, hängt '
-                            'die App nichts an.'),
-                    const SizedBox(height: 4),
-                  ],
-                  if (!rigPoseActive)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Pose-Zusatz (für Figuren '
-                          'empfohlen)'),
-                      subtitle: Text(riggingForcesTPose
-                          ? 'Durch Rigging automatisch aktiv – gespreizte '
-                              'Arme lassen sich am besten rekonstruieren.'
-                          : 'Figur mit gespreizten Armen erzeugen – lässt '
-                              'sich deutlich besser räumlich '
-                              'rekonstruieren, auch ohne Rigging. Für '
-                              'Objekte (Gebäude, Fahrzeuge …) '
-                              'ausschalten.'),
-                      value: _tPose || riggingForcesTPose,
-                      onChanged: _running || riggingForcesTPose
-                          ? null
-                          : (v) => setState(() => _tPose = v),
-                    ),
+                  // Der Posen-Zusatz: ein Bedienelement, drei Werte.
+                  //
+                  // Vorher waren es zwei – ein Schalter, den Rigging
+                  // erzwang und ausgraute, und daneben die Wahl
+                  // zwischen T und A. Wer eine geriggte Figur ohne
+                  // Zusatz wollte, kam nicht hin; wo der Schalter aus
+                  // war, war die Wahl unsichtbar. Jetzt steht die Pose
+                  // für sich, und Rigging setzt sie nur noch vor.
+                  Text('Posen-Zusatz', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 6),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                          value: 'keine',
+                          label: Text('Keiner'),
+                          icon: Icon(Icons.block)),
+                      ButtonSegment(
+                          value: 'tPose',
+                          label: Text('T-Pose'),
+                          icon: Icon(Icons.accessibility_new)),
+                      ButtonSegment(
+                          value: 'aPose',
+                          label: Text('A-Pose'),
+                          icon: Icon(Icons.accessibility)),
+                    ],
+                    selected: {_pose?.name ?? 'keine'},
+                    showSelectedIcon: false,
+                    onSelectionChanged: _running || rigPoseActive
+                        ? null
+                        : (selection) => setState(() => _pose =
+                            PoseKind.values
+                                .where((k) => k.name == selection.first)
+                                .firstOrNull),
+                  ),
+                  _optionInfo(rigPoseActive
+                      ? 'Beim eigenen Auto-Rigging kommt die Pose aus '
+                          'dem Figurtyp ($_rigType) – die Ansichten '
+                          'werden damit erzeugt, und der Zusatz bleibt '
+                          'außen vor.'
+                      : switch (_pose) {
+                          PoseKind.aPose =>
+                            'Arme gestreckt, etwa 45° nach unten. Für '
+                                'Roblox\' Auto Setup die richtige Wahl: '
+                                'Die waagerechten Arme der T-Pose wurden '
+                                'dort dem Kopf und dem Rumpf '
+                                'zugeschlagen. '
+                                '(${aPoseSuffix.length} Zeichen Zusatz.)',
+                          PoseKind.tPose =>
+                            'Arme waagerecht. So verlangt es der '
+                                'Roblox-Importer für animierbare Figuren. '
+                                '(${tPoseSuffix.length} Zeichen Zusatz.)',
+                          null =>
+                            'Kein Zusatz. Richtig für Objekte (Gebäude, '
+                                'Fahrzeuge, Gegenstände). Für Figuren '
+                                'kostet es Qualität: Gespreizte Arme '
+                                'lassen sich deutlich besser räumlich '
+                                'rekonstruieren.',
+                        }),
+                  if (_rigging && _pose == null && !rigPoseActive)
+                    _optionInfo('Rigging ist an, aber keine Pose '
+                        'gewählt. Das Skelett trifft dann schlechter – '
+                        'ohne gespreizte Arme liegen sie am Körper an.'),
+                  if (_pose != null && promptHasPose(_promptCtrl.text))
+                    _optionInfo('Der Prompt nennt schon eine Pose, '
+                        'deshalb hängt die App nichts an.'),
                   const SizedBox(height: 4),
                   if (isFal && _falIsTextToModel)
                     Text(
@@ -6315,14 +6454,25 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Rigging (Skelett für Animation)'),
-                    subtitle: Text(_imageMode
-                        ? 'Nur für Figuren/Charaktere geeignet'
-                        : 'Nur für Figuren – „T-Pose“ wird automatisch an '
-                            'den Prompt angehängt'),
+                    // Hier stand „T-Pose wird automatisch angehängt".
+                    // Das tut der Posen-Zusatz, und der steht seit
+                    // seinem eigenen Schalter für sich: Rigging setzt
+                    // ihn vor, erzwingt ihn aber nicht.
+                    subtitle: const Text('Nur für Figuren/Charaktere '
+                        'geeignet. Den Posen-Zusatz stellt man '
+                        'darüber ein.'),
                     value: _rigging,
                     onChanged: _running
                         ? null
-                        : (v) => setState(() => _rigging = v),
+                        : (v) => setState(() {
+                              _rigging = v;
+                              // Ein Skelett trifft ohne gespreizte
+                              // Arme schlechter – deshalb vorsetzen,
+                              // wenn noch keine Pose gewählt ist.
+                              if (v && _pose == null) {
+                                _pose = PoseKind.tPose;
+                              }
+                            }),
                   ),
                   // Der Figurtyp geht als „rig_type" mit an den
                   // Anbieter – ohne ihn muss der raten. Und er steht
@@ -6572,12 +6722,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           'Tripo bringt das Modell auf eine plausible '
                           'Weltgröße, statt einen beliebigen Maßstab '
                           'zu liefern. '
-                          '${_robloxMode ? 'Der Roblox-Importer '
-                              'rechnet glTF-Einheiten als Meter – ohne '
-                              'das kam die Figur mit 0,98 Einheiten '
-                              'und damit 3,5 Studs statt der üblichen '
-                              '5.' : 'Nützlich, wenn die Größe in der '
-                              'Engine stimmen soll.'}',
+                          '${_robloxMode ? 'Der Roblox-Importer setzt '
+                              'eine glTF-Einheit gleich einem Stud – '
+                              'gemessen, nicht geschätzt. Eine Figur '
+                              'mit 0,98 Einheiten kommt also als 0,98 '
+                              'Studs an statt der üblichen 5. Den '
+                              'Maßstab macht aber nicht dieser '
+                              'Schalter: „auto_size" sorgt nur für eine '
+                              'Größenordnung. Auf das Maß bringt die '
+                              'Figur das Feld „Höhe in Studs" beim '
+                              'Vorbereiten.' : 'Nützlich, wenn die '
+                              'Größe in der Engine stimmen soll.'}',
                         ),
                         value: _tripoAutoSize,
                         onChanged: _running

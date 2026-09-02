@@ -1506,6 +1506,44 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Der Posen-Zusatz steht für sich
+
+Bisher waren es zwei Bedienelemente: ein Schalter „Pose-Zusatz", den
+eingeschaltetes Rigging erzwang und dann ausgraute, und daneben die
+Wahl zwischen T und A. Wer eine geriggte Figur **ohne** Zusatz wollte,
+kam nicht hin; wo der Schalter aus war, war die Wahl unsichtbar.
+
+Jetzt ist es **ein** Schalter mit drei Werten: **Keiner / T-Pose /
+A-Pose**. Er hängt an nichts anderem. Rigging *setzt* die T-Pose vor —
+ein Skelett trifft ohne gespreizte Arme schlechter —, aber es erzwingt
+sie nicht mehr; wer sie abwählt, bekommt einen Hinweis statt einer
+gesperrten Schaltfläche.
+
+Eine Ausnahme, und sie steht als Begründung im Schalter: Beim **eigenen
+Auto-Rigging** (Lokal, Stability, fal.ai, Server, Rodin, Replicate)
+erzeugt die App die Ansichten selbst und nimmt die Pose zum Figurtyp.
+Ein Zusatz daneben würde ihr widersprechen, also ist die Wahl dort
+gesperrt — mit dem Satz, warum.
+
+Dabei ist noch ein stiller Fehler aufgefallen: Ohne Rigging bekamen die
+erzeugten Ansichten **immer** die T-Pose, auch wenn die A-Pose
+eingestellt war. Die Wahl lief ins Leere. Jetzt geht der gewählte
+Baustein durch.
+
+Drei weitere Angaben, die bisher fest im Code standen:
+
+- **Höhe in Studs** als Feld, Standard 5,00. Der Validator misst alle
+  Grenzen bei einer Höhe — Tiefe, Beinbreite und Armspanne verschieben
+  sich mit. Mit Tripos `auto_size` hat der Wert nichts zu tun.
+- **Gesichtsteile ergänzen** an/aus, mit Bericht: Jedes der fünf Netze
+  steht danach einzeln da, mit Dreieckszahl und Sitz, dazu die
+  gemessene Kopfbreite und -höhe. Eine Summenzeile sagt nur, dass
+  irgendetwas passiert ist.
+- Zwei Texte korrigiert: Der `auto_size`-Hinweis behauptete, Roblox
+  rechne glTF-Einheiten als Meter, und kam auf 3,5 Studs. Gemessen ist
+  **eine Einheit gleich einem Stud**. Und „T-Pose wird angehängt" stand
+  beim Rigging-Schalter — es gehört zum Posen-Zusatz.
+
 ### Die FBX liegt im Paket, statt daneben beschrieben zu sein
 
 Roblox importiert Rigs über `.fbx`, nicht über `.glb`. Im Roblox-Paket
