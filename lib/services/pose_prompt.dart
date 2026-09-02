@@ -38,9 +38,15 @@ const String tPoseSuffix =
     'legs slightly apart, facing forward, neutral expression';
 
 /// Dasselbe für die A-Pose.
+///
+/// Drei Angaben müssen darin stehen, sonst kommt die Pose nicht an:
+/// **A-Pose**, **45 Grad nach unten** und **gestreckte Arme**. Das
+/// letzte fehlte anfangs – „hanging" allein lässt angewinkelte Arme
+/// zu, und die sind für den Segmentierer so unbrauchbar wie
+/// waagerechte.
 const String aPoseSuffix =
-    'full body character in A-pose, arms hanging about 45 degrees '
-    'from the body, legs slightly apart, facing forward';
+    'full body character in A-pose, arms straight and angled 45 degrees '
+    'down, legs slightly apart, facing forward';
 
 /// Der Zusatz zur gewählten Pose.
 String poseSuffix(PoseKind kind) =>

@@ -64,5 +64,19 @@ void main() {
       // Die Zahl steht in den Hinweistexten – sie muss stimmen.
       expect(tPoseSuffix.length + 2, 121);
     });
+
+    test('Der A-Pose-Baustein nennt alle drei Angaben', () {
+      // Aus der Uebergabe: A-Pose, 45 Grad nach unten, Arme
+      // gestreckt. Fehlt das letzte, laesst der Text angewinkelte
+      // Arme zu, und die sind fuer den Segmentierer so unbrauchbar
+      // wie waagerechte.
+      final text = aPoseSuffix.toLowerCase();
+      expect(text, contains('a-pose'));
+      expect(text, contains('45 degrees'));
+      expect(text, contains('down'));
+      expect(text, contains('straight'));
+      // Und er bleibt kurz: Tripo misst den fertigen String.
+      expect(aPoseSuffix.length, lessThanOrEqualTo(120));
+    });
   });
 }

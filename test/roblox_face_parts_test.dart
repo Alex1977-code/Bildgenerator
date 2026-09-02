@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:bildgenerator/services/glb_preview.dart';
+import 'package:bildgenerator/services/gltf_edit.dart';
 import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/roblox_face_parts.dart';
 import 'package:bildgenerator/services/roblox_check.dart';
@@ -9,8 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Eine Figur mit einem Kopf, der breiter ist als nichts – mehr
 /// braucht die Platzierung nicht.
-Uint8List _figur() {
+Uint8List _figur({double kopfBreite = 1.5}) {
   final m = LocalMesh();
+  final kb = kopfBreite / 2;
   void quader(double x0, double y0, double z0, double x1, double y1,
       double z1) {
     final p = [
@@ -32,7 +34,7 @@ Uint8List _figur() {
   }
 
   quader(-1.3, 2.25, -0.6, 1.3, 3.9, 0.6); // Rumpf
-  quader(-0.75, 3.9, -0.7, 0.75, 5.0, 0.7); // Kopf, 1,5 breit
+  quader(-kb, 3.9, -0.7, kb, 5.0, 0.7); // Kopf, so breit wie gewuenscht
   quader(-0.95, 0.0, -0.45, -0.25, 2.25, 0.45);
   quader(0.25, 0.0, -0.45, 0.95, 2.25, 0.45);
   return buildGlb(m);
@@ -90,13 +92,80 @@ void main() {
     }
   });
 
-  test('die Maße hängen an der Kopfbreite, nicht an festen Studs',
-      () async {
+  test('die Maße hängen an der Kopfbreite, nicht an festen Studs', () {
     expect(ergebnis.report.headWidth, closeTo(1.5, 0.01));
-    // Dieselbe Figur doppelt so groß: Die Teile wachsen mit.
-    final gross = addFaceParts(_figur());
-    expect(gross.report.headWidth, ergebnis.report.headWidth);
+    // Das Kopfband ist das oberste Fünftel von 5,0 Studs.
+    expect(ergebnis.report.headHeight, closeTo(1.0, 0.01));
     expect(ergebnis.report.text, contains('Anteile'));
+
+    // Ein breiterer Kopf: Alle Maße wachsen im selben Verhältnis mit.
+    final breit = addFaceParts(_figur(kopfBreite: 3.0));
+    expect(breit.report.headWidth, closeTo(3.0, 0.01));
+    double x(FacePartsResult r, String name) => r.report.parts
+        .firstWhere((p) => p.name == name)
+        .center[0];
+    expect(x(breit, 'RightEye'), closeTo(2 * x(ergebnis, 'RightEye'), 1e-6));
+  });
+
+  test('das Rechenbeispiel aus der Übergabe stimmt', () {
+    // Kapuzzeee, B = 1,57: Augenradius 0,09, Augenabstand 0,57,
+    // Zahnreihe 0,39 Studs breit. Die drei Zahlen sind die Probe auf
+    // alle Anteile auf einmal.
+    final r = addFaceParts(_figur(kopfBreite: 1.57));
+    expect(r.report.headWidth, closeTo(1.57, 0.01));
+    final links = r.report.parts.firstWhere((p) => p.name == 'LeftEye');
+    final rechts = r.report.parts.firstWhere((p) => p.name == 'RightEye');
+    expect(rechts.center[0] - links.center[0], closeTo(0.57, 0.005));
+    expect(r.report.text, contains('Augenradius 0.09'));
+    expect(r.report.text, contains('Zahnreihe 0.39'));
+  });
+
+  test('die Teile sitzen auf den Höhen aus der Übergabe', () {
+    // Alles gemessen im Kopfband: unten 4,0, H = 1,0.
+    double y(String name) => ergebnis.report.parts
+        .firstWhere((p) => p.name == name)
+        .center[1];
+    expect(y('LeftEye'), closeTo(4.0 + 0.55, 1e-6));
+    expect(y('UpperTeeth'), closeTo(4.0 + 0.36, 1e-6));
+    // 33 % und der Abstand von 0,01 × H widersprechen sich: Bei 33 %
+    // stießen die Reihen aneinander. Der Abstand gewinnt, die
+    // Unterzähne rutschen auf 32 %, und der Bericht sagt es an.
+    expect(y('LowerTeeth'), closeTo(4.0 + 0.32, 1e-6));
+    expect(ergebnis.report.text, contains('32 % statt 33 %'));
+    final abstand = (y('UpperTeeth') - 0.015) - (y('LowerTeeth') + 0.015);
+    expect(abstand, closeTo(0.01, 1e-6));
+    // Die Zunge liegt zwischen den Reihen.
+    expect(y('Tongue'), lessThan(y('UpperTeeth')));
+    expect(y('Tongue'), greaterThan(y('LowerTeeth')));
+  });
+
+  test('die Augen sitzen an der Gesichtsfläche, nicht an der Bandkante',
+      () {
+    // Der Strahl trifft die Vorderfläche des Kopfes bei z = −0,7. Der
+    // Mittelpunkt liegt 0,4 × Radius dahinter, das Auge schaut also um
+    // 0,6 × Radius heraus.
+    final r = 1.5 * 0.06;
+    final auge = ergebnis.report.parts.firstWhere((p) => p.name == 'LeftEye');
+    expect(auge.center[2], closeTo(-0.7 + 0.4 * r, 1e-6));
+    // Und die Zahnreihen stehen mit ihrer Vorderkante auf der Fläche.
+    final zahn =
+        ergebnis.report.parts.firstWhere((p) => p.name == 'UpperTeeth');
+    expect(zahn.center[2], closeTo(-0.7 + 1.5 * 0.04 / 2, 1e-6));
+  });
+
+  test('die Dreieckszahlen bleiben in den genannten Grenzen', () {
+    int tri(String name) => ergebnis.report.parts
+        .firstWhere((p) => p.name == name)
+        .triangles;
+    // Übergabe: 64 bis 96 je Auge, 12 bis 40 je Mundteil.
+    for (final auge in ['LeftEye', 'RightEye']) {
+      expect(tri(auge), inInclusiveRange(64, 96), reason: auge);
+    }
+    for (final mund in ['UpperTeeth', 'LowerTeeth', 'Tongue']) {
+      expect(tri(mund), inInclusiveRange(12, 40), reason: mund);
+    }
+    // Und der Bericht rechnet vor, was vom Kopfbudget übrig bleibt.
+    expect(ergebnis.report.text, contains('Kopfbudget von 4000'));
   });
 
   test('die Augen sitzen vorn, links und rechts von der Mitte', () {
@@ -139,9 +208,12 @@ void main() {
     expect(ergebnis.report.triangles, lessThan(400));
   });
 
-  test('die Figur bleibt in ihren Maßen', () async {
-    // Die Teile stecken im Kopf; der umschließende Quader darf sich
-    // nicht ändern, sonst ragt ein Auge heraus.
+  test('nur die Augen wachsen aus der Figur heraus, und nur so weit',
+      () async {
+    // Die Augen sind um 0,4 × Radius versenkt und schauen deshalb um
+    // 0,6 × Radius heraus – so weit und keinen Zehntel weiter darf
+    // die Tiefe zulegen. Der Marktplatz misst höchstens 2,00 Studs,
+    // und der Bericht sagt den Zuwachs an.
     final vorher = await parseGlbForPreview(_figur());
     final a = measureMarketplaceFigure(vorher.positions, vorher.indices);
     vorher.dispose();
@@ -149,7 +221,13 @@ void main() {
     final b = measureMarketplaceFigure(nachher.positions, nachher.indices);
     nachher.dispose();
     expect(b.width, closeTo(a.width, 0.01));
-    expect(b.depth, closeTo(a.depth, 0.01));
+    final heraus = 1.5 * 0.06 * 0.6;
+    // Obergrenze, kein Sollwert: Die Kugel ist facettiert, und ihre
+    // vorderste Ecke liegt nicht genau auf dem Pol – gemessen sind
+    // rund 0,5 × Radius. Mehr als 0,6 darf es nie werden.
+    expect(b.depth - a.depth, lessThanOrEqualTo(heraus + 1e-6));
+    expect(b.depth - a.depth, greaterThan(heraus * 0.7));
+    expect(ergebnis.report.text, contains('0.05 Studs aus'));
   });
 
   test('ohne Kopf gibt es eine verständliche Absage', () {
@@ -165,6 +243,51 @@ void main() {
       () => addFaceParts(buildGlb(flach)),
       throwsA(predicate((e) => '$e'.contains('Höhe'))),
     );
+  });
+
+  test('jedes Teil ist auch ungeschweißt geschlossen', () {
+    // Die Prüfung der App verschweißt vor dem Zählen nach Position –
+    // eine UV-Naht ist kein Loch. Blender und Roblox verschweißen
+    // nicht. Ein Ellipsoid mit einem doppelten Pol je Spalte und einer
+    // wiederholten Nahtspalte ist damit offen: 46 Kanten je Auge. Hier
+    // wird deshalb roh gezählt, Index für Index.
+    for (final (_, positionen, indizes) in _teile(ergebnis.glb)) {
+      final kanten = <String, int>{};
+      for (var t = 0; t + 2 < indizes.length; t += 3) {
+        for (var k = 0; k < 3; k++) {
+          final a = indizes[t + k], b = indizes[t + (k + 1) % 3];
+          final schluessel = a < b ? '$a:$b' : '$b:$a';
+          kanten[schluessel] = (kanten[schluessel] ?? 0) + 1;
+        }
+      }
+      final offen = kanten.values.where((n) => n != 2).length;
+      expect(offen, 0, reason: 'offene Kanten – und Punkte gibt es '
+          '${positionen.length ~/ 3}');
+    }
+  });
+
+  test('jedes Teil ist nach außen gewickelt', () {
+    // Einheitlich falsch herum ist einheitlich: Die Wicklungsprüfung
+    // der App sah nichts, Blender maß an den Augen ein negatives
+    // Volumen. Das Vorzeichen der Summe über alle Dreiecke sagt es
+    // eindeutig – bei geschlossenen Netzen.
+    for (final (name, positionen, indizes) in _teile(ergebnis.glb)) {
+      var v = 0.0;
+      for (var t = 0; t + 2 < indizes.length; t += 3) {
+        final a = indizes[t] * 3, b = indizes[t + 1] * 3, c = indizes[t + 2] * 3;
+        v += (positionen[a] *
+                    (positionen[b + 1] * positionen[c + 2] -
+                        positionen[b + 2] * positionen[c + 1]) -
+                positionen[a + 1] *
+                    (positionen[b] * positionen[c + 2] -
+                        positionen[b + 2] * positionen[c]) +
+                positionen[a + 2] *
+                    (positionen[b] * positionen[c + 1] -
+                        positionen[b + 1] * positionen[c])) /
+            6.0;
+      }
+      expect(v, greaterThan(0), reason: '$name ist nach innen gewickelt');
+    }
   });
 
   test('jedes Teil ist geschlossen und ohne entartete Dreiecke',
@@ -184,4 +307,23 @@ void main() {
     expect(nachher.degenerateTriangles, vorher.degenerateTriangles,
         reason: 'die Gesichtsteile bringen entartete Dreiecke mit');
   });
+}
+
+/// Positionen und Indizes der fünf Gesichtsteile, roh aus der Datei.
+List<(String, List<double>, List<int>)> _teile(Uint8List glb) {
+  final teil = splitGlb(glb);
+  final json = teil.json;
+  final out = <(String, List<double>, List<int>)>[];
+  for (final mesh in (json['meshes'] as List).cast<Map>()) {
+    final name = mesh['name'] as String? ?? '';
+    if (!faceMeshNames.contains(name)) continue;
+    final prim = (mesh['primitives'] as List).first as Map;
+    final pos = readGltfFloats(
+        json, teil.bin, (prim['attributes'] as Map)['POSITION'] as int);
+    final idx =
+        readGltfInts(json, teil.bin, (prim['indices'] as num).toInt());
+    out.add((name, pos.toList(), idx));
+  }
+  expect(out.length, faceMeshNames.length);
+  return out;
 }

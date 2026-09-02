@@ -13,17 +13,42 @@
 /// teilen** – Auto Setup trennt sie an genau dieser Eigenschaft vom
 /// Rest.
 ///
-/// **Die Figur bleibt trotzdem gesichtslos**, wenn sie das soll: Die
-/// Augen sitzen im Kapuzenschatten, der Mund ist ein geschlossener
-/// Schlitz. Sichtbar ist davon fast nichts; der Segmentierer braucht
-/// die Volumen trotzdem.
+/// **Wo die Maße herkommen.** Feste Maße gibt es nicht, weder bei
+/// Roblox noch in der Übergabe – die Figuren fallen unterschiedlich
+/// groß aus. Alle Zahlen sind deshalb Anteile der **gemessenen
+/// Kopfbreite B** und der **Kopfhöhe H aus der Bandmessung**, nach
+/// den Werten aus der Übergabe:
 ///
-/// **Wo die Maße herkommen.** Roblox nennt in seiner Anforderung die
-/// Teile, nicht ihre Größe – die hängt am Kopf. Die Zahlen hier sind
-/// deshalb **Anteile der gemessenen Kopfbreite**, keine absoluten
-/// Studs: So passen sie an jede Figur, und an einer 5-Studs-Figur mit
-/// 1,5 Studs Kopfbreite ergeben sie ein Auge von 0,18 Studs
-/// Durchmesser – die Größenordnung eines Roblox-Standardkopfs.
+/// | Teil | Form | Maß | Position |
+/// |---|---|---|---|
+/// | Auge, je Seite | Kugel | Radius 0,06 × B | P ± 0,18 × B auf X, bei 55 % von H, um 0,4 × Radius versenkt |
+/// | Oberzähne | flacher Quader | 0,25 × B breit, 0,03 × H hoch, 0,04 × B tief | bei 36 % von H, direkt hinter der Gesichtsfläche |
+/// | Unterzähne | wie Oberzähne | wie Oberzähne | bei 33 % von H, 0,01 × H unter den Oberzähnen |
+/// | Zunge | Ellipsoid | 0,15 × B breit, 0,02 × H hoch, 0,10 × B tief | zwischen den Zahnreihen, 0,05 × B dahinter |
+///
+/// **Gesichtspunkt P** ist der Treffer eines Strahls von vorn auf die
+/// Kopfmitte bei 55 % von H – nicht die vorderste Kante des ganzen
+/// Kopfbands. Bei einer Kapuze liegt die Kante am Kapuzenrand, das
+/// Gesicht aber tiefer; ein Auge an der Kante schwebte davor.
+///
+/// **„Versenkt" heißt hier:** Der Mittelpunkt sitzt 0,4 × Radius
+/// hinter der Gesichtsfläche, das Auge schaut also um 0,6 × Radius
+/// heraus. Läge der Mittelpunkt auf P, wäre es die halbe Kugel. Wie
+/// weit die Augen die Tiefe der Figur vergrößern, steht im Bericht –
+/// der Marktplatz misst höchstens 2,00 Studs Tiefe.
+///
+/// **33 % und 0,01 × H widersprechen sich.** Bei 36 % und 33 % mit je
+/// 0,03 × H Höhe stoßen die Zahnreihen genau aneinander; für den
+/// Abstand von 0,01 × H müssen die Unterzähne auf 32 % rutschen. Der
+/// Abstand gewinnt: Zwei Netze, die sich berühren, sind die Sorte
+/// Geometrie, an der der Validator hängen bleibt. Der Bericht sagt es
+/// an.
+///
+/// **Dreiecke.** Die Übergabe nennt 64 bis 96 je Auge und 12 bis 40
+/// je Mundteil. Erreicht wird das über die Zahl der Längenkreise: 10
+/// Schritte ergeben 80 Dreiecke je Auge, 6 Schritte 36 für die Zunge,
+/// die Zahnreihen sind Quader mit je 12. Alles zusammen zählt zum
+/// Kopfbudget von 4.000.
 library;
 
 import 'dart:math' as math;
@@ -31,6 +56,7 @@ import 'dart:typed_data';
 
 import 'glb_preview.dart' show splitGlb, joinGlb, readGltfFloats;
 import 'gltf_edit.dart';
+import 'roblox_spec.dart' show specBodyPartTriangles;
 
 /// Ein erzeugtes Gesichtsteil.
 class FacePart {
@@ -42,15 +68,91 @@ class FacePart {
   final List<double> center;
 }
 
+/// Die Anteile, aus denen die Teile gebaut werden.
+///
+/// [eyeRadius] und alles mit `× B` im Namen sind Anteile der
+/// gemessenen Kopfbreite, alles mit `× H` Anteile der Kopfhöhe aus
+/// der Bandmessung. [eyeSink] ist der einzige Wert, der sich auf
+/// etwas anderes bezieht: auf den Augenradius.
+class FaceProportions {
+  const FaceProportions({
+    this.eyeRadius = 0.06,
+    this.eyeSeparation = 0.18,
+    this.eyeHeight = 0.55,
+    this.eyeSink = 0.4,
+    this.upperTeethHeight = 0.36,
+    this.lowerTeethHeight = 0.33,
+    this.teethWidth = 0.25,
+    this.teethHeight = 0.03,
+    this.teethDepth = 0.04,
+    this.teethGap = 0.01,
+    this.tongueWidth = 0.15,
+    this.tongueHeight = 0.02,
+    this.tongueDepth = 0.10,
+    this.tongueSetback = 0.05,
+  });
+
+  /// Augenradius, × B.
+  final double eyeRadius;
+
+  /// Abstand jedes Auges von der Mitte, × B.
+  final double eyeSeparation;
+
+  /// Höhe der Augen im Kopfband, × H.
+  final double eyeHeight;
+
+  /// Wie tief der Mittelpunkt hinter der Gesichtsfläche liegt,
+  /// × Augenradius.
+  final double eyeSink;
+
+  /// Höhe der Oberzähne im Kopfband, × H.
+  final double upperTeethHeight;
+
+  /// Höhe der Unterzähne im Kopfband, × H – nachrangig gegenüber
+  /// [teethGap].
+  final double lowerTeethHeight;
+
+  /// Breite beider Zahnreihen, × B.
+  final double teethWidth;
+
+  /// Höhe beider Zahnreihen, × H.
+  final double teethHeight;
+
+  /// Tiefe beider Zahnreihen, × B.
+  final double teethDepth;
+
+  /// Freier Abstand zwischen den Zahnreihen, × H.
+  final double teethGap;
+
+  /// Breite der Zunge, × B.
+  final double tongueWidth;
+
+  /// Höhe der Zunge, × H.
+  final double tongueHeight;
+
+  /// Tiefe der Zunge, × B.
+  final double tongueDepth;
+
+  /// Abstand der Zunge hinter den Zahnreihen, × B.
+  final double tongueSetback;
+}
+
 class FacePartsReport {
   const FacePartsReport({
     required this.parts,
     required this.headWidth,
+    required this.headHeight,
     required this.notes,
   });
 
   final List<FacePart> parts;
+
+  /// Die gemessene Kopfbreite B.
   final double headWidth;
+
+  /// Die Kopfhöhe H aus der Bandmessung.
+  final double headHeight;
+
   final List<String> notes;
 
   int get triangles => parts.fold(0, (a, p) => a + p.triangles);
@@ -88,34 +190,50 @@ const List<String> faceMeshNames = [
 ///
 /// [headTopFraction] sagt, welcher obere Anteil der Höhe als Kopf
 /// gilt. 0,2 heißt: das oberste Fünftel. Bei einer Kapuzenfigur ist
-/// das großzügig – der Kopf steckt darin –, und genau deshalb wird die
-/// **Breite** dort gemessen und nicht geraten.
+/// das großzügig – der Kopf steckt darin –, und genau deshalb wird
+/// dort **gemessen** und nicht geraten.
 FacePartsResult addFaceParts(
   Uint8List glb, {
   double headTopFraction = 0.2,
-  double eyeDiameterFraction = 0.12,
-  double mouthWidthFraction = 0.34,
-  int ringSteps = 12,
+  FaceProportions proportions = const FaceProportions(),
+  int eyeSteps = 10,
+  int tongueSteps = 6,
 }) {
   final parts = splitGlb(glb);
   final json = parts.json;
   final notes = <String>[];
 
-  // 1. Den Kopf vermessen.
-  final positionen = <int>{};
+  // 1. Den Kopf vermessen. Gelesen werden Punkte **und** Dreiecke:
+  // Die Punkte geben das Band und die Breite, die Dreiecke braucht
+  // der Strahl auf die Gesichtsfläche.
+  final flaechen = <double>[];
+  final alle = <Float32List>[];
   for (final mesh in (json['meshes'] as List?) ?? const []) {
     for (final prim in ((mesh as Map)['primitives'] as List?) ?? const []) {
-      final index = ((prim as Map)['attributes'] as Map?)?['POSITION'] as num?;
-      if (index != null) positionen.add(index.toInt());
+      final map = prim as Map;
+      final mode = (map['mode'] as num?)?.toInt() ?? 4;
+      final index = (map['attributes'] as Map?)?['POSITION'] as num?;
+      if (index == null) continue;
+      final pos = readGltfFloats(json, parts.bin, index.toInt());
+      alle.add(pos);
+      if (mode != 4) continue;
+      final indexAccessor = (map['indices'] as num?)?.toInt();
+      final idx = indexAccessor == null
+          ? [for (var i = 0; i < pos.length ~/ 3; i++) i]
+          : readGltfInts(json, parts.bin, indexAccessor);
+      for (var t = 0; t + 2 < idx.length; t += 3) {
+        for (var k = 0; k < 3; k++) {
+          final v = idx[t + k] * 3;
+          if (v + 2 >= pos.length) continue;
+          flaechen.addAll([pos[v], pos[v + 1], pos[v + 2]]);
+        }
+      }
     }
   }
-  if (positionen.isEmpty) {
+  if (alle.isEmpty) {
     throw Exception('Keine Geometrie gefunden – ohne Kopf lassen sich '
         'die Gesichtsteile nicht platzieren.');
   }
-  final alle = [
-    for (final index in positionen) readGltfFloats(json, parts.bin, index),
-  ];
   var minY = double.infinity, maxY = double.negativeInfinity;
   for (final p in alle) {
     for (var i = 1; i < p.length; i += 3) {
@@ -123,12 +241,12 @@ FacePartsResult addFaceParts(
       maxY = math.max(maxY, p[i]);
     }
   }
-  final hoehe = maxY - minY;
-  if (hoehe <= 0) throw Exception('Das Modell hat keine Höhe.');
-  final kopfAb = maxY - hoehe * headTopFraction;
+  final gesamtHoehe = maxY - minY;
+  if (gesamtHoehe <= 0) throw Exception('Das Modell hat keine Höhe.');
+  final kopfAb = maxY - gesamtHoehe * headTopFraction;
 
   var kopfMinX = double.infinity, kopfMaxX = double.negativeInfinity;
-  var kopfMinZ = double.infinity, kopfMaxZ = double.negativeInfinity;
+  var kopfMinZ = double.infinity;
   var kopfPunkte = 0;
   for (final p in alle) {
     for (var i = 0; i + 2 < p.length; i += 3) {
@@ -137,46 +255,74 @@ FacePartsResult addFaceParts(
       kopfMinX = math.min(kopfMinX, p[i]);
       kopfMaxX = math.max(kopfMaxX, p[i]);
       kopfMinZ = math.min(kopfMinZ, p[i + 2]);
-      kopfMaxZ = math.max(kopfMaxZ, p[i + 2]);
     }
   }
   if (kopfPunkte == 0) {
     throw Exception('Im oberen Fünftel liegt keine Geometrie – dort '
         'müsste der Kopf sein.');
   }
-  final kopfBreite = kopfMaxX - kopfMinX;
-  final kopfMitteX = (kopfMinX + kopfMaxX) / 2;
-  // Die Höhe kommt aus dem **Band**, nicht aus dem Mittelwert der
-  // Punkte darin. Ein grob unterteilter Kopf hat oft nur die obere
-  // Kante im Band – der Mittelwert läge dann auf dem Scheitel, und
-  // die Augen säßen über der Figur. Genau das ist passiert.
-  final kopfMitteY = kopfAb + (maxY - kopfAb) * 0.55;
-  // Front ist −z: Auto Setup erwartet die Figur so herum.
-  final front = kopfMinZ;
+  // B und H, so wie die Übergabe sie nennt.
+  final b = kopfMaxX - kopfMinX;
+  final h = maxY - kopfAb;
+  final mitteX = (kopfMinX + kopfMaxX) / 2;
 
-  // 2. Die Teile setzen. Die Augen sitzen leicht über der Kopfmitte
-  // und ein Stück innerhalb der Front – im Kapuzenschatten, aber als
-  // Volumen vorhanden.
-  final bandHoehe = maxY - kopfAb;
-  final augeR = kopfBreite * eyeDiameterFraction / 2;
-  final augeY = kopfMitteY + bandHoehe * 0.12;
-  final augeZ = front + augeR * 1.2;
-  final augeX = kopfBreite * 0.19;
+  // 2. Der Gesichtspunkt P: ein Strahl von vorn (−z) auf die
+  // Kopfmitte, auf Augenhöhe. Trifft er nichts – etwa weil die
+  // Kopfmitte hohl ist –, bleibt die vorderste Kante des Bands als
+  // Notnagel, und das steht dann auch im Bericht.
+  final augeY = kopfAb + h * proportions.eyeHeight;
+  final mundY = kopfAb + h * proportions.upperTeethHeight;
+  final augeTreffer = _frontHit(flaechen, mitteX, augeY, kopfAb);
+  final mundTreffer = _frontHit(flaechen, mitteX, mundY, kopfAb);
+  if (augeTreffer == null || mundTreffer == null) {
+    notes.add('Der Strahl auf die Kopfmitte traf keine Fläche; als '
+        'Gesichtsfläche gilt deshalb die vorderste Kante des '
+        'Kopfbands. Bei einer Kapuze sitzen die Teile dann zu weit '
+        'vorn – bitte im Viewer nachsehen.');
+  }
+  final augeFront = augeTreffer ?? kopfMinZ;
+  // Ober- und Unterzähne teilen sich **einen** Strahl. Zwei Strahlen
+  // auf einem schrägen Gesicht ergäben zwei verschiedene Tiefen, und
+  // die Zahnreihen stünden versetzt.
+  final mundFront = mundTreffer ?? kopfMinZ;
 
-  // Der Mund liegt darunter, als flacher geschlossener Schlitz: Ober-
-  // und Unterzähne berühren sich fast, die Zunge liegt dahinter.
-  final mundBreite = kopfBreite * mouthWidthFraction;
-  final mundY = kopfMitteY - bandHoehe * 0.25;
-  final mundZ = front + kopfBreite * 0.05;
-  final zahnHoehe = kopfBreite * 0.045;
-  final zahnTiefe = kopfBreite * 0.09;
+  // 3. Die Maße. Front ist −z, „nach hinten" heißt also +z.
+  final augeR = b * proportions.eyeRadius;
+  final augeX = b * proportions.eyeSeparation;
+  final augeZ = augeFront + augeR * proportions.eyeSink;
+
+  final zahnBreite = b * proportions.teethWidth;
+  final zahnHoehe = h * proportions.teethHeight;
+  final zahnTiefe = b * proportions.teethDepth;
+  final zahnZ = mundFront + zahnTiefe / 2;
+  final oberY = mundY;
+  // Der Abstand hat Vorrang vor den 33 %: siehe oben.
+  final wunschUnterY = kopfAb + h * proportions.lowerTeethHeight;
+  final maxUnterY = oberY - zahnHoehe - h * proportions.teethGap;
+  final unterY = math.min(wunschUnterY, maxUnterY);
+  if (wunschUnterY - unterY > h * 1e-6) {
+    notes.add('Die Unterzähne sitzen bei '
+        '${(((unterY - kopfAb) / h) * 100).toStringAsFixed(0)} % statt '
+        '${(proportions.lowerTeethHeight * 100).toStringAsFixed(0)} % '
+        'von H: Bei den genannten Höhen stießen die Zahnreihen '
+        'aneinander, und der geforderte Abstand von '
+        '${(proportions.teethGap * 100).toStringAsFixed(0)} % × H '
+        'geht vor.');
+  }
+
+  final zungeZ = zahnZ +
+      zahnTiefe / 2 +
+      b * proportions.tongueSetback +
+      b * proportions.tongueDepth / 2;
+  final zungeY = (oberY - zahnHoehe / 2 + unterY + zahnHoehe / 2) / 2;
 
   final anhang = GltfAppender(json, parts.bin);
   final neueMeshes = <Map<String, dynamic>>[];
   final berichte = <FacePart>[];
 
-  void kugel(String name, double cx, double cy, double cz, double r) {
-    final (pos, idx) = _kugel(cx, cy, cz, r, ringSteps);
+  void kugel(String name, double cx, double cy, double cz, double rx,
+      double ry, double rz, int steps) {
+    final (pos, idx) = _ellipsoid(cx, cy, cz, rx, ry, rz, steps);
     berichte.add(FacePart(name, idx.length ~/ 3, [cx, cy, cz]));
     neueMeshes.add(_mesh(anhang, name, pos, idx));
   }
@@ -188,16 +334,25 @@ FacePartsResult addFaceParts(
     neueMeshes.add(_mesh(anhang, name, pos, idx));
   }
 
-  kugel('LeftEye', kopfMitteX - augeX, augeY, augeZ, augeR);
-  kugel('RightEye', kopfMitteX + augeX, augeY, augeZ, augeR);
-  quader('UpperTeeth', kopfMitteX, mundY + zahnHoehe / 2, mundZ,
-      mundBreite, zahnHoehe, zahnTiefe);
-  quader('LowerTeeth', kopfMitteX, mundY - zahnHoehe / 2, mundZ,
-      mundBreite, zahnHoehe, zahnTiefe);
-  quader('Tongue', kopfMitteX, mundY, mundZ + zahnTiefe * 0.7,
-      mundBreite * 0.7, zahnHoehe * 0.8, zahnTiefe * 1.2);
+  kugel('LeftEye', mitteX - augeX, augeY, augeZ, augeR, augeR, augeR,
+      eyeSteps);
+  kugel('RightEye', mitteX + augeX, augeY, augeZ, augeR, augeR, augeR,
+      eyeSteps);
+  quader('UpperTeeth', mitteX, oberY, zahnZ, zahnBreite, zahnHoehe,
+      zahnTiefe);
+  quader('LowerTeeth', mitteX, unterY, zahnZ, zahnBreite, zahnHoehe,
+      zahnTiefe);
+  kugel(
+      'Tongue',
+      mitteX,
+      zungeY,
+      zungeZ,
+      b * proportions.tongueWidth / 2,
+      h * proportions.tongueHeight / 2,
+      b * proportions.tongueDepth / 2,
+      tongueSteps);
 
-  // 3. Eintragen. Eigene Meshes, eigene Knoten, keine gemeinsamen
+  // 4. Eintragen. Eigene Meshes, eigene Knoten, keine gemeinsamen
   // Punkte mit dem Kopf – daran erkennt Auto Setup sie.
   final meshes = (json['meshes'] as List?) ?? (json['meshes'] = []);
   final nodes = (json['nodes'] as List?) ?? (json['nodes'] = []);
@@ -219,20 +374,57 @@ FacePartsResult addFaceParts(
     ...neueNodes,
   ];
 
-  notes.add('Kopfbreite gemessen: ${kopfBreite.toStringAsFixed(2)} – '
-      'alle Maße sind Anteile davon, damit sie an jede Figur passen.');
+  notes.add('Gemessen: Kopfbreite B = ${b.toStringAsFixed(2)}, '
+      'Kopfhöhe H = ${h.toStringAsFixed(2)} Studs. Alle Maße sind '
+      'Anteile davon – feste Studs gäbe es nur für eine feste '
+      'Figurengröße.');
+  notes.add('Augenradius ${augeR.toStringAsFixed(2)}, Augenabstand '
+      '${(augeX * 2).toStringAsFixed(2)}, Zahnreihe '
+      '${zahnBreite.toStringAsFixed(2)} Studs breit.');
+  final heraus = augeR * (1 - proportions.eyeSink);
+  notes.add('Die Augen schauen höchstens ${heraus.toStringAsFixed(2)} '
+      'Studs aus der Gesichtsfläche heraus – so viel kann die Figur an '
+      'Tiefe zulegen. Der Marktplatz misst höchstens 2,00 Studs.');
+  final budget = specBodyPartTriangles['DynamicHead'] ?? 4000;
+  final summe = berichte.fold(0, (a, p) => a + p.triangles);
+  notes.add('$summe Dreiecke, die zum Kopfbudget von $budget zählen – '
+      'für den Kopf selbst bleiben ${budget - summe}.');
   notes.add('Die Teile teilen keine Punkte mit dem Kopf. Genau daran '
       'trennt Auto Setup sie vom Rest.');
-  notes.add('Sichtbar ist davon fast nichts: Die Augen sitzen im '
-      'Schatten der Kapuze, der Mund ist ein geschlossener Schlitz. '
-      'Die Figur bleibt gesichtslos – aber der Segmentierer findet, '
-      'was er für die FACS-Posen braucht.');
+  notes.add('Ob Auto Setup ohne echte Augen- und Mundhöhlen FACS-Posen '
+      'baut, ist der offene Prüfpunkt: erst mit versenkten Kugeln '
+      'testen, Höhlen erst danach bauen.');
 
   return FacePartsResult(
     joinGlb(json, anhang.finish()),
     FacePartsReport(
-        parts: berichte, headWidth: kopfBreite, notes: notes),
+        parts: berichte, headWidth: b, headHeight: h, notes: notes),
   );
+}
+
+/// Der vorderste Treffer eines Strahls von −z auf (x, y).
+///
+/// Gerechnet wird in der Aufsicht: Enthält das Dreieck in der
+/// XY-Ebene den Punkt, liefert die baryzentrische Mischung sein z.
+/// Der kleinste Wert gewinnt – das ist die Fläche, die man von vorn
+/// sieht. Dreiecke unterhalb von [abY] bleiben außen vor, damit eine
+/// erhobene Hand nicht als Gesicht durchgeht.
+double? _frontHit(List<double> tris, double x, double y, double abY) {
+  var best = double.infinity;
+  for (var t = 0; t + 8 < tris.length; t += 9) {
+    final ay = tris[t + 1], by = tris[t + 4], cy = tris[t + 7];
+    if (ay < abY && by < abY && cy < abY) continue;
+    final ax = tris[t], bx = tris[t + 3], cx = tris[t + 6];
+    final nenner = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (nenner.abs() < 1e-12) continue;
+    final l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / nenner;
+    final l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / nenner;
+    final l3 = 1 - l1 - l2;
+    if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+    final z = l1 * tris[t + 2] + l2 * tris[t + 5] + l3 * tris[t + 8];
+    if (z < best) best = z;
+  }
+  return best.isFinite ? best : null;
 }
 
 /// Legt Accessoren an und gibt den fertigen Mesh-Eintrag zurück.
@@ -267,40 +459,70 @@ Map<String, dynamic> _mesh(GltfAppender anhang, String name,
   };
 }
 
-/// Eine geschlossene Kugel aus Längen- und Breitenkreisen.
+/// Ein geschlossenes Ellipsoid aus Längen- und Breitenkreisen.
 ///
 /// Roblox nennt für die Augen Halbkugeln. Geschrieben wird trotzdem
 /// eine volle Kugel: Eine Halbkugel hätte einen offenen Rand, und
 /// „wasserdicht ohne offene Löcher" gilt für jedes Netz in der Datei.
 /// Die hintere Hälfte steckt im Kopf und ist nie zu sehen.
-(Float32List, List<int>) _kugel(
-    double cx, double cy, double cz, double r, int steps) {
+///
+/// [steps] steuert die Dreieckszahl: Bei `steps` Längenschritten und
+/// `steps ~/ 2` Ringen entstehen `2 × steps × (Ringe − 1)` Dreiecke –
+/// 80 bei 10 Schritten, 36 bei 6.
+///
+/// **Jeder Punkt steht genau einmal.** Der naheliegende Aufbau legt
+/// für jeden Pol einen ganzen Ring gleicher Punkte an und wiederholt
+/// die erste Längsspalte am Ende. Das Ergebnis sieht richtig aus und
+/// ist trotzdem kaputt: Jede Kante an einem Pol und jede Kante an der
+/// Naht gehört dann nur **einem** Dreieck. Blender zählte an einem
+/// solchen Auge 46 offene Kanten. Die App selbst merkte es nicht, weil
+/// sie vor dem Prüfen nach Position verschweißt – eine UV-Naht ist
+/// kein Loch, ein doppelter Pol schon. Roblox verschweißt nicht.
+///
+/// Deshalb: ein Punkt je Pol, `steps` Punkte je Zwischenring, und die
+/// letzte Spalte greift per Modulo auf die erste zurück.
+///
+/// **Die Wicklung zeigt nach außen.** Auch das war einmal falsch
+/// herum: Blender maß an den Augen ein negatives Volumen, während
+/// Quader und Figur positiv waren. Die Prüfung der App sah nichts,
+/// weil sie nur auf **einheitliche** Wicklung achtet – und einheitlich
+/// falsch herum ist einheitlich.
+(Float32List, List<int>) _ellipsoid(double cx, double cy, double cz,
+    double rx, double ry, double rz, int steps) {
   final ringe = math.max(4, steps ~/ 2);
-  final punkte = <double>[];
-  final indizes = <int>[];
-  for (var i = 0; i <= ringe; i++) {
+  final punkte = <double>[cx, cy + ry, cz];
+  for (var i = 1; i < ringe; i++) {
     final phi = math.pi * i / ringe;
-    for (var j = 0; j <= steps; j++) {
+    for (var j = 0; j < steps; j++) {
       final theta = 2 * math.pi * j / steps;
       punkte.addAll([
-        cx + r * math.sin(phi) * math.cos(theta),
-        cy + r * math.cos(phi),
-        cz + r * math.sin(phi) * math.sin(theta),
+        cx + rx * math.sin(phi) * math.cos(theta),
+        cy + ry * math.cos(phi),
+        cz + rz * math.sin(phi) * math.sin(theta),
       ]);
     }
   }
-  int at(int i, int j) => i * (steps + 1) + j;
+  final sued = punkte.length ~/ 3;
+  punkte.addAll([cx, cy - ry, cz]);
+
+  int at(int i, int j) {
+    if (i <= 0) return 0;
+    if (i >= ringe) return sued;
+    return 1 + (i - 1) * steps + j % steps;
+  }
+
+  final indizes = <int>[];
   for (var i = 0; i < ringe; i++) {
     for (var j = 0; j < steps; j++) {
-      // An den Polen fallen alle Punkte eines Rings zusammen. Dort
-      // darf nur **ein** Dreieck je Spalte entstehen – das zweite
-      // hätte zwei gleiche Ecken und damit keine Fläche, und genau
-      // die lehnt Roblox' Validator ab (TriangleAreaValid).
+      // An den Polen läuft das Viereck auf ein Dreieck zusammen. Dort
+      // darf nur **eines** entstehen – das zweite hätte zwei gleiche
+      // Ecken und damit keine Fläche, und genau die lehnt Roblox'
+      // Validator ab (TriangleAreaValid).
       if (i > 0) {
-        indizes.addAll([at(i, j), at(i + 1, j + 1), at(i, j + 1)]);
+        indizes.addAll([at(i, j), at(i, j + 1), at(i + 1, j + 1)]);
       }
       if (i < ringe - 1) {
-        indizes.addAll([at(i, j), at(i + 1, j), at(i + 1, j + 1)]);
+        indizes.addAll([at(i, j), at(i + 1, j + 1), at(i + 1, j)]);
       }
     }
   }

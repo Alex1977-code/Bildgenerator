@@ -1431,29 +1431,65 @@ Die App ergänzt deshalb fünf eigene Netze: **LeftEye, RightEye,
 UpperTeeth, LowerTeeth, Tongue**. Sie teilen **keine Punkte mit dem
 Kopf** — daran trennt Auto Setup sie vom Rest.
 
-**Die Figur bleibt trotzdem gesichtslos.** Die Augen sitzen im
-Kapuzenschatten, der Mund ist ein geschlossener Schlitz zwischen Ober-
-und Unterzähnen. Sichtbar ist davon fast nichts; der Segmentierer
-braucht die Volumen trotzdem.
+**Feste Maße gibt es nicht**, weder bei Roblox noch in der Übergabe —
+die Figuren fallen unterschiedlich groß aus. Alle Zahlen sind deshalb
+Anteile der gemessenen **Kopfbreite B** und der **Kopfhöhe H aus der
+Bandmessung**:
 
-Zwei Entscheidungen dabei, beide aus einem Fehlschlag:
+| Teil | Form | Maß | Position |
+|---|---|---|---|
+| Auge, je Seite | Kugel | Radius 0,06 × B | P ± 0,18 × B auf X, bei 55 % von H, um 0,4 × Radius versenkt |
+| Oberzähne | flacher Quader | 0,25 × B breit, 0,03 × H hoch, 0,04 × B tief | bei 36 % von H, direkt hinter der Gesichtsfläche |
+| Unterzähne | wie Oberzähne | wie Oberzähne | bei 32 % von H (siehe unten) |
+| Zunge | Ellipsoid | 0,15 × B breit, 0,02 × H hoch, 0,10 × B tief | zwischen den Zahnreihen, 0,05 × B dahinter |
 
-- **Die Maße sind Anteile der gemessenen Kopfbreite**, keine absoluten
-  Studs. Roblox nennt die Teile, nicht ihre Größe — die hängt am Kopf.
-  An einer 5-Studs-Figur mit 1,5 Studs Kopfbreite ergibt das ein Auge
-  von 0,18 Studs Durchmesser.
+Für eine Figur mit B = 1,57 heißt das: Augenradius 0,09, Augenabstand
+0,57, Zahnreihe 0,39 Studs breit — die drei Zahlen aus der Übergabe,
+und der Test rechnet sie nach.
+
+**Gesichtspunkt P** ist der Treffer eines Strahls von vorn auf die
+Kopfmitte bei 55 % von H, nicht die vorderste Kante des Kopfbands. Bei
+einer Kapuze liegt die Kante am Kapuzenrand, das Gesicht aber tiefer;
+ein Auge an der Kante schwebte davor.
+
+Drei Entscheidungen dabei, jede aus einem Fehlschlag:
+
 - **Die Höhe kommt aus dem Kopfband, nicht aus dem Mittelwert der
   Punkte darin.** Ein grob unterteilter Kopf hat oft nur die obere
   Kante im Band; der Mittelwert lag dann auf dem Scheitel, und die
   Augen saßen über der Figur.
+- **33 % und der Abstand von 0,01 × H widersprechen sich.** Bei 36 %
+  und 33 % mit je 0,03 × H Höhe stoßen die Zahnreihen genau aneinander.
+  Der Abstand gewinnt, die Unterzähne rutschen auf 32 %, und der
+  Bericht sagt es an: Zwei Netze, die sich berühren, sind die Sorte
+  Geometrie, an der der Validator hängen bleibt.
+- **„Versenkt" heißt: Mittelpunkt 0,4 × Radius hinter der Fläche.** Das
+  Auge schaut also um 0,6 × Radius heraus, und um so viel kann die
+  Tiefe der Figur wachsen. Der Bericht nennt die Zahl in Studs — der
+  Marktplatz misst höchstens 2,00.
 
 Die Augen sind volle Kugeln, keine Halbkugeln: Eine Halbkugel hätte
 einen offenen Rand, und „wasserdicht ohne offene Löcher" gilt für jedes
-Netz in der Datei. Die hintere Hälfte steckt im Kopf. An den Polen
-entsteht nur **ein** Dreieck je Spalte — das zweite hätte zwei gleiche
-Ecken und damit keine Fläche.
+Netz in der Datei. Die hintere Hälfte steckt im Kopf.
 
-Zusammen kosten die fünf Teile rund 280 Dreiecke.
+**Zwei Fehler, die erst Blender zeigte.** Die App prüft Wasserdichtheit
+nach dem Verschweißen nach Position — eine UV-Naht ist kein Loch — und
+Wicklung nur auf Einheitlichkeit. Beides ließ eine kaputte Kugel durch:
+
+- Ein doppelter Punkt je Pol und eine wiederholte Nahtspalte ergaben
+  **46 offene Kanten je Auge**. Blender und Roblox verschweißen nicht.
+  Jetzt steht jeder Punkt genau einmal.
+- Die Kugeln waren **nach innen gewickelt** (negatives Volumen, während
+  Quader und Figur positiv waren). Einheitlich falsch herum ist
+  einheitlich — deshalb sah die Prüfung nichts.
+
+Beides prüfen jetzt zwei Tests, die roh über die Indizes gehen: offene
+Kanten ohne Verschweißen, und das Vorzeichen des Volumens. Gegen den
+alten Stand schlagen beide fehl.
+
+Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
+zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
+was für den Kopf selbst übrig bleibt.
 
 ### Auto Setup: der kurze Weg, und warum er nötig ist
 
@@ -1510,6 +1546,11 @@ Arme erkennbar.
 Nennt der Prompt schon eine Pose — gleich welche —, hängt die App nichts
 an. Geprüft wird auf beide: Stünde „A-pose" im Text und die App hängte
 die T-Pose an, widersprächen sich die Angaben.
+
+Der A-Pose-Baustein muss **drei** Angaben enthalten: A-Pose, 45 Grad
+nach unten, **Arme gestreckt**. Das letzte fehlte anfangs — „hanging"
+allein lässt angewinkelte Arme zu, und die sind für den Segmentierer so
+unbrauchbar wie waagerechte. Ein Test prüft alle drei.
 
 ### Deterministischer Export für den Marktplatz
 
