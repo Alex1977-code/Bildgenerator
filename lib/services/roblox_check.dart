@@ -44,7 +44,7 @@ enum RobloxTarget {
 
 extension RobloxTargetLabel on RobloxTarget {
   String get label => switch (this) {
-        RobloxTarget.character => 'Figur oder Prop',
+        RobloxTarget.character => 'Figur im Erlebnis',
         RobloxTarget.accessory => 'UGC-Accessoire',
         RobloxTarget.marketplaceAvatar => 'Marktplatz-Avatar',
       };
@@ -721,7 +721,7 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             'sein eigenes R15-Rig und verwirft dieses – das rohe Netz '
             'wäre sauberer. Für die Startfigur im eigenen Erlebnis ist '
             'das Skelett dagegen genau richtig; dann ist hier das Ziel '
-            '„Figur oder Prop" das passende.'));
+            '„Figur im Erlebnis" das passende.'));
   } else if (target == RobloxTarget.accessory) {
     findings.add(RobloxFinding(
         RobloxLevel.warning,

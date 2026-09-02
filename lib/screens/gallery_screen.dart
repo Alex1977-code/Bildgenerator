@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/exporter.dart';
 import '../services/history_service.dart';
 import '../services/project_tree.dart';
+import '../services/image_relay.dart';
 import '../services/prompt_relay.dart';
 import '../services/provenance.dart';
 import '../services/selection_range.dart';
@@ -114,6 +115,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Namen aus dem Massenprompt ist so jedes Bild wiederzufinden.
   String _search = '';
 
+  /// Nur Bilder, nur 3D-Modelle oder alles – die Chips über der
+  /// Suche. Bei zweihundert Einträgen ist „alles" selten gemeint.
+  String _kind = '';
+
   /// Der gerade geöffnete Ordner. Leer = die ganze Galerie.
   String _folder = '';
 
@@ -170,6 +175,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       BuildContext context, HistoryEntry entry, Uint8List bytes) {
     final history = context.read<HistoryService>();
     final relay = context.read<PromptRelay>();
+    final images = context.read<ImageRelay>();
     if (entry.isModel) {
       Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => ModelPreviewScreen(
@@ -198,6 +204,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
         },
         onDelete: () => history.delete(entry),
         onReusePrompt: () => relay.send(entry.prompt),
+        // Das Bild als Vorderansicht in den 3D-Tab – derselbe Weg wie
+        // „→ 3D" an der Ergebniskarte, nur aus der Galerie heraus.
+        onSendToThreeD: () => images.send(
+          bytes: bytes,
+          name: entry.downloadFileName,
+          prompt: entry.prompt,
+        ),
       ),
     ));
   }
@@ -455,6 +468,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           style: _folder.isEmpty
                               ? theme.textTheme.labelLarge
                               : theme.textTheme.bodyMedium),
+                      const SizedBox(width: 5),
+                      Text('${history.entries.length}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              fontFamily: 'monospace',
+                              color: theme.colorScheme.outline)),
                     ],
                   ),
                 ),
@@ -545,14 +563,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
             : projectIsInside(entry.project, _folder))
           entry,
     ];
+    final byKind = [
+      for (final entry in inFolder)
+        if (_kind.isEmpty ||
+            (_kind == 'model' ? entry.isModel : !entry.isModel))
+          entry,
+    ];
     final entries = needle.isEmpty
-        ? inFolder
+        ? byKind
         : [
-            for (final entry in inFolder)
+            for (final entry in byKind)
               if (entry.name.toLowerCase().contains(needle) ||
                   entry.prompt.toLowerCase().contains(needle))
                 entry,
           ];
+    final imageCount = inFolder.where((e) => !e.isModel).length;
+    final modelCount = inFolder.length - imageCount;
 
     if (all.isEmpty) {
       // Auch die leere Galerie behält ihre Ordnerleiste: Wer die
@@ -589,12 +615,52 @@ class _GalleryScreenState extends State<GalleryScreen> {
       );
     }
 
+    final narrow = MediaQuery.sizeOf(context).width < 700;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Auf dem Handy gibt es keine Kopfzeile – der Tab trägt seinen
+        // Titel selbst.
+        if (narrow)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            child: Text('Galerie',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w600)),
+          ),
         _folderBar(history, Theme.of(context)),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                label: Text('Alle ${inFolder.length}'),
+                selected: _kind.isEmpty,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _kind = ''),
+              ),
+              ChoiceChip(
+                avatar: const Icon(Icons.image_outlined, size: 16),
+                label: Text('Bilder $imageCount'),
+                selected: _kind == 'image',
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _kind = 'image'),
+              ),
+              ChoiceChip(
+                avatar: const Icon(Icons.view_in_ar_outlined, size: 16),
+                label: Text('3D $modelCount'),
+                selected: _kind == 'model',
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _kind = 'model'),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           child: TextField(
             controller: _searchCtrl,
             decoration: InputDecoration(
@@ -1083,9 +1149,14 @@ class _GalleryTile extends StatelessWidget {
                               style: theme.textTheme.bodySmall,
                             ),
                             const SizedBox(height: 2),
+                            // „02.09. · GLB" – die Art steht dabei, weil
+                            // ein Vorschaubild allein nicht sagt, ob
+                            // dahinter ein Modell steckt.
                             Text(
-                              dateLabel,
+                              '$dateLabel · '
+                              '${isModel ? 'GLB' : entry.fileExtension.toUpperCase()}',
                               style: theme.textTheme.labelSmall?.copyWith(
+                                  fontFamily: 'monospace',
                                   color: theme.colorScheme.outline),
                             ),
                             if (folderLabel.isNotEmpty)

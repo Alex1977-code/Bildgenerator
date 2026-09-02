@@ -1,22 +1,30 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/batch_csv.dart';
 import '../services/batch_prompt.dart';
+import '../services/credit_balance.dart';
 import '../services/exporter.dart';
 import '../services/prompt_briefing.dart';
 import '../services/prompt_rewrite.dart';
 import '../services/generators.dart';
 import '../services/history_service.dart';
+import '../services/image_relay.dart';
 import '../services/model_catalog.dart';
 import '../services/cost_estimator.dart';
+import '../services/cost_unit.dart';
 import '../services/prompt_drop.dart';
+import '../services/project_tree.dart';
 import '../services/prompt_relay.dart';
+import '../services/run_queue.dart';
 import '../services/quality_preset.dart';
 import '../services/provenance.dart';
 import '../services/self_host_service.dart';
@@ -24,9 +32,10 @@ import '../services/settings_service.dart';
 import '../services/view_direction.dart';
 import '../services/wait_motif.dart';
 import '../services/watermark.dart';
+import '../widgets/app_header.dart';
 import '../widgets/common.dart';
-import '../widgets/cost_quality_panel.dart';
 import '../widgets/generation_progress.dart';
+import '../widgets/option_card.dart';
 import 'image_detail_screen.dart';
 
 /// Hauptbildschirm: Prompt, Referenzbilder, Optionen und Ergebnisse.
@@ -34,10 +43,14 @@ class GeneratorScreen extends StatefulWidget {
   const GeneratorScreen({
     super.key,
     required this.onOpenSettings,
+    this.onOpenRuns,
     this.isActive = true,
   });
 
   final VoidCallback onOpenSettings;
+
+  /// Öffnet die Warteschlange (Handy: der Chip in der Titelzeile).
+  final VoidCallback? onOpenRuns;
 
   /// Ob dieser Tab gerade sichtbar ist. Im IndexedStack bleiben alle
   /// Tabs aufgebaut – ohne diese Sperre fingen ihre Drop-Ziele auch
@@ -113,6 +126,43 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   /// Lässt die Anzeige der vergangenen Zeit sekündlich weiterlaufen.
   Timer? _batchTicker;
 
+  /// Die Blöcke, die im laufenden Massenlauf noch anstehen – für die
+  /// gestrichelten Karten „in Warteschlange".
+  final List<String> _batchPending = [];
+
+  /// Zeit und Kosten je Ergebnis – „11 s · 0,04 \$" an der Karte.
+  final List<_ResultMeta> _resultMeta = [];
+
+  /// Massenprompt: Editor (true) oder die Tabelle der Blöcke.
+  bool _batchEditing = true;
+
+  /// „Profi-Optionen" aufgeklappt?
+  bool _proOpen = false;
+
+  /// Der Massenprompt-Text wurde nach dem Start zurückgeholt.
+  bool _batchRestored = false;
+
+  SettingsService? _settings;
+
+  /// Der Plan zum gerade sichtbaren Text – ohne Klick auf „Prüfen".
+  /// Gemerkt je Text, damit nicht jeder Bildaufbau neu parst.
+  String _planCacheText = '\u0000';
+  BatchPlan? _planCache;
+  String _planCacheKey = '';
+
+  BatchPlan _livePlan(SettingsService settings) {
+    final key = '${settings.provider.name}/${settings.modelFor(settings.provider)}'
+        '/${settings.viewDirection}/${_references.length}';
+    if (_planCache == null ||
+        _planCacheText != _batchCtrl.text ||
+        _planCacheKey != key) {
+      _planCacheText = _batchCtrl.text;
+      _planCacheKey = key;
+      _planCache = _parseBatch(settings);
+    }
+    return _planCache!;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -122,6 +172,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       if (_batchPlan != null && !_batchRunning) {
         setState(() => _batchPlan = null);
       }
+      // Der Text überlebt den Neustart – und die Tabelle folgt ihm.
+      _settings?.rememberBatchText(_batchCtrl.text);
+      if (mounted) setState(() {});
     });
   }
 
@@ -132,6 +185,16 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     if (!identical(_relay, relay)) {
       _relay?.removeListener(_onPromptRelay);
       _relay = relay..addListener(_onPromptRelay);
+    }
+    final settings = context.read<SettingsService>();
+    _settings = settings;
+    if (!_batchRestored) {
+      _batchRestored = true;
+      if (settings.lastBatchText.trim().isNotEmpty) {
+        _batchCtrl.text = settings.lastBatchText;
+        _batchMode = true;
+        _batchEditing = false;
+      }
     }
   }
 
@@ -425,7 +488,17 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     setState(() {
       _generating = true;
       _error = null;
+      _batchPending.clear();
     });
+    final queue = context.read<RunQueue>();
+    final balances = context.read<CreditBalances>();
+    final job = queue.add(
+      name: prompt.length > 40 ? '${prompt.substring(0, 40)} …' : prompt,
+      kind: RunJobKind.image,
+      provider: _motif(settings).name,
+    );
+    queue.start(job.id);
+    final started = DateTime.now();
     _previewJob = _startPreview(settings);
     final request = _buildRequest(
       settings,
@@ -434,6 +507,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       references: List.of(_references),
       count: settings.count,
     );
+    final (costMin, costMax, _) = imageModelCost(settings);
     try {
       final generator = ImageGenerator.forProvider(settings.provider);
       final result = await generator.generate(request, apiKey.trim());
@@ -447,19 +521,38 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           'Restguthaben: ${result.creditsRemaining!.toStringAsFixed(1)} '
               'Credits',
       ];
-      await history.addResults(request, images, extraParams: {
-        if (result.totalTokens != null) 'Tokens': '${result.totalTokens}',
-        if (watermarkOn) 'Wasserzeichen': 'ja',
-      });
+      if (result.creditsRemaining != null) {
+        balances.noteRemaining(settings.provider.name, result.creditsRemaining!);
+      }
+      await history.addResults(request, images,
+          project: settings.currentProject,
+          extraParams: {
+            if (result.totalTokens != null) 'Tokens': '${result.totalTokens}',
+            if (watermarkOn) 'Wasserzeichen': 'ja',
+          });
+      final elapsed = DateTime.now().difference(started);
+      queue.finish(job.id, costUsd: costMax * images.length);
       if (!mounted) return;
       setState(() {
         _results = images;
+        _resultMeta
+          ..clear()
+          ..addAll([
+            for (var i = 0; i < images.length; i++)
+              _ResultMeta(
+                  name: '',
+                  elapsed: elapsed,
+                  costUsd: costMax,
+                  costMinUsd: costMin),
+          ]);
         _lastRequest = request;
         _usageInfo = usageParts.isEmpty ? null : usageParts.join(' · ');
       });
     } on GenerationException catch (e) {
+      queue.fail(job.id, e.message);
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
+      queue.fail(job.id, 'Unerwarteter Fehler: $e');
       if (mounted) setState(() => _error = 'Unerwarteter Fehler: $e');
     } finally {
       _stopPreview();
@@ -467,6 +560,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       if (mounted) setState(() => _generating = false);
     }
   }
+
+  /// Wer da rechnet – das Motiv gehört zum Modell.
+  WaitMotif _motif(SettingsService settings) =>
+      waitMotifFor(settings.provider, settings.modelFor(settings.provider));
 
   // --------------------------------------------------------------
   // Massenprompt
@@ -695,7 +792,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       _batchFailures.clear();
       _batchFailedItems.clear();
       _batchNotes.clear();
+      _batchPending
+        ..clear()
+        ..addAll([for (final item in items) item.name]);
       _results = [];
+      _resultMeta.clear();
       _usageInfo = null;
       _error = null;
     });
@@ -704,12 +805,31 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
       if (mounted && _batchRunning) setState(() {});
     });
 
+    // Jeder Block ein Auftrag in der Warteschlange – sichtbar aus
+    // jedem Tab, und nach einem Neustart weiß die App, was fehlte.
+    final queue = context.read<RunQueue>()..clearCancelRequest();
+    final balances = context.read<CreditBalances>();
+    final motifName = _motif(settings).name;
+    final jobs = <String, RunJob>{
+      for (final item in items)
+        item.name: queue.add(
+            name: item.name, kind: RunJobKind.image, provider: motifName),
+    };
+    final (costMin, costMax, _) = imageModelCost(settings);
+
     final produced = <GeneratedImage>[];
     final generator = ImageGenerator.forProvider(settings.provider);
     try {
       for (final item in items) {
-        if (_batchCancel) break;
-        if (mounted) setState(() => _batchCurrent = item.name);
+        if (_batchCancel || queue.cancelRequested) break;
+        if (mounted) {
+          setState(() {
+            _batchCurrent = item.name;
+            _batchPending.remove(item.name);
+          });
+        }
+        final job = jobs[item.name]!;
+        queue.start(job.id);
         final started = DateTime.now();
         _previewJob = _startPreview(settings);
         try {
@@ -731,11 +851,16 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           if (result.note.isNotEmpty) {
             _batchNotes.add('${item.name}: ${result.note}');
           }
+          if (result.creditsRemaining != null) {
+            balances.noteRemaining(
+                settings.provider.name, result.creditsRemaining!);
+          }
           final watermarkOn =
               settings.watermarkEnabled && settings.watermarkLogo != null;
           final images = await _watermarked(settings, result.images);
           await history.addResults(request, images,
               name: item.name,
+              project: settings.currentProject,
               extraParams: {
                 'Massenprompt': 'ja',
                 if (result.totalTokens != null)
@@ -743,13 +868,24 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 if (watermarkOn) 'Wasserzeichen': 'ja',
               });
           produced.addAll(images);
+          final elapsed = DateTime.now().difference(started);
+          for (final _ in images) {
+            _resultMeta.add(_ResultMeta(
+                name: item.name,
+                elapsed: elapsed,
+                costUsd: costMax,
+                costMinUsd: costMin));
+          }
+          queue.finish(job.id, costUsd: costMax);
           _lastRequest = request;
         } on GenerationException catch (e) {
           _batchFailures.add('${item.name}: ${e.message}');
           _batchFailedItems.add(item);
+          queue.fail(job.id, e.message);
         } catch (e) {
           _batchFailures.add('${item.name}: $e');
           _batchFailedItems.add(item);
+          queue.fail(job.id, '$e');
         } finally {
           _stopPreview();
           _previewJob = '';
@@ -764,14 +900,34 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     } finally {
       _batchTicker?.cancel();
       _batchTicker = null;
+      // Was nicht mehr drankam, ist abgebrochen – nicht „wartet".
+      for (final job in jobs.values) {
+        if (job.isOpen) queue.cancel(job.id);
+      }
       if (mounted) {
         setState(() {
           _batchRunning = false;
           _generating = false;
           _batchCurrent = '';
+          _batchPending.clear();
         });
       }
     }
+  }
+
+  /// Ein Lauf wurde beim Schließen der App unterbrochen: die Blöcke,
+  /// die noch fehlen und im Text noch stehen.
+  List<BatchItem> _interruptedItems(SettingsService settings) {
+    final queue = context.read<RunQueue>();
+    final offen = {
+      for (final job in queue.interrupted)
+        if (job.kind == RunJobKind.image) job.name,
+    };
+    if (offen.isEmpty) return const [];
+    return [
+      for (final item in _livePlan(settings).items)
+        if (offen.contains(item.name)) item,
+    ];
   }
 
   /// Zeitangabe in lesbarer Form („45 s", „3:20 min", „1 h 05 min").
@@ -873,267 +1029,856 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
+    _settings = settings;
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
         if (wide) {
+          // 588 wie im Entwurf; auf schmaleren Fenstern die Hälfte.
+          final left = math.min(588.0, constraints.maxWidth * 0.5);
           return Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                width: 460,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: _buildControls(settings),
+                width: left,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(24, 22, 24, 16),
+                        children: _buildControls(settings),
+                      ),
+                    ),
+                    _buildFooter(settings),
+                  ],
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ..._buildResultsHeader(),
-                      Expanded(child: _buildResultsGrid(shrinkWrap: false)),
-                    ],
-                  ),
-                ),
-              ),
+              Expanded(child: _buildResultsPane(settings)),
             ],
           );
         }
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            ..._buildControls(settings),
-            const SizedBox(height: 8),
-            ..._buildResultsHeader(),
-            _buildResultsGrid(shrinkWrap: true),
-          ],
-        );
+        return _buildNarrow(settings);
       },
     );
   }
 
+  /// Die linke Spalte: Auftrag, Warnungen, Referenzen, vier Karten,
+  /// Profi-Optionen. Der Knopf steht darunter fest (siehe
+  /// [_buildFooter]).
   List<Widget> _buildControls(SettingsService settings) {
-    final plan = _batchPlan;
-    final batchReady = plan != null && plan.isValid;
     return [
-      // Einzelbild oder Massenprompt – beides nutzt dieselben
-      // Einstellungen darunter (Modell, Format, Referenzbilder).
-      SegmentedButton<bool>(
-        segments: const [
-          ButtonSegment(
-              value: false,
-              icon: Icon(Icons.image_outlined, size: 18),
-              label: Text('Einzelbild')),
-          ButtonSegment(
-              value: true,
-              icon: Icon(Icons.dynamic_feed, size: 18),
-              label: Text('Massenprompt')),
-        ],
-        selected: {_batchMode},
-        onSelectionChanged: _generating
-            ? null
-            : (selection) => setState(() => _batchMode = selection.first),
-      ),
-      const SizedBox(height: 12),
+      _buildModeRow(settings),
+      const SizedBox(height: 14),
       if (_batchMode)
         _buildBatchCard(settings)
       else
         _buildPromptCard(settings),
-      const SizedBox(height: 12),
-      _buildReferenceCard(settings.provider.supportsReferences),
-      const SizedBox(height: 12),
-      _buildOptionsCard(settings),
+      for (final notice in _buildNotices(settings)) ...[
+        const SizedBox(height: 12),
+        notice,
+      ],
       const SizedBox(height: 16),
-      FilledButton.icon(
-        onPressed: _generating
-            ? null
-            : _batchMode
-                ? (batchReady ? _generateBatch : null)
-                : _generate,
-        icon: _generating
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(_batchMode ? Icons.playlist_play : Icons.auto_awesome),
-        label: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Text(
-            _generating
-                ? _batchMode
-                    ? 'Massenlauf läuft …'
-                    : 'Wird generiert …'
-                : _batchMode
-                    ? batchReady
-                        ? '${plan.items.length} Bilder generieren'
-                        : 'Erst prüfen, dann generieren'
-                    : settings.count > 1
-                        ? '${settings.count} Bilder generieren'
-                        : 'Bild generieren',
-            style: const TextStyle(fontSize: 16),
-          ),
-        ),
-      ),
-      const SizedBox(height: 8),
-      // Anbieter und Modell stehen oben in der Auswahlliste; hier bleibt
-      // nur der kurze Weg zum Schlüssel, falls einer fehlt.
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              '${settings.provider.label} · '
-              '${settings.modelFor(settings.provider)}',
-              style: Theme.of(context).textTheme.bodySmall,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          TextButton(
-            onPressed: widget.onOpenSettings,
-            child: const Text('API-Schlüssel'),
-          ),
-        ],
-      ),
-      if (_error != null)
-        Card(
-          color: Theme.of(context).colorScheme.errorContainer,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.error_outline,
-                    color: Theme.of(context).colorScheme.onErrorContainer),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: SelectableText(
-                    _error!,
-                    style: TextStyle(
-                        color:
-                            Theme.of(context).colorScheme.onErrorContainer),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      _buildReferenceRow(settings.provider.supportsReferences),
+      const SizedBox(height: 16),
+      _buildOptionGrid(settings),
+      const SizedBox(height: 12),
+      _buildProOptions(settings),
     ];
   }
 
-  /// Eingabefeld und Prüfung für den Massenprompt.
+  /// Handy: Titelzeile, Auftrag, zwei Knöpfe, unten das Feld mit
+  /// Modell, Format, Stufe und dem Knopf – wie im Entwurf 1d.
+  Widget _buildNarrow(SettingsService settings) {
+    final theme = Theme.of(context);
+    final queue = context.watch<RunQueue>();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+          child: Row(
+            children: [
+              Text('Bild',
+                  style: theme.textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              if (queue.openCount > 0) ...[
+                ActionChip(
+                  avatar: const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 1.5)),
+                  label: Text(queue.summary),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.onOpenRuns,
+                ),
+                const SizedBox(width: 8),
+              ],
+              const ProjectChip(compact: true),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            children: [
+              _buildModeRow(settings, compact: true),
+              const SizedBox(height: 12),
+              if (_batchMode)
+                _buildBatchCard(settings)
+              else
+                _buildPromptCard(settings),
+              for (final notice in _buildNotices(settings)) ...[
+                const SizedBox(height: 10),
+                notice,
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showReferenceSheet(settings),
+                      icon: const Icon(Icons.photo_library_outlined, size: 18),
+                      label: Text(_references.isEmpty
+                          ? 'Referenz'
+                          : 'Referenz ${_references.length}'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showTemplateSheet(settings),
+                      icon: const Icon(Icons.auto_awesome_outlined, size: 18),
+                      label: const Text('Vorlage'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _buildMobilePanel(settings),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                _buildErrorCard(),
+              ],
+              const SizedBox(height: 18),
+              ..._buildResultsHeader(settings),
+              const SizedBox(height: 8),
+              _buildResultsGrid(settings, shrinkWrap: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// „Massenprompt | Einzelbild", der Zähler, „Vorlage laden".
+  ///
+  /// [compact]: auf dem Handy ohne das Menü – dort gibt es den Knopf
+  /// „Vorlage" darunter, und die Zeile ist nur 350 Punkte breit.
+  Widget _buildModeRow(SettingsService settings, {bool compact = false}) {
+    final plan = _batchMode ? _livePlan(settings) : null;
+    final n = plan?.items.length ?? settings.count;
+    return LayoutBuilder(builder: (context, constraints) {
+      // Unter 460 Punkten wird aus „Vorlage laden" ein Symbol – und
+      // ein Wrap statt einer Row: Passt der Zähler nicht mehr neben
+      // den Umschalter, rutscht er in die nächste Zeile, statt
+      // überzulaufen.
+      final narrow = constraints.maxWidth < 460;
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          PillSegments<bool>(
+            segments: const [(true, 'Massenprompt'), (false, 'Einzelbild')],
+            selected: _batchMode,
+            onChanged: _generating
+                ? null
+                : (value) => setState(() => _batchMode = value),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MonoText(
+                _batchMode
+                    ? '$n ${n == 1 ? 'Block' : 'Blöcke'} · $n ${n == 1 ? 'Bild' : 'Bilder'}'
+                    : '$n ${n == 1 ? 'Bild' : 'Bilder'}',
+              ),
+              if (!compact) ...[
+                const SizedBox(width: 6),
+                _templateMenu(settings, iconOnly: narrow),
+              ],
+            ],
+          ),
+        ],
+      );
+    });
+  }
+
+  /// Das Menü „Vorlage laden": alles, was den Text füllt oder prüft.
+  Widget _templateMenu(SettingsService settings, {bool iconOnly = false}) {
+    final theme = Theme.of(context);
+    final profile = _profile(settings);
+    if (iconOnly) {
+      return PopupMenuButton<String>(
+        tooltip: 'Vorlage laden',
+        enabled: !_generating,
+        iconSize: 18,
+        icon: Icon(Icons.auto_awesome_outlined,
+            color: theme.colorScheme.primary),
+        onSelected: (value) => _templateAction(settings, value),
+        itemBuilder: (context) => _templateEntries(settings, profile),
+      );
+    }
+    return PopupMenuButton<String>(
+      tooltip: 'Vorlagen und Werkzeuge für den Text',
+      enabled: !_generating,
+      onSelected: (value) => _templateAction(settings, value),
+      itemBuilder: (context) => _templateEntries(settings, profile),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Text('Vorlage laden',
+            style: theme.textTheme.labelMedium?.copyWith(
+                color: _generating
+                    ? theme.colorScheme.outlineVariant
+                    : theme.colorScheme.primary)),
+      ),
+    );
+  }
+
+  List<PopupMenuEntry<String>> _templateEntries(
+      SettingsService settings, PromptProfile profile) {
+    PopupMenuItem<String> item(String value, IconData icon, String text) =>
+        PopupMenuItem(
+          value: value,
+          child: Row(
+            children: [
+              Icon(icon, size: 18),
+              const SizedBox(width: 10),
+              Flexible(child: Text(text)),
+            ],
+          ),
+        );
+    return [
+      if (_batchMode) ...[
+        item('beispiel', Icons.lightbulb_outline, 'Beispiel einfügen'),
+        item('csv', Icons.table_chart_outlined, 'CSV einlesen …'),
+        item('pruefen', Icons.fact_check_outlined, 'Prüfbericht ansehen'),
+        if (profile.style == PromptStyle.keywords)
+          item('umschreiben', Icons.auto_fix_high_outlined,
+              'Für ${profile.modelLabel} umschreiben'),
+        const PopupMenuDivider(),
+      ],
+      item('ansehen', Icons.visibility_outlined,
+          'Vorlage für die Prompt-KI ansehen'),
+      item('kopieren', Icons.copy_all_outlined, 'Vorlage kopieren'),
+      if (!_batchMode) ...[
+        const PopupMenuDivider(),
+        for (final template in promptTemplates)
+          item('stil:${template.$1}', Icons.style_outlined, template.$2),
+      ],
+    ];
+  }
+
+  Future<void> _templateAction(SettingsService settings, String value) async {
+    switch (value) {
+      case 'beispiel':
+        setState(() {
+          _batchCtrl.text = batchPromptExample(_profile(settings),
+              direction: _direction(settings));
+          _batchEditing = false;
+        });
+      case 'csv':
+        await _importCsv();
+      case 'pruefen':
+        _checkBatch();
+        await _showPlanDialog(settings);
+      case 'umschreiben':
+        await _rewriteBatch(settings);
+      case 'ansehen':
+        _batchMode
+            ? await _showBatchBriefing(settings)
+            : await _showPromptBriefing(settings);
+      case 'kopieren':
+        _batchMode
+            ? await _copyBatchBriefing(settings)
+            : await _copyPromptBriefing(settings);
+      default:
+        if (value.startsWith('stil:')) _appendTemplate(value.substring(5));
+    }
+  }
+
+  /// Eine Tabelle öffnen und zu Blöcken machen.
+  Future<void> _importCsv() async {
+    XFile? file;
+    try {
+      file = await openFile(acceptedTypeGroups: const [
+        XTypeGroup(label: 'Tabelle', extensions: ['csv', 'tsv', 'txt']),
+      ]);
+    } catch (e) {
+      _showSnack('Datei konnte nicht geöffnet werden: $e');
+      return;
+    }
+    if (file == null) return;
+    try {
+      final import = batchTextFromCsv(await file.readAsString());
+      if (import.rows == 0) {
+        _showSnack(import.summary);
+        return;
+      }
+      setState(() {
+        _batchCtrl.text = appendPromptText(_batchCtrl.text, import.text);
+        _batchEditing = false;
+      });
+      _showSnack('${file.name}: ${import.summary}');
+    } catch (e) {
+      _showSnack('CSV konnte nicht gelesen werden: $e');
+    }
+  }
+
+  /// Der ganze Prüfbericht – auf Abruf, nicht als Wand.
+  Future<void> _showPlanDialog(SettingsService settings) async {
+    final plan = _livePlan(settings);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Prüfbericht Massenprompt'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(child: _buildBatchResult(plan)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Warnungen als Zeilen, nicht als Absätze. Der erste Punkt steht
+  /// da, der Rest hinter „Details".
+  List<Widget> _buildNotices(SettingsService settings) {
+    final notices = <Widget>[];
+    if (_batchMode) {
+      final plan = _livePlan(settings);
+      if (plan.issues.isNotEmpty) {
+        final first = plan.issues.first;
+        notices.add(NoticeRow(
+          tone: NoticeTone.error,
+          text: '$first'
+              '${plan.issues.length > 1 ? ' (+${plan.issues.length - 1})' : ''}',
+          actionLabel: 'Details',
+          onAction: () => _showPlanDialog(settings),
+        ));
+      }
+      if (plan.warnings.isNotEmpty) {
+        final first = plan.warnings.first;
+        notices.add(NoticeRow(
+          tone: NoticeTone.warning,
+          text: '${first.message}'
+              '${plan.warnings.length > 1 ? ' (+${plan.warnings.length - 1})' : ''}',
+          actionLabel: 'Details',
+          onAction: () => _showPlanDialog(settings),
+        ));
+      }
+      final fehlend = _interruptedItems(settings);
+      if (fehlend.isNotEmpty && !_generating) {
+        notices.add(NoticeRow(
+          tone: NoticeTone.info,
+          text: 'Unterbrochener Lauf: ${fehlend.length} '
+              '${fehlend.length == 1 ? 'Bild fehlt' : 'Bilder fehlen'} '
+              'noch – die App hat beim Schließen aufgehört.',
+          actionLabel: 'Nachholen',
+          onAction: () {
+            context.read<RunQueue>().clearFinished();
+            _generateBatch(only: fehlend);
+          },
+        ));
+      }
+    } else if (settings.provider.supportsReferences == false &&
+        _references.isNotEmpty) {
+      notices.add(NoticeRow(
+        tone: NoticeTone.warning,
+        text: '${settings.provider.shortLabel} nimmt keine Referenzbilder '
+            '– die ${_references.length} geladenen bleiben außen vor.',
+      ));
+    }
+    return notices;
+  }
+
+  /// Der Knopf und die Kosten – fest unter der Spalte.
+  Widget _buildFooter(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final n = _plannedCount(settings);
+    final (costMin, costMax, tier) = imageModelCost(settings);
+    final estimate = CostQualityEstimate(
+      items: [CostItem('$n Bilder', costMin * n, costMax * n)],
+      quality: tier,
+      qualityLabel: qualityTierLabels[tier]!,
+    );
+    final unit = unitCostOf(estimate,
+        provider: settings.provider.name,
+        label: settings.provider.shortLabel,
+        basis: basisOf(settings.provider.name));
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text('$n ${n == 1 ? 'Bild' : 'Bilder'} · ',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        MonoText(formatUsdRange(costMin * n, costMax * n),
+                            bold: true, color: scheme.onSurface, size: 12.5),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Tooltip(
+                      message: unit.basis.caveat,
+                      child: Text(
+                        '${unit.perTenEuroLabel} · Schätzwert, echter '
+                        'Abzug nach dem Lauf',
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: scheme.outline),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              _startButton(settings),
+            ],
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            _buildErrorCard(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _plannedCount(SettingsService settings) =>
+      _batchMode ? _livePlan(settings).items.length : settings.count;
+
+  Widget _startButton(SettingsService settings, {bool wide = false}) {
+    final plan = _batchMode ? _livePlan(settings) : null;
+    final n = _plannedCount(settings);
+    final label = _generating
+        ? (_batchMode ? 'Massenlauf läuft …' : 'Wird generiert …')
+        : wide
+            ? '$n ${n == 1 ? 'Bild' : 'Bilder'} generieren'
+            : 'Lauf starten';
+    return FilledButton.icon(
+      onPressed: _generating
+          ? null
+          : _batchMode
+              ? (plan!.isValid
+                  ? _generateBatch
+                  : () => _showPlanDialog(settings))
+              : _generate,
+      icon: _generating
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.play_arrow, size: 18),
+      style: FilledButton.styleFrom(
+        padding: EdgeInsets.symmetric(horizontal: 22, vertical: wide ? 16 : 14),
+        textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+      ),
+      label: Text(label),
+    );
+  }
+
+  Widget _buildErrorCard() {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: scheme.onErrorContainer, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(_error!,
+                style: TextStyle(color: scheme.onErrorContainer, fontSize: 12.5)),
+          ),
+          IconButton(
+            tooltip: 'Ausblenden',
+            iconSize: 16,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close),
+            onPressed: () => setState(() => _error = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Handy: das Feld unten – Modell, Seitenverhältnis, Stufe, Kosten,
+  /// Knopf. Alles Seltene hinter „Mehr Optionen".
+  Widget _buildMobilePanel(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final (costMin, costMax, tier) = imageModelCost(settings);
+    final n = _plannedCount(settings);
+    final options = _sizeOptions(settings);
+    final current = _sizeValue(settings);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(_modelTitle(settings),
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis),
+              ),
+              TextButton(
+                onPressed: _generating ? null : () => _pickModel(settings),
+                child: const Text('wechseln ▸'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final option in options)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(_shortSizeLabel(option.$2),
+                          style: const TextStyle(fontFamily: 'monospace')),
+                      selected: option.$1 == current,
+                      showCheckmark: false,
+                      onSelected: (_) => _setSize(settings, option.$1),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    QualityBars(level: tier, height: 6),
+                    const SizedBox(height: 5),
+                    Text(qualityTierLabels[tier]!,
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: scheme.outline)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              MonoText(formatUsdRange(costMin * n, costMax * n),
+                  bold: true, size: 15, color: Colors.green.shade700),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: _startButton(settings, wide: true),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => _showProSheet(settings),
+              child: const Text('Mehr Optionen'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showReferenceSheet(SettingsService settings) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildReferenceRow(settings.provider.supportsReferences,
+                  onChanged: () => setSheet(() {})),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showTemplateSheet(SettingsService settings) async {
+    final profile = _profile(settings);
+    final entries = _templateEntries(settings, profile);
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final entry in entries)
+              if (entry is PopupMenuItem<String>)
+                ListTile(
+                  title: entry.child,
+                  onTap: () => Navigator.of(context).pop(entry.value),
+                )
+              else
+                const Divider(height: 1),
+          ],
+        ),
+      ),
+    );
+    if (value != null && mounted) await _templateAction(settings, value);
+  }
+
+  Future<void> _showProSheet(SettingsService settings) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        builder: (context, controller) => Consumer<SettingsService>(
+          builder: (context, settings, _) => ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            children: [
+              Text('Profi-Optionen',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              ..._proOptionChildren(settings),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// Der Massenprompt: als Tabelle der Blöcke, solange nicht getippt
+  /// wird – eine Zeile je Asset, Name und Prompt –, und als Editor,
+  /// sobald man hineinklickt. Beides ist derselbe Text.
   Widget _buildBatchCard(SettingsService settings) {
     final theme = Theme.of(context);
-    final plan = _batchPlan;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+    final scheme = theme.colorScheme;
+    final plan = _livePlan(settings);
+    final showTable = !_batchEditing && plan.items.isNotEmpty;
+    return DropTarget(
+      enable: !_generating &&
+          widget.isActive &&
+          (ModalRoute.of(context)?.isCurrent ?? true),
+      onDragEntered: (_) => setState(() => _dragOverPrompt = true),
+      onDragExited: (_) => setState(() => _dragOverPrompt = false),
+      onDragDone: (detail) => _dropPromptFiles(detail.files, _batchCtrl),
+      child: Container(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: _dragOverPrompt ? scheme.primary : scheme.outlineVariant,
+              width: _dragOverPrompt ? 2 : 1),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: showTable
+            ? Column(
+                children: [
+                  for (var i = 0; i < math.min(plan.items.length, 12); i++)
+                    _blockRow(
+                      number: (i + 1).toString().padLeft(2, '0'),
+                      name: plan.items[i].name,
+                      prompt: plan.items[i].prompt,
+                      onTap: _generating
+                          ? null
+                          : () => setState(() => _batchEditing = true),
+                    ),
+                  if (plan.items.length > 12)
+                    _blockRow(
+                      number: '…',
+                      name: '',
+                      prompt: '+ ${plan.items.length - 12} weitere Blöcke',
+                      onTap: () => setState(() => _batchEditing = true),
+                      dim: true,
+                    ),
+                  _blockRow(
+                    number: '+',
+                    name: '',
+                    prompt: 'Neuer Block — Name · Prompt, eine Zeile pro '
+                        'Asset',
+                    dim: true,
+                    onTap: _generating
+                        ? null
+                        : () {
+                            final text = _batchCtrl.text.trimRight();
+                            setState(() {
+                              _batchCtrl.text =
+                                  '$text\n---\nNAME: \nPROMPT: ';
+                              _batchCtrl.selection = TextSelection.collapsed(
+                                  offset: _batchCtrl.text.length);
+                              _batchEditing = true;
+                            });
+                          },
+                  ),
+                ],
+              )
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_dragOverPrompt)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Text-, Markdown- oder CSV-Datei hier ablegen.',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: scheme.primary),
+                        ),
+                      ),
+                    TextField(
+                      controller: _batchCtrl,
+                      minLines: 6,
+                      maxLines: 16,
+                      enabled: !_generating,
+                      autofocus: plan.items.isNotEmpty,
+                      style: const TextStyle(
+                          fontFamily: 'monospace', fontSize: 13),
+                      decoration: const InputDecoration(
+                        hintText: 'NAME: burg-01\n'
+                            'PROMPT: A medieval castle at night …\n'
+                            '---\n'
+                            'NAME: burg-02\n'
+                            'PROMPT: The same castle at noon …',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Tooltip(
+                            message: 'Jeder Block: NAME: und PROMPT:, '
+                                'dazu NEGATIV: und REFERENZ: nach Bedarf. '
+                                '„---" oder ein neues NAME: trennt.\n'
+                                'Die Vorlage ist auf '
+                                '${_profile(settings).modelLabel} '
+                                'zugeschnitten: ${_profile(settings).summary}',
+                            child: MonoText(
+                                'NAME: · PROMPT: · NEGATIV: · --- trennt',
+                                size: 10.5),
+                          ),
+                        ),
+                        if (plan.items.isNotEmpty)
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _batchEditing = false),
+                            child: const Text('Als Tabelle'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _blockRow({
+    required String number,
+    required String name,
+    required String prompt,
+    VoidCallback? onTap,
+    bool dim = false,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: dim ? scheme.surfaceContainerLow : null,
+          border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+        ),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.dynamic_feed, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Massenprompt',
-                      style: theme.textTheme.titleSmall),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Ein Text mit den Beschreibungen vieler Bilder. Jeder '
-              'Block beginnt mit „NAME:" und „PROMPT:", getrennt durch '
-              'eine Zeile aus drei Bindestrichen. Die Bilder entstehen '
-              'nacheinander und liegen anschließend unter ihrem Namen '
-              'in der Galerie.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _batchCtrl,
-              minLines: 8,
-              maxLines: 18,
-              enabled: !_generating,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              decoration: const InputDecoration(
-                labelText: 'Massenprompt',
-                hintText: 'NAME: burg-01\n'
-                    'PROMPT: A medieval castle at night …\n'
-                    '---\n'
-                    'NAME: burg-02\n'
-                    'PROMPT: The same castle at noon …',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
+            Container(
+              width: 44,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              color: scheme.surfaceContainerLow,
+              child: Center(
+                child: MonoText(number,
+                    size: 11, bold: !dim, color: scheme.outline),
               ),
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _generating ? null : _checkBatch,
-                  icon: const Icon(Icons.fact_check_outlined, size: 18),
-                  label: const Text('Prüfen'),
-                ),
-                // Nur bei Stichwort-Modellen: Bei GPT-Image und Gemini
-                // ist ein Briefing genau richtig, da gäbe es nichts zu
-                // verbessern.
-                if (_profile(settings).style == PromptStyle.keywords)
-                  OutlinedButton.icon(
-                    onPressed: _generating
-                        ? null
-                        : () => _rewriteBatch(settings),
-                    icon: const Icon(Icons.auto_fix_high_outlined,
-                        size: 18),
-                    label: const Text('Für dieses Modell umschreiben'),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                child: RichText(
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  text: TextSpan(
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        height: 1.5,
+                        color: dim ? scheme.outline : scheme.onSurface),
+                    children: [
+                      if (name.isNotEmpty) ...[
+                        TextSpan(
+                          text: name,
+                          style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: scheme.primary),
+                        ),
+                        const TextSpan(text: ' · '),
+                      ],
+                      TextSpan(text: prompt),
+                    ],
                   ),
-                OutlinedButton.icon(
-                  onPressed: _generating
-                      ? null
-                      : () => _copyBatchBriefing(settings),
-                  icon: const Icon(Icons.copy_all_outlined, size: 18),
-                  label: const Text('Vorlage für Prompt-KI kopieren'),
                 ),
-                TextButton.icon(
-                  onPressed: _generating
-                      ? null
-                      : () => _showBatchBriefing(settings),
-                  icon: const Icon(Icons.visibility_outlined, size: 18),
-                  label: const Text('Vorlage ansehen'),
-                ),
-                TextButton.icon(
-                  onPressed: _generating
-                      ? null
-                      : () {
-                          _batchCtrl.text = batchPromptExample(
-                              _profile(settings),
-                              direction: _direction(settings));
-                          _checkBatch();
-                        },
-                  icon: const Icon(Icons.lightbulb_outline, size: 18),
-                  label: const Text('Beispiel einfügen'),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Die Vorlage ist auf ${_profile(settings).modelLabel} '
-              'zugeschnitten: ${_profile(settings).summary} '
-              '${_profile(settings).negativeNote}',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
-            ),
-            _buildViewDirection(settings),
-            if (plan != null) ...[
-              const SizedBox(height: 12),
-              _buildBatchResult(plan),
-            ],
           ],
         ),
       ),
@@ -1314,137 +2059,69 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  /// Statusfenster des Massenlaufs: welches Bild gerade entsteht, wie
-  /// lange es schon läuft und wie lange es voraussichtlich noch dauert.
-  Widget _buildBatchStatus() {
-    final theme = Theme.of(context);
-    final done = _batchDone;
-    final total = _batchTotal;
-    final average = _batchAverage;
-    final elapsed = _batchStart == null
-        ? Duration.zero
-        : DateTime.now().difference(_batchStart!);
-    final remaining = average == null
-        ? null
-        : average * (total - done);
-    return Card(
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+  /// Die Liste der Ausfälle und Anmerkungen – auf Abruf.
+  Future<void> _showRunNotes() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Bilanz des Laufs'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(_batchRunning ? Icons.playlist_play : Icons.done_all,
-                    size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _batchRunning
-                        ? 'Bild ${done + 1} von $total wird erstellt'
-                        : _batchCancel
-                            ? 'Abgebrochen nach $done von $total Bildern'
-                            : '$done von $total Bildern fertig',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                ),
-                if (_batchRunning)
-                  TextButton.icon(
-                    onPressed: _batchCancel
-                        ? null
-                        : () => setState(() => _batchCancel = true),
-                    icon: const Icon(Icons.stop_circle_outlined, size: 18),
-                    label: Text(_batchCancel ? 'Bricht ab …' : 'Abbrechen'),
+                if (_batchFailures.isNotEmpty) ...[
+                  Text('Nicht geklappt (${_batchFailures.length}):',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: Theme.of(context).colorScheme.error)),
+                  for (final failure in _batchFailures)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: SelectableText('• $failure'),
+                    ),
+                  const SizedBox(height: 12),
+                ],
+                if (_batchNotes.isNotEmpty) ...[
+                  Text('Anmerkungen des Servers (${_batchNotes.length}):',
+                      style: Theme.of(context).textTheme.labelLarge),
+                  for (final note in _batchNotes)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: SelectableText('• $note'),
+                    ),
+                ],
+                if (_batchDone > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Alle fertigen Bilder liegen unter ihrem Namen in '
+                      'der Galerie.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
               ],
             ),
-            const SizedBox(height: 8),
-            LinearProgressIndicator(
-              value: total == 0 ? null : done / total,
-            ),
-            const SizedBox(height: 8),
-            if (_batchRunning && _batchCurrent.isNotEmpty)
-              Text('Gerade in Arbeit: $_batchCurrent',
-                  style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 4),
-            Text(
-              [
-                'Vergangen: ${_formatDuration(elapsed)}',
-                if (average != null)
-                  'Schnitt: ${_formatDuration(average)} je Bild',
-                if (_batchRunning && remaining != null && remaining
-                    > Duration.zero)
-                  'Rest: ca. ${_formatDuration(remaining)}',
-              ].join(' · '),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
-            ),
-            if (average == null && _batchRunning)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Die Dauer je Bild steht nach dem ersten fertigen Bild '
-                  'fest – daraus wird dann die Restzeit geschätzt.',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.outline),
-                ),
-              ),
-            if (_batchFailures.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Nicht geklappt (${_batchFailures.length}):',
-                  style: theme.textTheme.labelMedium
-                      ?.copyWith(color: theme.colorScheme.error)),
-              for (final failure in _batchFailures.take(8))
-                Text('• $failure',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.error)),
-              if (_batchFailures.length > 8)
-                Text('… und ${_batchFailures.length - 8} weitere',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.error)),
-              if (!_batchRunning && _batchFailedItems.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                FilledButton.tonalIcon(
-                  onPressed: _generating ? null : _retryFailedBatch,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: Text(_batchFailedItems.length == 1
-                      ? 'Das eine Bild wiederholen'
-                      : '${_batchFailedItems.length} Bilder wiederholen'),
-                ),
-                Text(
-                  'Wiederholt nur diese Blöcke – die fertigen Bilder '
-                  'bleiben in der Galerie.',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.outline),
-                ),
-              ],
-            ],
-            if (_batchNotes.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Anmerkungen des Servers (${_batchNotes.length}):',
-                  style: theme.textTheme.labelMedium),
-              for (final note in _batchNotes.take(5))
-                Text('• $note',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline)),
-              if (_batchNotes.length > 5)
-                Text('… und ${_batchNotes.length - 5} weitere',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline)),
-            ],
-            if (!_batchRunning && done > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Alle fertigen Bilder liegen unter ihrem Namen in der '
-                  'Galerie.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-          ],
+          ),
         ),
+        actions: [
+          if (!_batchRunning && _batchFailedItems.isNotEmpty)
+            FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _retryFailedBatch();
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: Text(_batchFailedItems.length == 1
+                  ? 'Das eine Bild wiederholen'
+                  : '${_batchFailedItems.length} Bilder wiederholen'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Schließen'),
+          ),
+        ],
       ),
     );
   }
@@ -1517,8 +2194,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 // Die Hinweise unten hängen am Text.
                 if (settings.provider.isLocal) setState(() {});
               },
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
               decoration: const InputDecoration(
-                labelText: 'Bildbeschreibung (Prompt)',
+                labelText: 'Prompt',
                 hintText:
                     'Beschreibe das gewünschte Bild so genau wie möglich …',
                 border: OutlineInputBorder(),
@@ -1540,41 +2218,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
                 ],
               ),
             ],
-            const SizedBox(height: 10),
-            // Der Auftrag für die Prompt-KI hängt am gewählten Modell:
-            // GPT-Image und Gemini wollen ein gegliedertes Briefing,
-            // Stable Diffusion eine Stichwortkette.
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Prompt-Vorlage für ${_profile(settings).modelLabel}',
-                    style: theme.textTheme.labelMedium,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _showPromptBriefing(settings),
-                  icon: const Icon(Icons.visibility_outlined, size: 18),
-                  label: const Text('Ansehen'),
-                ),
-                TextButton.icon(
-                  onPressed: () => _copyPromptBriefing(settings),
-                  icon: const Icon(Icons.copy_all_outlined, size: 18),
-                  label: const Text('Kopieren'),
-                ),
-              ],
-            ),
-            Text(
-              _profile(settings).summary,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
-            ),
-            _buildViewDirection(settings),
-            const SizedBox(height: 10),
-            Text('Stil-Vorlagen',
-                style: Theme.of(context).textTheme.labelMedium),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 0,
@@ -1609,6 +2253,22 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     final rejected = <String>[];
     var text = target.text;
     for (final file in files) {
+      // Eine Tabelle wird erst zu Blöcken – aber nur im Massenprompt;
+      // im Einzelbild wäre eine CSV nur Text mit Semikolons.
+      if (identical(target, _batchCtrl) && isCsvFile(file.name)) {
+        try {
+          final import = batchTextFromCsv(await file.readAsString());
+          if (import.rows > 0) {
+            text = appendPromptText(text, import.text);
+            accepted.add('${file.name} (${import.summary})');
+          } else {
+            rejected.add('${file.name} – ${import.summary}');
+          }
+        } catch (e) {
+          rejected.add('${file.name} ($e)');
+        }
+        continue;
+      }
       if (!isPromptTextFile(file.name)) {
         rejected.add(file.name);
         continue;
@@ -1632,7 +2292,16 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         content: Text(promptDropSummary(accepted, rejected))));
   }
 
-  Widget _buildReferenceCard(bool supportsReferences) {
+  /// „REFERENZBILDER 1 / 16 … + Hinzufügen", darunter die Kacheln.
+  Widget _buildReferenceRow(bool supportsReferences,
+      {VoidCallback? onChanged}) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    void changed() {
+      if (mounted) setState(() {});
+      onChanged?.call();
+    }
+
     return DropTarget(
       enable: supportsReferences &&
           !_generating &&
@@ -1640,501 +2309,761 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           (ModalRoute.of(context)?.isCurrent ?? true),
       onDragEntered: (_) => setState(() => _dragOverReferences = true),
       onDragExited: (_) => setState(() => _dragOverReferences = false),
-      onDragDone: (detail) => _addDroppedReferences(detail.files),
-      child: Card(
-      shape: _dragOverReferences
-          ? RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                  color: Theme.of(context).colorScheme.primary, width: 2),
-            )
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      onDragDone: (detail) async {
+        await _addDroppedReferences(detail.files);
+        changed();
+      },
+      child: Container(
+        padding: _dragOverReferences ? const EdgeInsets.all(6) : EdgeInsets.zero,
+        decoration: _dragOverReferences
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: scheme.primary, width: 2))
+            : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Icon(Icons.photo_library_outlined, size: 20),
+                const MonoLabel('Referenzbilder'),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Referenzbilder (${_references.length}/$_maxReferences)',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
+                MonoText('${_references.length} / $_maxReferences', size: 11),
+                const Spacer(),
                 if (supportsReferences)
-                  TextButton.icon(
-                    onPressed: _generating ? null : _pickReferences,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Hinzufügen'),
+                  TextButton(
+                    onPressed: _generating
+                        ? null
+                        : () async {
+                            await _pickReferences();
+                            changed();
+                          },
+                    style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact),
+                    child: const Text('+ Hinzufügen'),
                   ),
               ],
             ),
+            const SizedBox(height: 6),
             if (!supportsReferences)
               Text(
-                'Referenzbilder unterstützen OpenAI und Google Gemini – '
-                'oben bei „KI-Modell" ein Modell dieser Anbieter wählen, '
-                'um sie zu nutzen.',
-                style: Theme.of(context).textTheme.bodySmall,
-              )
-            else if (_references.isEmpty)
-              Text(
-                'Optional: Bilder als Vorlage hinzufügen (z. B. Produkt, '
-                'Person, Stil). Das Ergebnis orientiert sich an ihnen. '
-                'Am PC auch einfach per Drag & Drop hierher ziehen.',
-                style: Theme.of(context).textTheme.bodySmall,
+                'Referenzbilder nehmen OpenAI und Gemini – oben bei '
+                '„KI-Modell" eines davon wählen.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.outline),
               )
             else
               SizedBox(
-                height: 92,
-                child: ListView.separated(
+                height: 78,
+                child: ListView(
                   scrollDirection: Axis.horizontal,
-                  itemCount: _references.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final ref = _references[index];
-                    return Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.memory(
-                            ref.bytes,
-                            width: 84,
-                            height: 84,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        Positioned(
-                          top: 2,
-                          right: 2,
-                          child: InkWell(
-                            onTap: () =>
-                                setState(() => _references.removeAt(index)),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black54,
-                                borderRadius: BorderRadius.circular(12),
+                  children: [
+                    for (var i = 0; i < _references.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 9),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(9),
+                              child: Image.memory(
+                                _references[i].bytes,
+                                width: 78,
+                                height: 78,
+                                fit: BoxFit.cover,
                               ),
-                              padding: const EdgeInsets.all(2),
-                              child: const Icon(Icons.close,
-                                  size: 16, color: Colors.white),
                             ),
+                            Positioned(
+                              top: 2,
+                              right: 2,
+                              child: InkWell(
+                                onTap: _generating
+                                    ? null
+                                    : () {
+                                        _references.removeAt(i);
+                                        changed();
+                                      },
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: const Icon(Icons.close,
+                                      size: 14, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Tooltip(
+                      message: 'Bild als Vorlage hinzufügen – oder per '
+                          'Drag & Drop hierher ziehen',
+                      child: Material(
+                        color: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(9),
+                          side: BorderSide(color: scheme.outlineVariant),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: _generating
+                              ? null
+                              : () async {
+                                  await _pickReferences();
+                                  changed();
+                                },
+                          child: SizedBox(
+                            width: 78,
+                            height: 78,
+                            child: Icon(Icons.add,
+                                size: 22, color: scheme.outline),
                           ),
                         ),
-                      ],
-                    );
-                  },
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],
         ),
-      ),
       ),
     );
   }
 
-  Widget _buildOptionsCard(SettingsService settings) {
+  // ----------------------------------------------------------------
+  // Die vier Karten
+  // ----------------------------------------------------------------
+
+  List<Option> _sizeOptions(SettingsService settings) =>
+      switch (settings.provider) {
+        GenProvider.openai => openAiSizeOptions,
+        GenProvider.stability || GenProvider.selfhost => stabilityAspectOptions,
+        GenProvider.gemini => geminiAspectOptions,
+      };
+
+  String _sizeValue(SettingsService settings) => switch (settings.provider) {
+        GenProvider.openai => settings.openAiSize,
+        GenProvider.stability || GenProvider.selfhost => settings.stabilityAspect,
+        GenProvider.gemini => settings.geminiAspect,
+      };
+
+  void _setSize(SettingsService settings, String value) {
+    switch (settings.provider) {
+      case GenProvider.openai:
+        settings.setOpenAiSize(value);
+      case GenProvider.stability:
+      case GenProvider.selfhost:
+        settings.setStabilityAspect(value);
+      case GenProvider.gemini:
+        settings.setGeminiAspect(value);
+    }
+  }
+
+  /// „Quadrat (1:1)" → „1:1" für die Chips auf dem Handy.
+  String _shortSizeLabel(String label) {
+    final m = RegExp(r'\(([^)]+)\)').firstMatch(label);
+    return m?.group(1) ?? label;
+  }
+
+  ImageModelChoice? _currentChoice(SettingsService settings) {
+    final key = '${settings.provider.name}/${settings.modelFor(settings.provider)}';
+    for (final choice in allImageModels(settings.fetchedModelsFor)) {
+      if (choice.key == key) return choice;
+    }
+    return null;
+  }
+
+  /// „Gemini · Nano Banana" – Anbieter und der Name ohne Klammer.
+  String _modelTitle(SettingsService settings) {
+    final choice = _currentChoice(settings);
+    final name = choice?.label.split(' (').first ??
+        settings.modelFor(settings.provider);
+    return '${settings.provider.shortLabel} · $name';
+  }
+
+  Widget _buildOptionGrid(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final provider = settings.provider;
-    final isOpenAi = provider == GenProvider.openai;
-    final isStability = provider == GenProvider.stability;
-    final isGemini = provider == GenProvider.gemini;
-    // Der eigene Bild-Server nutzt dieselben Seitenverhältnisse wie
-    // Stability und rechnet sie in Pixelmaße um.
-    final sizeOptions = switch (provider) {
-      GenProvider.openai => openAiSizeOptions,
-      GenProvider.stability ||
-      GenProvider.selfhost =>
-        stabilityAspectOptions,
-      GenProvider.gemini => geminiAspectOptions,
-    };
-    final sizeValue = switch (provider) {
-      GenProvider.openai => settings.openAiSize,
-      GenProvider.stability ||
-      GenProvider.selfhost =>
-        settings.stabilityAspect,
-      GenProvider.gemini => settings.geminiAspect,
-    };
-    // Alle Modelle aller Anbieter in einer Liste: Der Anbieter wird
-    // über das Modell gewählt, nicht mehr getrennt in den
-    // Einstellungen. Abgerufene Modelle sind mit dabei, damit neue
-    // Modelle ohne App-Update wählbar bleiben.
-    // Die Beschriftung der gerade gewählten Größe – sie steht im
-    // geschlossenen Feld und geht in den Schlüssel des Dropdowns ein.
+    final (costMin, costMax, tier) = imageModelCost(settings);
+    final hasKey = settings.hasApiKeyFor(provider);
     final sizeLabel = _sizeOptionLabel(
         settings,
-        sizeOptions.firstWhere((o) => o.$1 == sizeValue,
-            orElse: () => (sizeValue, sizeValue)));
-    final imageSizeLabel = '${geminiImageSizeOptions.firstWhere(
-      (o) => o.$1 == settings.geminiImageSize,
-      orElse: () => (settings.geminiImageSize, settings.geminiImageSize),
-    ).$2} · '
-        '${geminiAspectPixelLabel(settings.geminiAspect, settings.geminiImageSize)}';
-    final allModels = allImageModels(settings.fetchedModelsFor);
-    final currentModel = settings.modelFor(provider);
-    final currentKey = '${provider.name}/$currentModel';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-        child: Column(
+        _sizeOptions(settings).firstWhere((o) => o.$1 == _sizeValue(settings),
+            orElse: () => (_sizeValue(settings), _sizeValue(settings))));
+    final sizeParts = sizeLabel.split(' · ');
+    final sizeValue = sizeParts.first
+        .replaceAllMapped(RegExp(r'\((\d+[:×x]\d+)\)'), (m) => m.group(1)!);
+    final sizeSub = [
+      if (sizeParts.length > 1) sizeParts.sublist(1).join(' · '),
+      if (provider == GenProvider.gemini && settings.geminiModel.contains('pro'))
+        settings.geminiImageSize,
+      if (provider != GenProvider.gemini) settings.outputFormat.toUpperCase(),
+    ].join(' · ');
+
+    final cards = <Widget>[
+      OptionCard(
+        label: 'KI-Modell',
+        value: Text(_modelTitle(settings),
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        sub: Row(
+          children: [
+            Badge2(
+              provider.isLocal
+                  ? '0 \$'
+                  : hasKey
+                      ? 'Schlüssel ✓'
+                      : 'kein Schlüssel',
+              tone: provider.isLocal
+                  ? BadgeTone.good
+                  : hasKey
+                      ? BadgeTone.good
+                      : BadgeTone.warn,
+            ),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text('${formatUsdRange(costMin, costMax)} / Bild',
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
+        onTap: _generating ? null : () => _pickModel(settings),
+      ),
+      OptionCard(
+        label: 'Format',
+        value: Text(sizeValue, maxLines: 1, overflow: TextOverflow.ellipsis),
+        sub: Text(sizeSub.isEmpty ? ' ' : sizeSub,
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        onTap: _generating ? null : () => _pickFormat(settings),
+      ),
+      OptionCard(
+        label: _batchMode ? 'Anzahl je Block' : 'Anzahl',
+        value: CountPicker(
+          value: _batchMode ? 1 : settings.count,
+          onChanged: _batchMode || _generating ? null : settings.setCount,
+        ),
+        sub: Text(_batchMode
+            ? 'je Block genau ein Bild'
+            : settings.count > 1
+                ? 'Varianten desselben Prompts'
+                : ' '),
+        trailing: Tooltip(
+          message: _batchMode
+              ? 'Im Massenprompt entsteht zu jedem Block genau ein Bild – '
+                  'sonst passten Name und Ergebnis nicht mehr zusammen.'
+              : 'Es sind immer verschiedene Varianten desselben Prompts: '
+                  'OpenAI und Gemini würfeln je Bild neu, bei Stability und '
+                  'der eigenen GPU zählt der Seed pro Bild hoch.',
+          child: Icon(Icons.info_outline, size: 15, color: scheme.outline),
+        ),
+      ),
+      OptionCard(
+        label: 'Qualitätsstufe',
+        value: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SectionLabel('KI-Modell'),
-            // Die Liste enthält die Modelle aller Anbieter – der
-            // Anbieter ergibt sich aus dem gewählten Modell.
-            // Modellwahl mit seitlicher Qualitäts-/Kostenanzeige: auf
-            // breiten Layouts rechts daneben, auf schmalen darunter.
-            LayoutBuilder(builder: (context, constraints) {
-              final panel =
-                  CostQualityPanel(
-                      estimate: estimateImageRun(settings),
-                      provider: settings.provider.name);
-              final modelControls = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: DropdownMenu<String>(
-                          key: ValueKey('model-$currentKey'
-                              '-${allModels.length}'),
-                          initialSelection: currentKey,
-                          label: const Text('KI-Modell'),
-                          expandedInsets: EdgeInsets.zero,
-                          dropdownMenuEntries: [
-                            for (final choice in allModels)
-                              DropdownMenuEntry(
-                                value: choice.key,
-                                label: choice.fullLabel,
-                                // Fehlt der Schlüssel, ist das Modell
-                                // trotzdem wählbar – die App fragt beim
-                                // Generieren danach.
-                                trailingIcon:
-                                    settings.hasApiKeyFor(choice.provider)
-                                        ? null
-                                        : const Icon(Icons.key_off,
-                                            size: 16),
-                              ),
-                            if (!allModels
-                                .any((choice) => choice.key == currentKey))
-                              DropdownMenuEntry(
-                                value: currentKey,
-                                label: '${provider.shortLabel} · '
-                                    '$currentModel (eigene ID)',
-                              ),
-                          ],
-                          onSelected: (value) {
-                            if (value == null) return;
-                            final parsed =
-                                ImageModelChoice.parseKey(value);
-                            if (parsed == null) return;
-                            // Ein Klick setzt Anbieter und Modell.
-                            settings.setProvider(parsed.$1);
-                            settings.setModelFor(parsed.$1, parsed.$2);
-                          },
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Aktuelle Modelle bei allen Anbietern '
-                            'laden',
-                        icon: _refreshingModels
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2),
-                              )
-                            : const Icon(Icons.refresh),
-                        onPressed:
-                            _refreshingModels ? null : _refreshModels,
-                      ),
-                    ],
-                  ),
-                  if (_localModelNote(settings) case final note?) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.info_outline,
-                            size: 15,
-                            color: Theme.of(context).colorScheme.outline),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            note,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .outline),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SectionLabel('Format & Größe'),
-                  DropdownMenu<String>(
-                    // Der Schlüssel hängt an der angezeigten
-                    // Beschriftung, nicht an einer Liste von
-                    // Einstellungen. DropdownMenu schreibt seinen Text
-                    // nur bei einer geänderten Auswahl nach – ändert
-                    // sich nur die Pixelangabe darin (anderes Modell,
-                    // andere Auflösung), bliebe im Feld sonst die alte
-                    // stehen. Über den Schlüssel entsteht das Feld neu.
-                    key: ValueKey('size-${provider.name}-$sizeLabel'),
-                    initialSelection: sizeValue,
-                    label:
-                        Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
-                    expandedInsets: EdgeInsets.zero,
-                    dropdownMenuEntries: [
-                      for (final option in sizeOptions)
-                        DropdownMenuEntry(
-                          value: option.$1,
-                          label: _sizeOptionLabel(settings, option),
-                        ),
-                    ],
-                    onSelected: (value) {
-                      if (value == null) return;
-                      switch (provider) {
-                        case GenProvider.openai:
-                          settings.setOpenAiSize(value);
-                        case GenProvider.stability:
-                        case GenProvider.selfhost:
-                          settings.setStabilityAspect(value);
-                        case GenProvider.gemini:
-                          settings.setGeminiAspect(value);
-                      }
-                    },
-                  ),
-                  if (isGemini &&
-                      settings.geminiModel.contains('pro')) ...[
-                    const SizedBox(height: 12),
-                    DropdownMenu<String>(
-                      key: ValueKey('imgsize-$imageSizeLabel'),
-                      initialSelection: settings.geminiImageSize,
-                      label: const Text('Auflösung'),
-                      expandedInsets: EdgeInsets.zero,
-                      dropdownMenuEntries: [
-                        for (final option in geminiImageSizeOptions)
-                          DropdownMenuEntry(
-                            value: option.$1,
-                            label: '${option.$2} · '
-                                '${geminiAspectPixelLabel(settings.geminiAspect, option.$1)}',
-                          ),
-                      ],
-                      onSelected: (value) {
-                        if (value != null) {
-                          settings.setGeminiImageSize(value);
-                        }
-                      },
-                    ),
-                  ],
-                  if (!isGemini) ...[
-                    const SizedBox(height: 12),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: SegmentedButton<String>(
-                        segments: [
-                          for (final option in formatOptions)
-                            ButtonSegment(
-                                value: option.$1, label: Text(option.$2)),
-                        ],
-                        selected: {settings.outputFormat},
-                        onSelectionChanged: (selection) =>
-                            settings.setOutputFormat(selection.first),
-                      ),
-                    ),
-                  ],
-                ],
-              );
-              if (constraints.maxWidth >= 420) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: modelControls),
-                    const SizedBox(width: 12),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: panel,
-                    ),
-                  ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  modelControls,
-                  const SizedBox(height: 12),
-                  panel,
-                ],
-              );
-            }),
-            if (isOpenAi) ...[
-              const SectionLabel('Qualität'),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: SegmentedButton<String>(
-                  segments: [
-                    for (final option in qualityOptions)
-                      ButtonSegment(value: option.$1, label: Text(option.$2)),
-                  ],
-                  selected: {settings.quality},
-                  onSelectionChanged: (selection) =>
-                      settings.setQuality(selection.first),
-                ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Transparenter Hintergrund'),
-                subtitle: const Text(
-                    'Ideal für Logos und Icons – benötigt PNG oder WebP'),
-                value: settings.transparent,
-                onChanged: settings.setTransparent,
-              ),
-              if (settings.outputFormat != 'png')
-                Row(
-                  children: [
-                    const Text('Kompression'),
-                    Expanded(
-                      child: Slider(
-                        value: settings.compression.toDouble(),
-                        min: 10,
-                        max: 100,
-                        divisions: 18,
-                        label: '${settings.compression} %',
-                        onChanged: (value) =>
-                            settings.setCompression(value.round()),
-                      ),
-                    ),
-                    Text('${settings.compression} %'),
-                  ],
-                ),
-            ],
-            const SectionLabel('Anzahl Bilder'),
-            SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 1, label: Text('1')),
-                ButtonSegment(value: 2, label: Text('2')),
-                ButtonSegment(value: 3, label: Text('3')),
-                ButtonSegment(value: 4, label: Text('4')),
-              ],
-              selected: {settings.count},
-              onSelectionChanged: _batchMode
-                  ? null
-                  : (selection) => settings.setCount(selection.first),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _batchMode
-                  ? 'Im Massenprompt entsteht zu jedem Block genau ein '
-                      'Bild – sonst passten Name und Ergebnis nicht mehr '
-                      'zusammen.'
-                  : 'Es sind immer verschiedene Varianten desselben '
-                      'Prompts, nie dasselbe Bild mehrfach: OpenAI und '
-                      'Gemini würfeln je Bild neu, bei Stability und der '
-                      'eigenen GPU zählt der Seed pro Bild hoch '
-                      '(Seed, Seed+1 …).',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline),
-            ),
-            // Den Negativ-Prompt gibt es überall, wo das Modell etwas
-            // damit anfängt – bei GPT-Image und Gemini wandert er als
-            // Satz in den Prompt. Seed und Style-Presets bleiben bei
-            // Stability und dem eigenen Server.
-            const SectionLabel('Profi-Optionen'),
-            TextField(
-              controller: _negativeCtrl,
-              decoration: InputDecoration(
-                labelText: 'Negativ-Prompt',
-                hintText: 'Was im Bild vermieden werden soll …',
-                border: const OutlineInputBorder(),
-                helperText: _profile(settings).negativeNote,
-                helperMaxLines: 3,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (isStability || provider.isLocal) ...[
-              if (isStability && settings.stabilityModel == 'core') ...[
-                DropdownMenu<String>(
-                  initialSelection: settings.stylePreset,
-                  label: const Text('Style-Preset'),
-                  expandedInsets: EdgeInsets.zero,
-                  dropdownMenuEntries: [
-                    for (final option in stylePresetOptions)
-                      DropdownMenuEntry(value: option.$1, label: option.$2),
-                  ],
-                  onSelected: (value) {
-                    if (value != null) settings.setStylePreset(value);
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-              TextField(
-                controller: _seedCtrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  labelText: 'Seed (0 = zufällig)',
-                  helperText: 'Gleicher Seed + gleicher Prompt = '
-                      'reproduzierbares Bild; bei mehreren Bildern zählt '
-                      'er pro Bild hoch',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-            if (provider == GenProvider.selfhost) ...[
-              const SizedBox(height: 12),
-              _qualityPanel(settings),
-            ],
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              leading: const Icon(Icons.savings_outlined),
-              title: const Text('Kosten je Bild im Vergleich'),
+            const SizedBox(height: 2),
+            QualityBars(level: tier),
+            const SizedBox(height: 6),
+            Row(
               children: [
-                Text(
-                  'Ungefähre Kosten pro Bild (1024×1024; Hoch-/Querformat '
-                  'ca. das 1,5-Fache):\n'
-                  '• OpenAI gpt-image-1-mini: ≈ 0,005–0,04 \$ je nach '
-                  'Qualität – am günstigsten.\n'
-                  '• OpenAI gpt-image-1: niedrig ≈ 0,011 \$, mittel '
-                  '≈ 0,042 \$, hoch ≈ 0,167 \$; die neueren '
-                  'gpt-image-1.5/2 liegen darüber, mit bester '
-                  'Text-Darstellung im Bild.\n'
-                  '• Google Gemini 2.5 Flash Image („Nano Banana“): '
-                  '≈ 0,039 \$ – bester Allrounder für Referenzbilder '
-                  'und die 3D-Ansichten.\n'
-                  '• Google Nano Banana Pro (gemini-3-pro-image): '
-                  '≈ 0,13 \$ (1K/2K) bis ≈ 0,24 \$ (4K) – höchste '
-                  'Qualität und Auflösung.\n'
-                  '• Stability Core: ≈ 0,03 \$ (3 Credits) – günstig, '
-                  'mit Style-Presets; SD 3.5: ≈ 0,035–0,065 \$; '
-                  'Ultra: ≈ 0,08 \$ – beste Stability-Qualität. '
-                  'Kein Referenzbild-Support (für die 3D-Pipeline '
-                  'OpenAI/Gemini wählen).\n'
-                  '• Eigene GPU (lokaler Bild-Server): 0 \$ – Stable '
-                  'Diffusion auf dem eigenen Rechner, unbegrenzt viele '
-                  'Bilder, alle Daten bleiben lokal. Einrichtung in den '
-                  'Einstellungen unter „Eigener Bild-Server".\n'
-                  'Faustregel: Zum Experimentieren gpt-image-1-mini oder '
-                  'Stability Core, für gute Alltagsbilder Gemini Flash '
-                  'Image, für Feinstes gpt-image (hoch) oder Nano Banana '
-                  'Pro. Preise laut Anbieter (Stand 2026) – können sich '
-                  'ändern.',
-                  style: Theme.of(context).textTheme.bodySmall,
+                Flexible(
+                  child: Text(qualityTierLabels[tier]!,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis),
                 ),
+                const SizedBox(width: 6),
+                MonoText('$tier/5', size: 11),
               ],
+            ),
+          ],
+        ),
+        onTap: _generating ? null : () => _pickQuality(settings),
+      ),
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      if (constraints.maxWidth < 380) {
+        return Column(
+          children: [
+            for (final card in cards) ...[card, const SizedBox(height: 12)],
+          ],
+        );
+      }
+      return Column(
+        children: [
+          for (var row = 0; row < 2; row++) ...[
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: cards[row * 2]),
+                  const SizedBox(width: 12),
+                  Expanded(child: cards[row * 2 + 1]),
+                ],
+              ),
+            ),
+            if (row == 0) const SizedBox(height: 12),
+          ],
+        ],
+      );
+    });
+  }
+
+  /// Die Modellwahl: alle Modelle aller Anbieter in einer Liste.
+  Future<void> _pickModel(SettingsService settings) async {
+    final allModels = allImageModels(settings.fetchedModelsFor);
+    final currentKey =
+        '${settings.provider.name}/${settings.modelFor(settings.provider)}';
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Consumer<SettingsService>(
+        builder: (context, settings, _) => AlertDialog(
+          title: const Text('KI-Modell'),
+          contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+          content: SizedBox(
+            width: 520,
+            height: 460,
+            child: Column(
+              children: [
+                Expanded(
+                  child: RadioGroup<String>(
+                    groupValue: currentKey,
+                    onChanged: (value) {
+                      final parsed =
+                          value == null ? null : ImageModelChoice.parseKey(value);
+                      if (parsed != null) {
+                        // Ein Klick setzt Anbieter und Modell.
+                        settings.setProvider(parsed.$1);
+                        settings.setModelFor(parsed.$1, parsed.$2);
+                      }
+                      Navigator.of(context).pop();
+                    },
+                    child: ListView(
+                      children: [
+                        for (final choice in allModels)
+                          RadioListTile<String>(
+                            value: choice.key,
+                            dense: true,
+                            title: Text(choice.fullLabel),
+                            secondary: settings.hasApiKeyFor(choice.provider)
+                                ? null
+                                : Tooltip(
+                                    message: 'Kein Schlüssel hinterlegt – '
+                                        'die App fragt beim Generieren '
+                                        'danach.',
+                                    child: Icon(Icons.key_off,
+                                        size: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline)),
+                          ),
+                        if (!allModels.any((c) => c.key == currentKey))
+                          RadioListTile<String>(
+                            value: currentKey,
+                            dense: true,
+                            title: Text('${settings.provider.shortLabel} · '
+                                '${settings.modelFor(settings.provider)} '
+                                '(eigene ID)'),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_localModelNote(settings) case final note?)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Text(note,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.outline)),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: _refreshingModels
+                  ? null
+                  : () async {
+                      await _refreshModels();
+                    },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Aktuelle Modelle laden'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Schließen'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Seitenverhältnis bzw. Bildgröße, dazu Auflösung (Nano Banana
+  /// Pro) und Dateiformat.
+  Future<void> _pickFormat(SettingsService settings) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Consumer<SettingsService>(
+        builder: (context, settings, _) {
+          final isOpenAi = settings.provider == GenProvider.openai;
+          final isGemini = settings.provider == GenProvider.gemini;
+          final options = _sizeOptions(settings);
+          final current = _sizeValue(settings);
+          return AlertDialog(
+            title: Text(isOpenAi ? 'Bildgröße' : 'Seitenverhältnis'),
+            contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RadioGroup<String>(
+                      groupValue: current,
+                      onChanged: (value) {
+                        if (value != null) _setSize(settings, value);
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final option in options)
+                            RadioListTile<String>(
+                              value: option.$1,
+                              dense: true,
+                              title: Text(_sizeOptionLabel(settings, option)),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (isGemini && settings.geminiModel.contains('pro'))
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const MonoLabel('Auflösung'),
+                            const SizedBox(height: 6),
+                            SegmentedButton<String>(
+                              segments: [
+                                for (final option in geminiImageSizeOptions)
+                                  ButtonSegment(
+                                      value: option.$1,
+                                      label: Text(option.$2)),
+                              ],
+                              selected: {settings.geminiImageSize},
+                              onSelectionChanged: (s) =>
+                                  settings.setGeminiImageSize(s.first),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (!isGemini)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const MonoLabel('Dateiformat'),
+                            const SizedBox(height: 6),
+                            SegmentedButton<String>(
+                              segments: [
+                                for (final option in formatOptions)
+                                  ButtonSegment(
+                                      value: option.$1,
+                                      label: Text(option.$2)),
+                              ],
+                              selected: {settings.outputFormat},
+                              onSelectionChanged: (s) =>
+                                  settings.setOutputFormat(s.first),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Fertig'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Die Stufe: bei OpenAI die eigene Qualitätswahl, auf der eigenen
+  /// GPU die vier Stufen mit Detail-Durchgang, sonst hängt sie am
+  /// Modell – und das steht dann auch da.
+  Future<void> _pickQuality(SettingsService settings) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Consumer<SettingsService>(
+        builder: (context, settings, _) {
+          final (_, _, tier) = imageModelCost(settings);
+          final isOpenAi = settings.provider == GenProvider.openai;
+          return AlertDialog(
+            title: const Text('Qualitätsstufe'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    QualityBars(level: tier),
+                    const SizedBox(height: 6),
+                    Text('${qualityTierLabels[tier]} · $tier/5',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 12),
+                    if (isOpenAi) ...[
+                      const MonoLabel('OpenAI-Qualität'),
+                      const SizedBox(height: 6),
+                      SegmentedButton<String>(
+                        segments: [
+                          for (final option in qualityOptions)
+                            ButtonSegment(
+                                value: option.$1, label: Text(option.$2)),
+                        ],
+                        selected: {settings.quality},
+                        onSelectionChanged: (s) => settings.setQuality(s.first),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Transparenter Hintergrund'),
+                        subtitle: const Text(
+                            'Für Logos und Icons – braucht PNG oder WebP'),
+                        value: settings.transparent,
+                        onChanged: settings.setTransparent,
+                      ),
+                      if (settings.outputFormat != 'png')
+                        Row(
+                          children: [
+                            const Text('Kompression'),
+                            Expanded(
+                              child: Slider(
+                                value: settings.compression.toDouble(),
+                                min: 10,
+                                max: 100,
+                                divisions: 18,
+                                label: '${settings.compression} %',
+                                onChanged: (value) =>
+                                    settings.setCompression(value.round()),
+                              ),
+                            ),
+                            Text('${settings.compression} %'),
+                          ],
+                        ),
+                    ] else if (settings.provider == GenProvider.selfhost)
+                      _qualityPanel(settings)
+                    else
+                      Text(
+                        'Die Stufe hängt am Modell: ${_modelTitle(settings)} '
+                        'liefert immer dieselbe Qualität. Eine andere Stufe '
+                        'heißt ein anderes Modell – bei „KI-Modell" wählen.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.outline),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Fertig'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// „Profi-Optionen  Negativ-Prompt, Seed, Blickrichtung ▾"
+  Widget _buildProOptions(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => setState(() => _proOpen = !_proOpen),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+              child: Row(
+                children: [
+                  Text('Profi-Optionen',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Negativ-Prompt, Blickrichtung, Seed, Format',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: scheme.outline),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Icon(_proOpen ? Icons.expand_less : Icons.expand_more,
+                      size: 18, color: scheme.outline),
+                ],
+              ),
+            ),
+          ),
+          if (_proOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(13, 0, 13, 13),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _proOptionChildren(settings),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Der Inhalt der Profi-Optionen – am Desktop aufgeklappt, auf dem
+  /// Handy im Bottom-Sheet.
+  ///
+  /// Felder, die das gewählte Modell nicht braucht, sind **ausgegraut,
+  /// nicht versteckt**: Wer den Seed sucht, sieht ihn – und liest, dass
+  /// er hier keine Wirkung hat und bei welchem Modell er eine hätte.
+  List<Widget> _proOptionChildren(SettingsService settings) {
+    final provider = settings.provider;
+    final isStability = provider == GenProvider.stability;
+    final profile = _profile(settings);
+    final negativeWorks =
+        profile.negativeHandling != NegativeHandling.ignored;
+    final seedWorks = isStability || provider.isLocal;
+    final styleWorks = isStability && settings.stabilityModel == 'core';
+    return [
+      TextField(
+        controller: _negativeCtrl,
+        enabled: negativeWorks,
+        decoration: InputDecoration(
+          labelText: 'Negativ-Prompt',
+          hintText: 'Was im Bild vermieden werden soll …',
+          border: const OutlineInputBorder(),
+          helperText: profile.negativeNote,
+          helperMaxLines: 3,
+          isDense: true,
+        ),
+      ),
+      _buildViewDirection(settings),
+      const SizedBox(height: 12),
+      DropdownMenu<String>(
+        initialSelection: settings.stylePreset,
+        enabled: styleWorks,
+        label: const Text('Style-Preset'),
+        helperText: styleWorks
+            ? null
+            : 'Nur Stability Core kennt Style-Presets.',
+        expandedInsets: EdgeInsets.zero,
+        dropdownMenuEntries: [
+          for (final option in stylePresetOptions)
+            DropdownMenuEntry(value: option.$1, label: option.$2),
+        ],
+        onSelected: (value) {
+          if (value != null) settings.setStylePreset(value);
+        },
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _seedCtrl,
+        enabled: seedWorks,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: InputDecoration(
+          labelText: 'Seed (0 = zufällig)',
+          helperText: seedWorks
+              ? 'Gleicher Seed + gleicher Prompt = reproduzierbares '
+                  'Bild; bei mehreren Bildern zählt er pro Bild hoch'
+              : '${provider.shortLabel} nimmt keinen Seed entgegen – '
+                  'jedes Bild wird neu gewürfelt. Seeds gibt es bei '
+                  'Stability und der eigenen GPU.',
+          helperMaxLines: 3,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+      if (provider == GenProvider.selfhost) ...[
+        const SizedBox(height: 12),
+        _qualityPanel(settings),
+      ],
+      const SizedBox(height: 8),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        leading: const Icon(Icons.savings_outlined, size: 20),
+        title: const Text('Kosten je Bild im Vergleich',
+            style: TextStyle(fontSize: 13.5)),
+        children: [
+          Text(
+            'Ungefähre Kosten pro Bild (1024×1024; Hoch-/Querformat '
+            'ca. das 1,5-Fache):\n'
+            '• OpenAI gpt-image-1-mini: ≈ 0,005–0,04 \$ je nach '
+            'Qualität – am günstigsten.\n'
+            '• OpenAI gpt-image-1: niedrig ≈ 0,011 \$, mittel '
+            '≈ 0,042 \$, hoch ≈ 0,167 \$; die neueren '
+            'gpt-image-1.5/2 liegen darüber, mit bester '
+            'Text-Darstellung im Bild.\n'
+            '• Google Gemini 2.5 Flash Image („Nano Banana“): '
+            '≈ 0,039 \$ – bester Allrounder für Referenzbilder '
+            'und die 3D-Ansichten.\n'
+            '• Google Nano Banana Pro (gemini-3-pro-image): '
+            '≈ 0,13 \$ (1K/2K) bis ≈ 0,24 \$ (4K) – höchste '
+            'Qualität und Auflösung.\n'
+            '• Stability Core: ≈ 0,03 \$ (3 Credits) – günstig, '
+            'mit Style-Presets; SD 3.5: ≈ 0,035–0,065 \$; '
+            'Ultra: ≈ 0,08 \$ – beste Stability-Qualität. '
+            'Kein Referenzbild-Support (für die 3D-Pipeline '
+            'OpenAI/Gemini wählen).\n'
+            '• Eigene GPU (lokaler Bild-Server): 0 \$ – Stable '
+            'Diffusion auf dem eigenen Rechner, unbegrenzt viele '
+            'Bilder, alle Daten bleiben lokal. Einrichtung in den '
+            'Einstellungen unter „Eigener Bild-Server".\n'
+            'Faustregel: Zum Experimentieren gpt-image-1-mini oder '
+            'Stability Core, für gute Alltagsbilder Gemini Flash '
+            'Image, für Feinstes gpt-image (hoch) oder Nano Banana '
+            'Pro. Preise laut Anbieter (Stand 2026) – können sich '
+            'ändern.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              '${settings.provider.label} · '
+              '${settings.modelFor(settings.provider)}',
+              style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: widget.onOpenSettings,
+            child: const Text('API-Schlüssel'),
+          ),
+        ],
+      ),
+    ];
   }
 
   /// Vorlage für die Prompt-KI, passend zum gewählten Modell.
@@ -2487,175 +3416,455 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     }
   }
 
-  List<Widget> _buildResultsHeader() {
+  /// Die rechte Spalte.
+  Widget _buildResultsPane(SettingsService settings) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: _buildResultsHeader(settings),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
+            child: _buildResultsGrid(settings, shrinkWrap: false),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// „Ergebnisse  2 / 3 fertig … Schnitt 11 s je Bild · Alle
+  /// herunterladen" – und darunter, nur wenn es sie gibt, die Zeilen
+  /// zu Ausfällen und Anmerkungen.
+  List<Widget> _buildResultsHeader(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final average = _batchAverage;
+    final remaining = average == null || !_batchRunning
+        ? null
+        : average * (_batchTotal - _batchDone);
+    final elapsed = _batchStart == null || !_batchRunning
+        ? null
+        : DateTime.now().difference(_batchStart!);
     return [
       Row(
         children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('Ergebnisse',
-                  style: Theme.of(context).textTheme.titleMedium),
-            ),
-          ),
-          if (_usageInfo != null && !_generating)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                _usageInfo!,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Theme.of(context).colorScheme.outline),
+          Text('Ergebnisse',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(width: 10),
+          if (_batchTotal > 0)
+            Badge2('$_batchDone / $_batchTotal fertig',
+                tone: _batchRunning ? BadgeTone.primary : BadgeTone.good)
+          else if (_results.isNotEmpty)
+            Badge2('${_results.length} fertig', tone: BadgeTone.good),
+          const Spacer(),
+          if (average != null || elapsed != null)
+            Flexible(
+              child: MonoText(
+                [
+                  if (elapsed != null) 'Vergangen ${_formatDuration(elapsed)}',
+                  if (average != null)
+                    'Schnitt ${_formatDuration(average)} je Bild',
+                  if (remaining != null && remaining > Duration.zero)
+                    'Rest ca. ${_formatDuration(remaining)}',
+                ].join(' · '),
               ),
             ),
+          if (_batchRunning) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: _batchCancel
+                  ? null
+                  : () {
+                      setState(() => _batchCancel = true);
+                      context.read<RunQueue>().cancelWaiting();
+                    },
+              child: Text(_batchCancel ? 'Bricht ab …' : 'Abbrechen'),
+            ),
+          ] else if (_results.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: _generating ? null : () => _downloadAll(settings),
+              child: const Text('Alle herunterladen'),
+            ),
+          ],
         ],
       ),
-      // Beim Massenlauf zeigt das Statusfenster, was gerade entsteht
-      // und wie lange es noch dauert; es bleibt danach als Bilanz
-      // stehen.
-      if (_batchTotal > 0) ...[
-        _buildBatchStatus(),
-        if (_generating) ...[
-          const SizedBox(height: 8),
-          _buildProgressView(context.read<SettingsService>()),
-        ],
-        const SizedBox(height: 8),
-      ] else if (_generating) ...[
-        _buildProgressView(context.read<SettingsService>()),
-        const SizedBox(height: 8),
-      ],
+      if (_usageInfo != null && !_generating)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: MonoText(_usageInfo!, size: 11),
+        ),
+      if (_batchFailures.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: NoticeRow(
+            tone: NoticeTone.error,
+            text: '${_batchFailures.length} nicht geklappt: '
+                '${_batchFailures.first}'
+                '${_batchFailures.length > 1 ? ' (+${_batchFailures.length - 1})' : ''}',
+            actionLabel: !_batchRunning && _batchFailedItems.isNotEmpty
+                ? 'Wiederholen'
+                : 'Details',
+            onAction: !_batchRunning && _batchFailedItems.isNotEmpty
+                ? _retryFailedBatch
+                : _showRunNotes,
+          ),
+        ),
+      if (_batchNotes.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: NoticeRow(
+            tone: NoticeTone.info,
+            text: 'Anmerkung: ${_batchNotes.first}'
+                '${_batchNotes.length > 1 ? ' (+${_batchNotes.length - 1})' : ''}',
+            actionLabel: 'Details',
+            onAction: _showRunNotes,
+          ),
+        ),
+      if (!_generating && _batchTotal > 0 && _batchDone > 0 &&
+          _batchFailures.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            'Alle fertigen Bilder liegen unter ihrem Namen in der '
+            'Galerie'
+            '${settings.currentProject.isEmpty ? '' : ', Projekt „${projectName(settings.currentProject)}"'}.',
+            style: theme.textTheme.labelSmall?.copyWith(color: scheme.outline),
+          ),
+        ),
     ];
   }
 
-  /// Zeigt, wie das Bild entsteht.
-  ///
-  /// Bei der eigenen GPU kommt alle paar Diffusionsschritte ein echtes
-  /// Zwischenbild vom Server – man sieht das Motiv aus dem Rauschen
-  /// auftauchen. Die Cloud-Anbieter liefern keine Zwischenstände;
-  /// dort läuft eine Wartegrafik, und der Text sagt auch warum.
-  Widget _buildProgressView(SettingsService settings) {
+  Future<void> _downloadAll(SettingsService settings) async {
+    final files = <({Uint8List bytes, String fileName, String mimeType})>[
+      for (var i = 0; i < _results.length; i++)
+        (
+          bytes: _results[i].bytes,
+          fileName:
+              '${i < _resultMeta.length && _resultMeta[i].name.isNotEmpty ? _resultMeta[i].name : 'bild_${i + 1}'}'
+              '.${_results[i].fileExtension}',
+          mimeType: _results[i].mimeType,
+        ),
+    ];
+    try {
+      final r = await exportManyBytes(files,
+          suggestedFolderName: settings.currentProject.isEmpty
+              ? 'bilder'
+              : projectName(settings.currentProject));
+      if (r != null && mounted) _showSnack(r.message);
+    } catch (e) {
+      if (mounted) _showSnack('Export fehlgeschlagen: $e');
+    }
+  }
+
+  /// Die laufende Karte: Wer zeichnet, wie lange schon – und ob es
+  /// eine Vorschau geben kann.
+  Widget _runningCard(SettingsService settings) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final local = settings.provider.isLocal;
     final elapsed = _runStart == null
         ? Duration.zero
         : DateTime.now().difference(_runStart!);
-    return GenerationProgress(
-      // Das Wartemotiv gehört zum Modell, das gerade rechnet.
-      motif: waitMotifFor(
-          settings.provider, settings.modelFor(settings.provider)),
-      preview: _preview,
-      step: _previewStep,
-      totalSteps: _previewTotal,
-      elapsed: elapsed,
-      aspect: _previewAspect(settings),
-      label: _batchTotal > 0
-          ? 'Bild „$_batchCurrent" entsteht …'
-          : 'Bild entsteht …',
-      hint: local
-          ? _preview == null
-              ? 'Die Vorschau erscheint nach den ersten Schritten. '
-                  'Bei SD 3.5 und FLUX gibt es keine – die packen ihre '
-                  'Zwischenstände anders.'
-              : 'Grobe Vorschau aus den Latents – Form und Farben '
-                  'stimmen, Details noch nicht. Das fertige Bild kommt '
-                  'in voller Auflösung.'
-          : '${settings.provider.label} liefert keine Zwischenstände; '
-              'das Bild kommt am Stück. Je nach Qualität 10–60 Sekunden.',
+    final hasSteps = _previewTotal > 0 && _previewStep > 0;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.35)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: GenerationProgress(
+              compact: true,
+              motif: _motif(settings),
+              preview: _preview,
+              step: _previewStep,
+              totalSteps: _previewTotal,
+              elapsed: elapsed,
+              aspect: 1,
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: scheme.outlineVariant)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: RichText(
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    text: TextSpan(
+                      style: theme.textTheme.labelMedium
+                          ?.copyWith(color: scheme.onSurface),
+                      children: [
+                        TextSpan(
+                            text: _batchCurrent.isEmpty
+                                ? 'Bild entsteht'
+                                : _batchCurrent),
+                        TextSpan(
+                          text: ' · ${_formatDuration(elapsed)}',
+                          style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w400,
+                              color: scheme.outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: local
+                      ? _preview == null
+                          ? 'Die Vorschau erscheint nach den ersten '
+                              'Schritten. Bei SD 3.5 und FLUX gibt es '
+                              'keine – die packen ihre Zwischenstände '
+                              'anders.'
+                          : 'Grobe Vorschau aus den Latents – Form und '
+                              'Farben stimmen, Details noch nicht.'
+                      : '${settings.provider.label} liefert keine '
+                          'Zwischenstände; das Bild kommt am Stück. Je nach '
+                          'Qualität 10–60 Sekunden.',
+                  child: MonoText(
+                    hasSteps
+                        ? 'Schritt $_previewStep/$_previewTotal'
+                        : local
+                            ? 'Vorschau folgt'
+                            : 'keine Vorschau möglich',
+                    size: 10.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  /// Seitenverhältnis der Vorschaufläche, passend zur Einstellung.
-  double _previewAspect(SettingsService settings) {
-    final aspect = settings.provider == GenProvider.openai
-        ? settings.openAiSize
-        : settings.stabilityAspect;
-    final parts = aspect.split(RegExp(r'[:x×]'));
-    if (parts.length == 2) {
-      final w = double.tryParse(parts[0].trim());
-      final h = double.tryParse(parts[1].trim());
-      if (w != null && h != null && h > 0) return w / h;
-    }
-    return 1;
-  }
-
-  Widget _buildResultsGrid({required bool shrinkWrap}) {
-    if (_results.isEmpty) {
-      final placeholder = Center(
+  Widget _buildResultsGrid(SettingsService settings,
+      {required bool shrinkWrap}) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tiles = <Widget>[
+      for (var i = 0; i < _results.length; i++) _resultCard(i),
+      if (_generating) _runningCard(settings),
+      for (final name in _batchPending) _queuedCard(name),
+    ];
+    if (tiles.isEmpty) {
+      return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.image_outlined,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.outlineVariant),
+                  size: 64, color: scheme.outlineVariant),
               const SizedBox(height: 12),
               Text(
                 'Noch keine Ergebnisse.\nBeschreibung eingeben und '
-                '„Bild generieren“ antippen.',
+                '„Lauf starten“ antippen.',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: theme.textTheme.bodyMedium,
               ),
             ],
           ),
         ),
       );
-      return placeholder;
     }
     return GridView.builder(
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 340,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.82,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        childAspectRatio: 0.86,
       ),
-      itemCount: _results.length,
-      itemBuilder: (context, index) {
-        final image = _results[index];
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: () => _openDetail(image, index),
-                  child: SizedBox.expand(
-                    child: CheckerboardImage(
-                        bytes: image.bytes, fit: BoxFit.cover),
-                  ),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  IconButton(
-                    tooltip: 'Vergrößern',
-                    icon: const Icon(Icons.zoom_out_map),
-                    onPressed: () => _openDetail(image, index),
-                  ),
-                  IconButton(
-                    tooltip: 'Speichern / Teilen',
-                    icon: const Icon(Icons.download),
-                    onPressed: () => _exportResult(image, index),
-                  ),
-                  IconButton(
-                    tooltip: 'Als Referenzbild verwenden',
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    onPressed: () => _useAsReference(image),
-                  ),
-                  IconButton(
-                    tooltip: 'Erstellungsnachweis (PDF)',
-                    icon: const Icon(Icons.workspace_premium_outlined),
-                    onPressed: () => _exportProvenance(image),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
+      itemCount: tiles.length,
+      itemBuilder: (context, index) => tiles[index],
     );
   }
+
+  Widget _resultCard(int index) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final image = _results[index];
+    final meta = index < _resultMeta.length ? _resultMeta[index] : null;
+    final costText = meta == null
+        ? ''
+        : formatUsdRange(meta.costMinUsd, meta.costUsd)
+            .replaceFirst('≈ ', '');
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                InkWell(
+                  onTap: () => _openDetail(image, index),
+                  child: CheckerboardImage(bytes: image.bytes, fit: BoxFit.cover),
+                ),
+                if (meta != null && meta.name.isNotEmpty)
+                  Positioned(
+                    top: 9,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(meta.name,
+                          style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 4, 6, 4),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: scheme.outlineVariant)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: MonoText(
+                    meta == null
+                        ? ''
+                        : '${_formatDuration(meta.elapsed)}'
+                            '${costText.isEmpty ? '' : ' · $costText'}',
+                    size: 11,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Vergrößern',
+                  iconSize: 17,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.open_in_full),
+                  onPressed: () => _openDetail(image, index),
+                ),
+                IconButton(
+                  tooltip: 'Speichern / Teilen',
+                  iconSize: 17,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.download_outlined),
+                  onPressed: () => _exportResult(image, index),
+                ),
+                Tooltip(
+                  message: 'Als Vorderansicht in den 3D-Tab',
+                  child: Material(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(7),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(7),
+                      onTap: () => _sendToThreeD(image, index),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 9, vertical: 5),
+                        child: Text('→ 3D',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: scheme.onPrimaryContainer)),
+                      ),
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Mehr',
+                  iconSize: 17,
+                  padding: EdgeInsets.zero,
+                  onSelected: (value) {
+                    if (value == 'ref') _useAsReference(image);
+                    if (value == 'pdf') _exportProvenance(image);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                        value: 'ref', child: Text('Als Referenzbild')),
+                    PopupMenuItem(
+                        value: 'pdf', child: Text('Erstellungsnachweis (PDF)')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// „→ 3D": das Bild wird zur Vorderansicht im 3D-Tab.
+  void _sendToThreeD(GeneratedImage image, int index) {
+    final meta = index < _resultMeta.length ? _resultMeta[index] : null;
+    final name = meta != null && meta.name.isNotEmpty
+        ? meta.name
+        : 'bild_${index + 1}';
+    context.read<ImageRelay>().send(
+          bytes: image.bytes,
+          name: '$name.${image.fileExtension}',
+          prompt: _lastRequest?.prompt ?? _promptCtrl.text,
+        );
+  }
+
+  Widget _queuedCard(String name) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MonoText('in Warteschlange', size: 11),
+              const SizedBox(height: 4),
+              MonoText(name, size: 11, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Was an einer Ergebniskarte steht: Name, Dauer, Kosten.
+class _ResultMeta {
+  const _ResultMeta({
+    required this.name,
+    required this.elapsed,
+    required this.costUsd,
+    required this.costMinUsd,
+  });
+
+  final String name;
+  final Duration elapsed;
+  final double costUsd;
+  final double costMinUsd;
 }

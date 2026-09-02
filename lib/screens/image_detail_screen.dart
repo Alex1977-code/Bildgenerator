@@ -15,6 +15,7 @@ class ImageDetailScreen extends StatelessWidget {
     this.metadata = const {},
     this.onDelete,
     this.onReusePrompt,
+    this.onSendToThreeD,
   });
 
   final Uint8List bytes;
@@ -24,6 +25,9 @@ class ImageDetailScreen extends StatelessWidget {
   final Map<String, String> metadata;
   final Future<void> Function()? onDelete;
   final VoidCallback? onReusePrompt;
+
+  /// „→ 3D": das Bild als Vorderansicht in den 3D-Tab.
+  final VoidCallback? onSendToThreeD;
 
   Future<void> _export(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -72,6 +76,15 @@ class ImageDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Bildansicht'),
         actions: [
+          if (onSendToThreeD != null)
+            TextButton.icon(
+              icon: const Icon(Icons.view_in_ar_outlined, size: 18),
+              label: const Text('→ 3D'),
+              onPressed: () {
+                onSendToThreeD!();
+                Navigator.of(context).pop();
+              },
+            ),
           IconButton(
             tooltip: 'Speichern / Teilen',
             icon: const Icon(Icons.download),

@@ -28,7 +28,12 @@ class GenerationProgress extends StatefulWidget {
     this.hint = '',
     this.aspect = 1,
     this.motif,
+    this.compact = false,
   });
+
+  /// Nur die Fläche, ohne die Zeilen darunter – für die Ergebniskarte,
+  /// die ihre eigene Fußzeile hat.
+  final bool compact;
 
   /// Letzter Zwischenstand, falls der Anbieter welche liefert.
   final Uint8List? preview;
@@ -83,10 +88,7 @@ class _GenerationProgressState extends State<GenerationProgress>
     final hasSteps = widget.totalSteps > 0 && widget.step > 0;
     final fraction =
         hasSteps ? (widget.step / widget.totalSteps).clamp(0.0, 1.0) : null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AspectRatio(
+    final flaeche = AspectRatio(
           aspectRatio: widget.aspect <= 0 ? 1 : widget.aspect,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -146,7 +148,12 @@ class _GenerationProgressState extends State<GenerationProgress>
               ],
             ),
           ),
-        ),
+        );
+    if (widget.compact) return flaeche;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        flaeche,
         const SizedBox(height: 8),
         Row(
           children: [

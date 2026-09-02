@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// Fragt das verbleibende Guthaben eines 3D-Providers ab und liefert
-/// einen anzeigefertigen deutschen Text – oder null, wenn der Anbieter
-/// kein Guthaben meldet oder die Abfrage fehlschlägt (die Anzeige ist
-/// rein informativ und darf die Generierung nie stören).
-Future<String?> fetchProviderBalance(
+/// Fragt das verbleibende Guthaben eines Providers ab – als Zahl.
+///
+/// Null heißt: Der Anbieter meldet kein Guthaben (fal, Rodin,
+/// Replicate rechnen je Lauf ab und zeigen den Verbrauch nur im
+/// Dashboard), oder die Abfrage schlug fehl. Die Anzeige ist rein
+/// informativ und darf die Generierung nie stören.
+Future<double?> fetchProviderCredits(
     String providerId, String apiKey) async {
   try {
     switch (providerId) {
@@ -16,20 +18,14 @@ Future<String?> fetchProviderBalance(
           headers: {'Authorization': 'Bearer $apiKey'},
         ).timeout(const Duration(seconds: 12));
         if (r.statusCode != 200) return null;
-        final credits =
-            (jsonDecode(r.body)['credits'] as num?)?.toDouble();
-        if (credits == null) return null;
-        return 'Stability-Guthaben: ${credits.toStringAsFixed(1)} Credits';
+        return (jsonDecode(r.body)['credits'] as num?)?.toDouble();
       case 'meshy':
         final r = await http.get(
           Uri.parse('https://api.meshy.ai/openapi/v1/balance'),
           headers: {'Authorization': 'Bearer $apiKey'},
         ).timeout(const Duration(seconds: 12));
         if (r.statusCode != 200) return null;
-        final balance =
-            (jsonDecode(r.body)['balance'] as num?)?.toDouble();
-        if (balance == null) return null;
-        return 'Meshy-Guthaben: ${balance.toStringAsFixed(0)} Credits';
+        return (jsonDecode(r.body)['balance'] as num?)?.toDouble();
       case 'tripo':
         final r = await http.get(
           Uri.parse('https://api.tripo3d.ai/v2/openapi/user/balance'),
@@ -37,10 +33,7 @@ Future<String?> fetchProviderBalance(
         ).timeout(const Duration(seconds: 12));
         if (r.statusCode != 200) return null;
         final data = (jsonDecode(r.body) as Map)['data'];
-        final balance =
-            (data is Map ? data['balance'] as num? : null)?.toDouble();
-        if (balance == null) return null;
-        return 'Tripo-Guthaben: ${balance.toStringAsFixed(0)} Credits';
+        return (data is Map ? data['balance'] as num? : null)?.toDouble();
       case 'fal':
         // fal.ai bietet keine öffentliche Guthaben-API – der Verbrauch
         // ist im Dashboard (fal.ai/dashboard) einsehbar.
@@ -58,4 +51,21 @@ Future<String?> fetchProviderBalance(
     // Guthaben-Anzeige ist optional.
   }
   return null;
+}
+
+/// Welche Anbieter überhaupt ein Guthaben melden.
+const Set<String> providersWithBalance = {'stability', 'meshy', 'tripo'};
+
+/// Dasselbe als anzeigefertiger deutscher Satz – oder null.
+Future<String?> fetchProviderBalance(
+    String providerId, String apiKey) async {
+  final credits = await fetchProviderCredits(providerId, apiKey);
+  if (credits == null) return null;
+  return switch (providerId) {
+    'stability' =>
+      'Stability-Guthaben: ${credits.toStringAsFixed(1)} Credits',
+    'meshy' => 'Meshy-Guthaben: ${credits.toStringAsFixed(0)} Credits',
+    'tripo' => 'Tripo-Guthaben: ${credits.toStringAsFixed(0)} Credits',
+    _ => null,
+  };
 }

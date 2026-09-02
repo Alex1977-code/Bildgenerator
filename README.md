@@ -366,6 +366,167 @@ Bildgenerator – die App heißt 3DGenerator, Icon: 3D-Würfel.)
   - API-Schlüssel werden **verschlüsselt lokal** gespeichert (Keychain /
     Keystore / DPAPI), dunkles & helles Design
 
+## Der Bild-Tab, aufgeräumt
+
+Ein Umbau nach Entwurf, nicht nach Gefühl: Aus einer Design-Runde
+(drei Richtungen für den Bild-Tab plus Handy) wurde **1a
+„Aufgeräumt"** gebaut – die Evolution der bestehenden Material-Oberfläche.
+Rail bleibt, Indigo bleibt; es ändert sich die Anordnung, nicht das
+Fundament. Vier Regeln stehen dahinter:
+
+1. **Zahl statt Absatz.** Jede Erklärung wird zu Wert, Etikett oder
+   Tooltip. Prosa gibt es nur noch auf Abruf.
+2. **Eine Entscheidung pro Fläche.** Modell, Format, Anzahl,
+   Qualitätsstufe – vier Karten, nicht eine Spalte.
+3. **Warten zeigt, wer rechnet** – nie einen erfundenen Fortschritt.
+4. **Kosten sind Teil des Knopfs.** „2 Bilder · ≈ 0,08 $" steht am
+   Knopf, nicht in einem Feld weiter oben.
+
+### Was sich geändert hat
+
+**Kopfzeile.** Logo, **Projektwähler**, **Guthaben**, Hell/Dunkel,
+Hilfe. Der Projektwähler bestimmt, in welchen Galerie-Ordner das
+nächste Bild oder Modell fällt – vorher landete alles unsortiert. Das
+Guthaben zeigt den gewählten Bild- und 3D-Anbieter: Stability, Meshy
+und Tripo melden Credits über ihre API; OpenAI und Gemini haben keine
+Guthaben-API, dort steht, ob ein Schlüssel hinterlegt ist; die eigene
+GPU kostet 0 $. Ein Klick holt die Zahlen neu, und nach jedem Lauf,
+der ein Restguthaben mitliefert, ist es sofort aktuell.
+
+**Linke Spalte.** Oben der Umschalter *Massenprompt | Einzelbild* mit
+dem Zähler „2 Blöcke · 2 Bilder" und dem Menü „Vorlage laden"
+(Beispiel, CSV einlesen, Prüfbericht, Umschreiben, Vorlage für die
+Prompt-KI, Stil-Vorlagen). Der Massenprompt zeigt sich als **Tabelle**
+– eine Zeile je Block mit Nummer, Name und Prompt –, solange nicht
+getippt wird; ein Klick öffnet den Editor. Warnungen aus der Prüfung
+sind **Zeilen mit „Details"**, nicht mehr eine Wand. Die
+Referenzbilder sind eine Zeile aus Kacheln mit „+". Dann die vier
+Karten; ein Klick auf eine Karte öffnet die Auswahl. Alles Seltene
+(Negativ-Prompt, Blickrichtung, Seed, Style-Preset, Dateiformat,
+GPU-Stufen, Kostenvergleich, API-Schlüssel) liegt zusammengeklappt
+unter **Profi-Optionen**.
+
+**Der Knopf** steht fest unter der Spalte: „2 Bilder · ≈ 0,08 $", darunter
+„276 Stück für 10 € · Schätzwert, echter Abzug nach dem Lauf".
+
+**Rechts die Ergebnisse.** Kopfzeile mit „2 / 3 fertig", Schnitt je
+Bild, Restzeit, „Alle herunterladen" (ein Dialog für alle). Jede Karte
+trägt den Namen, darunter „11 s · 0,04 $", Vergrößern, Speichern und
+**„→ 3D"** – das reicht das Bild als Vorderansicht in den 3D-Tab, ohne
+Umweg über die Platte. Während gerechnet wird, zeigt eine Karte die
+Wartegrafik des Modells („Nano Banana zeichnet …") und sagt „keine
+Vorschau möglich", wo das so ist; was noch ansteht, steht als
+gestrichelte Karte „in Warteschlange" daneben.
+
+**Handy.** Keine Kopfzeile, der Tab trägt seinen Titel selbst; Prompt
+oben, darunter „Referenz" und „Vorlage", unten das Feld mit Modell
+(„wechseln ▸"), Seitenverhältnis-Chips, Stufe, Kosten und dem Knopf
+„1 Bild generieren". Seltenes unter „Mehr Optionen". In der Leiste
+heißt es „Mehr" statt „Einstellungen".
+
+### Die Warteschlange
+
+Ein Lauf ist ein **Zustand der App**, kein Dialog. Jeder Block des
+Massenprompts und jeder 3D-Lauf ist ein Auftrag in einer Schlange,
+die neben den Tabs steht: als „1 Lauf" unten in der Leiste (Desktop)
+und als Chip in der Titelzeile (Handy); ein Klick öffnet die Seite
+„Lauf" mit dem, was rechnet, wartet und fertig ist.
+
+Sie überlebt den Neustart – mit einer ehrlichen Einschränkung: **Die
+App rechnet nicht, wenn sie geschlossen ist.** Der Entwurf versprach
+„läuft weiter, auch wenn du die App schließt"; das kann eine
+Flutter-App ohne Hintergrunddienst nicht halten, und die Oberfläche
+behauptet es deshalb auch nicht. Stattdessen: Was beim Schließen
+offen war, ist beim nächsten Start als **unterbrochen** markiert, der
+Massenprompt-Text ist noch da, und der Bild-Tab bietet an, die
+fehlenden Bilder **nachzuholen** – nur diese, die fertigen bleiben in
+der Galerie.
+
+### CSV einlesen
+
+Prompts entstehen selten in der App; wer vierzig Assets plant, hat sie
+in einer Tabelle. „Vorlage laden → CSV einlesen" (oder eine CSV ins
+Feld ziehen) macht daraus Blöcke: Trennzeichen (`;` `,` Tab `|`) und
+Kopfzeile werden erkannt, Spalten heißen `name`, `prompt`, `negativ`,
+`referenz` in beliebiger Reihenfolge; ohne Kopfzeile gilt Name,
+Prompt, Negativ, Referenz. Anführungszeichen nach RFC 4180. Was keinen
+Prompt hat, wird übersprungen und gezählt.
+
+### Was bewusst nicht gebaut wurde
+
+Aus derselben Design-Runde gab es **1b „Studio"** (dunkel, Icon-Dock,
+⌘K-Palette) und **1c „Fließband"** (der Massenprompt als Tabelle mit
+Pipeline-Reitern). Beide sind komplette Alternativen, nicht
+Ergänzungen; gebaut wurde 1a, weil es das Fundament behält und keine
+bestehende Funktion weichen muss. Der 3D-Tab ist noch die alte
+Anordnung – dieselbe Sprache dort ist eine eigene Runde.
+
+## Prüfung gegen die Zielliste
+
+Eine Durchsicht des Codes gegen die Frage „Was soll die App können,
+und tut sie es?" – mit dem, was dabei geändert wurde, und dem, was
+offen bleibt. Ehrlich getrennt.
+
+**2D-Generator für Text und Bilder, einzeln und als Massenprompt.**
+Vorhanden. Die Prompt-Vorlage hängt am gewählten Modell
+(`prompt_briefing.dart`: Stichwortkette für Stability und die eigene
+GPU, gegliedertes Briefing für GPT-Image und Gemini; Höchstlänge,
+Negativ-Umgang und Modellregeln je Modell). Der Massenprompt wird
+gegen dasselbe Profil geprüft und lässt sich mit „Umschreiben" darauf
+bringen. **Neu:** Felder, die das Modell nicht braucht, sind
+**ausgegraut statt versteckt** – Seed (nur Stability und eigene GPU),
+Style-Preset (nur Stability Core), Negativ-Prompt (bei SDXL Turbo und
+FLUX schnell ohne Wirkung) – jeweils mit dem Satz, warum.
+
+**3D-Generator für Text und Bild, mit Voreinstellungen.** Vorhanden:
+acht Vorlagen (Fahrzeug, Figur, Schnelltest, Eigene GPU, Höchste
+Detailtreue, 3D-Druck und zwei für Roblox), dazu eigene Vorlagen.
+Die Optionen richten sich nach dem Anbieter (Tripo: Face-Limit,
+Textur, Rigging, PBR, Smart Low-Poly, Quad; Meshy: Ultra Mode,
+Polygone; Rodin: Quad; Stability: Stufen; Lokal: Raster und
+Tiefenkarten). **Umbenannt:** Die Roblox-Ziele heißen jetzt **„Figur
+im Erlebnis"**, **„UGC-Accessoire"** und **„Marktplatz-Avatar"**, die
+Vorlagen **„Roblox: Figur im Erlebnis"** und **„Roblox:
+Marktplatz-Avatar"** – zwei Wege, zwei Regelwerke, ein Namensmuster.
+Offen: Im 3D-Tab sind nicht zutreffende Optionen weiterhin
+ausgeblendet statt ausgegraut; das ist die eigene Runde „3D-Tab in
+derselben Sprache".
+
+**Roblox-Prompts.** Durchgesehen: Figur, Accessoire und
+Marktplatz-Körper haben je einen festen Schwanz, eine NEGATIV-Zeile
+und einen erprobten Beispielblock; die Marktplatz-Fassung trägt die
+gemessenen Grenzen (Tiefe, Beine, Hals, A-Pose) und verlangt Augen
+und Mund als Volumen. Die Längen passen zu Tripos 1.024/255 Zeichen.
+Keine Änderung nötig.
+
+**„Direkt tauglich für den Marktplatz".** Hier steht die eine
+Einschränkung, die kein Prompt und keine Reparatur aufhebt: Der
+Marktplatz verlangt für den Kopf eines Ganzkörper-Bundles einen
+dynamischen Kopf mit FACS-Posen, und dafür müssen **Augenhöhlen mit
+Lidern und eine Mundhöhle mit Lippen im Kopfnetz** liegen. Tripo
+liefert eine geschlossene Hülle; fünf Läufe haben gezeigt, dass
+angesetzte Augen und Zähne nicht reichen. Was die App leistet:
+Torso, Arme und Beine bestehen `ValidateUGCBodyPartAsync`; Maße,
+Hals, Beine, Pose, Dreiecke, Textur, Ausrichtung sind geprüft und
+reparierbar; das Konzept-Gate warnt vor Motiven ohne Gesicht. Was
+sie nicht leisten kann, sagt sie vorher.
+
+**Nachbearbeitung.** Vorhanden: Skelett nachträglich einbauen
+(Typ wird erkannt), Rig-Editor, Dreiecksbudget, Preflight mit
+Reparatur, Textur-Pipeline (Verkleinern, ein UV-Satz, ein Material,
+Hautton), Textur-Beschreibung bei Tripo, Testanimationen als Clips
+einbetten, Export als GLB/FBX/OBJ/STL/3MF mit Presets und
+Roblox-Paket. **Neu: „Skelett entfernen"** im Vorschaufenster – das
+Gegenstück zum Einbauen. Knochen, Gewichte und Animationen fallen
+weg, das Netz bleibt exakt stehen (Bind-Pose); für Auto Setup Pflicht,
+für einen Prop schlicht kleiner.
+
+**Galerie.** Vorhanden: Projekte mit Ordnern, Suche, Auswahl mit
+Bereichsmarkierung, Einsortieren, Sammel-Download, Nachweis-PDF.
+**Neu:** Filter **Alle / Bilder / 3D** mit Zahlen, „Alle" trägt die
+Gesamtzahl, jede Kachel nennt die Art („02.09. · GLB"), und aus der
+Bildansicht führt **„→ 3D"** direkt als Vorderansicht in den 3D-Tab.
+
 ## Zusehen, wie das Bild entsteht
 
 Während eines Laufs zeigt die App eine Fortschrittsfläche statt eines

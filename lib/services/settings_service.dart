@@ -133,6 +133,20 @@ class SettingsService extends ChangeNotifier {
   /// anderen, nicht der versteckte Normalfall.
   String viewDirection = 'frei';
 
+  /// Das Projekt, in das neue Bilder und Modelle einsortiert werden –
+  /// der Projektwähler in der Kopfzeile. Leer = ohne Projekt.
+  ///
+  /// Vorher landete alles unsortiert in der Galerie und musste danach
+  /// von Hand in einen Ordner. Bei dreizehn Assets eines Roblox-Sets
+  /// ist das dreizehnmal derselbe Handgriff.
+  String currentProject = '';
+
+  /// Der zuletzt eingegebene Massenprompt. Er überlebt den Neustart:
+  /// Ein Text mit 43 Blöcken ist zu wertvoll, um am Fensterschließen
+  /// zu hängen – und die Warteschlange braucht ihn, um einen
+  /// unterbrochenen Lauf fortzusetzen.
+  String lastBatchText = '';
+
   /// Eine selbst geladene Fassung von roblox_specs.json. Leer =
   /// die mitgelieferte Datei gilt.
   ///
@@ -140,6 +154,20 @@ class SettingsService extends ChangeNotifier {
   /// keinen Pfad, den die App beim nächsten Start wieder öffnen
   /// könnte.
   String robloxSpecsOverride = '';
+
+  void setCurrentProject(String v) {
+    currentProject = v.trim();
+    _persistString('currentProject', currentProject);
+    notifyListeners();
+  }
+
+  /// Ohne notifyListeners: Der Text ändert sich bei jedem Tastendruck,
+  /// und die Oberfläche hängt am Controller, nicht an dieser Kopie.
+  void rememberBatchText(String v) {
+    if (lastBatchText == v) return;
+    lastBatchText = v;
+    _persistString('lastBatchText', v);
+  }
 
   void setRobloxSpecsOverride(String v) {
     robloxSpecsOverride = v;
@@ -436,6 +464,8 @@ class SettingsService extends ChangeNotifier {
       gpuGuidance = prefs.getDouble('gpuGuidance') ?? -1;
       gpuSampler = prefs.getString('gpuSampler') ?? '';
       viewDirection = prefs.getString('viewDirection') ?? viewDirection;
+      currentProject = prefs.getString('currentProject') ?? '';
+      lastBatchText = prefs.getString('lastBatchText') ?? '';
       robloxSpecsOverride =
           prefs.getString('robloxSpecsOverride') ?? '';
       final storedPresets = prefs.getStringList('customPresets');

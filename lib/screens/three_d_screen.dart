@@ -22,6 +22,7 @@ import '../services/animation_bake.dart';
 import '../services/auto_rig.dart';
 import '../services/balance_service.dart';
 import '../services/concept_gate.dart';
+import '../services/credit_balance.dart';
 import '../services/cost_estimator.dart';
 import '../services/exporter.dart';
 import '../services/fal_service.dart';
@@ -35,6 +36,7 @@ import '../services/mesh_check.dart';
 import '../services/meshy_service.dart';
 import '../services/model_catalog.dart' show allImageModels;
 import '../services/model_import.dart';
+import '../services/image_relay.dart';
 import '../services/model_relay.dart';
 import '../services/model_views.dart';
 import '../services/model_refine.dart';
@@ -66,6 +68,7 @@ import '../services/roblox_repair.dart';
 import '../services/roblox_rig.dart';
 import '../services/roblox_spec.dart';
 import '../services/self_host_service.dart';
+import '../services/run_queue.dart';
 import '../services/settings_service.dart';
 import '../services/stability_3d_service.dart';
 import '../services/tripo_service.dart';
@@ -381,7 +384,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     ),
     (
       'roblox',
-      'Roblox-Figur',
+      'Roblox: Figur im Erlebnis',
       Icons.videogame_asset_outlined,
       'meshy',
       'Meshy mit 10.000 Ziel-Polygonen, einer 1024er-Textur, T-Pose '
@@ -390,7 +393,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     ),
     (
       'roblox_markt',
-      'Marktplatz-Avatar',
+      'Roblox: Marktplatz-Avatar',
       Icons.storefront_outlined,
       'tripo',
       'Für Roblox\' Auto Setup: ohne Rigging, A-Pose, Smart Low-Poly, '
@@ -523,7 +526,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _views['front'] = null;
       }
     });
-    // Die Roblox-Vorlage startet bei „Figur / Prop"; in der Karte
+    // Die Roblox-Vorlage startet bei „Figur im Erlebnis"; in der Karte
     // lässt sich auf „UGC-Accessoire" umschalten – dann fallen Skelett
     // und T-Pose weg und das Budget sinkt auf 4.000 Dreiecke.
     if (id == 'roblox') _applyRobloxTarget(RobloxTarget.character);
@@ -1251,6 +1254,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
 
   ModelRelay? _modelRelay;
+  ImageRelay? _imageRelay;
 
   @override
   void didChangeDependencies() {
@@ -1263,6 +1267,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Wartet schon eines (der Tab war beim Absenden nicht gebaut),
     // gleich abholen.
     if (relay.hasPending) _onRelayedModel();
+    final images = context.read<ImageRelay>();
+    if (!identical(_imageRelay, images)) {
+      _imageRelay?.removeListener(_onRelayedImage);
+      _imageRelay = images..addListener(_onRelayedImage);
+    }
+    if (images.hasPending) _onRelayedImage();
+  }
+
+  /// Ein Bild aus dem Bild-Tab („→ 3D"): als Vorderansicht übernehmen
+  /// und in den Bild-Modus wechseln. Der Prompt kommt mit, wenn hier
+  /// noch keiner steht – Tripo und Meshy nutzen ihn als Zusatz.
+  void _onRelayedImage() {
+    if (!mounted) return;
+    final pending = context.read<ImageRelay>().takePending();
+    if (pending == null) return;
+    setState(() {
+      _views['front'] = ReferenceImage(bytes: pending.bytes, name: pending.name);
+      _imageMode = true;
+      if (pending.prompt.trim().isNotEmpty &&
+          _promptCtrl.text.trim().isEmpty) {
+        _promptCtrl.text = pending.prompt.trim();
+      }
+    });
+    _showSnack('„${pending.name}" als Vorderansicht übernommen.');
   }
 
   /// Eine Figur aus der Galerie ist eingetroffen: als Ergebnis
@@ -1295,6 +1323,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   @override
   void dispose() {
     _modelRelay?.removeListener(_onRelayedModel);
+    _imageRelay?.removeListener(_onRelayedImage);
     _cancelRequested = true;
     _runTicker?.cancel();
     _promptCtrl.dispose();
@@ -1568,6 +1597,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'Gegenstand': kind.label,
         'Anprobe': 'Größe und Drehung angepasst',
       },
+      project: context.read<SettingsService>().currentProject,
     );
     if (!mounted) return;
     _showSnack('Größe und Drehung übernommen – im Netz gebacken, nicht '
@@ -2358,9 +2388,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ? 'Ansichten werden vorbereitet …'
           : 'Task wird angelegt …';
     });
+    // In die Warteschlange: Der Lauf ist damit auch aus den anderen
+    // Tabs sichtbar, samt Zwischenstand.
+    final queue = context.read<RunQueue>();
+    final job = queue.add(
+      name: prompt.isEmpty
+          ? (_front?.name ?? '3D-Modell')
+          : (prompt.length > 40 ? '${prompt.substring(0, 40)} …' : prompt),
+      kind: RunJobKind.model,
+      provider: threeDProviderLabel(settings.threeDProvider),
+    );
+    queue.start(job.id);
     bool cancelled() => _cancelRequested || !mounted;
     void progress(String stage) {
       if (mounted) setState(() => _stage = stage);
+      queue.progress(job.id, stage);
     }
 
     var usedTokens = 0;
@@ -2482,10 +2524,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             usageParts.isEmpty ? null : usageParts.join(' · '));
       }
     } on GenerationException catch (e) {
+      queue.fail(job.id, e.message);
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
+      queue.fail(job.id, 'Unerwarteter Fehler: $e');
       if (mounted) setState(() => _error = 'Unerwarteter Fehler: $e');
     } finally {
+      if (job.isOpen) {
+        _cancelRequested ? queue.cancel(job.id) : queue.finish(job.id);
+      }
       if (mounted) {
         setState(() {
           _running = false;
@@ -2562,6 +2609,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         if (limitNote.isNotEmpty) 'Angefordert': limitNote,
         if (rigNote.isNotEmpty) 'Rigging-Hinweis': rigNote,
       },
+      project: context.read<SettingsService>().currentProject,
     );
   }
 
@@ -3970,7 +4018,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 segments: const [
                   ButtonSegment(
                       value: RobloxTarget.character,
-                      label: Text('Figur / Prop'),
+                      label: Text('Figur im Erlebnis'),
                       icon: Icon(Icons.person_outline)),
                   ButtonSegment(
                       value: RobloxTarget.accessory,
@@ -3978,7 +4026,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       icon: Icon(Icons.checkroom_outlined)),
                   ButtonSegment(
                       value: RobloxTarget.marketplaceAvatar,
-                      label: Text('Marktplatz'),
+                      label: Text('Marktplatz-Avatar'),
                       icon: Icon(Icons.storefront_outlined)),
                 ],
                 selected: {_robloxTarget},

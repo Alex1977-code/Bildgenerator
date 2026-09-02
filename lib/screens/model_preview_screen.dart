@@ -24,6 +24,8 @@ import '../services/fbx_writer.dart';
 import '../services/roblox_accessory.dart';
 import '../services/texture_pipeline.dart';
 import '../services/glb_preview.dart';
+import '../services/roblox_marketplace.dart'
+    show stripRigForAutoSetup;
 import '../services/mesh_check.dart';
 import '../services/model_relay.dart';
 import '../services/model_import.dart';
@@ -275,6 +277,17 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
               icon: const Icon(Icons.polyline),
               onPressed: () =>
                   setState(() => _showSkeleton = !_showSkeleton),
+            ),
+          // Das Gegenstück zum Einbauen: Skelett und Animationen aus
+          // der Datei nehmen, das Netz bleibt exakt, wo es steht
+          // (Bind-Pose: Gelenk × inverse Bindematrix = Einheit). Für
+          // Roblox' Auto Setup Pflicht, für einen Prop ohne Bewegung
+          // schlicht kleiner.
+          if (rig != null)
+            IconButton(
+              tooltip: 'Skelett entfernen (Netz bleibt, wo es ist)',
+              icon: const Icon(Icons.person_off_outlined),
+              onPressed: _removeRig,
             ),
           if (widget.unriggedGlb != null && widget.rigType != null)
             IconButton(
@@ -637,6 +650,70 @@ class _ModelPreviewScreenState extends State<ModelPreviewScreen>
   /// Proportionen) und lässt sich überstimmen – erkannt **oder**
   /// gewählt. Danach verhält sich das Modell wie ein frisch geriggtes:
   /// Animationen laufen, der Rig-Editor ist offen.
+  /// Skelett und Animationen entfernen – die Geometrie rührt das
+  /// nicht an. Der Weg zurück ist „Skelett nachträglich einbauen".
+  Future<void> _removeRig() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Skelett entfernen'),
+        content: const Text(
+            'Knochen, Gewichte und Animationen werden aus der Datei '
+            'genommen; das Netz bleibt unverändert stehen. Nötig für '
+            'Roblox\' Auto Setup (das baut sein eigenes Skelett) und '
+            'für Props, die sich nicht bewegen sollen. Ein Skelett '
+            'lässt sich später wieder einbauen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Entfernen'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    Uint8List stripped;
+    int bones, animations;
+    try {
+      final parts = splitGlb(widget.glbBytes);
+      final json = parts.json;
+      final report = stripRigForAutoSetup(json);
+      bones = report.bones;
+      animations = report.animations;
+      if (bones == 0 && animations == 0) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('In dieser Datei steckt kein Skelett.')));
+        return;
+      }
+      stripped = joinGlb(json, Uint8List.fromList(parts.bin));
+    } on Exception catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Entfernen fehlgeschlagen: '
+              '${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
+    widget.onGlbUpdated?.call(stripped);
+    messenger.showSnackBar(SnackBar(
+        content: Text('$bones Knochen und $animations '
+            '${animations == 1 ? 'Animation' : 'Animationen'} entfernt '
+            '– das Netz steht, wo es stand.')));
+    navigator.pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => ModelPreviewScreen(
+        glbBytes: stripped,
+        title: widget.title,
+        provenance: widget.provenance,
+        onGlbUpdated: widget.onGlbUpdated,
+        showExport: widget.showExport,
+      ),
+    ));
+  }
+
   Future<void> _addRig() async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);

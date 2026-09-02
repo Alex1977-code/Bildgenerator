@@ -42,9 +42,14 @@ class HistoryService extends ChangeNotifier {
   /// die Datei auf der Platte und über ihn ist das Bild in der
   /// Galerie zu finden. Entstehen mehrere Bilder auf einmal, bekommen
   /// sie „-1", „-2" … angehängt.
+  ///
+  /// [project] ist der Ordner aus dem Projektwähler – das Bild liegt
+  /// damit gleich richtig, statt später einsortiert zu werden.
   Future<void> addResults(
       GenerationRequest request, List<GeneratedImage> images,
-      {Map<String, String> extraParams = const {}, String name = ''}) async {
+      {Map<String, String> extraParams = const {},
+      String name = '',
+      String project = ''}) async {
     for (var index = 0; index < images.length; index++) {
       final image = images[index];
       final id = const Uuid().v4();
@@ -62,6 +67,7 @@ class HistoryService extends ChangeNotifier {
         format: image.format,
         fileName: '$base.${image.fileExtension}',
         name: name.trim().isEmpty ? '' : base,
+        project: normalizeProject(project),
       );
       try {
         await _store.writeImage(entry, image.bytes);
@@ -85,6 +91,7 @@ class HistoryService extends ChangeNotifier {
     required String label,
     required String providerLabel,
     Map<String, String> params = const {},
+    String project = '',
   }) async {
     final id = const Uuid().v4();
     final entry = HistoryEntry(
@@ -97,6 +104,7 @@ class HistoryService extends ChangeNotifier {
       fileName: '$id.glb',
       kind: 'model',
       thumbFileName: thumbnail != null ? '${id}_vorschau.png' : null,
+      project: normalizeProject(project),
     );
     try {
       await _store.writeImage(entry, glbBytes);
