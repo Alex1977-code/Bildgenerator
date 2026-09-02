@@ -30,6 +30,18 @@ const String robloxAccessoryTail =
     'surfaces, low detail density, clean readable silhouette, few '
     'flat separated color areas, uniform material';
 
+/// Die Formworte des Accessoire-Schwanzes für einen **Bild**-Prompt.
+///
+/// Die kopierten Gegenstands-Prompts gehen in den Massenprompt des
+/// Bild-Tabs, also an ein Bildmodell. Dem sagen „closed watertight
+/// shell" und „single mesh" nichts; was es braucht, sind die Formworte
+/// – die vererben sich über das Bild in die Rekonstruktion. Der
+/// vollständige [robloxAccessoryTail] ist für Text→3D.
+const String robloxAccessoryImageTail =
+    'thick rounded shapes, smooth simple surfaces, low detail density, '
+    'clean readable silhouette, few flat separated color areas, '
+    'uniform material';
+
 /// Der feste Schwanz für einen **Marktplatz-Körper**.
 ///
 /// Ein eigener, weil hier fünf Formregeln dazukommen, an denen eine
@@ -52,10 +64,16 @@ const String robloxAccessoryTail =
 ///
 /// Dazu zwei Dinge, die nicht die Form, sondern die Weiterverarbeitung
 /// betreffen: **A-Pose statt T-Pose** – die waagerechten Arme wurden
-/// dem Rumpf zugeschlagen – und **Augen und Mund als Volumen**, weil
-/// der Marktplatz für den Kopf eines Ganzkörper-Bundles einen
-/// dynamischen Kopf mit FACS-Posen verlangt; aufgemalte Augen ergeben
-/// nichts zum Animieren.
+/// dem Rumpf zugeschlagen – und **ein sichtbares Gesicht mit Lidern
+/// und Lippen im Kopfnetz**. Der Marktplatz verlangt für den Kopf
+/// eines Ganzkörper-Bundles einen dynamischen Kopf mit FACS-Posen, und
+/// Auto Setup baut die nur, wenn es im Kopfnetz Augenhöhlen mit Lidern
+/// und eine Mundhöhle mit Lippen findet. Hier stand vorher „two
+/// hemisphere eyes and a mouth modelled as separate volumes" – und
+/// Lauf 5 hat entschieden, dass genau das nicht reicht: Augen und
+/// Zähne als eigene Netze ergeben „Cannot detect mouth open / left eye
+/// close expression", egal wo sie sitzen. Bestellt wird deshalb, was
+/// Auto Setup braucht, nicht, was sich nachträglich anbauen lässt.
 ///
 /// „chunky" fehlt hier bewusst: Genau dieses Wort hat die Tiefe
 /// bestellt, die jetzt abgelehnt wird.
@@ -66,38 +84,59 @@ const String robloxMarketplaceTail =
     'separating head from shoulders, mitten hands without fingers, '
     'garment hem ending at the hip bone, thighs uncovered, two '
     'separate leg tubes from the hips down, slim straight legs each '
-    'narrower than one third of body height, two hemisphere eyes and '
-    'a mouth modelled as separate volumes, solid closed volumes with '
-    'visible wall thickness, closed watertight shell, one single body '
-    'mesh, smooth simple surfaces, few flat separated color areas, '
-    'uniform material';
+    'narrower than one third of body height, face fully visible, eye '
+    'sockets with eyelids and a mouth with lips shaped into the head, '
+    'solid closed volumes with visible wall thickness, closed '
+    'watertight shell, one single body mesh, smooth simple surfaces, '
+    'few flat separated color areas, uniform material';
 
 /// Die NEGATIV-Zeile für einen Marktplatz-Körper.
 ///
-/// Die Formfehler stehen **vorn**, vor allem Kosmetischen: Tripo
-/// gewichtet die vorderen Begriffe stärker, und `deep body` sowie
-/// `long hem` sind hier die beiden, an denen die Figur abgelehnt
-/// wurde.
+/// Ganz vorn steht, was das Gesicht verdeckt: Kapuze, Helm, Maske,
+/// Visier. Das ist der einzige Fehler, den weder Prompt noch
+/// Reparatur nachträglich beheben – ohne Lider und Lippen im Kopfnetz
+/// gibt es keine FACS-Posen und damit keinen Marktplatz. Danach die
+/// Formfehler, vor allem Kosmetischen: Tripo gewichtet die vorderen
+/// Begriffe stärker, und `deep body` sowie `long hem` sind die beiden,
+/// an denen die Figur abgelehnt wurde. „painted flat eyes" ist dafür
+/// gewichen: Das bestellt der Schwanz jetzt positiv.
 const String robloxMarketplaceNegative =
-    'deep body, round belly, long hem, thigh-length, skirt, cape, '
-    'fingers, T-pose, arms out sideways, painted flat eyes, thick '
-    'legs, floating parts, thin parts, open mesh, holes, base, '
+    'hood, helmet, mask, visor, deep body, round belly, long hem, '
+    'thigh-length, skirt, cape, fingers, T-pose, arms out sideways, '
+    'thick legs, floating parts, thin parts, open mesh, holes, base, '
     'pedestal, text, logo, second character, extra limbs, loose cloth';
 
+/// Das Marktplatz-Beispiel – **ohne Kapuze**.
+///
+/// Vorher stand hier die Kapuzenfigur mit „eyes and a small mouth
+/// inside the hood opening". Das ist wörtlich das Konzept, das
+/// fünfmal gescheitert ist, und das Konzept-Gate hält es nicht auf,
+/// weil „eyes" und „mouth" dastehen. Wer das Beispiel übernahm, bekam
+/// die nächste Kapuzenfigur. Jetzt steht hier die Figur **unter** der
+/// Kapuze: sichtbares Gesicht, Lider, Lippen. Die Kapuze kommt als
+/// eigenes Accessoire dazu (Gegenstandsart „Kapuze") – aus einer
+/// unmöglichen Aufgabe werden zwei lösbare.
 const String robloxMarketplaceExample =
-    'PROMPT: hooded creature character, rounded head, slim torso, '
-    'thin hoodie ending at the hip bone, glowing cyan eyes and a '
-    'small mouth inside the hood opening, flat rounded feet, matte '
-    'dark charcoal fabric, lighter grey hood interior, '
+    'PROMPT: small stocky creature character, oversized rounded head, '
+    'two large round eyes with thick eyelids, a wide mouth with plump '
+    'lips, slim torso, thin plain sweater ending at the hip bone, flat '
+    'rounded feet, matte dark charcoal fabric, pale grey skin, '
     '$robloxMarketplaceTail\n'
     'NEGATIV: $robloxMarketplaceNegative';
 
-/// Die NEGATIV-Zeile für eine Figur (238 Zeichen – Tripo nimmt 255).
+/// Die NEGATIV-Zeile für eine Figur (248 Zeichen – Tripo nimmt 255).
+///
+/// Hier stand „arms down". Das passte zur T-Pose, aber der
+/// Posen-Schalter erlaubt auf dem Figur-Weg auch die A-Pose – und dann
+/// stand „angled 45 degrees down" im Prompt gegen „arms down" im
+/// Negativ. Gemeint war nie die Richtung, sondern das Anliegen: Arme
+/// am Körper verschmelzen mit dem Rumpf, und dort kann kein Skelett
+/// andocken.
 const String robloxFigureNegative =
     'low poly, blobby, melted, floating parts, thin parts, open '
     'mesh, holes, base, pedestal, text, logo, second character, '
-    'companion animal, extra limbs, arms down, dynamic pose, noisy '
-    'surface, cluttered details, drawstrings, loose cloth, cape';
+    'companion animal, extra limbs, arms along the body, dynamic pose, '
+    'noisy surface, cluttered details, drawstrings, loose cloth, cape';
 
 /// Die NEGATIV-Zeile für ein Accessoire (202 Zeichen).
 const String robloxAccessoryNegative =
@@ -152,6 +191,13 @@ String robloxPromptRules({
   final was = accessory
       ? 'das Accessoire'
       : (markt ? 'den Marktplatz-Körper' : 'die Figur');
+  // Was vom Prompt fürs Motiv übrig bleibt: Grenze minus Schwanz
+  // (mit Komma und Leerzeichen) minus Posen-Zusatz. Beim Marktplatz
+  // steht die Pose schon im Schwanz, beim Accessoire gibt es keine.
+  final motivBudget = TripoService.maxPromptChars -
+      tail.length -
+      2 -
+      (accessory || markt ? 0 : tPoseSuffix.length + 2);
 
   final aufbau = accessory
       ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
@@ -162,17 +208,32 @@ String robloxPromptRules({
           'Teil („one gold band around the base").\n'
           '  4. Farben und Material („matte deep blue felt").\n'
           '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
-      : '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
-          '  1. Was es ist („hooded creature character").\n'
-          '  2. Proportionen („oversized rounded head, wide '
-          'shoulders, thick torso, short stubby legs").\n'
-          '  3. Kleidung und das erkennende Merkmal – '
-          'ausgeschrieben und mit Ort am Körper („thick knee-length '
-          'hoodie", „two glowing cyan oval eyes inside the hood"). '
-          'Knapp genannt geht es unter.\n'
-          '  4. Farben und Material („matte dark charcoal fabric, '
-          'lighter grey hood interior").\n'
-          '  5. Dann wörtlich der feste Schwanz (siehe unten).\n';
+      : markt
+          ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
+              '  1. Was es ist („small stocky creature character").\n'
+              '  2. Proportionen („oversized rounded head, slim '
+              'torso").\n'
+              '  3. Das Gesicht, ausgeschrieben – es ist hier Pflicht, '
+              'nicht Schmuck („two large round eyes with thick '
+              'eyelids, a wide mouth with plump lips"; „face fully '
+              'visible" steht schon im Schwanz). Dann Kleidung und '
+              'das erkennende Merkmal mit '
+              'Ort am Körper („thin plain sweater ending at the hip '
+              'bone"). Knapp genannt geht es unter.\n'
+              '  4. Farben und Material („matte dark charcoal fabric, '
+              'pale grey skin").\n'
+              '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
+          : '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
+              '  1. Was es ist („hooded creature character").\n'
+              '  2. Proportionen („oversized rounded head, wide '
+              'shoulders, thick torso, short stubby legs").\n'
+              '  3. Kleidung und das erkennende Merkmal – '
+              'ausgeschrieben und mit Ort am Körper („thick '
+              'knee-length hoodie", „two glowing cyan oval eyes '
+              'inside the hood"). Knapp genannt geht es unter.\n'
+              '  4. Farben und Material („matte dark charcoal fabric, '
+              'lighter grey hood interior").\n'
+              '  5. Dann wörtlich der feste Schwanz (siehe unten).\n';
 
   final poseRegel = accessory
       ? '- KEINE Pose, kein Körper, keine Hand, die es hält. Das Teil '
@@ -191,14 +252,22 @@ String robloxPromptRules({
           'Hüllkörper des Beins auf, während das Bein darin dünn '
           'bleibt – das reißt die Deckungsprüfung und die Regel '
           'LegsSeparated zugleich.\n'
-          '- KEIN aufgemaltes Gesicht. Der Marktplatz verlangt für '
-          'den Kopf eines Ganzkörper-Bundles einen dynamischen Kopf '
-          'mit FACS-Posen; aufgemalte Augen ergeben nichts zum '
-          'Animieren. Augen und Mund müssen eigene Volumen sein.\n'
+          '- KEIN verdecktes Gesicht: keine Kapuze, kein Helm, keine '
+          'Maske, kein Visier, kein „Gesicht im Schatten". Der '
+          'Marktplatz verlangt für den Kopf eines Ganzkörper-Bundles '
+          'einen dynamischen Kopf mit FACS-Posen, und Auto Setup baut '
+          'die nur, wenn das Kopfnetz Augenhöhlen mit Lidern und eine '
+          'Mundhöhle mit Lippen hat. Fünf Läufe haben das entschieden: '
+          'Augen und Zähne als eigene Volumen reichen nicht, egal wo '
+          'sie sitzen. Was das Gesicht verdeckt, wird ein eigenes '
+          'Accessoire (Gegenstandsart „Kapuze", „Helm", „Maske") und '
+          'kommt danach auf die Figur.\n'
       : '- KEINE T-Pose in den Prompt schreiben. Der Importer '
-          'verlangt sie, aber die App hängt sie bei eingeschaltetem '
-          'Rigging selbst an (${tPoseSuffix.length + 2} Zeichen) – '
-          'doppelt kostet nur Platz und verschiebt die Gewichtung.\n'
+          'verlangt sie, aber die App hängt sie über den '
+          'Posen-Schalter selbst an (${tPoseSuffix.length + 2} '
+          'Zeichen; beim Roblox-Ziel „Figur im Erlebnis" steht er '
+          'auf T-Pose) – doppelt kostet nur Platz und verschiebt die '
+          'Gewichtung.\n'
           '- KEINE Umhänge, Röcke, langen Mäntel oder Schleier, die '
           'Arme oder Beine verdecken: Was verdeckt ist, verschmilzt '
           'bei der Rekonstruktion mit dem Rumpf, und dort kann kein '
@@ -221,10 +290,13 @@ String robloxPromptRules({
       '  $negative\n'
       '\nWas den Prompt kaputtmacht:\n'
       '$poseRegel'
-      '- KEINE Verneinungen im PROMPT („no visible face"). '
+      '- KEINE Verneinungen im PROMPT („no fingers"). '
       'Text→3D-Modelle lesen sie nicht als Ausschluss, sondern sehen '
-      'das Substantiv. Positiv formulieren („deep recessed hood '
-      'opening in shadow") und Auszuschließendes in die '
+      'das Substantiv. Positiv formulieren '
+      '${markt ? '(„mitten hands without fingers" ist die Ausnahme, '
+          'weil „mitten hands" das Substantiv trägt; „face fully '
+          'visible" statt „no hood")' : '(„deep recessed hood '
+          'opening in shadow")'} und Auszuschließendes in die '
       'NEGATIV-Zeile.\n'
       '- KEINE dünnen Kleinteile: Schnüre, Ketten, Schnallen, '
       'einzelne Haarsträhnen, Federn, Netze, Bänder. Unter '
@@ -281,8 +353,8 @@ String robloxPromptRules({
           'Beine frei und vom Rumpf getrennt, damit die 15 '
           'R15-Gelenke (LowerTorso, UpperTorso, Head, '
           'LeftUpperArm … RightFoot) darin Platz haben. Roblox nimmt '
-          '$posen – die App hängt die T-Pose '
-          'selbst an.\n'}'
+          '$posen – die App hängt die gewählte Pose über den '
+          'Posen-Schalter selbst an.\n'}'
       '- Ein Material je Mesh, alles in einer einzigen '
       '${robloxMaxTexture}er-Textur: wenige, klar getrennte '
       'Farbflächen.\n'
@@ -290,11 +362,13 @@ String robloxPromptRules({
           'Studs hoch (rund 1,4 m) – kompakte, gedrungene '
           'Proportionen wirken auf diese Größe besser als schlanke.\n'}'
       '- Der PROMPT darf höchstens '
-      '${_n(TripoService.maxPromptChars)} Zeichen haben'
-      '${accessory ? '' : ' (davon gehen '
-          '${tPoseSuffix.length + 2} für den T-Pose-Zusatz ab)'}, '
-      'die NEGATIV-Zeile höchstens '
-      '${_n(TripoService.maxNegativePromptChars)}.\n'
+      '${_n(TripoService.maxPromptChars)} Zeichen haben. Der feste '
+      'Schwanz belegt davon ${_n(tail.length)}'
+      '${accessory || markt ? '' : ', der T-Pose-Zusatz weitere '
+          '${tPoseSuffix.length + 2}'}, für das MOTIV bleiben also '
+      'rund ${_n(motivBudget)} Zeichen. Wird es länger, kürzt Tripo '
+      'hinten – und hinten stehen die Regeln. Die NEGATIV-Zeile '
+      'höchstens ${_n(TripoService.maxNegativePromptChars)}.\n'
       '\nSo sieht ein fertiger Block für $was aus:\n\n'
       '$example';
 }

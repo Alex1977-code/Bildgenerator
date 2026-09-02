@@ -956,10 +956,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'etwas Rand – nichts anschneiden.\n'
           '- Exakte Vorderansicht, Figur schaut direkt in die Kamera, '
           'aufrecht stehend.\n'
-          '- T-Pose oder A-Pose: Arme seitlich ausgestreckt, Beine '
-          'leicht auseinander – Gliedmaßen dürfen Körper und Kopf '
-          'NICHT berühren oder verdecken (sonst verschmelzen sie im '
-          '3D-Modell).\n'
+          '- T-Pose (Arme waagerecht) oder A-Pose (Arme gestreckt, '
+          '45 Grad nach unten), Beine leicht auseinander – Gliedmaßen '
+          'dürfen Körper und Kopf NICHT berühren oder verdecken '
+          '(sonst verschmelzen sie im 3D-Modell).\n'
           '- Komplett transparenter oder einfarbig neutraler '
           'Hintergrund, kein Boden, kein Schatten, keine Spiegelung.\n'
           '- Gleichmäßiges, weiches Studiolicht ohne harte Schatten, '
@@ -1037,14 +1037,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'ignorieren sie oder werden schlechter.\n'
           '- Kurz halten: eine Zeile im Stichwort-Stil mit Kommas. '
           'Wird das Ergebnis matschig, kürzen statt ergänzen.\n'
-          '- KEINE T-Pose-Angabe schreiben. Die App hängt sie bei '
-          'eingeschaltetem Rigging selbst an ("full body character in '
-          'T-pose, arms stretched out horizontally, …"). Steht sie '
-          'doppelt drin, kostet das nur Platz und verschiebt die '
-          'Gewichtung – Text→3D-Modelle wichten frühe Begriffe '
-          'stärker.\n'
+          '- KEINE Posen-Angabe schreiben. Die App hängt die Pose '
+          'selbst an, wenn der Posen-Schalter im 3D-Tab auf T- oder '
+          'A-Pose steht ("full body character in T-pose, arms '
+          'stretched out horizontally, …"). Steht sie doppelt drin, '
+          'kostet das nur Platz und verschiebt die Gewichtung – '
+          'Text→3D-Modelle wichten frühe Begriffe stärker. Steht der '
+          'Schalter auf Aus, bekommt das Modell gar keine Pose – für '
+          'eine riggbare Figur muss er an sein.\n'
           '- Höchstens etwa 850 Zeichen. Tripo nimmt 1024, davon '
-          'gehen rund 120 für den T-Pose-Zusatz drauf.\n'
+          'gehen rund 120 für den Posen-Zusatz drauf.\n'
           '- Erzeuge zusätzlich einen englischen Negativ-Prompt '
           '(z. B. "low poly, blobby, melted, floating parts, base, '
           'pedestal, text").\n\n'
@@ -7864,8 +7866,11 @@ class _ItemDialogState extends State<_ItemDialog> {
                     figureName: widget.figureName,
                     roblox: _roblox,
                     withReference: _reference,
+                    // Der Block geht in den Massenprompt des
+                    // Bild-Tabs, also an ein Bildmodell: die
+                    // Formworte ja, „watertight shell" nein.
                     accessoryTail:
-                        _roblox ? robloxAccessoryTail : '',
+                        _roblox ? robloxAccessoryImageTail : '',
                     accessoryNegative:
                         _roblox ? robloxAccessoryNegative : '',
                   );

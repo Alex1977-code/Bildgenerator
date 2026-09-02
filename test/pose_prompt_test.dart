@@ -33,6 +33,33 @@ void main() {
       }
     });
 
+    test('„a pose" im gewöhnlichen Englisch ist keine Pose', () {
+      // „striking a pose" galt als A-Pose – dann hängte die App nichts
+      // an, und die Figur kam dynamisch zurück, unriggbar.
+      for (final text in [
+        'hero character striking a pose',
+        'figure in a posed stance',
+        'cat posed on a wall',
+        'robot pose reference',
+        'the apostle',
+      ]) {
+        expect(promptHasPose(text), isFalse, reason: text);
+        expect(withTPose(text, wanted: true), endsWith(tPoseSuffix),
+            reason: text);
+      }
+      // Die echten Schreibweisen bleiben erkannt.
+      for (final text in [
+        'in an A-pose',
+        'a_pose',
+        'apose',
+        'standing in A pose',
+        'T pose',
+        'T-POSE',
+      ]) {
+        expect(promptHasPose(text), isTrue, reason: text);
+      }
+    });
+
     test('Ein leerer Prompt bekommt keinen Zusatz', () {
       expect(withTPose('   ', wanted: true), '');
     });

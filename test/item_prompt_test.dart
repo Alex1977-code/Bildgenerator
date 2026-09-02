@@ -2,7 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bildgenerator/services/item_prompt.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
-    show robloxAccessoryTail, robloxAccessoryNegative;
+    show
+        robloxAccessoryTail,
+        robloxAccessoryImageTail,
+        robloxAccessoryNegative;
+import 'package:bildgenerator/services/tripo_service.dart';
 import 'package:bildgenerator/services/run_stats.dart'
     show rideableItemKinds;
 
@@ -154,16 +158,63 @@ void main() {
       expect(itemNegative, contains('hand'));
     });
 
-    test('Im Roblox-Modus gelten die Roblox-Bausteine', () {
+    test('Im Roblox-Modus kommen die Roblox-Bausteine dazu', () {
       final p = itemPrompt(
         kind: itemKindById('helm')!,
         figurePrompt: figur,
         roblox: true,
-        accessoryTail: robloxAccessoryTail,
+        accessoryTail: robloxAccessoryImageTail,
         accessoryNegative: robloxAccessoryNegative,
       );
-      expect(p, contains(robloxAccessoryTail));
-      expect(p, contains(robloxAccessoryNegative));
+      expect(p, contains(robloxAccessoryImageTail));
+      // Dazu, nicht statt: Die Inszenierung bleibt – sie hält die
+      // Figur aus dem Bild.
+      expect(p, contains(itemTail));
+      // Und das allgemeine Negativ bleibt, samt „hand": Das Schwert
+      // samt Hand ist der häufigste Fehlschlag, und genau „hand, arm"
+      // fehlten im Roblox-Negativ.
+      final negativ = p.split('NEGATIV: ').last;
+      for (final begriff in robloxAccessoryNegative.split(', ')) {
+        expect(negativ, contains(begriff), reason: begriff);
+      }
+      expect(negativ, contains('hand'));
+      expect(negativ, contains('arm'));
+      // Ohne Doppelte: „character" steht in beiden Listen.
+      expect('character, '.allMatches('$negativ, ').length, 1);
+    });
+
+    test('Der Bild-Schwanz enthält keine Netz-Begriffe', () {
+      // Der geht an ein Bildmodell – „watertight" sagt dem nichts.
+      expect(robloxAccessoryImageTail, isNot(contains('mesh')));
+      expect(robloxAccessoryImageTail, isNot(contains('watertight')));
+      expect(robloxAccessoryTail, contains('watertight'));
+    });
+
+    test('Jedes Negativ passt in Tripos Grenze – auf beiden Wegen', () {
+      // Kapuze und Reitvogel lagen darüber, und Tripo kürzte
+      // stillschweigend hinten.
+      for (final kind in itemKinds) {
+        for (final roblox in [false, true]) {
+          final (_, negativ) = itemPromptParts(
+            kind: kind,
+            figurePrompt: figur,
+            roblox: roblox,
+          );
+          expect(negativ.length,
+              lessThanOrEqualTo(TripoService.maxNegativePromptChars),
+              reason: '${kind.id} roblox=$roblox: ${negativ.length}');
+          // Die eigenen Begriffe stehen vorn – sie sind die
+          // wichtigen.
+          if (kind.extraNegative.isNotEmpty) {
+            expect(negativ, startsWith(kind.extraNegative.split(', ').first));
+          }
+        }
+      }
+    });
+
+    test('mergeTerms lässt jedes Wort einmal, das erste gewinnt', () {
+      expect(mergeTerms(['a, b, c', 'B, d', 'a']), 'a, b, c, d');
+      expect(mergeTerms(['', 'x,, y ']), 'x, y');
     });
 
     test('Die Figurbeschreibung wird gekürzt, nicht angehängt', () {

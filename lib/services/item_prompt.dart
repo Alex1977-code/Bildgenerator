@@ -273,8 +273,13 @@ const itemKinds = <ItemKind>[
         'monk', 'mönch', 'assassine', 'assassin', 'ranger'],
     // Ohne diesen Zusatz kommt die Kapuze mit einem Kopf darin, und
     // dann ist sie kein Accessoire mehr, sondern eine halbe Figur.
-    extraNegative: 'head inside, face, body, shoulders as solid mass, '
-        'closed opening, filled interior',
+    //
+    // Kurz gehalten: Zusammen mit dem allgemeinen Negativ muss es in
+    // Tripos 255 Zeichen passen, sonst kürzt Tripo hinten – und dort
+    // stehen die allgemeinen Begriffe. „shoulders as solid mass" ist
+    // dafür gewichen; „body" deckt es ab.
+    extraNegative: 'head inside, face, body, closed opening, filled '
+        'interior',
   ),
   ItemKind(
     id: 'krone',
@@ -693,11 +698,14 @@ const String itemTail =
 /// „person" stehen ganz vorn: Der häufigste Fehlschlag ist, dass das
 /// Bildmodell die Figur gleich mitmalt, weil sie im Referenzbild
 /// steht – und das 3D-Modell dann Schwert **samt Hand** enthält.
+///
+/// „set of objects" ist gestrichen: „second object" deckt es ab, und
+/// jedes Zeichen hier fehlt den Arten mit eigenem Zusatz – die Kapuze
+/// lag mit dem alten Text bei 288 Zeichen, Tripo nimmt 255.
 const String itemNegative =
-    'character, person, hand, arm, mannequin, second object, set of '
-    'objects, base, pedestal, stand, thin parts, open mesh, holes, '
-    'floating parts, text, logo, watermark, cluttered background, '
-    'blurry, low quality';
+    'character, person, hand, arm, mannequin, second object, base, '
+    'pedestal, stand, thin parts, open mesh, holes, floating parts, '
+    'text, logo, watermark, cluttered background, blurry, low quality';
 
 /// Kürzt die Figurbeschreibung auf den Teil, der den Stil trägt.
 ///
@@ -719,6 +727,24 @@ String figureStyleHint(String figurePrompt, {int maxChars = 180}) {
   return (comma > maxChars ~/ 2 ? cut.substring(0, comma) : cut).trim();
 }
 
+/// Fügt Stichwortlisten zusammen, jedes Wort nur einmal – das erste
+/// Vorkommen gewinnt, die Reihenfolge bleibt.
+///
+/// Die Reihenfolge ist Gewichtung, und die Länge ist begrenzt: Ein
+/// doppeltes „body" kostet Platz, den Tripo hinten wieder abschneidet.
+String mergeTerms(List<String> lists) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final list in lists) {
+    for (final raw in list.split(',')) {
+      final term = raw.trim();
+      if (term.isEmpty || !seen.add(term.toLowerCase())) continue;
+      out.add(term);
+    }
+  }
+  return out.join(', ');
+}
+
 /// Baut den Prompt für einen Gegenstand, der zu einer Figur passt.
 ///
 /// [withReference] sagt, ob ein gerendertes Bild der Figur als
@@ -737,9 +763,20 @@ String figureStyleHint(String figurePrompt, {int maxChars = 180}) {
   String accessoryTail = '',
   String accessoryNegative = '',
 }) {
-  final tail = roblox && accessoryTail.isNotEmpty ? accessoryTail : itemTail;
-  final negative =
-      roblox && accessoryNegative.isNotEmpty ? accessoryNegative : itemNegative;
+  // Der Roblox-Schwanz kommt **dazu**, er ersetzt die Inszenierung
+  // nicht: „shown alone, centered, plain flat background" hält die
+  // Figur aus dem Bild, und genau das ging vorher mit dem Tausch
+  // verloren – die kopierten Gegenstände bekamen „watertight shell,
+  // single mesh" und verloren „alone".
+  final tail = roblox && accessoryTail.isNotEmpty
+      ? '$itemTail, $accessoryTail'
+      : itemTail;
+  // Dasselbe beim Negativ: „hand, arm, second object" stehen nur im
+  // allgemeinen, und das Schwert samt Hand ist der häufigste
+  // Fehlschlag. Also mischen statt tauschen – ohne Doppelte.
+  final negative = roblox && accessoryNegative.isNotEmpty
+      ? mergeTerms([itemNegative, accessoryNegative])
+      : itemNegative;
   final stil = withReference
       // „no character in the image" doppelt zum Negativ-Prompt: Bei
       // einem Referenzbild mit Figur ist der Zug, sie mitzumalen, am
@@ -752,7 +789,7 @@ String figureStyleHint(String figurePrompt, {int maxChars = 180}) {
           '${figureStyleHint(figurePrompt)}';
   final full = kind.extraNegative.isEmpty
       ? negative
-      : '${kind.extraNegative}, $negative';
+      : mergeTerms([kind.extraNegative, negative]);
   return (
     '${kind.core}, ${itemScaleSentence(kind)}, $stil, $tail',
     full,

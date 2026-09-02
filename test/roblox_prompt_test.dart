@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:bildgenerator/services/concept_gate.dart';
 import 'package:bildgenerator/services/pose_prompt.dart';
 import 'package:bildgenerator/services/roblox_export.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart';
@@ -131,9 +132,73 @@ void main() {
       expect(robloxFigureTail, contains('chunky'));
     });
 
-    test('die Formfehler stehen vorn im Negativ', () {
+    test('ganz vorn im Negativ steht, was das Gesicht verdeckt', () {
+      // Der einzige Fehler, den weder Prompt noch Reparatur
+      // nachträglich beheben – deshalb vor den Formfehlern.
       final teile = robloxMarketplaceNegative.split(', ');
-      expect(teile.take(4), containsAll(<String>['deep body', 'long hem']));
+      expect(teile.take(4),
+          containsAll(<String>['hood', 'helmet', 'mask', 'visor']));
+      // Und gleich danach die beiden, an denen die Figur abgelehnt
+      // wurde.
+      expect(teile.take(8), containsAll(<String>['deep body', 'long hem']));
+    });
+
+    test('der Schwanz bestellt Lider und Lippen im Kopf, keine '
+        'eigenen Volumen', () {
+      // Lauf 5: Augen und Zähne als eigene Netze reichen nicht. Der
+      // Schwanz hatte genau das bestellt.
+      expect(robloxMarketplaceTail, contains('eyelids'));
+      expect(robloxMarketplaceTail, contains('lips'));
+      expect(robloxMarketplaceTail, contains('face fully visible'));
+      expect(robloxMarketplaceTail, isNot(contains('separate volumes')));
+      expect(markt, contains('Lidern'));
+      expect(markt, contains('Lippen'));
+      expect(markt, isNot(contains('eigene Volumen sein')));
+      // Und der Ausweg steht dabei.
+      expect(markt, contains('Accessoire'));
+    });
+
+    test('das Beispiel ist keine Kapuzenfigur mehr', () {
+      // Vorher stand hier das Konzept, das fünfmal gescheitert ist –
+      // und das Gate hielt es nicht auf, weil „eyes" dastand.
+      final promptZeile = robloxMarketplaceExample
+          .split('\n')
+          .first
+          .replaceFirst('PROMPT: ', '')
+          .toLowerCase();
+      for (final wort in ['hood', 'helmet', 'mask', 'visor', 'shadow']) {
+        expect(promptZeile, isNot(contains(wort)), reason: wort);
+      }
+      expect(promptZeile, contains('eyelids'));
+      expect(promptZeile, contains('lips'));
+      final urteil =
+          checkConcept(promptZeile, ConceptTarget.marketplaceFullBody);
+      expect(urteil.blocked, isFalse);
+      expect(urteil.hasWarning, isFalse);
+      // Die Pose steht im Schwanz, die App hängt keine zweite an.
+      expect(promptHasPose(promptZeile), isTrue);
+    });
+
+    test('der Regeltext nennt das Motiv-Budget', () {
+      // „höchstens 1.024" allein ließ die Prompt-KI ein langes Motiv
+      // schreiben; Tripo kürzte hinten – und hinten stehen die Regeln.
+      final budget =
+          TripoService.maxPromptChars - robloxMarketplaceTail.length - 2;
+      expect(markt, contains('rund $budget Zeichen'));
+      expect(markt, contains('kürzt Tripo hinten'));
+      // Für die Figur geht der Posen-Zusatz zusätzlich ab.
+      final figurBudget = TripoService.maxPromptChars -
+          robloxFigureTail.length -
+          2 -
+          (tPoseSuffix.length + 2);
+      expect(robloxPromptRules(accessory: false),
+          contains('rund $figurBudget Zeichen'));
+    });
+
+    test('das Figur-Negativ verträgt sich mit der A-Pose', () {
+      // „arms down" gegen „angled 45 degrees down" – das gab es.
+      expect(robloxFigureNegative, isNot(contains('arms down')));
+      expect(robloxFigureNegative, contains('arms along the body'));
     });
 
     test('die Längen passen zu Tripos Grenzen', () {

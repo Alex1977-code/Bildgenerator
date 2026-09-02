@@ -1559,7 +1559,7 @@ Sieben Bausteine, jeder aus einem gemessenen Grund:
 | `slim straight legs each narrower than one third of body height` | Grenze 1,50 von 5,00 |
 | `mitten hands without fingers` | Ausmodellierte Finger kosteten je Hand über 1.280 Dreiecke — mehr als der ganze Arm haben darf |
 | `narrow visible neck clearly separating head from shoulders` | Ohne Einschnürung wurde die Kapuze bis zu den Schultern zum „Kopf" von 3,75 Studs |
-| `two hemisphere eyes and a mouth modelled as separate volumes` | Der Marktplatz verlangt einen dynamischen Kopf mit FACS-Posen; aufgemalte Augen ergeben nichts zum Animieren |
+| `face fully visible, eye sockets with eyelids and a mouth with lips shaped into the head` | Der Marktplatz verlangt einen dynamischen Kopf mit FACS-Posen, und Auto Setup baut sie nur aus Lidern und Lippen **im Kopfnetz**. Hier stand „two hemisphere eyes and a mouth modelled as separate volumes" — Lauf 5 hat entschieden, dass genau das nicht reicht |
 
 **`chunky` fliegt raus.** Genau dieses Wort hat die Tiefe bestellt, die
 jetzt abgelehnt wird. In der Vorlage für die Figur im eigenen Erlebnis
@@ -1570,15 +1570,75 @@ die waagerechten Arme der T-Pose dem Kopf und dem Rumpf zugeschlagen —
 heraus kam ein „UpperTorso" von 4,38 Studs Breite. Arme in 45° hängen
 frei und sind als Arme erkennbar.
 
-Ins Negativ, mit den Formfehlern **vorn**: `deep body, round belly, long
+Ins Negativ, ganz vorn das, was das Gesicht verdeckt, dann die
+Formfehler: `hood, helmet, mask, visor, deep body, round belly, long
 hem, thigh-length, skirt, cape, fingers, T-pose, arms out sideways,
-painted flat eyes, thick legs, …`
+thick legs, …`
 
 Die Vorlage setzt außerdem die Schalter, die bisher von Hand gesetzt
 wurden: Rigging aus, T-Pose aus, Smart Low-Poly an, PBR aus, Textur
 1024, **face_limit 7.000** und Skalierung auf 5 Studs. Die 7.000 statt
 10.000, weil Auto Setup selbst nicht reduziert: Bei 9.627 Dreiecken bekam
 jede Gliedmaße 2.304 — bei einem Gruppenbudget von 1.248.
+
+### Die Vorlagen gegen ihr Ziel gehalten
+
+Sind die Vorlageprompts wirklich alle gut? Nein, nicht alle waren es.
+Die Bild-Vorlagen je Modell und die Spielgrafik-Vorlage stimmten. Die
+Marktplatz-Vorlage trug an drei Stellen noch den Wissensstand von vor
+Lauf 5, dazu kamen vier nachgemessene Mängel. Alles in einer Runde
+behoben:
+
+- **Das Marktplatz-Beispiel war die Kapuzenfigur.** „hooded creature …
+  eyes and a small mouth inside the hood opening" — wörtlich das
+  Konzept, das fünfmal gescheitert ist. Das Konzept-Gate hielt es nicht
+  auf, weil „eyes" und „mouth" dastanden. Jetzt zeigt das Beispiel die
+  Figur **unter** der Kapuze: sichtbares Gesicht, Lider, Lippen. Die
+  Kapuze kommt als Accessoire dazu. Ein Test hält das Beispiel gegen
+  das Gate und gegen die Wörter Kapuze, Helm, Maske, Visier, Schatten.
+- **Der Schwanz bestellte „eyes and a mouth as separate volumes".**
+  Jetzt: `face fully visible, eye sockets with eyelids and a mouth with
+  lips shaped into the head`. Der Regeltext sagt dazu, warum, und nennt
+  den Ausweg über die Gegenstandsarten Kapuze, Helm, Maske.
+- **Das Negativ schloss nichts aus, was das Gesicht verdeckt.** Jetzt
+  stehen `hood, helmet, mask, visor` ganz vorn — der einzige Fehler,
+  den weder Prompt noch Reparatur nachträglich beheben. „painted flat
+  eyes" ist dafür gewichen; das bestellt der Schwanz positiv.
+- **Das Motiv-Budget steht jetzt im Regeltext.** „Höchstens 1.024"
+  allein ließ die Prompt-KI ein langes Motiv schreiben, und Tripo
+  kürzte hinten — also die Regeln weg. Jetzt rechnet der Text vor, was
+  der Schwanz belegt und was fürs Motiv bleibt, je Ziel:
+
+  | Ziel | Schwanz | Posen-Zusatz | bleibt fürs Motiv |
+  | --- | --- | --- | --- |
+  | Marktplatz-Körper | 687 | in der Pose enthalten | 335 |
+  | Figur im Erlebnis | 267 | 121 | 634 |
+  | Accessoire | 228 | — | 794 |
+
+- **Zwei Gegenstands-Negative lagen über Tripos 255.** Kapuze 288,
+  Reitvogel 261 — Tripo kürzte stillschweigend hinten. „set of objects"
+  ist aus dem allgemeinen Negativ gestrichen (deckt „second object"
+  ab), die Kapuze kürzer, und Listen werden jetzt **ohne Doppelte**
+  gemischt. Ein Test prüft jede der 30 Arten auf beiden Wegen.
+- **Die Posen-Erkennung hatte falsche Treffer.** „striking a pose" und
+  „posed" galten als Pose — dann hängte die App keine an, und die
+  Figur kam dynamisch zurück. Jetzt mit Wortgrenzen, und „a pose" nur
+  noch als „A-pose", „a_pose" oder „A pose" mit großem A.
+- **Figur-Negativ „arms down" gegen A-Pose.** Wer auf dem Figur-Weg
+  die A-Pose wählte, hatte „angled 45 degrees down" im Prompt und „arms
+  down" im Negativ. Jetzt `arms along the body` — gemeint war nie die
+  Richtung, sondern das Anliegen.
+- **Kopierte Gegenstände mit Roblox an** bekamen den 3D-Schwanz
+  („watertight shell, single mesh") **statt** der Bild-Inszenierung
+  („shown alone, centered, plain background") und verloren `hand, arm`
+  aus dem Negativ — den häufigsten Fehlschlag. Jetzt kommt ein
+  Bild-Schwanz mit den Formworten **dazu**, und die Negative werden
+  gemischt statt getauscht. Der Block geht an ein Bildmodell, dort gilt
+  die 255er-Grenze nicht.
+- **Zwei veraltete Texte.** „Natives Text→3D" behauptete, die App hänge
+  die T-Pose bei Rigging an — der Posen-Schalter steht standardmäßig
+  auf Aus, und die Vorlage sagt das jetzt. „Figur für Bild→3D" nannte
+  die A-Pose „Arme seitlich ausgestreckt"; das ist die T-Pose.
 
 ### Gesichtsteile: fünf Netze, ohne die es keinen Marktplatz gibt
 

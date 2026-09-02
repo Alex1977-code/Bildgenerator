@@ -54,10 +54,22 @@ String poseSuffix(PoseKind kind) =>
 
 /// Erkennt eine T-Pose-Angabe im Prompt – auch als „T Pose",
 /// „t-pose" oder „T_Pose".
-final RegExp _tPosePattern = RegExp(r't[\s\-_]?pose', caseSensitive: false);
+///
+/// Mit Wortgrenzen an beiden Enden: Ohne die vordere passte „robot
+/// pose" (das „t" von robot), ohne die hintere „posed".
+final RegExp _tPosePattern =
+    RegExp(r'\bt[\s\-_]?pose\b', caseSensitive: false);
 
-/// Dasselbe für die A-Pose.
-final RegExp _aPosePattern = RegExp(r'a[\s\-_]?pose', caseSensitive: false);
+/// Dasselbe für die A-Pose – als „A-pose", „a_pose" oder „apose".
+///
+/// **Nicht** mit Leerzeichen bei Kleinschreibung: „a pose" ist
+/// gewöhnliches Englisch („striking a pose", „in a posed stance"),
+/// und genau so ein Prompt bekam keine Pose mehr angehängt – die
+/// Figur kam dynamisch zurück und ließ sich nicht riggen. „A pose"
+/// mit großem A geht weiter durch.
+final RegExp _aPosePattern =
+    RegExp(r'\ba[\-_]?pose\b', caseSensitive: false);
+final RegExp _aPoseSpaced = RegExp(r'\bA pose\b');
 
 /// Ob der Prompt die T-Pose schon selbst mitbringt.
 bool promptHasTPose(String prompt) => _tPosePattern.hasMatch(prompt);
@@ -68,7 +80,9 @@ bool promptHasTPose(String prompt) => _tPosePattern.hasMatch(prompt);
 /// die T-Pose an, widersprechen sich die beiden Angaben, und das
 /// Modell bekommt weder das eine noch das andere sauber.
 bool promptHasPose(String prompt) =>
-    _tPosePattern.hasMatch(prompt) || _aPosePattern.hasMatch(prompt);
+    _tPosePattern.hasMatch(prompt) ||
+    _aPosePattern.hasMatch(prompt) ||
+    _aPoseSpaced.hasMatch(prompt);
 
 /// Der Prompt, wie er tatsächlich an den Anbieter geht.
 ///
