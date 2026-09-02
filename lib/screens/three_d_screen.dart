@@ -21,6 +21,7 @@ import '../models/models.dart';
 import '../services/animation_bake.dart';
 import '../services/auto_rig.dart';
 import '../services/balance_service.dart';
+import '../services/concept_gate.dart';
 import '../services/cost_estimator.dart';
 import '../services/exporter.dart';
 import '../services/fal_service.dart';
@@ -2075,6 +2076,83 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     await _runPack(plan);
   }
 
+  /// Zeigt das Urteil des Konzept-Gates und fragt, ob trotzdem.
+  ///
+  /// Eine Rückfrage, keine Sperre. Das Gate liest Wörter, keine
+  /// Bilder – es kann nicht wissen, ob eine Figur ein Gesicht hat,
+  /// nur ob der Text eines beschreibt oder ausschließt. Wer weiß, was
+  /// er tut, klickt weiter; wer nicht, spart sich einen Lauf.
+  Future<bool?> _showConceptGate(ConceptVerdict urteil) {
+    final theme = Theme.of(context);
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(urteil.blocked
+            ? 'Als Ganzkörper-Avatar nicht möglich'
+            : 'Vor dem Lauf: Das Gesicht fehlt im Motiv'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final f in urteil.findings) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                          f.level == ConceptLevel.blocker
+                              ? Icons.block
+                              : Icons.warning_amber_outlined,
+                          size: 18,
+                          color: f.level == ConceptLevel.blocker
+                              ? theme.colorScheme.error
+                              : Colors.orange.shade800),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(f.title,
+                                style: theme.textTheme.bodyMedium
+                                    ?.copyWith(
+                                        fontWeight: FontWeight.w600)),
+                            Text(f.detail,
+                                style: theme.textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                Text(
+                  'Gemessen an fünf Läufen: Der Körper lässt sich '
+                  'reparieren, das Gesicht nicht. Torso, Arme und Beine '
+                  'einer Kapuzenfigur haben die Einzelteil-Prüfung ohne '
+                  'eine Meldung bestanden – nur der Kopf fiel durch.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Motiv ändern'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Trotzdem erzeugen'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _generate() async {
     final settings = context.read<SettingsService>();
     final isLocal = settings.threeDProvider == 'local';
@@ -2131,6 +2209,21 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     if (_imageMode && _front == null) {
       setState(() => _error = 'Bitte zuerst die Vorderansicht wählen.');
       return;
+    }
+
+    // Das Konzept-Gate: vor dem ersten Credit, nicht nach dem fünften
+    // Lauf. Drei Kapuzenfiguren sind erzeugt worden, obwohl das
+    // Konzept „Gesicht im Schatten" als Ganzkörper-Avatar nie bestehen
+    // konnte – Auto Setup braucht Lider und Lippen im Kopfnetz, und
+    // die kann kein Prompt nachliefern.
+    if (_robloxMode &&
+        _robloxTarget == RobloxTarget.marketplaceAvatar &&
+        !_imageMode) {
+      final urteil = checkConcept(prompt, ConceptTarget.marketplaceFullBody);
+      if (urteil.blocked || urteil.hasWarning) {
+        final weiter = await _showConceptGate(urteil);
+        if (weiter != true || !mounted) return;
+      }
     }
 
     setState(() {

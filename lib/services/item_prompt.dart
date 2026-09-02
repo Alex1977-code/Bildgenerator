@@ -249,6 +249,33 @@ const itemKinds = <ItemKind>[
     words: ['zauberer', 'wizard', 'hexe', 'witch', 'hut', 'hat',
         'cowboy', 'pirat', 'pirate', 'abenteurer', 'adventurer'],
   ),
+  // Die Kapuze als eigenes Accessoire – der Ausweg aus der Sackgasse.
+  //
+  // Eine Kapuzenfigur besteht als Ganzkörper-Avatar nicht: Auto Setup
+  // braucht Lider und Lippen im Kopfnetz, und unter einer Kapuze gibt
+  // es beides nicht. Trennt man die Kapuze ab, löst sich das Problem
+  // in zwei lösbare Teile – eine Figur mit sichtbarem Gesicht, und
+  // die Kapuze als starres Hut-Accessoire mit höchstens 4.000
+  // Dreiecken, ohne Cage, ohne Rig, ohne Gesicht.
+  ItemKind(
+    id: 'kapuze',
+    label: 'Kapuze',
+    group: 'Am Körper',
+    core: 'pointed cloth hood worn over the head, open front opening '
+        'framing the face, soft folds falling onto the shoulders, '
+        'hollow inside, thick fabric edge around the opening',
+    share: 1.6,
+    scaleRef: ItemScaleRef.kopf,
+    carry: 'über dem Kopf; die Öffnung bleibt frei, damit das Gesicht '
+        'der Figur darunter zu sehen ist',
+    robloxAccessoryType: 'Hat',
+    words: ['kapuze', 'hood', 'hoodie', 'kapuzenpulli', 'kutte',
+        'monk', 'mönch', 'assassine', 'assassin', 'ranger'],
+    // Ohne diesen Zusatz kommt die Kapuze mit einem Kopf darin, und
+    // dann ist sie kein Accessoire mehr, sondern eine halbe Figur.
+    extraNegative: 'head inside, face, body, shoulders as solid mass, '
+        'closed opening, filled interior',
+  ),
   ItemKind(
     id: 'krone',
     label: 'Krone',

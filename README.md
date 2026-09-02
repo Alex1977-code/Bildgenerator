@@ -1506,6 +1506,40 @@ Dreiecke: 80 je Auge, 12 je Zahnreihe, 36 für die Zunge — **220
 zusammen**, alle zum Kopfbudget von 4.000 gerechnet. Der Bericht sagt,
 was für den Kopf selbst übrig bleibt.
 
+### Konzept-Gate: die Frage vor dem ersten Credit
+
+Fünf Läufe, drei Kapuzenfiguren, und keine konnte als
+Ganzkörper-Avatar bestehen. Nicht am Prompt und nicht am Export —
+Roblox' Auto Setup braucht **Augenhöhlen mit Lidern und eine Mundhöhle
+mit Lippen im Kopfnetz**. Tripo liefert eine geschlossene Hülle ohne
+beides. Lauf 5 hat es entschieden: Augen und Zähne als eigene Netze
+reichen nicht, egal wo sie sitzen.
+
+Beim Ziel „Marktplatz-Avatar" liest die App das Motiv deshalb, **bevor**
+sie erzeugt. Findet sie ein Wort, das das Gesicht ausschließt — „face in
+shadow", „faceless", Helm, Maske, Visier —, fragt sie nach, statt
+Credits zu verbrauchen. Nennt das Motiv gar kein Gesicht, gibt es eine
+Warnung.
+
+**Eine Rückfrage, keine Sperre.** Das Gate liest Wörter, keine Bilder;
+es kann nicht wissen, ob eine Figur ein Gesicht hat. Wer weiß, was er
+tut, klickt auf „Trotzdem erzeugen".
+
+**Die Falle, die zuerst zuschlägt:** „hoodie" enthält „hood". Eine
+Kapuzenjacke mit sichtbarem Gesicht ist völlig in Ordnung —
+ausgeschlossen ist der leere Kopf, nicht das Kleidungsstück. Ein Test
+hält genau das fest.
+
+**Und der Ausweg steht im Befund.** Was das Gesicht verdeckt, ist fast
+immer abtrennbar: Die Kapuze wird ein **starres Hut-Accessoire** — ein
+Netz, höchstens 4.000 Dreiecke, kein Cage, kein Rig, kein Gesicht —,
+und darunter steht eine Figur mit sichtbarem Gesicht. Beides besteht
+für sich. Aus einer unmöglichen Aufgabe werden zwei lösbare.
+
+Dafür gibt es die Gegenstandsart **„Kapuze"**: offene Vorderseite, hohl
+innen, mit dem Negativ-Zusatz gegen den Kopf darin — sonst kommt eine
+halbe Figur statt eines Accessoires zurück.
+
 ### Die Front war spiegelverkehrt
 
 Der schwerste Fund aus dem Pflichtenheft, und er kostet Läufe: **Studios
