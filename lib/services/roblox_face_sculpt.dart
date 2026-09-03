@@ -161,7 +161,37 @@ class FaceCavities {
   bool get hasMouthCavity =>
       headWidth > 0 && mouthDepth >= headWidth * minDepthOfHeadWidth;
 
+  /// Ob **echte Höhlen** da sind – das, was Auto Setup für die
+  /// FACS-Posen braucht. Ein vorstehender Augapfel zählt hier nicht.
   bool get hasFace => hasEyeSockets && hasMouthCavity;
+
+  /// Wie stark die Fläche am Augenzentrum von ihrem Ring abweicht,
+  /// ohne Vorzeichen: Höhle **oder** Augapfel.
+  double get eyeRelief =>
+      math.max(leftEyeDepth.abs(), rightEyeDepth.abs());
+
+  /// Dasselbe für den Mund: Höhle oder vorstehende Lippen.
+  double get mouthRelief => mouthDepth.abs();
+
+  /// Ob der Kopf im Gesicht **überhaupt Geometrie** hat – gleich in
+  /// welche Richtung.
+  ///
+  /// Das ist die Frage, die vor dem Einbau zählt, und sie ist nicht
+  /// dieselbe wie [hasFace]. [hasFace] verlangt Vertiefungen; ein
+  /// modellierter Augapfel steht **vor** der Fläche und ergibt eine
+  /// negative Tiefe. Genau daran hat sich der Einbau vergriffen: Er
+  /// las „−0,376" als „keine Höhle da" und grub in einen fertigen
+  /// Augapfel hinein – bei jedem Aufruf erneut, weil das Ergebnis
+  /// wieder keine Höhle war. Zwei Aufrufe (Vorbereitung und
+  /// Reparatur) haben so aus einem sauberen Tripo-Gesicht Matsch
+  /// gemacht.
+  ///
+  /// Gemessen an einem leeren Kastenkopf: 0,000. An Tripos Gesicht:
+  /// 0,376 am Auge, 0,088 am Mund. Der Betrag trennt beides sauber.
+  bool get hasFaceRelief =>
+      headWidth > 0 &&
+      (eyeRelief >= headWidth * minDepthOfHeadWidth ||
+          mouthRelief >= headWidth * minDepthOfHeadWidth);
 }
 
 class FaceSculptReport {
@@ -244,10 +274,14 @@ Future<FaceSculptResult> sculptFaceIntoHead(
   final vorher = _messeHoehlen(pos, idx, kopf, proportions);
   final dreieckeVorher = idx.length ~/ 3;
 
-  // Schon da? Dann nichts anfassen. Eine vorbereitete Figur kommt
-  // über die Reparatur ein zweites Mal hier vorbei, und ein zweiter
-  // Eingriff gräbe die Höhlen doppelt tief.
-  if (vorher.hasFace) {
+  // Im Gesicht schon Geometrie? Dann nichts anfassen – gleich, ob
+  // Höhle oder Augapfel. Eine vorbereitete Figur kommt über die
+  // Reparatur ein zweites Mal hier vorbei, und geprüft wurde vorher
+  // nur auf **Höhlen**: Ein modellierter Augapfel ergibt eine negative
+  // Tiefe, galt als „nichts da" und wurde angegraben – bei jedem
+  // Aufruf erneut, weil das Ergebnis wieder keine Höhle war.
+  if (vorher.hasFaceRelief) {
+    final hoehlen = vorher.hasFace;
     return FaceSculptResult(
       glb,
       FaceSculptReport(
@@ -256,8 +290,20 @@ Future<FaceSculptResult> sculptFaceIntoHead(
         trianglesBefore: dreieckeVorher,
         trianglesAfter: dreieckeVorher,
         passes: 0,
-        notes: const [
-          'Augenhöhlen und Mundhöhle sind schon da – nichts verändert.',
+        notes: [
+          hoehlen
+              ? 'Augenhöhlen und Mundhöhle sind schon da – nichts '
+                  'verändert.'
+              : 'Im Gesicht ist Geometrie (Auge '
+                  '${vorher.eyeRelief.toStringAsFixed(2)}, Mund '
+                  '${vorher.mouthRelief.toStringAsFixed(2)} Studs '
+                  'Relief) – nichts verändert. Es sind aber keine '
+                  'Höhlen: '
+                  '${vorher.leftEyeDepth < 0 ? 'Die Augen stehen als '
+                      'Kugeln vor der Fläche. ' : ''}Hineinzugraben '
+                  'macht daraus Matsch, nicht eine Höhle – das gehört '
+                  'in den Prompt („eyes sunk into the head", Negativ '
+                  '„bulging eyes").',
         ],
       ),
     );

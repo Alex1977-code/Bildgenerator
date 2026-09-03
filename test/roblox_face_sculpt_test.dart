@@ -50,6 +50,61 @@ Uint8List figur() {
   return buildGlb(m);
 }
 
+/// Dieselbe Figur, aber mit **vorstehenden Augäpfeln** – so, wie Tripo
+/// sie liefert, wenn der Prompt „large round eyes" bestellt.
+///
+/// Zwei kleine Kästen vor der Gesichtsfläche an den Augenzentren
+/// (± 0,20 × B von der Mitte, bei 60 % der Kopfhöhe). Der Strahl von
+/// vorn trifft sie und misst eine **negative** Tiefe: Die Mitte liegt
+/// vor dem Ring. Genau das hat der Einbau als „keine Höhle da" gelesen.
+Uint8List figurMitAugaepfeln() {
+  final m = LocalMesh();
+  void quader(double x0, double y0, double z0, double x1, double y1,
+      double z1) {
+    final p = [
+      m.addVertex(x0, y0, z0, 0, 0),
+      m.addVertex(x1, y0, z0, 1, 0),
+      m.addVertex(x1, y1, z0, 1, 1),
+      m.addVertex(x0, y1, z0, 0, 1),
+      m.addVertex(x0, y0, z1, 0, 0),
+      m.addVertex(x1, y0, z1, 1, 0),
+      m.addVertex(x1, y1, z1, 1, 1),
+      m.addVertex(x0, y1, z1, 0, 1),
+    ];
+    m.addQuad(p[0], p[3], p[2], p[1]);
+    m.addQuad(p[4], p[5], p[6], p[7]);
+    m.addQuad(p[0], p[1], p[5], p[4]);
+    m.addQuad(p[2], p[3], p[7], p[6]);
+    m.addQuad(p[1], p[2], p[6], p[5]);
+    m.addQuad(p[0], p[4], p[7], p[3]);
+  }
+
+  quader(-1.1, 2.3, -0.6, 1.1, 3.8, 0.6);
+  quader(-0.3, 3.8, -0.22, 0.3, 4.15, 0.22);
+  quader(-0.78, 4.15, -0.6, 0.78, 5.0, 0.6);
+  quader(-1.8, 2.6, -0.2, -1.1, 3.7, 0.2);
+  quader(1.1, 2.6, -0.2, 1.8, 3.7, 0.2);
+  quader(-0.6, 0.35, -0.25, -0.15, 2.3, 0.25);
+  quader(0.15, 0.35, -0.25, 0.6, 2.3, 0.25);
+  quader(-0.6, 0.0, 0.25, -0.15, 0.30, 0.9);
+  quader(0.15, 0.0, 0.25, 0.6, 0.30, 0.9);
+  // Die Augäpfel: Kopfbreite 1,56, das Augenzentrum liegt bei
+  // (± 0,281 | 4,550). Die Kästen stehen 0,18 Studs vor der Fläche
+  // (z = 0,6) – deutlich mehr als die Schwelle von 3 % × 1,56 =
+  // 0,047 – und der Ring um das Auge (Radius 0,12) reicht unter sie,
+  // trifft also die flache Fläche: keine Höhle, eine Wölbung.
+  for (final x in [-0.281, 0.281]) {
+    quader(x - 0.14, 4.52, 0.6, x + 0.14, 4.80, 0.78);
+  }
+  // Und ein Nasenrücken in der Mitte, der **weiter** vorsteht als die
+  // Augäpfel. Genau diese Anordnung hatte die erste echte Figur, und
+  // sie ist der Grund, warum die alte Prüfung („liegt das
+  // Augenzentrum hinter der Gesichtsmitte?") eine Höhle sah, wo keine
+  // war: Der Strahl in der Mitte trifft den Rücken, nicht die Fläche.
+  quader(-0.16, 4.45, 0.6, 0.16, 4.70, 0.90);
+  return buildGlb(m);
+}
+
 /// Dieselbe Figur, aber **mit UV-Nähten**: Jede Kastenfläche hat
 /// ihre eigenen vier Punkte, wie bei einem texturierten Netz mit
 /// Inseln. Der Fund aus Blender: Über rohe Indizes markiert, blieb das
@@ -112,6 +167,61 @@ void main() {
     // Und der Bericht sagt dasselbe.
     expect(r.report.after.hasFace, isTrue);
     expect(r.report.text, contains('Augenhöhlen'));
+  });
+
+  test('ein modelliertes Gesicht bleibt unberührt', () async {
+    // Der Fund an der zweiten echten Figur: Tripo liefert Augäpfel,
+    // die **vor** der Gesichtsfläche stehen. Der Wächter prüfte auf
+    // Höhlen, las die negative Tiefe als „nichts da" und grub hinein –
+    // bei jedem Aufruf erneut, weil das Ergebnis wieder keine Höhle
+    // war. Vorbereitung und Reparatur zusammen ergaben Matsch.
+    final v = await lies(figurMitAugaepfeln());
+    final vorher = measureFaceCavities(v.positions, v.indices.toList())!;
+    v.dispose();
+    // Keine Höhle, aber Relief – und das ist der Unterschied.
+    expect(vorher.hasEyeSockets, isFalse);
+    expect(vorher.leftEyeDepth, lessThan(0), reason: 'Augapfel steht vor');
+    expect(vorher.hasFaceRelief, isTrue);
+
+    final r = await sculptFaceIntoHead(figurMitAugaepfeln());
+    expect(r.report.addedTriangles, 0);
+    expect(r.report.passes, 0);
+    expect(r.glb, figurMitAugaepfeln(), reason: 'Datei unverändert');
+    expect(r.report.notes.join(' '), contains('Kugeln'));
+
+    // Und mehrfaches Anwenden bleibt folgenlos – auch auf dem
+    // Kastenkopf, dessen Höhlen zu flach bleiben.
+    var g = (await sculptFaceIntoHead(figur(), proportions: grob)).glb;
+    final erste = g.length;
+    for (var i = 0; i < 2; i++) {
+      final w = await sculptFaceIntoHead(g, proportions: grob);
+      expect(w.report.addedTriangles, 0, reason: 'Durchlauf ${i + 2}');
+      g = w.glb;
+    }
+    expect(g.length, erste);
+  });
+
+  test('das Auge folgt der Fläche an seiner Stelle, nicht der Mitte',
+      () {
+    // Die Vorlage: Gesichtsfläche bei z = 0,60, Augäpfel stehen bis
+    // 0,78 vor, der Nasenrücken bis 0,90. Gesetzt wird das Auge an
+    // **seiner** Fläche (0,78), nicht an der Gesichtsmitte (0,90) –
+    // sonst schaut es weiter heraus als die 0,6 × Radius, die gewollt
+    // sind. Die alte Regel nahm die Mitte, sobald der eigene Strahl
+    // nicht mindestens einen halben Radius dahinter lag.
+    final r = addFaceParts(figurMitAugaepfeln());
+    const props = FaceProportions();
+    final radius = r.report.headWidth * props.eyeRadius;
+    for (final teil in r.report.parts) {
+      if (teil.name != 'LeftEye' && teil.name != 'RightEye') continue;
+      expect(teil.center[2], closeTo(0.78 - props.eyeSink * radius, 1e-6),
+          reason: teil.name);
+    }
+    // Und der Bericht nennt die Wölbung, statt sie eine Höhle zu
+    // nennen: Der Ring um das Auge liegt hinter seiner Mitte.
+    final notizen = r.report.notes.join(' ');
+    expect(notizen, contains('modellierter Augapfel'));
+    expect(notizen, isNot(contains('liegt eine Höhle')));
   });
 
   test('die Hülle bleibt geschlossen und nach außen gewickelt', () async {

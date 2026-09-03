@@ -724,12 +724,16 @@ Future<RepairResult> repairForMarketplace(
   // mit Lippengrat – nach der Dezimierung (sonst glättete sie die
   // Höhlen wieder weg) und vor den Teilen (sonst verschmölzen die mit
   // dem Kopf).
+  // Ob am Ende echte Höhlen im Kopfnetz stehen – davon hängt ab, was
+  // über die Gesichtsteile zu sagen ist.
+  var hoehlenDa = false;
   if (sculptFace) {
     try {
       final gesicht =
           await sculptFaceIntoHead(arbeit, proportions: sculptProportions);
       arbeit = gesicht.glb;
       final r = gesicht.report;
+      hoehlenDa = r.after.hasFace;
       notiere(
           'Gesicht im Kopfnetz',
           r.before.hasFace ? 'Höhlen da' : 'keine Höhlen',
@@ -753,11 +757,15 @@ Future<RepairResult> repairForMarketplace(
       notiere('Gesichtsteile', '0', '${gesicht.report.parts.length}',
           RepairOrigin.app,
           '${gesicht.report.triangles} Dreiecke. '
-              '${sculptFace ? 'Die Augen sitzen in den Höhlen hinter '
-                  'dem Lidgrat. Ob Auto Setup daraus FACS-Posen baut, '
-                  'zeigt der Lauf.' : 'Ohne Lider und Lippen im '
-                  'Kopfnetz baut Auto Setup keine FACS-Posen – dafür '
-                  'ist „Gesicht ins Kopfnetz bauen" da.'}');
+              '${hoehlenDa ? 'Die Augen sitzen in den Höhlen hinter dem '
+                  'Lidgrat. Ob Auto Setup daraus FACS-Posen baut, zeigt '
+                  'der Lauf.' : 'Es gibt keine Höhlen im Kopfnetz: Die '
+                  'Kugeln sitzen auf der Gesichtsfläche, versenkt und '
+                  'sichtbar, aber ohne Vertiefung dahinter. Für die '
+                  'FACS-Posen fehlt sie; sie gehört in den Prompt '
+                  '(„eyes sunk into the head").'}'
+              '${gesicht.report.notes.isEmpty ? '' : ' '
+                  '${gesicht.report.notes.join(' ')}'}');
     } on Exception catch (e) {
       notiere('Gesichtsteile', '0', '0', RepairOrigin.prompt, '$e');
     }

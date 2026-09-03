@@ -1906,6 +1906,81 @@ height, two separate legs with a clear gap between the thighs`. Im
 Beispiel und in den Befunden ebenso — eine Länge zu bestellen half
 nicht, eine Höhe schon.
 
+### Das Gesicht: warum es Matsch wurde
+
+Bis hierher waren Ganzkörper-Bilder und Bandmessungen geprüft, das
+Gesicht nicht. Es war der schlimmste Teil. Der Kopf der zweiten Figur
+hatte im Augenbereich ausgerissene Krater und im Profil ein Feld
+vorstehender Zacken, während der Hinterkopf glatt blieb. Isoliert man
+die Stufen einzeln und rendert den Kopf nach jeder, wird die Ursache
+sichtbar: **Tripo liefert ein saubereres Gesicht, als die App daraus
+macht.**
+
+| Stufe | Zustand des Kopfs |
+| --- | --- |
+| Tripo, roh | Augäpfel in Lidern, Brauen, Nase, Mund mit Lippen — sauber |
+| nach „Gesicht ins Kopfnetz" (1×) | Keile in die Augäpfel gefräst |
+| nach 2× | Brauen zerrissen, Mundwulst |
+| nach 3× | unkenntlich |
+
+**Der Wächter hat nie gegriffen.** Vor dem Eingriff fragt der Code
+„sind schon Höhlen da?" und misst dazu `Rand minus Mitte` am
+Augenzentrum. Ein modellierter Augapfel steht **vor** der Fläche, das
+ergibt eine **negative** Tiefe — und die galt als „nichts da". Gemessen:
+
+| Kopf | Auge | Mund | Schwelle | „hasFace" alt |
+| --- | --- | --- | --- | --- |
+| leerer Testkasten | 0,000 | 0,000 | 0,047 | false (richtig) |
+| Tripo, roh | −0,376 | −0,088 | 0,051 | false (**falsch**) |
+| nach 1× Sculpt | −0,256 | 0,045 | 0,051 | false |
+| nach 2× Sculpt | −0,135 | 0,181 | 0,051 | false |
+
+Weil das Ergebnis nie eine Höhle war, griff der Wächter auch beim
+zweiten Aufruf nicht — und es gibt zwei: das automatische Herrichten
+nach dem Lauf und die Reparatur danach. Jeder Durchgang fügte rund
+1.800 Dreiecke hinzu und grub erneut; der Mund wurde von 0,045 über
+0,181 auf 0,313 Studs tief, ohne Grenze.
+
+Der Betrag trennt beides sauber (0,000 gegen 0,376). Deshalb prüft der
+Einbau jetzt auf **Relief** statt auf Vertiefung: `hasFaceRelief` fragt,
+ob im Gesicht überhaupt Geometrie ist, in welche Richtung auch immer.
+Ist Relief da, bleibt der Kopf unberührt, und der Bericht sagt, was er
+gefunden hat und dass Hineingraben daraus Matsch macht.
+`hasFace` bleibt daneben stehen für die Frage, die Auto Setup stellt:
+sind **echte Höhlen** da? Ein Test mit einem Kastenkopf, dem
+Augäpfel und ein Nasenrücken aufsitzen, hält beides fest — und dass
+dreimaliges Anwenden folgenlos bleibt.
+
+**Ein zweiter Verdacht war keiner.** Die eingebauten Augenkugeln
+stehen 0,062 Studs vor der Kopffläche — nachgemessen mit
+Punkt-in-Dreieck-Test. Das sah nach einem zweiten Augapfel auf dem
+ersten aus, ist aber genau der Sollwert: Ein Auge wird um 0,4 × Radius
+versenkt und schaut um 0,6 × Radius heraus (0,6 × 0,103 = 0,062), damit
+es sichtbar ist. Zwei Tests halten das seit dem Modul fest. Der
+Eindruck kam aus Tripos eigenen Augäpfeln darunter, nicht aus einem
+Platzierungsfehler — der Kurzschluss stand einen Zwischenstand lang
+hier und ist zurückgenommen.
+
+Was am Einbau **doch** krumm war: die Regel, an welcher Fläche das Auge
+sitzt. Gefragt wurde „liegt das Augenzentrum mindestens einen halben
+Radius hinter der **Gesichtsmitte**?" — bei „ja" die eigene Fläche, bei
+„nein" die Mitte. Auf einem gewölbten Gesicht ist diese Schwelle
+willkürlich: Liegt die Fläche am Auge nur knapp hinter der Mitte,
+bekommt das Auge trotzdem die Tiefe der Mitte und schaut weiter heraus
+als die gewollten 0,6 × Radius. Der Kommentar nannte den Grund selbst
+mehrdeutig — „Höhle oder zurückweichendes Gesicht". Jetzt gilt immer
+die Fläche an der eigenen Stelle; die Mitte bleibt nur der Notnagel,
+wenn der Strahl nichts trifft. Und der **Ring um das Auge** entscheidet,
+was der Bericht dazu sagt: Höhle, wenn die Mitte dahinter liegt,
+„modellierter Augapfel" mit dem Hinweis auf den Prompt, wenn davor.
+
+**Was das für den Prompt heißt.** Die App kann aus einem vorstehenden
+Augapfel keine Höhle machen; die muss aus dem Prompt kommen. Genau
+dafür steht seit dem letzten Durchgang `eyes sunk into sockets with
+eyelids` im Schwanz und „bulging eyes" im Negativ. Die Prüfung
+unterscheidet jetzt beide Fälle: bei glattem Gesicht „die App baut die
+Höhlen", bei Kugeln „das gehört in den Prompt".
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

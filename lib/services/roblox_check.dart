@@ -567,6 +567,12 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
           if (!hoehlen.hasEyeSockets) 'Augenhöhlen',
           if (!hoehlen.hasMouthCavity) 'Mundhöhle',
         ].join(' und ');
+        // Unterscheiden, was fehlt: eine glatte Fläche oder ein
+        // vorstehender Augapfel. Nur im ersten Fall kann die App
+        // Höhlen bauen; in den zweiten hineinzugraben ergab Matsch.
+        final vorstehend = hoehlen.leftEyeDepth < 0 &&
+            hoehlen.eyeRelief >=
+                hoehlen.headWidth * FaceCavities.minDepthOfHeadWidth;
         findings.add(RobloxFinding(
             RobloxLevel.warning,
             'Gesicht im Kopfnetz: $fehlt fehlen',
@@ -576,9 +582,17 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
                 'von ${t(grenze)}. Ohne Höhlen im Kopfnetz sieht Auto '
                 'Setup beim Schließen der Lider und Öffnen des Munds '
                 'keinen Unterschied – „Cannot detect mouth open / left '
-                'eye close expression", so endete Lauf 5. „Für Roblox '
-                'vorbereiten" baut sie, solange „Gesicht ins Kopfnetz '
-                'bauen" an ist.'));
+                'eye close expression", so endete Lauf 5. '
+                '${vorstehend ? 'Die Augen stehen hier als Kugeln vor '
+                    'der Gesichtsfläche (negative Tiefe). Das kann die '
+                    'App nicht in Höhlen verwandeln: Hineingraben macht '
+                    'daraus Matsch – „Gesicht ins Kopfnetz bauen" lässt '
+                    'ein modelliertes Gesicht deshalb in Ruhe. Das '
+                    'gehört in den Prompt: „eyes sunk into the head", '
+                    'ins Negativ „bulging eyes".' : 'Die Gesichtsfläche '
+                    'ist hier glatt – „Für Roblox vorbereiten" baut die '
+                    'Höhlen, solange „Gesicht ins Kopfnetz bauen" an '
+                    'ist.'}'));
       }
     }
   }

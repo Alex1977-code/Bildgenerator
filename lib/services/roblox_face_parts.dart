@@ -320,18 +320,79 @@ FacePartsResult addFaceParts(
   // Lidern. Ohne Höhle bleibt es beim Mittelstrahl: Auf einem
   // gewölbten Gesicht liegt das Augenzentrum weiter hinten als die
   // Mitte, und ein Auge auf dieser Tiefe versänke halb im Kopf.
+  /// Die vorderste Fläche auf einem Ring um ein Augenzentrum – das
+  /// Maß, an dem sich eine Höhle von einer Wölbung unterscheidet.
+  ///
+  /// Vorher wurde die Mitte des Gesichts als Bezug genommen
+  /// („liegt das Augenzentrum hinter der Kopfmitte?"). Das war
+  /// mehrdeutig, und der Kommentar sagte es selbst: „Höhle oder
+  /// zurückweichendes Gesicht". An der ersten echten Figur war es das
+  /// zweite – Nasenrücken und Brauen stehen vor –, und das Auge wurde
+  /// auf die Tiefe der Höhle gesetzt, die es nicht gab: 0,06 Studs aus
+  /// dem Kopf heraus, ein zweites Auge auf dem, den Tripo gebaut
+  /// hatte. Der Ring um das Auge fragt das Richtige.
+  double? ringVorn(double x) {
+    const ecken = 8;
+    final r = augeR * 1.3;
+    var kleinste = double.infinity;
+    var treffer = 0;
+    for (var i = 0; i < ecken; i++) {
+      final w = i * 2 * math.pi / ecken;
+      final z = faceFrontHitZ(
+          flaechen, x + r * math.cos(w), augeY + r * math.sin(w), kopfAb);
+      if (z == null) continue;
+      treffer++;
+      kleinste = math.min(kleinste, z);
+    }
+    return treffer >= 5 ? kleinste : null;
+  }
+
+  /// Ab wann eine Vertiefung als Höhle gilt: 3 % der Kopfbreite – wie
+  /// in `FaceCavities.minDepthOfHeadWidth`, hier gespiegelt, damit
+  /// dieser Dienst nicht vom Einbau abhängt (der von ihm abhängt).
+  const hoehleAnteil = 0.03;
+
+  /// Wie tief ein Auge sitzt: an der Fläche **an seiner eigenen
+  /// Stelle**, um [FaceProportions.eyeSink] × Radius versenkt. Es
+  /// schaut also um den Rest des Radius heraus – so ist ein Auge
+  /// sichtbar, und so verlangt es der dynamische Kopf.
+  ///
+  /// Vorher standen hier zwei Zweige: die Gesichtsmitte als Regel und
+  /// der eigene Strahl nur dann, wenn er „deutlich dahinter" lag
+  /// (halber Radius). Der Kommentar nannte den Grund selbst mehrdeutig
+  /// – „Höhle oder zurückweichendes Gesicht" –, und auf einem
+  /// gewölbten Gesicht war die Schwelle willkürlich: Lag die Fläche am
+  /// Auge nur knapp hinter der Mitte, wurde das Auge trotzdem auf die
+  /// Tiefe der Mitte gesetzt und schaute weiter heraus als gewollt.
+  /// Der eigene Strahl ist in beiden Fällen die richtige Antwort; die
+  /// Mitte bleibt nur der Notnagel, wenn er nichts trifft.
   double augeTiefe(double x, String seite) {
     final treffer = faceFrontHitZ(flaechen, x, augeY, kopfAb);
-    final hoehle = treffer != null &&
-        treffer < augeFront - augeR * 0.5;
-    if (hoehle) {
-      notes.add('$seite: Die Fläche am Augenzentrum liegt '
-          '${(augeFront - treffer).toStringAsFixed(2)} hinter der '
-          'Kopfmitte (Höhle oder zurückweichendes Gesicht) – das Auge '
-          'sitzt dort, nicht auf der Tiefe der Mitte.');
-      return treffer - augeR * proportions.eyeSink;
+    if (treffer == null) {
+      notes.add('$seite: Der Strahl auf das Augenzentrum traf keine '
+          'Fläche – gesetzt wird nach der Gesichtsmitte. Im Viewer '
+          'nachsehen.');
+      return augeFront - augeR * proportions.eyeSink;
     }
-    return augeFront - augeR * proportions.eyeSink;
+    // Nur für den Bericht: Höhle oder Wölbung? Der Ring um das Auge
+    // sagt es, die Gesichtsmitte konnte es nicht.
+    final ring = ringVorn(x);
+    if (ring != null) {
+      final tiefe = ring - treffer;
+      if (tiefe >= b * hoehleAnteil) {
+        notes.add('$seite: Am Augenzentrum liegt eine Höhle, '
+            '${tiefe.toStringAsFixed(2)} Studs tief gegen ihren Rand – '
+            'das Auge sitzt in ihrem Boden, hinter dem Lidgrat.');
+      } else if (tiefe <= -b * hoehleAnteil) {
+        notes.add('$seite: Am Augenzentrum steht die Fläche '
+            '${(-tiefe).toStringAsFixed(2)} Studs **vor** ihrem Rand – '
+            'dort ist ein modellierter Augapfel, keine Höhle. Die '
+            'Kugel sitzt darauf; für die FACS-Posen fehlt die '
+            'Vertiefung. Ins Motiv: „eyes sunk into the head", ins '
+            'Negativ „bulging eyes".');
+      }
+    }
+    return treffer - augeR * proportions.eyeSink;
   }
 
   final augeZLinks = augeTiefe(mitteX - augeX, 'LeftEye');
