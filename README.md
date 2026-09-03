@@ -2108,6 +2108,44 @@ er verlangt A-Pose, Gesicht und Kleidung. Tripo hat alle drei
 ignoriert. Dagegen hilft kein weiterer Satz im Prompt, sondern ein
 neuer Lauf.
 
+### Ein Blender-Skript für die Nachbearbeitung
+
+`tools/roblox_nachbearbeitung.py` macht außerhalb der App, was die App
+beim Herrichten tut, und misst dazu die Punkte, die sie bisher nicht
+gemessen hat. Die Anleitung steht in `tools/README_nachbearbeitung.md`.
+
+```
+blender -b -P tools/roblox_nachbearbeitung.py -- ein.glb aus.glb
+```
+
+Der Bericht ist in vier Blöcke geteilt — GEMESSEN, GEÄNDERT, DAS MUSS
+DER PROMPT RICHTEN, NICHT GEPRÜFT —, und jede Zeile trägt den Punkt der
+Doku, auf den sie sich stützt.
+
+**Nachgemessen an echten Figuren, nicht behauptet:**
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Kugelkopf ohne Gesicht (`neu.glb`) | Höhlen gebaut, Relief −0,094 / −0,109; fünf Kopfteile als eigene, wasserdichte Netze |
+| Löcher schließen | 210 → **2** Randkanten, unabhängig in Blender nachgemessen |
+| Figur mit fertigem Gesicht | Kopfnetz unangetastet (5.321 Dreiecke unverändert), nur die fünf Teile kommen dazu |
+| zweiter Lauf auf dem eigenen Ergebnis | gräbt nicht nach: „Augen und Mund liegen bereits hinter der Gesichtsfläche" |
+| Pose | I-Pose an `neu.glb` erkannt (Armneigung 0,26; abgespreizt ab 0,30), A-Pose an der Tripo-Figur (1,53) |
+
+**Was es nicht kann,** und was es deshalb nur meldet: Pose, Hals,
+Accessoires, Symmetrie und Dreiecksbudget lassen sich nicht
+nachträglich herstellen. Die Zerlegung in Kopf, Rumpf, Arme und Beine
+ist aus der Silhouette geschätzt, nicht aus einem Rig — der Bericht
+sagt das an jeder Zahl dazu. Und das Ergebnis von `neu.glb` liegt mit
+11.532 Dreiecken über den erlaubten 10.742: Wer die Höhlen bauen will,
+muss vorher auf 9.242 dezimieren, und das Skript rechnet es vor.
+
+Zwei begründete Abweichungen von den Zahlen der App stehen im Skript:
+Das Kopfband beginnt am **gemessenen Hals** statt fest am obersten
+Fünftel (dort lagen bei A-Pose-Figuren die Schultern mit drin), und die
+Augen sind ganze Kugeln statt Halbkugeln — eine Halbkugel hätte einen
+offenen Rand, und Doku 9 verlangt wasserdichte Netze.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
