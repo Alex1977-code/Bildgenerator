@@ -1064,7 +1064,7 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             '${(marketplaceNeckRatio * 100).round()} %. Ohne '
             'Einschnürung findet Roblox\' Auto Setup die Grenze '
             'zwischen Kopf und Rumpf nicht. In den Prompt: „narrow '
-            'visible neck between head and shoulders" – bei der ersten '
+            'visible neck not merged with the shoulders" – bei der ersten '
             'Figur mit dem Marktplatz-Schwanz war es der Pulloverkragen, '
             'der den Hals auf 55 % brachte.');
   } else {
@@ -1123,9 +1123,9 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
               'breitere der beiden Beine. Zu breit heißt fast immer: '
               'Es ist gar nicht das Bein, sondern ein Saum, der '
               'mitgemessen wird. Nicht „slim legs" bestellen – zu dünne '
-              'Beine füllen ihren Hüllkörper nicht mehr zu 50 % und '
-              'fallen seit August 2026 durch. In den Prompt: „tight '
-              'shorts, gap between the thighs, no loose hem".');
+              'Beine füllen ihren Hüllkörper nicht zu 50 %. In den '
+              'Prompt: „two separate legs with a gap between the '
+              'thighs".');
     } else {
       add('bein_breite', MarketplaceLevel.ok,
           'Bein ${m.legWidth.toStringAsFixed(2)} Studs breit', '');
@@ -1153,8 +1153,9 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'über den Boden – bei der ersten Figur mit dem '
             'Marktplatz-Schwanz waren es „small stocky … sturdy legs". '
             'In den Prompt: „hips at mid body height, two separate legs '
-            'with a clear gap between the thighs, tight opaque shorts, '
-            'no loose hem", ins Negativ „short legs". Nackte Oberschenkel '
+            'with a gap between the thighs, opaque clothing covering '
+            'upper and lower torso", ins Negativ „short legs". Nackte '
+            'Oberschenkel '
             'sind keine Lösung: Der Marktplatz verlangt eine Bedeckung '
             'von der Hüfte bis unter Schritt und Gesäß.');
   } else {

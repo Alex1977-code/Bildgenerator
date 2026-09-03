@@ -321,5 +321,35 @@
   "zitat": "Body parts, such as Torso, Left Arm, Right Leg, must take up at least 50% of body part's bounding box. The head part must take up at least 50% of the mesh's bounding box.",
   "checked": "2026-09-03",
   "imCode": "RobloxBodyScale in lib/services/roblox_marketplace.dart – die Zahlen dort sind abgeschrieben; dieser Block ist die Quelle mit Datum."
+ },
+ "autoSetup": {
+  "_hinweis": [
+   "Was Roblox' Avatar Setup von einem eingegebenen Koerpernetz",
+   "verlangt. Der Marktplatz-Prompt der App baut genau diese",
+   "Liste nach - nichts darueber hinaus."
+  ],
+  "meshes": "single or multiple",
+  "headComponents": 5,
+  "eyeBags": 2,
+  "mouthParts": [
+   "upperTeeth",
+   "lowerTeeth",
+   "tongue"
+  ],
+  "sharedVertices": false,
+  "poses": [
+   "A-pose",
+   "T-pose"
+  ],
+  "limbsMayOverlapFromFront": false,
+  "humanoidShape": true,
+  "symmetryPreferred": true,
+  "watertightExceptEyesAndMouth": true,
+  "accessoriesInMesh": false,
+  "distinctNeck": true,
+  "needsTexture": true,
+  "quelle": "avatar-setup/auto-setup-requirements.md",
+  "zitat": "Heads must include 2 connected eyebags containing half-sphere eyes that do not share any vertices with the head component. Heads must include a connected mouthbag that houses the upper teeth, lower teeth, and tongue. The character body should form an upright A-pose or T-Pose. Keep the neck distinct and not merged with the shoulders or upper torso. Ensure the model is watertight in all regions with the exception of the eyes and mouth. Do not include any accessories, including face accessories, such as hair, eyebrows, beards, and eyelashes.",
+  "checked": "2026-09-03"
  }
 }

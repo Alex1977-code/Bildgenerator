@@ -113,25 +113,59 @@ void main() {
   group('Marktplatz-Körper', () {
     final markt = robloxPromptRules(accessory: false, marketplace: true);
 
-    test('nennt jede der Formregeln – nach der Doku-Prüfung', () {
-      for (final baustein in [
-        'body depth less than two fifths of body height',
-        'head about one quarter of body height',
-        'tight opaque shorts',
-        'hips at mid body height',
-        'clear gap between the thighs',
-        'eyes sunk into sockets with eyelids',
-        'mitten hands',
-        'narrow visible neck',
-        'sturdy arms and legs filling their outlines',
-      ]) {
-        expect(robloxMarketplaceTail, contains(baustein), reason: baustein);
+    test('jede Angabe im Schwanz steht so in Roblox\' Doku', () {
+      // Links steht die Angabe, rechts die Stelle, die sie verlangt.
+      const belegt = {
+        'upright A-pose': 'Auto Setup 6: „upright A-pose or T-Pose"',
+        'clear of the torso':
+            'Auto Setup 6: „no limbs obscure or overlap each other"',
+        'symmetrical': 'Auto Setup 8',
+        'humanoid with one head, one torso, two arms with hands, two '
+            'legs with feet': 'Auto Setup 5 + Policy „Body part requirements"',
+        'distinct narrow neck not merged with the shoulders':
+            'Auto Setup 11',
+        'head about one quarter of body height':
+            'Body scale: Rumpf 1,7 und Bein 1,4 Studs Minimum',
+        'hips at mid body height': 'dieselbe Tabelle',
+        'body depth less than two fifths of body height':
+            'Body scale: Tiefe 2,00 / 2,25',
+        'thick enough to fill their outlines':
+            'Visibility: „at least 50% of body part\'s bounding box"',
+        'two separate legs with a gap between the thighs': 'Auto Setup 6',
+        'opaque clothing covering upper and lower torso':
+            'Policy „Modesty layers" + Visibility „fully opaque"',
+        'face uncovered': 'Auto Setup 10: keine Accessoires im Netz',
+        'two eye sockets each holding a half-sphere eye':
+            'Auto Setup 2: „2 connected eyebags containing half-sphere eyes"',
+        'an open mouth cavity': 'Auto Setup 2: „a connected mouthbag"',
+        'watertight closed surface apart from the eye and mouth openings':
+            'Auto Setup 9: „with the exception of the eyes and mouth"',
+        'one single body mesh': 'Auto Setup 1',
+      };
+      for (final e in belegt.entries) {
+        expect(robloxMarketplaceTail, contains(e.key), reason: e.value);
       }
-      // Was raus musste: nackte Haut, dünne Beine – und „less than
-      // half", das bei 5 Studs 2,5 bestellt, mehr als jede Skala erlaubt.
-      for (final falsch in ['less than half', 'thighs uncovered', 'slim',
-          'hip bone', 'narrower than one third']) {
-        expect(robloxMarketplaceTail, isNot(contains(falsch)), reason: falsch);
+      // Und nichts darin, was Roblox nirgends verlangt. „never
+      // horizontal" verbietet die T-Pose, die Auto Setup 6 erlaubt;
+      // Lider und Lippen nennt die Policy ausdrücklich als **nicht**
+      // nötig; Finger sind nirgends verboten; der Rest ist Stil.
+      for (final ungedeckt in [
+        'never horizontal',
+        'eyelid',
+        'lips',
+        'mitten hands',
+        'without fingers',
+        'contrasting colour',
+        'few flat separated color areas',
+        'uniform material',
+        'flat chest and back',
+        'visible wall thickness',
+        'thighs uncovered',
+        'slim',
+        'hip bone',
+      ]) {
+        expect(robloxMarketplaceTail, isNot(contains(ungedeckt)),
+            reason: ungedeckt);
       }
     });
 
@@ -196,7 +230,7 @@ void main() {
 
     test('der Regeltext nennt Modesty, Anbauten, Deckung und FACS', () {
       for (final wort in ['Modesty', 'Anbauten', 'humanoid', '50 %',
-          '17. August 2026', '17 FACS', 'Augenbrauen', 'Outer Cage',
+          '17 FACS', 'Augenbrauen', 'Outer Cage',
           'Sicherheitsaufschlag', 'Character body specifications']) {
         expect(markt, contains(wort), reason: wort);
       }
@@ -217,23 +251,32 @@ void main() {
       final teile = robloxMarketplaceNegative.split(', ');
       expect(teile.take(4),
           containsAll(<String>['hood', 'helmet', 'mask', 'visor']));
-      // Dann die Anbauten, dann die beiden, an denen die Figur
-      // abgelehnt wurde.
-      expect(teile.take(12), containsAll(<String>['deep body', 'long hem']));
+      // Dann, was Auto Setup 10 namentlich ausschließt, dann die
+      // Anbauten aus der Policy.
+      expect(teile.take(8),
+          containsAll(<String>['hair', 'beard', 'eyebrows', 'eyelashes']));
+      expect(teile, containsAll(<String>['tail', 'wings', 'extra limbs']));
+      // Und nichts, was Roblox erlaubt: Die T-Pose ist zulässig,
+      // Finger sind nirgends verboten.
+      for (final erlaubt in ['T-pose', 'fingers', 'logo']) {
+        expect(teile, isNot(contains(erlaubt)), reason: erlaubt);
+      }
     });
 
-    test('der Schwanz bestellt Lider und Lippen im Kopf, keine '
-        'eigenen Volumen', () {
-      // Lauf 5: Augen und Zähne als eigene Netze reichen nicht. Der
-      // Schwanz hatte genau das bestellt.
-      expect(robloxMarketplaceTail, contains('eyelids'));
-      expect(robloxMarketplaceTail, contains('lips'));
-      expect(robloxMarketplaceTail, contains('face fully visible'));
-      expect(robloxMarketplaceTail, isNot(contains('separate volumes')));
-      expect(markt, contains('Lidern'));
-      expect(markt, contains('Lippen'));
-      expect(markt, isNot(contains('eigene Volumen sein')));
-      // Und der Ausweg steht dabei.
+    test('der Schwanz bestellt die fünf Kopfteile, die Auto Setup '
+        'verlangt', () {
+      // „2 connected eyebags containing half-sphere eyes" und „a
+      // connected mouthbag that houses the upper teeth, lower teeth,
+      // and tongue" – Höhlen, keine Lider und Lippen. Die Policy sagt
+      // ausdrücklich: „does not need to have an eyeball or eyelid"
+      // und „does not need to have lips, teeth or tongue".
+      expect(robloxMarketplaceTail, contains('two eye sockets'));
+      expect(robloxMarketplaceTail, contains('half-sphere eye'));
+      expect(robloxMarketplaceTail, contains('open mouth cavity'));
+      expect(robloxMarketplaceTail, contains('face uncovered'));
+      expect(markt, contains('Augensäcke'));
+      expect(markt, contains('Mundsack'));
+      // Und der Ausweg für alles, was das Gesicht verdeckt.
       expect(markt, contains('Accessoire'));
     });
 
@@ -248,8 +291,8 @@ void main() {
       for (final wort in ['hood', 'helmet', 'mask', 'visor', 'shadow']) {
         expect(promptZeile, isNot(contains(wort)), reason: wort);
       }
-      expect(promptZeile, contains('eyelids'));
-      expect(promptZeile, contains('lips'));
+      expect(promptZeile, contains('eye sockets'));
+      expect(promptZeile, contains('mouth cavity'));
       final urteil =
           checkConcept(promptZeile, ConceptTarget.marketplaceFullBody);
       expect(urteil.blocked, isFalse);
@@ -309,13 +352,16 @@ void main() {
       // Und es bestellt die zwei Dinge, die die erste Figur nicht
       // hatte: Beine von einem Drittel und Augen im Kopf.
       expect(motiv, contains('hips at mid body height'));
-      expect(motiv, contains('sunk into the head'));
+      expect(motiv, contains('eye sockets with half-sphere eyes'));
       expect(motiv, isNot(contains('small stocky')));
     });
 
-    test('verlangt die A-Pose und begründet sie', () {
-      expect(robloxMarketplaceTail, contains('A-pose'));
-      expect(markt, contains('KEINE T-Pose'));
+    test('nennt die Pose so, wie Auto Setup sie zulässt', () {
+      // Auto Setup 6 erlaubt A **und** T; der Schwanz wählt A, der
+      // Regeltext verbietet T nicht mehr.
+      expect(robloxMarketplaceTail, contains('upright A-pose'));
+      expect(markt, contains('A oder T'));
+      expect(markt, isNot(contains('KEINE T-Pose')));
       expect(markt, contains('Auto Setup'));
     });
 

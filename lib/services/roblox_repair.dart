@@ -515,7 +515,7 @@ Future<RepairResult> repairForMarketplace(
             '$flips Dreiecke hätten sich beim Einschnüren umgedreht – '
                 'zwischen Kopf und Schulter sitzt hier ein Kragen oder '
                 'eine Kapuze, kein Hals. Ins Motiv: „narrow visible '
-                'neck between head and shoulders".');
+                'neck not merged with the shoulders".');
       } else {
         notiere(
             'Hals',
@@ -588,7 +588,8 @@ Future<RepairResult> repairForMarketplace(
                     'ist das kein Saum vor zwei Beinen, sondern ein '
                     'Rumpf, der bis kurz über den Boden reicht; ein '
                     'Schnitt macht die Beine nicht länger. Ins Motiv: '
-                    '„sturdy legs a third of body height, gap between '
+                    '„hips at mid body height, two separate legs '
+                    'with a gap between '
                     'the thighs", ins Negativ „short legs".' : 'Was die '
                     'Beine verbindet, ist kein Saum, den ein '
                     'Streifenschnitt löst. Ins Motiv: „gap between the '
@@ -763,7 +764,7 @@ Future<RepairResult> repairForMarketplace(
                   'Kugeln sitzen auf der Gesichtsfläche, versenkt und '
                   'sichtbar, aber ohne Vertiefung dahinter. Für die '
                   'FACS-Posen fehlt sie; sie gehört in den Prompt '
-                  '(„eyes sunk into the head").'}'
+                  '(„two eye sockets each holding a half-sphere eye").'}'
               '${gesicht.report.notes.isEmpty ? '' : ' '
                   '${gesicht.report.notes.join(' ')}'}');
     } on Exception catch (e) {

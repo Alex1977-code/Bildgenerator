@@ -302,7 +302,8 @@ Future<FaceSculptResult> sculptFaceIntoHead(
                   '${vorher.leftEyeDepth < 0 ? 'Die Augen stehen als '
                       'Kugeln vor der Fläche. ' : ''}Hineinzugraben '
                   'macht daraus Matsch, nicht eine Höhle – das gehört '
-                  'in den Prompt („eyes sunk into the head", Negativ '
+                  'in den Prompt („two eye sockets each holding a '
+                  'half-sphere eye", Negativ '
                   '„bulging eyes").',
         ],
       ),
@@ -321,7 +322,8 @@ Future<FaceSculptResult> sculptFaceIntoHead(
         '${(-vorher.rightEyeDepth).toStringAsFixed(2)} Studs vor der '
         'Gesichtsfläche): In einen Buckel lässt sich keine Höhle '
         'schneiden, die Verschiebung macht ihn nur flacher. Ins Motiv '
-        '„eyes sunk into the head", ins Negativ „bulging eyes".');
+        '„two eye sockets each holding a half-sphere eye", ins '
+        'Negativ „bulging eyes".');
   }
 
   // 1. Verfeinern.

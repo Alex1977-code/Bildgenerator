@@ -388,7 +388,8 @@ FacePartsResult addFaceParts(
             '${(-tiefe).toStringAsFixed(2)} Studs **vor** ihrem Rand – '
             'dort ist ein modellierter Augapfel, keine Höhle. Die '
             'Kugel sitzt darauf; für die FACS-Posen fehlt die '
-            'Vertiefung. Ins Motiv: „eyes sunk into the head", ins '
+            'Vertiefung. Ins Motiv: „two eye sockets each holding '
+            'a half-sphere eye", ins '
             'Negativ „bulging eyes".');
       }
     }

@@ -1981,6 +1981,69 @@ eyelids` im Schwanz und „bulging eyes" im Negativ. Die Prüfung
 unterscheidet jetzt beide Fälle: bei glattem Gesicht „die App baut die
 Höhlen", bei Kugeln „das gehört in den Prompt".
 
+### Nur noch, was Roblox verlangt
+
+Der Schwanz war über Monate gewachsen: aus jedem Fehlschlag kam ein
+Satz dazu, und niemand hat je gefragt, ob Roblox das überhaupt
+verlangt. Diese Runde hat jede Angabe gegen den öffentlichen
+Doku-Spiegel `Roblox/creator-docs` gehalten (nachgesehen 3. September
+2026). Die entscheidende Datei war neu dabei:
+`avatar-setup/auto-setup-requirements.md`, „Mesh requirements" — was
+Auto Setup von einem eingegebenen Körpernetz erwartet. Sie steht jetzt
+als Block `autoSetup` in `assets/roblox_specs.json`, mit Quelle,
+Zitat und Datum.
+
+| Angabe im Schwanz | Beleg |
+| --- | --- |
+| `upright A-pose, arms angled down` | Auto Setup 6: „should form an upright A-pose or T-Pose" |
+| `clear of the torso` | Auto Setup 6: „no limbs obscure or overlap each other from the front view" |
+| `symmetrical` | Auto Setup 8 |
+| `humanoid with one head, one torso, two arms with hands, two legs with feet` | Auto Setup 5; Policy: „Each body can only include the following parts" |
+| `distinct narrow neck not merged with the shoulders` | Auto Setup 11, wörtlich |
+| `head about one quarter`, `hips at mid body height` | Body scale: Rumpf ≥ 1,7 und Bein ≥ 1,4 Studs bei 5 Studs — in Anteile übersetzt, weil ein Text-zu-3D-Modell keine Studs kennt |
+| `body depth less than two fifths of body height` | Body scale: Tiefe ≤ 2,00 (Classic, Slender) / 2,25 (Normal) |
+| `thick enough to fill their outlines` | Visibility: „must take up at least 50% of body part's bounding box" |
+| `two separate legs with a gap between the thighs` | Auto Setup 6 |
+| `opaque clothing covering upper and lower torso` | Policy „Modesty layers"; Visibility „Body parts must be fully opaque" |
+| `face uncovered` | Auto Setup 10: „Do not include any accessories … hair, eyebrows, beards, and eyelashes" |
+| `two eye sockets each holding a half-sphere eye` | Auto Setup 2: „2 connected eyebags containing half-sphere eyes" |
+| `an open mouth cavity` | Auto Setup 2: „a connected mouthbag that houses the upper teeth, lower teeth, and tongue" |
+| `watertight … apart from the eye and mouth openings` | Auto Setup 9: „watertight in all regions with the exception of the eyes and mouth" |
+| `one single body mesh` | Auto Setup 1 |
+
+**Was gestrichen wurde, weil es nirgends steht:**
+
+- **„never horizontal".** Auto Setup 6 erlaubt die T-Pose ausdrücklich.
+  Der Schwanz wählt weiter die A-Pose — eine der beiden erlaubten —,
+  aber die Regeln verbieten die andere nicht mehr, und „T-pose" ist
+  aus dem Negativ raus.
+- **„mitten hands without fingers".** Finger sind nirgends verboten.
+  Die Grenze ist das Dreiecksbudget (1.248 je Arm), und das stellt die
+  App am Anbieter ein — nicht der Prompt. „fingers" ist aus dem
+  Negativ raus.
+- **„eyelids" und „lips".** Die Policy sagt beides ausdrücklich:
+  „does not need to have an eyeball or eyelid" und „does not need to
+  have lips, teeth or tongue". Verlangt sind die **Höhlen** — Augensack
+  und Mundsack —, damit Auto Setup die fünf Kopfteile hineinsetzen
+  kann. Genau das steht jetzt da.
+- **„in a contrasting colour".** Die Policy verlangt eine Schicht
+  Kleidung über Ober- und Unterkörper, keine bestimmte Farbe.
+- **„few flat separated color areas", „uniform material".** Stil. Das
+  Material setzt der Export (`Plastic`), die Textur wird ohnehin auf
+  eine Karte gebacken.
+- **„flat chest and back"** (dieselbe Regel wie die Tiefe, doppelt) und
+  **„solid closed volumes with visible wall thickness"** (dieselbe
+  Regel wie wasserdicht).
+
+Dazu ins Negativ, weil Auto Setup 10 sie namentlich nennt: `hair`,
+`beard`, `eyebrows`, `eyelashes` — Augenbrauen und Wimpern gehören als
+eigene `Accessory`-Objekte ans Bundle, nicht ins Körpernetz.
+
+Der Schwanz ist damit von 745 auf **629 Zeichen** geschrumpft, dem
+Motiv bleiben **393 statt 277**. Ein Test führt die Zuordnung als
+Tabelle mit und prüft beides: dass jede belegte Angabe drinsteht und
+dass keine der gestrichenen zurückkommt.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

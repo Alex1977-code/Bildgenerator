@@ -44,107 +44,64 @@ const String robloxAccessoryImageTail =
     'clean readable silhouette, few flat separated color areas, '
     'uniform material';
 
-/// Der feste Schwanz für einen **Marktplatz-Körper**.
+/// Der feste Schwanz für einen Marktplatz-Körper.
 ///
-/// Ein eigener, weil hier fünf Formregeln dazukommen, an denen eine
-/// Figur scheitert, die im eigenen Erlebnis tadellos läuft. Alle fünf
-/// sind an Roblox' Validator gemessen, nicht der Doku entnommen:
+/// **Jede Angabe darin steht so in Roblox' Dokumentation.** Was nur
+/// gut gemeint war, ist raus – Stand 3. September 2026, geprüft gegen
+/// den öffentlichen Doku-Spiegel `Roblox/creator-docs`:
 ///
-/// * **Tiefe unter der absoluten Grenze.** 2,00 Studs bei Classic und
-///   Slender, 2,25 bei Normal – die Testfigur hatte 2,45. Dass das bei
-///   5 Studs „49 % statt 40 %" ergab, war Zufall der Größe.
-/// * **Eng anliegende Shorts statt Saum.** Alles, was von der Hüfte
-///   abwärts über beide Beine hängt, ragt aus dem Outer Cage des Beins
-///   und reißt Deckung und LegsSeparated zugleich. Nackte Oberschenkel
-///   sind keine Lösung – der Marktplatz verlangt Bedeckung von der
-///   Hüfte bis unter Schritt und Gesäß.
-/// * **Kräftige Beine, kein „slim".** Jedes Teil muss 50 % seines
-///   Hüllkörpers füllen; höchstens 1,50 breit.
-/// * **Fäustlinge statt Finger.** Ausmodellierte Finger kosteten je
-///   Hand über 1.280 Dreiecke – mehr als das Budget des ganzen Arms.
-/// * **Sichtbarer Hals.** Ohne Einschnürung findet Roblox' Auto Setup
-///   die Grenze zwischen Kopf und Rumpf nicht: In einem echten Lauf
-///   wurde die Kapuze bis zu den Schultern zum „Kopf" von 3,75 Studs
-///   Breite.
+/// * A = `avatar-setup/auto-setup-requirements.md`, „Mesh
+///   requirements" – was Auto Setup als Eingabe verlangt.
+/// * B = `marketplace/marketplace-policy.md`, „Avatar body
+///   guidelines".
+/// * C = `avatar/character-bodies/specifications.md`.
 ///
-/// Dazu zwei Dinge, die nicht die Form, sondern die Weiterverarbeitung
-/// betreffen: **A-Pose statt T-Pose** – die waagerechten Arme wurden
-/// dem Rumpf zugeschlagen – und **ein sichtbares Gesicht mit Lidern
-/// und Lippen im Kopfnetz**. Der Marktplatz verlangt für den Kopf
-/// eines Ganzkörper-Bundles einen dynamischen Kopf mit FACS-Posen, und
-/// Auto Setup baut die nur, wenn es im Kopfnetz Augenhöhlen mit Lidern
-/// und eine Mundhöhle mit Lippen findet. Hier stand vorher „two
-/// hemisphere eyes and a mouth modelled as separate volumes" – und
-/// Lauf 5 hat entschieden, dass genau das nicht reicht: Augen und
-/// Zähne als eigene Netze ergeben „Cannot detect mouth open / left eye
-/// close expression", egal wo sie sitzen. Bestellt wird deshalb, was
-/// Auto Setup braucht, nicht, was sich nachträglich anbauen lässt.
+/// | Angabe | Beleg |
+/// | --- | --- |
+/// | upright A-pose, arms angled down | A 6 „should form an upright A-pose or T-Pose" |
+/// | clear of the torso | A 6 „no limbs obscure or overlap each other from the front view" |
+/// | symmetrical | A 8 „Asymmetrical character bodies may work on a case-to-case basis" |
+/// | humanoid, one head/torso, two arms with hands, two legs with feet | A 5 „Humanoid shape"; B „Each body can only include the following parts" |
+/// | distinct narrow neck not merged with the shoulders | A 11 „Keep the neck distinct and not merged with the shoulders or upper torso" |
+/// | head about one quarter, hips at mid body height | C „Body scale": Rumpf mindestens 1,7 und Bein 1,4 Studs bei 5 Studs Gesamthöhe – in Anteile übersetzt, weil ein Text-zu-3D-Modell keine Studs kennt |
+/// | body depth less than two fifths of body height | C „Body scale": Tiefe höchstens 2,00 (Classic, Slender) oder 2,25 (Normal); [robloxDepthWords] rechnet das Wort aus |
+/// | thick enough to fill their outlines | C „Visibility": „must take up at least 50% of body part's bounding box" |
+/// | two separate legs with a gap | A 6, siehe oben |
+/// | opaque clothing covering upper and lower torso | B „Modesty layers": „a layer of clothing that covers an avatar's upper torso and lower torso"; C „Body parts must be fully opaque" |
+/// | face uncovered | A 10 „Do not include any accessories … hair, eyebrows, beards" |
+/// | two eye sockets each holding a half-sphere eye | A 2 „2 connected eyebags containing half-sphere eyes" |
+/// | an open mouth cavity | A 2 „a connected mouthbag that houses the upper teeth, lower teeth, and tongue" |
+/// | watertight, apart from the eye and mouth openings | A 9 „watertight in all regions with the exception of the eyes and mouth" |
+/// | one single body mesh | A 1 „Avatar Setup accepts character bodies comprised of 1 or more meshes" – eines ist der einfachste Fall, und es ist der Marker, an dem die App den Schwanz wiedererkennt |
 ///
-/// „chunky" fehlt hier bewusst: Genau dieses Wort hat die Tiefe
-/// bestellt, die jetzt abgelehnt wird.
+/// **Was gestrichen wurde, weil es nirgends gefordert ist:** „never
+/// horizontal" (A 6 erlaubt die T-Pose ausdrücklich), „mitten hands
+/// without fingers" (Finger sind nirgends verboten; die Grenze ist
+/// das Dreiecksbudget, und das stellt die App am Anbieter ein),
+/// „eyelids" und „lips" (B: „does not need to have an eyeball or
+/// eyelid" und „does not need to have lips, teeth or tongue"),
+/// „in a contrasting colour" (B verlangt eine Schicht Kleidung, keine
+/// Farbe), „few flat separated color areas" und „uniform material"
+/// (Stil; das Material setzt der Export), „flat chest and back"
+/// (dieselbe Regel wie die Tiefe, doppelt), „solid closed volumes with
+/// visible wall thickness" (dieselbe Regel wie wasserdicht).
 ///
-/// **Nach der Doku-Prüfung vom 3. September 2026 geändert:**
-///
-/// * Die Tiefe ist absolut begrenzt (2,00 Studs bei Classic und
-///   Slender, 2,25 bei Normal), der Prompt kennt nur Verhältnisse.
-///   Der Schwanz rechnet sein Wort deshalb aus Höhe und Skala – siehe
-///   [robloxMarketplaceTailFor] – und nimmt nie eines, das über der
-///   Grenze liegt. Bei 5 Studs heißt das für alle drei Skalen „less
-///   than two fifths of body height" (2,0): unter Normals 2,25 und
-///   gerade an Classics 2,0. Eine Zwischenfassung sagte „less than
-///   half" – das sind 2,5, mehr als jede Skala erlaubt.
-/// * „slim straight legs narrower than one third" bestellte, was seit
-///   dem 17. August 2026 durchfällt: Jedes Teil muss 50 % seines
-///   Hüllkörpers füllen. Jetzt „sturdy arms and legs filling their
-///   outlines".
-/// * „garment hem ending at the hip bone, thighs uncovered" ließ
-///   nackte Haut, wo der Marktplatz Bedeckung verlangt (Hüfte bis
-///   unter Schritt und Gesäß). Jetzt eng anliegende Shorts, die der
-///   Beinform folgen – kein hängender Saum, also kein Konflikt mit
-///   getrennten Beinen.
-/// * „head about one quarter of body height" ist neu: Die
-///   Mindesthöhen (Rumpf 1,7, Bein 1,4) sind absolut, und ein Kopf
-///   von 2 Studs lässt bei 5 Studs nicht genug darunter.
-///
-/// **Nach der ersten Figur mit diesem Schwanz geändert** (Tripo,
-/// Beispielmotiv, 5.321 Dreiecke): Sie kam in A-Pose, als ein Netz,
-/// mit Gesicht – und mit dem Schritt bei 0,9 Studs, Augen als Kugeln
-/// 0,38 Studs aus dem Kopf, dem Hals bei 55 % der Kopfbreite.
-///
-/// * „two separate leg tubes from the hips down" sagte nichts über
-///   die Länge; erst „two separate legs one third of body height".
-///   **Auch das reichte nicht** (zweite Figur: Beine 1,0 statt 1,4):
-///   Die Beine sind, was unter der Hüfte übrig bleibt, und über die
-///   Hüfte stand nichts – Tripo baute den Rumpf bis 2,7 von 5,0
-///   hinunter. Jetzt „hips at mid body height, two separate legs with
-///   a clear gap between the thighs": eine Linie, die sich messen
-///   lässt, statt einer Länge, die sich aus dem Rest ergibt.
-/// * „eye sockets with eyelids" wurde zu Kugeln mit Lidern; jetzt
-///   „eyes sunk into sockets with eyelids". Im Negativ „bulging
-///   eyes" und „short legs" – dafür „logo" und „arms out sideways"
-///   raus (das deckt „T-pose").
-/// * Gekürzt, damit das Motiv Platz behält: „narrow visible neck
-///   between head and shoulders", Shorts ohne „following the leg
-///   shape" (das sagt jetzt die Lücke zwischen den Schenkeln). Das
-///   Beispielmotiv war mit 329 Zeichen über dem Budget von 285 –
-///   Tripo hätte „few flat separated color areas, uniform material"
-///   abgeschnitten.
+/// Der Schwanz ist damit von 745 auf 629 Zeichen geschrumpft; dem
+/// Motiv bleiben 393 statt 277.
 const String robloxMarketplaceTail = _tailNormal5;
 
 /// Der Schwanz für die Standardhöhe und -skala – als Konstante, weil
 /// die Vorlagen ihn wörtlich zitieren.
 const String _tailNormal5 =
-    'arms straight and angled 45 degrees down in an A-pose, never horizontal, '
-    'single connected body, symmetrical, head about one quarter of body '
-    'height, body depth less than two fifths of body height, flat chest and '
-    'back, narrow visible neck between head and shoulders, mitten hands '
-    'without fingers, sturdy arms and legs filling their outlines, tight '
-    'opaque shorts in a contrasting colour covering hips, crotch and buttocks, '
-    'hips at mid body height, two separate legs with a clear gap between the '
-    'thighs, face fully visible, eyes sunk into sockets with eyelids and a '
-    'mouth with lips shaped into the head, solid closed volumes with visible '
-    'wall thickness, closed watertight shell, one single body mesh, few flat '
-    'separated color areas, uniform material';
+    'upright A-pose, arms angled down and clear of the torso, symmetrical, '
+    'humanoid with one head, one torso, two arms with hands, two legs with '
+    'feet, distinct narrow neck not merged with the shoulders, head about one '
+    'quarter of body height, hips at mid body height, body depth less than two '
+    'fifths of body height, arms and legs thick enough to fill their outlines, '
+    'two separate legs with a gap between the thighs, opaque clothing covering '
+    'upper and lower torso, face uncovered, two eye sockets each holding a '
+    'half-sphere eye, an open mouth cavity, watertight closed surface apart '
+    'from the eye and mouth openings, one single body mesh';
 
 /// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der
 /// Prompt kennt nur Verhältnisse – also wird das Verhältnis aus
@@ -291,10 +248,10 @@ MarketplacePrompt marketplacePrompt(
 /// abstehende Ohren, Haarsträhnen dürfen nicht im Körpernetz stecken;
 /// erlaubt sind genau ein Kopf, ein Rumpf, zwei Arme, zwei Beine.
 const String robloxMarketplaceNegative =
-    'hood, helmet, mask, visor, tail, wings, horns, pointed ears, hair '
-    'strands, deep body, long hem, skirt, cape, fingers, T-pose, spindly '
-    'limbs, thin arms, short legs, bulging eyes, floating parts, open mesh, '
-    'holes, base, text, second character, extra limbs';
+    'hood, helmet, mask, visor, hair, beard, eyebrows, eyelashes, tail, wings, '
+    'horns, pointed ears, extra limbs, second character, deep body, long hem, '
+    'skirt, cape, spindly limbs, thin arms, short legs, bulging eyes, closed '
+    'mouth, floating parts, holes, base';
 
 /// Das Marktplatz-Beispiel – **ohne Kapuze**.
 ///
@@ -307,10 +264,10 @@ const String robloxMarketplaceNegative =
 /// eigenes Accessoire dazu (Gegenstandsart „Kapuze") – aus einer
 /// unmöglichen Aufgabe werden zwei lösbare.
 const String robloxMarketplaceExample =
-    'PROMPT: compact humanoid, round head a quarter of body height, big round '
-    'eyes sunk into the head, wide mouth with plump lips, straight torso, '
-    'fitted sweater, tight dark shorts, hips at mid body height, sturdy legs '
-    'with a gap between the thighs, matte charcoal fabric, pale grey skin, '
+    'PROMPT: compact humanoid, round head a quarter of body height, two eye '
+    'sockets with half-sphere eyes, open mouth cavity, straight torso, fitted '
+    'sweater, tight dark shorts, hips at mid body height, sturdy legs with a '
+    'gap between the thighs, matte charcoal fabric, pale grey skin, '
     '$robloxMarketplaceTail'
     '\nNEGATIV: $robloxMarketplaceNegative';
 
@@ -404,32 +361,31 @@ String robloxPromptRules({
           '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
       : markt
           ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
-              '  1. Was es ist („compact humanoid"). Nicht „small '
-              'stocky": Die erste Figur mit diesem Schwanz war klein '
-              'und stämmig – mit Stummelbeinen und dem Schritt bei 0,9 '
-              'Studs.\n'
-              '  2. Proportionen („round head a quarter of body height, '
-              'hips at mid body height, sturdy legs"). Die Hüftlinie '
-              'ist die wirksamste Angabe: „sturdy legs a third of body '
-              'height" ließ Tripo einen Rumpf bauen, der bis auf 1,0 '
-              'Studs an den Boden reichte – die Beine sind, was unter '
-              'der Hüfte übrig bleibt, und über die Hüfte sagte der '
-              'Satz nichts. Die Mindesthöhen für Rumpf (1,7) und Beine '
-              '(1,4) sind absolut, und bei 5 Studs bleibt unter einem '
-              '2-Studs-Kopf nicht genug.\n'
-              '  3. Das Gesicht, ausgeschrieben – es ist hier Pflicht, '
-              'nicht Schmuck („big round eyes sunk into the head, wide '
-              'mouth with plump lips"; „face fully visible" und die '
-              'Lider stehen schon im Schwanz). „sunk into the head", '
-              'weil Tripo aus „large round eyes" Kugeln macht, die aus '
-              'dem Kopf stehen – und in einen Buckel lässt sich keine '
-              'Augenhöhle bauen. Dann Kleidung und das erkennende '
-              'Merkmal mit Ort am Körper („fitted sweater with one '
-              'white stripe across the chest"). Knapp genannt geht es '
+              '  1. Was es ist („compact humanoid"). Auto Setup '
+              'verlangt eine humanoide Form mit zwei Armen, zwei '
+              'Beinen, einem Rumpf und einem Kopf.\n'
+              '  2. Proportionen („round head a quarter of body '
+              'height, hips at mid body height"). Das ist die '
+              'Größentabelle in Anteile übersetzt: Rumpf mindestens '
+              '1,7 und Bein mindestens 1,4 Studs, bei 5 Studs '
+              'Gesamthöhe. Die Hüftlinie wirkt, eine Beinlänge nicht: '
+              'Die Beine sind, was unter der Hüfte übrig bleibt.\n'
+              '  3. Das Gesicht („two eye sockets with half-sphere '
+              'eyes, open mouth cavity"). Auto Setup verlangt fünf '
+              'Kopfteile: zwei Augensäcke mit Halbkugel-Augen und '
+              'einen Mundsack mit Ober-, Unterzähnen und Zunge, keiner '
+              'davon teilt Punkte mit dem Kopf. Die fünf Teile baut '
+              'die App; die **Höhlen** dafür muss der Prompt liefern – '
+              'in einen vorstehenden Augapfel lässt sich keine '
+              'schneiden.\n'
+              '  4. Kleidung: eine Schicht über Ober- und Unterkörper, '
+              'undurchsichtig („fitted sweater, tight dark shorts"). '
+              'Dazu das erkennende Merkmal mit Ort am Körper („one '
+              'white stripe across the chest"); knapp genannt geht es '
               'unter.\n'
-              '  4. Farben und Material („matte dark charcoal fabric, '
-              'pale grey skin").\n'
-              '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
+              '  5. Farben und Material („matte charcoal fabric, pale '
+              'grey skin").\n'
+              '  6. Dann wörtlich der feste Schwanz (siehe unten).\n'
           : '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
               '  1. Was es ist („hooded creature character").\n'
               '  2. Proportionen („oversized rounded head, wide '
@@ -446,49 +402,45 @@ String robloxPromptRules({
       ? '- KEINE Pose, kein Körper, keine Hand, die es hält. Das Teil '
           'schwebt frei und vollständig sichtbar.\n'
       : markt
-      ? '- KEINE T-Pose. Für den Marktplatz-Weg steht die A-Pose '
-          'schon im festen Schwanz, und sie ist dort die bessere: In '
-          'einem echten Lauf durch Roblox\' Auto Setup wurden die '
-          'waagerechten Arme der T-Pose dem Kopf und dem Rumpf '
-          'zugeschlagen – heraus kam ein „UpperTorso" von 4,38 Studs '
-          'Breite. Arme in 45° hängen frei und sind als Arme '
-          'erkennbar.\n'
-          '- KEINE Umhänge, Röcke, langen Mäntel oder Schleier. Für '
-          'den Marktplatz kommt dazu: **nichts, was von der Hüfte '
-          'abwärts über beide Beine hängt.** Ein Saum bläht den '
-          'Hüllkörper des Beins auf, während das Bein darin dünn '
-          'bleibt – das reißt die Deckungsprüfung und die Regel '
-          'LegsSeparated zugleich.\n'
-          '- KEIN verdecktes Gesicht: keine Kapuze, kein Helm, keine '
-          'Maske, kein Visier, kein „Gesicht im Schatten". Der '
-          'Marktplatz verlangt für den Kopf eines Ganzkörper-Bundles '
-          'einen dynamischen Kopf mit FACS-Posen, und Auto Setup baut '
-          'die nur, wenn das Kopfnetz Augenhöhlen mit Lidern und eine '
-          'Mundhöhle mit Lippen hat. Fünf Läufe haben das entschieden: '
-          'Augen und Zähne als eigene Volumen reichen nicht, egal wo '
-          'sie sitzen. Was das Gesicht verdeckt, wird ein eigenes '
-          'Accessoire (Gegenstandsart „Kapuze", „Helm", „Maske") und '
-          'kommt danach auf die Figur.\n'
-          '- KEINE Anbauten am Körper: Schwanz, Flügel, Hörner, Geweih, '
-          'abstehende Ohren, Haarsträhnen. Erlaubt sind genau ein Kopf, '
-          'ein Rumpf, zwei Arme, zwei Beine – alles andere wird ein '
-          'eigenes Accessoire (Marktplatz-Policy: „tails, wings, extra '
-          'limbs … must be uploaded separately"). Bei einem „creature" '
-          'ist das die naheliegendste Fehlerquelle; deshalb steht im '
-          'Beispiel „humanoid".\n'
-          '- KEINE nackte Haut von der Hüfte bis unter Schritt und '
-          'Gesäß (Modesty-Layer): Der Marktplatz verlangt dort volle, '
-          'undurchsichtige Bedeckung in einer anderen Farbe als die '
-          'Haut. Der Schwanz bestellt deshalb eng anliegende Shorts, '
-          'die der Beinform folgen – kein hängender Saum, sonst kollidiert '
-          'es mit den getrennten Beinen. Ausnahme laut Policy: Figuren, '
-          'die Tieren oder Gegenständen gleichen.\n'
+      ? '- Die Pose: A oder T, aufrecht. Auto Setup erlaubt beide '
+          'ausdrücklich und nennt die I-Pose („Arme am Körper") '
+          'schlechter. Der feste Schwanz bestellt die A-Pose; ein '
+          'eigener Posen-Zusatz ist deshalb überflüssig. Dazu die '
+          'Regel „no limbs obscure or overlap each other from the '
+          'front view": Von vorn darf keine Gliedmaße eine andere '
+          'verdecken.\n'
+          '- KEINE Accessoires im Netz: Haare, Augenbrauen, Bart, '
+          'Wimpern nennt Auto Setup namentlich („Do not include any '
+          'accessories"). Augenbrauen und Wimpern gehören als eigene '
+          'Accessory-Objekte ans Bundle, nicht ins Körpernetz. Was '
+          'das Gesicht verdeckt – Kapuze, Helm, Maske, Visier – wird '
+          'ein eigenes Accessoire und kommt danach auf die Figur.\n'
+          '- KEINE Anbauten am Körper: Die Policy zählt abschließend '
+          'auf, was ein Körper haben darf – ein Kopf, ein Rumpf, je '
+          'ein Arm aus Ober-, Unterarm und Hand, je ein Bein aus '
+          'Ober-, Unterschenkel und Fuß – „and cannot have additional '
+          'appendages". Schwanz, Flügel, Hörner, abstehende Ohren '
+          'werden eigene Accessoires. Bei einem „creature" ist das die '
+          'naheliegendste Fehlerquelle; deshalb steht im Beispiel '
+          '„humanoid".\n'
+          '- Modesty-Layer: eine Schicht Kleidung über Ober- **und** '
+          'Unterkörper. Die Policy verlangt sie, sobald die Figur an '
+          'Brust und Schritt eine glatte, hautartige Fläche hat, und '
+          'lässt sie bei Tieren und Gegenständen weg. Eine bestimmte '
+          'Farbe verlangt sie nicht; undurchsichtig müssen die '
+          'Körperteile ohnehin sein.\n'
           '- KEINE dünnen Gliedmaßen: Jedes Teil muss 50 % seines '
           'Hüllkörpers füllen, von vorn, von der Seite und von hinten, '
-          'der Kopf eingeschlossen. Seit dem 17. August 2026 prüft der '
-          'Validator das schärfer, gegen zu kleine Körperteile. „slim '
-          'legs" und „thick legs" im Negativ bestellten genau das '
-          'Falsche.\n'
+          'der Kopf eingeschlossen („must take up at least 50% of body '
+          'part\'s bounding box"). „slim legs" bestellt genau das '
+          'Falsche – „thick legs" aber auch: Die Grenze nach oben ist '
+          'die Größentabelle, nicht ein Wort im Negativ.\n'
+          '- Ein deutlicher Hals: „Keep the neck distinct and not '
+          'merged with the shoulders or upper torso." Ohne ihn findet '
+          'Auto Setup die Grenze zwischen Kopf und Rumpf nicht.\n'
+          '- Wasserdicht, **außer an Augen und Mund**: Genau dort '
+          'sollen Öffnungen sein – die Augensäcke und der Mundsack. '
+          'Sonst keine Löcher und keine Rückseiten.\n'
       : '- KEINE T-Pose in den Prompt schreiben. Der Importer '
           'verlangt sie, aber die App hängt sie über den '
           'Posen-Schalter selbst an (${tPoseSuffix.length + 2} '
