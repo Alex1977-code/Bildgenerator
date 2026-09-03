@@ -53,7 +53,11 @@ class _Bau {
 _Bau _guteFigur() {
   final b = _Bau();
   // Die Hüfte sitzt bei 45 % der Höhe – so steht ein R15-Körper.
-  b.quader(-1.3, 2.25, -0.6, 1.3, 3.9, 0.6); // Rumpf
+  // Der Schritt bei 2,15: Vom Halsband (3,9) bis dorthin sind es
+  // 1,75 – über den absoluten 1,70, die die Doku für den Rumpf
+  // verlangt. Bei 2,25 wären es 1,65, und die gute Figur fiele an der
+  // Regel, die seit August 2026 geprüft wird.
+  b.quader(-1.3, 2.15, -0.6, 1.3, 3.9, 0.6); // Rumpf
   b.quader(-0.35, 3.9, -0.35, 0.35, 4.2, 0.35); // Hals, schmal
   b.quader(-0.8, 4.2, -0.7, 0.8, 5.0, 0.7); // Kopf
   // Arme, je fünf Stufen von der Schulter (x 1,30 / y 3,85) zur Hand
@@ -69,8 +73,8 @@ _Bau _guteFigur() {
     b.quader(-xb, yu, -0.4, -xa, yo, 0.4); // Arm links
     b.quader(xa, yu, -0.4, xb, yo, 0.4); // Arm rechts
   }
-  b.quader(-0.95, 0.0, -0.45, -0.25, 2.25, 0.45); // Bein links
-  b.quader(0.25, 0.0, -0.45, 0.95, 2.25, 0.45); // Bein rechts
+  b.quader(-0.95, 0.0, -0.45, -0.25, 2.15, 0.45); // Bein links
+  b.quader(0.25, 0.0, -0.45, 0.95, 2.15, 0.45); // Bein rechts
   return b;
 }
 
@@ -277,6 +281,92 @@ void main() {
       expect(_finde(befunde, 'bein_breite').level, MarketplaceLevel.ok);
     });
 
+    test('die Höhen stimmen: Rumpf, Beine, Kopf, Arm', () {
+      // Absolute Mindestmaße aus der Doku: Rumpf 1,7, Bein 1,4, Arm
+      // 1,5. Gemessen am Netz, nicht angenommen.
+      expect(mass.torsoHeight, greaterThanOrEqualTo(specMinTorsoHeight));
+      expect(mass.legHeight, greaterThanOrEqualTo(specMinLegHeight));
+      expect(mass.armLength, greaterThanOrEqualTo(specMinArmLength));
+      expect(mass.headHeight, lessThan(RobloxBodyScale.normal.maxHeadHeight));
+      for (final id in ['rumpf_hoehe', 'bein_hoehe', 'hoehenrechnung',
+          'arm_laenge']) {
+        expect(befunde.where((f) => f.id == id), isEmpty, reason: id);
+      }
+      expect(_finde(befunde, 'kopf_breite').level, MarketplaceLevel.ok);
+    });
+
+    test('die Skala entscheidet: derselbe Kopf fällt bei Classic durch',
+        () {
+      // Kopf 1,6 breit: Normal erlaubt 3, Classic 1,5.
+      final classic =
+          checkMarketplaceFigure(mass, scale: RobloxBodyScale.classic);
+      final kopf = _finde(classic, 'kopf_breite');
+      expect(kopf.level, MarketplaceLevel.fehler);
+      expect(kopf.reason, contains('Rthro'));
+      // Die Tiefe ist absolut: 2,2 geht bei Normal (2,25), nicht bei
+      // Classic (2,00) – unabhängig von der Höhe.
+      const tief = MarketplaceMeasurement(
+        height: 5,
+        width: 6.4,
+        depth: 2.2,
+        widthAxis: 0,
+        headWidth: 1.3,
+        neckWidth: 0.6,
+        shoulderWidth: 2.6,
+        legSeparation: 1,
+        legWidth: 0.5,
+        scale: 1,
+        widestBandHeight: 0.47,
+      );
+      expect(_finde(checkMarketplaceFigure(tief), 'tiefe').level,
+          MarketplaceLevel.ok);
+      expect(
+          _finde(checkMarketplaceFigure(tief, scale: RobloxBodyScale.classic),
+                  'tiefe')
+              .level,
+          MarketplaceLevel.fehler);
+    });
+
+    test('ein zu großer Kopf sprengt die Höhenrechnung', () {
+      // 2,0 Studs Kopf bei 5,0 Höhe: darunter bleiben 3,0, Rumpf und
+      // Beine brauchen 3,1.
+      const gross = MarketplaceMeasurement(
+        height: 5,
+        width: 6.4,
+        depth: 1.5,
+        widthAxis: 0,
+        headWidth: 2.4,
+        neckWidth: 0.8,
+        shoulderWidth: 2.6,
+        legSeparation: 1,
+        legWidth: 0.5,
+        scale: 1,
+        widestBandHeight: 0.47,
+        headHeight: 2.0,
+        torsoHeight: 1.6,
+        legHeight: 1.4,
+        armLength: 2.0,
+      );
+      final f = checkMarketplaceFigure(gross);
+      expect(_finde(f, 'hoehenrechnung').level, MarketplaceLevel.fehler);
+      expect(_finde(f, 'hoehenrechnung').reason, contains('6 Studs'));
+      expect(_finde(f, 'rumpf_hoehe').level, MarketplaceLevel.fehler);
+      // Bei Normal geht der 2,4er Kopf, bei Slender (2,0) nicht.
+      expect(_finde(f, 'kopf_breite').level, MarketplaceLevel.ok);
+      expect(
+          _finde(checkMarketplaceFigure(gross, scale: RobloxBodyScale.slender),
+                  'kopf_breite')
+              .level,
+          MarketplaceLevel.fehler);
+    });
+
+    test('die Deckung verlangt 50 % für jedes Teil, auch den Kopf', () {
+      for (final entry in marketplaceCoverage.entries) {
+        expect(entry.value.$1, specMinCoveragePercent, reason: entry.key);
+        expect(entry.value.$2, specMinCoveragePercent, reason: entry.key);
+      }
+    });
+
     test('die A-Pose wird nicht als T-Pose gemeldet', () {
       // Der Punkt, an dem die frühere Erkennung zerbrach: Die
       // Armspanne muss über 6,22 Studs liegen, also über 1,24 × Höhe –
@@ -375,15 +465,16 @@ void main() {
       expect(befunde.first.reason, contains('Cage'));
     });
 
-    test('für Arme wird von vorn nicht geprüft', () {
-      // Die Schwelle steht im Validator auf 0 – ein Arm darf von vorn
-      // ein Strich sein.
-      expect(marketplaceCoverage['LeftArm']!.$1, 0);
+    test('auch Arme müssen 50 % füllen – wie jedes Teil', () {
+      // Vorher stand die Schwelle für Arme auf 0 („ein Arm darf von
+      // vorn ein Strich sein"). Die Doku sagt 50 % für jedes Teil, und
+      // seit August 2026 wird darauf geprüft. Ein voller Quader füllt
+      // seinen eigenen Hüllkörper – gemessen wird hier gegen den
+      // eigenen, nicht gegen den Cage; der ist strenger.
+      expect(marketplaceCoverage['LeftArm']!.$1, specMinCoveragePercent);
+      expect(marketplaceCoverage['DynamicHead']!.$1, specMinCoveragePercent);
       final b = _Bau()..quader(-0.02, 0, -0.02, 0.02, 1, 0.02);
-      final ids = [
-        for (final f in checkCoverage('LeftArm', b.positions, b.i)) f.id,
-      ];
-      expect(ids.any((id) => id.endsWith('01')), isFalse);
+      expect(checkCoverage('LeftArm', b.positions, b.i), isEmpty);
     });
   });
 

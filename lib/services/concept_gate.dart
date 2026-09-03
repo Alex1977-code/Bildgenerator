@@ -172,6 +172,36 @@ const List<String> conceptFaceWords = [
   'zähne',
 ];
 
+/// Wörter für Anbauten, die nicht ins Körpernetz dürfen.
+///
+/// Erlaubt sind genau ein Kopf, ein Rumpf, zwei Arme, zwei Beine.
+/// Schwanz, Flügel, Hörner und Haarsträhnen werden eigene Accessoires
+/// – als Warnung, nicht als Sperre: Das Motiv darf sie nennen, die
+/// Figur muss ohne sie erzeugt werden.
+const List<(String, String)> conceptAppendageWords = [
+  ('tail', 'Schwanz'),
+  ('wings', 'Flügel'),
+  ('horns', 'Hörner'),
+  ('antlers', 'Geweih'),
+  ('pointed ears', 'abstehende Ohren'),
+  ('hair strands', 'Haarsträhnen'),
+  ('schwanz', 'Schwanz'),
+  ('flügel', 'Flügel'),
+  ('hörner', 'Hörner'),
+  ('geweih', 'Geweih'),
+];
+
+/// Wörter, die nackte Haut bestellen, wo der Marktplatz Bedeckung
+/// verlangt (Hüfte bis unter Schritt und Gesäß).
+const List<String> conceptBareSkinWords = [
+  'naked',
+  'nude',
+  'bare skin',
+  'bare legs',
+  'nackt',
+  'nackte haut',
+];
+
 /// Prüft ein Motiv gegen das Ziel – bevor Credits fließen.
 ///
 /// [prompt] ist das Motiv, so wie es der Nutzer eingegeben hat, ohne
@@ -215,6 +245,35 @@ ConceptVerdict checkConcept(String prompt, ConceptTarget target) {
             'haben – sonst findet Auto Setup keine FACS-Posen. Ins '
             'Motiv gehört ein sichtbares Gesicht, mit Augen und Mund '
             'als Teil des Kopfes.'));
+  }
+
+  if (findings.isEmpty) {
+    for (final (wort, grund) in conceptAppendageWords) {
+      if (!text.contains(wort)) continue;
+      findings.add(ConceptFinding(
+          ConceptLevel.warnung,
+          'Anbau am Körper: $grund',
+          'Im Motiv steht „$wort". Der Marktplatz erlaubt am Körper '
+              'genau einen Kopf, einen Rumpf, zwei Arme, zwei Beine – '
+              '„tails, wings, extra limbs … must be uploaded '
+              'separately". Die Figur ohne $grund erzeugen und den '
+              'Anbau als eigenes Accessoire dazugeben.',
+          hit: wort));
+      break;
+    }
+    for (final wort in conceptBareSkinWords) {
+      if (!text.contains(wort)) continue;
+      findings.add(ConceptFinding(
+          ConceptLevel.warnung,
+          'Nackte Haut',
+          'Im Motiv steht „$wort". Der Marktplatz verlangt von der '
+              'Hüfte bis unter Schritt und Gesäß volle, undurchsichtige '
+              'Bedeckung in einer anderen Farbe als die Haut. Der feste '
+              'Schwanz bestellt eng anliegende Shorts; das Motiv sollte '
+              'dem nicht widersprechen.',
+          hit: wort));
+      break;
+    }
   }
 
   if (findings.isEmpty) {

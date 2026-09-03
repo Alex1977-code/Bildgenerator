@@ -288,9 +288,17 @@ kann es: Es nimmt ein UNGERIGGTES Netz und baut Zerlegung in 15 Teile,
 R15-Rig, Skinning, Cages, Attachments und den Gesichtsrig.
 ${autoSetupFile.isEmpty ? '' : 'Dafuer ist $autoSetupFile da.\n'}
 Wichtig dabei: Auto Setup formt nichts um. Tiefe, Beinbreite, Hals,
-Saum und Faeustlinge entstehen beim Prompt und werden vom Validator
+Shorts und Faeustlinge entstehen beim Prompt und werden vom Validator
 geprueft - die Vorlage "Marktplatz-Avatar" in der App setzt die
 passenden Schalter und Textbausteine.
+
+Beim Import in Studio die Koerper-Skala waehlen, die zum Kopf passt:
+"Rig Scale: Rthro" (Normal) erlaubt einen Kopf bis 3 Studs Breite und
+2,25 Studs Koerpertiefe; "R15" (Classic) deckelt den Kopf bei 1,5 und
+die Tiefe bei 2,0; "Rthro Slender" den Kopf bei 2,0. Die Grenzen sind
+absolut in Studs, nicht relativ zur Hoehe (Doku: Character body
+specifications). Mindestmasse fuer alle Skalen: Rumpf 1,7 hoch, Bein
+1,4, Arm 1,5 - seit dem 17. August 2026 prueft der Validator darauf.
 
 ${missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als StarterCharacter.' : 'Achtung: Diese R15-Gelenke fehlen noch:\n  ${missingBones.join(', ')}\nOhne sie laesst sich das Modell nur mit der Import-Einstellung\n"Custom" verwenden (Katalog-Animationen laufen, Startfigur nicht).'}
 

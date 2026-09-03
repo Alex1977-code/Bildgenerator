@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/services/concept_gate.dart';
 import 'package:bildgenerator/services/pose_prompt.dart';
 import 'package:bildgenerator/services/roblox_export.dart';
+import 'package:bildgenerator/services/roblox_marketplace.dart' show RobloxBodyScale;
 import 'package:bildgenerator/services/roblox_prompt.dart';
 import 'package:bildgenerator/services/tripo_service.dart';
 
@@ -112,16 +113,66 @@ void main() {
   group('Marktplatz-Körper', () {
     final markt = robloxPromptRules(accessory: false, marketplace: true);
 
-    test('nennt jede der fünf Formregeln', () {
+    test('nennt jede der Formregeln – nach der Doku-Prüfung', () {
       for (final baustein in [
-        'body depth less than two fifths',
-        'hip bone',
+        'body depth less than half of body height',
+        'head about one quarter of body height',
+        'tight opaque shorts',
+        'following the leg shape',
         'separate leg tubes',
         'mitten hands',
         'narrow visible neck',
+        'sturdy arms and legs filling their outlines',
       ]) {
         expect(robloxMarketplaceTail, contains(baustein), reason: baustein);
       }
+      // Was raus musste: ein Verhältnis, nackte Haut, dünne Beine.
+      for (final falsch in ['two fifths', 'thighs uncovered', 'slim',
+          'hip bone', 'narrower than one third']) {
+        expect(robloxMarketplaceTail, isNot(contains(falsch)), reason: falsch);
+      }
+    });
+
+    test('die Tiefe wird aus Höhe und Skala gerechnet, nicht angenommen',
+        () {
+      // Die Grenze ist absolut: 2,00 bei Classic, 2,25 bei Normal.
+      expect(robloxDepthWords(2.25, 5), 'less than half of body height');
+      expect(robloxDepthWords(2.0, 5), 'less than two fifths of body height');
+      expect(robloxDepthWords(2.0, 6), 'less than one third of body height');
+      expect(robloxDepthWords(2.0, 8), 'less than a quarter of body height');
+      final classic6 = robloxMarketplaceTailFor(
+          studs: 6, scale: RobloxBodyScale.classic);
+      expect(classic6, contains('less than one third of body height'));
+      expect(classic6, isNot(contains('less than half')));
+      // Standard ist wörtlich die Konstante.
+      expect(robloxMarketplaceTailFor(), robloxMarketplaceTail);
+      // Und der Regeltext nennt Skala und Rig Scale.
+      final text = robloxPromptRules(
+          accessory: false,
+          marketplace: true,
+          studs: 6,
+          scale: RobloxBodyScale.classic);
+      expect(text, contains('Classic'));
+      expect(text, contains('Rig Scale: R15'));
+      expect(text, contains('2,00'));
+    });
+
+    test('das Negativ nennt Anbauten und keine „thick legs" mehr', () {
+      final teile = robloxMarketplaceNegative.split(', ');
+      expect(teile, containsAll(<String>['tail', 'wings', 'horns',
+          'spindly limbs']));
+      expect(teile, isNot(contains('thick legs')));
+      expect(robloxMarketplaceNegative.length,
+          lessThanOrEqualTo(TripoService.maxNegativePromptChars));
+    });
+
+    test('der Regeltext nennt Modesty, Anbauten, Deckung und FACS', () {
+      for (final wort in ['Modesty', 'Anbauten', 'humanoid', '50 %',
+          '17. August 2026', '17 FACS', 'Augenbrauen', 'Outer Cage',
+          'Sicherheitsaufschlag', 'Character body specifications']) {
+        expect(markt, contains(wort), reason: wort);
+      }
+      expect(markt, isNot(contains('nicht dokumentiert')));
     });
 
     test('„chunky" fliegt raus – genau das Wort hat die Tiefe bestellt',
@@ -138,9 +189,9 @@ void main() {
       final teile = robloxMarketplaceNegative.split(', ');
       expect(teile.take(4),
           containsAll(<String>['hood', 'helmet', 'mask', 'visor']));
-      // Und gleich danach die beiden, an denen die Figur abgelehnt
-      // wurde.
-      expect(teile.take(8), containsAll(<String>['deep body', 'long hem']));
+      // Dann die Anbauten, dann die beiden, an denen die Figur
+      // abgelehnt wurde.
+      expect(teile.take(12), containsAll(<String>['deep body', 'long hem']));
     });
 
     test('der Schwanz bestellt Lider und Lippen im Kopf, keine '
@@ -218,11 +269,11 @@ void main() {
       expect(markt, contains('Auto Setup'));
     });
 
-    test('nennt die gemessenen Grenzen mit ihrer Herkunft', () {
-      expect(markt, contains('gemessen'));
-      expect(markt, contains('2,00'));
+    test('nennt die Grenzen mit ihrer Herkunft – Doku und Reserve', () {
+      expect(markt, contains('2,25'));
       expect(markt, contains('1,50'));
       expect(markt, contains('6,22'));
+      expect(markt, contains('Rig Scale: Rthro'));
     });
 
     test('nennt das Gruppenbudget und face_limit 7.000', () {

@@ -1640,6 +1640,85 @@ behoben:
   auf Aus, und die Vorlage sagt das jetzt. „Figur für Bild→3D" nannte
   die A-Pose „Arme seitlich ausgestreckt"; das ist die T-Pose.
 
+### Gegen die Dokumentation geprüft: Skalen, Mindestmaße, Deckung
+
+Eine Prüfung gegen die aktuelle Roblox-Dokumentation und die
+Validator-Regeln hat drei Stellen gekippt, an denen die App aus
+Messwerten statt aus der Doku gearbeitet hat. Die Tabellen stehen unter
+„Character body specifications" (nachgesehen 3. September 2026, aus dem
+öffentlichen Doku-Spiegel; sie liegen jetzt auch in
+`assets/roblox_specs.json` unter `bodyScales`, mit Quelle und Datum).
+
+**Die Grenzen sind absolut in Studs, nicht relativ zur Höhe.**
+
+| Skala | Kopf max (B×H×T) | Rumpf max | Bein max | Körper max | Tiefe |
+| --- | --- | --- | --- | --- | --- |
+| Classic (Rig Scale R15) | 1,5 × 1,8 × 2 | 4 × 3,8 × 2 | 1,5 × 3,5 × 2 | 8 × 9,1 × 2 | 2,00 |
+| Normal (Rig Scale Rthro) | 3 × 2 × 2 | 4,6 × 3,5 × 2,25 | 1,5 × 4 × 2 | 8,6 × 9,5 × 2,25 | 2,25 |
+| Slender (Rthro Slender) | 2 × 2 × 2 | 3 × 3,5 × 2 | 1,5 × 4 × 2 | 6 × 9,5 × 2 | 2,00 |
+
+Minimum für alle Skalen: Kopf 0,5³, Arm 0,25 × 1,5 × 0,25, Rumpf
+0,85 × 1,7 × 0,7, Bein 0,25 × 1,4 × 0,5, Körper 1,35 × 3,6 × 0,7.
+
+Was das geändert hat:
+
+- **Tiefe.** „2,00 sind 40 % von 5,00" war Zufall der Größe; die
+  Grenze ist 2,00 (Classic, Slender) oder 2,25 (Normal), bei jeder
+  Höhe. Prüfung und Reparatur rechnen jetzt mit der Skala, und der
+  feste Schwanz leitet sein Wort aus Höhe und Skala ab („less than
+  half" bei 5 Studs Normal, „less than one third" bei 6 Studs
+  Classic).
+- **Der große Kopf sprengt die Höhenrechnung.** Rumpf 1,7 und Bein
+  1,4 sind absolut; bei 5 Studs bleiben unter einem 2-Studs-Kopf nur
+  3,0. Die Prüfung misst jetzt Kopf-, Rumpf- und Beinhöhe am Netz (der
+  Schritt ist das höchste Band, das noch in zwei Beine zerfällt) und
+  meldet beide Auswege: Kopf auf ein Viertel der Höhe, oder mehr
+  Studs. Der Schwanz bestellt „head about one quarter of body height",
+  das Beispiel keinen „oversized" Kopf mehr.
+- **Die Skala ist wählbar** (Körper-Skala neben der Höhe, Vorgabe
+  Normal): Nur dort darf der Kopf bis 3 Studs breit sein, Classic
+  deckelt bei 1,5. Die Prüfung sagt, welche Skala zum gemessenen Kopf
+  passt, und die Paket-Anleitung nennt den Rig Scale für Studio.
+- **„thick legs" im Negativ war verkehrt herum.** Jedes Teil muss 50 %
+  seines Hüllkörpers füllen, von vorn, von der Seite, von hinten, der
+  Kopf eingeschlossen — seit dem 17. August 2026 wird darauf schärfer
+  geprüft, ausdrücklich gegen zu kleine Gliedmaßen. Die früheren
+  Schwellen (Rumpf 50/46, Beine 30, Kopf 30, Arme gar nicht) waren
+  kein Ziel, sondern ein Grenzfall. Jetzt 50 überall, „slim legs" und
+  „thick legs" sind raus, „sturdy arms and legs filling their
+  outlines" und „spindly limbs" im Negativ sind drin.
+- **Modesty-Layer.** „thighs uncovered" ließ nackte Haut, wo die
+  Marktplatz-Policy Bedeckung verlangt: von der Hüfte bis unter
+  Schritt und Gesäß, undurchsichtig, in einer anderen Farbe als die
+  Haut. Der Schwanz bestellt eng anliegende Shorts, die der Beinform
+  folgen — kein hängender Saum, also kein Konflikt mit den getrennten
+  Beinen. Das Konzept-Gate warnt bei „naked", „nackt".
+- **Keine Anbauten.** Erlaubt sind genau ein Kopf, ein Rumpf, zwei
+  Arme, zwei Beine; Schwanz, Flügel, Hörner, abstehende Ohren und
+  Haarsträhnen werden Accessoires („must be uploaded separately"). Das
+  Negativ nennt sie, das Konzept-Gate warnt, das Beispiel sagt
+  „humanoid" statt „creature".
+- **Outer Cages.** Der eigentliche Mechanismus hinter dem
+  Saum-Problem: Der Validator verlangt, dass das Render-Mesh im Outer
+  Cage des Teils liegt, den Auto Setup um das Teil legt. Ein Saum
+  ragt heraus. Das steht jetzt in den Befunden, wo vorher nur
+  „Deckung" stand.
+- **Dynamischer Kopf.** Mindestens 17 FACS-Posen, und der Validator
+  prüft, ob sich Lider und Lippen für Blinzeln, Mundöffnen, fröhlich
+  und traurig wirklich bewegen. Augenbrauen und Wimpern gehören als
+  Accessoires ans Bundle. Beides steht im Regeltext; ob Höhle plus
+  Grat dafür reicht, entscheidet weiterhin der Lauf.
+- **Messwerte als Reserve, Doku als Grenze.** Rumpfbreite 2,54 und
+  Armspanne 6,22 stammen aus einem echten Validator-Lauf, die Doku
+  nennt 0,85 und keine Spanne; zwischen beiden gibt es offene
+  Bugreports. Die Prüfung sagt jetzt bei diesen Werten, woher sie
+  kommen.
+- **Der Posen-Schalter steht beim Marktplatz aus.** Die A-Pose steht
+  im festen Schwanz; die App hätte ohnehin keine zweite angehängt
+  (sie erkennt die Pose im Text), aber der Schalter zeigte „A-Pose"
+  an und erklärte nichts. Jetzt steht er auf „Keiner" mit dem Satz,
+  warum.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

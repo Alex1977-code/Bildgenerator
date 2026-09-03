@@ -50,7 +50,14 @@ class RepairLimit {
 }
 
 /// Die Grenzen aus dem Pflichtenheft, gemessen an zwei Figuren.
+/// Tiefe für Classic und Slender (Grenze 2,00). Normal erlaubt 2,25 –
+/// siehe [repairDepthFor].
 const repairDepth = RepairLimit('tiefe', 'Tiefe', 1.95, 2.60);
+
+/// Die Tiefengrenze je Skala: Ziel 0,10 unter der absoluten Grenze,
+/// behebbar bis 0,60 darüber – mehr wäre ein Brett.
+RepairLimit repairDepthFor(RobloxBodyScale scale) => RepairLimit(
+    'tiefe', 'Tiefe', scale.maxDepth - 0.10, scale.maxDepth + 0.60);
 const repairLegWidth = RepairLimit('bein_breite', 'Beinbreite', 1.45, 1.80);
 
 /// Auf welchen Anteil der Kopfbreite der Hals eingeschnürt wird.
@@ -369,7 +376,9 @@ Future<RepairResult> repairForMarketplace(
   bool sculptFace = true,
   FaceSculptProportions sculptProportions = const FaceSculptProportions(),
   bool decimate = true,
+  RobloxBodyScale scale = RobloxBodyScale.normal,
 }) async {
+  final tiefeGrenze = repairDepthFor(scale);
   final schritte = <RepairStep>[];
   // Ohne die fünf Gesichtsteile: Eine schon vorbereitete Figur bringt
   // sie mit, und der Umbau unten verschmölze sie mit dem Körper –
@@ -410,14 +419,16 @@ Future<RepairResult> repairForMarketplace(
         note: hinweis));
   }
 
-  // 1. Tiefe.
-  if (mass.depth > marketplaceMaxDepth) {
-    if (mass.depth <= repairDepth.repairableTo) {
-      _tiefeStauchen(pos, repairDepth.goal / mass.depth, mitteZ);
+  // 1. Tiefe – gegen die absolute Grenze der gewählten Skala (2,00
+  // bei Classic und Slender, 2,25 bei Normal), nicht gegen ein
+  // Verhältnis zur Höhe.
+  if (mass.depth > scale.maxDepth) {
+    if (mass.depth <= tiefeGrenze.repairableTo) {
+      _tiefeStauchen(pos, tiefeGrenze.goal / mass.depth, mitteZ);
       notiere(
           'Tiefe',
           mass.depth.toStringAsFixed(2),
-          repairDepth.goal.toStringAsFixed(2),
+          tiefeGrenze.goal.toStringAsFixed(2),
           RepairOrigin.app,
           'Z gestaucht um die Mitte; die Silhouette von vorn bleibt, '
               'die UVs bleiben.');
@@ -427,9 +438,11 @@ Future<RepairResult> repairForMarketplace(
           mass.depth.toStringAsFixed(2),
           mass.depth.toStringAsFixed(2),
           RepairOrigin.prompt,
-          'Über ${repairDepth.repairableTo.toStringAsFixed(2)} wäre die '
-              'Figur danach ein Brett. Ins Motiv: „body depth less than '
-              'two fifths of body height".');
+          'Über ${tiefeGrenze.repairableTo.toStringAsFixed(2)} wäre die '
+              'Figur danach ein Brett. Die Grenze ist absolut '
+              '(${scale.maxDepth.toStringAsFixed(2)} Studs bei '
+              '${scale.label}); ins Motiv gehört „flat chest and back", '
+              'und „chunky" muss raus.');
     }
   }
 
@@ -602,7 +615,7 @@ Future<RepairResult> repairForMarketplace(
   final endmass = measureMarketplaceFigure(nach.positions, nach.indices,
       targetStuds: targetStuds);
   nach.dispose();
-  for (final f in checkMarketplaceFigure(endmass)) {
+  for (final f in checkMarketplaceFigure(endmass, scale: scale)) {
     if (f.level == MarketplaceLevel.ok) continue;
     notiere('Nachmessung: ${f.title}', '–', 'offen',
         f.origin == MarketplaceOrigin.prompt

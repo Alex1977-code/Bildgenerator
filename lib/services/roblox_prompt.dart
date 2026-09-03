@@ -6,6 +6,7 @@ import 'roblox_check.dart'
         robloxCharacterStuds;
 import 'item_prompt.dart' show mergeTerms;
 import 'pose_prompt.dart' show tPoseSuffix;
+import 'roblox_marketplace.dart' show RobloxBodyScale, marketplaceFigureStuds;
 import 'roblox_spec.dart';
 import 'tripo_service.dart' show TripoService;
 
@@ -49,13 +50,16 @@ const String robloxAccessoryImageTail =
 /// Figur scheitert, die im eigenen Erlebnis tadellos läuft. Alle fünf
 /// sind an Roblox' Validator gemessen, nicht der Doku entnommen:
 ///
-/// * **Tiefe unter zwei Fünfteln der Höhe.** Die Testfigur hatte 49 %,
-///   die Grenze liegt bei 40 %. Nachträglich flach drücken geht nicht.
-/// * **Saum am Hüftknochen, Beine darunter frei.** „hip-length" hat
-///   Tripo als Mitte Oberschenkel gelesen; alles, was von der Hüfte
-///   abwärts über beide Beine hängt, landet im Bein-Hüllkörper und
-///   reißt Deckung und die Regel LegsSeparated zugleich.
-/// * **Schlanke Beine.** Höchstens ein Drittel der Körperhöhe.
+/// * **Tiefe unter der absoluten Grenze.** 2,00 Studs bei Classic und
+///   Slender, 2,25 bei Normal – die Testfigur hatte 2,45. Dass das bei
+///   5 Studs „49 % statt 40 %" ergab, war Zufall der Größe.
+/// * **Eng anliegende Shorts statt Saum.** Alles, was von der Hüfte
+///   abwärts über beide Beine hängt, ragt aus dem Outer Cage des Beins
+///   und reißt Deckung und LegsSeparated zugleich. Nackte Oberschenkel
+///   sind keine Lösung – der Marktplatz verlangt Bedeckung von der
+///   Hüfte bis unter Schritt und Gesäß.
+/// * **Kräftige Beine, kein „slim".** Jedes Teil muss 50 % seines
+///   Hüllkörpers füllen; höchstens 1,50 breit.
 /// * **Fäustlinge statt Finger.** Ausmodellierte Finger kosteten je
 ///   Hand über 1.280 Dreiecke – mehr als das Budget des ganzen Arms.
 /// * **Sichtbarer Hals.** Ohne Einschnürung findet Roblox' Auto Setup
@@ -78,18 +82,65 @@ const String robloxAccessoryImageTail =
 ///
 /// „chunky" fehlt hier bewusst: Genau dieses Wort hat die Tiefe
 /// bestellt, die jetzt abgelehnt wird.
-const String robloxMarketplaceTail =
+///
+/// **Nach der Doku-Prüfung vom 3. September 2026 geändert:**
+///
+/// * „body depth less than two fifths of body height" war ein
+///   Verhältnis; die Grenze ist absolut (2,00 Studs bei Classic und
+///   Slender, 2,25 bei Normal). Der Schwanz rechnet das Wort jetzt aus
+///   Höhe und Skala aus – siehe [robloxMarketplaceTailFor].
+/// * „slim straight legs narrower than one third" bestellte, was seit
+///   dem 17. August 2026 durchfällt: Jedes Teil muss 50 % seines
+///   Hüllkörpers füllen. Jetzt „sturdy arms and legs filling their
+///   outlines".
+/// * „garment hem ending at the hip bone, thighs uncovered" ließ
+///   nackte Haut, wo der Marktplatz Bedeckung verlangt (Hüfte bis
+///   unter Schritt und Gesäß). Jetzt eng anliegende Shorts, die der
+///   Beinform folgen – kein hängender Saum, also kein Konflikt mit
+///   getrennten Beinen.
+/// * „head about one quarter of body height" ist neu: Die
+///   Mindesthöhen (Rumpf 1,7, Bein 1,4) sind absolut, und ein Kopf
+///   von 2 Studs lässt bei 5 Studs nicht genug darunter.
+const String robloxMarketplaceTail = _tailNormal5;
+
+/// Der Schwanz für die Standardhöhe und -skala – als Konstante, weil
+/// die Vorlagen ihn wörtlich zitieren.
+const String _tailNormal5 =
     'arms straight and angled 45 degrees down in an A-pose, never '
-    'horizontal, single connected body, symmetrical, body depth less '
-    'than two fifths of body height, flat chest and back, narrow visible neck clearly '
-    'separating head from shoulders, mitten hands without fingers, '
-    'garment hem ending at the hip bone, thighs uncovered, two '
-    'separate leg tubes from the hips down, slim straight legs each '
-    'narrower than one third of body height, face fully visible, eye '
-    'sockets with eyelids and a mouth with lips shaped into the head, '
-    'solid closed volumes with visible wall thickness, closed '
-    'watertight shell, one single body mesh, smooth simple surfaces, '
-    'few flat separated color areas, uniform material';
+    'horizontal, single connected body, symmetrical, head about one '
+    'quarter of body height, body depth less than half of body height, '
+    'flat chest and back, narrow visible neck clearly separating head '
+    'from shoulders, mitten hands without fingers, sturdy arms and legs '
+    'filling their outlines, tight opaque shorts in a contrasting '
+    'colour covering hips, crotch and buttocks and following the leg '
+    'shape, two separate leg tubes from the hips down, face fully '
+    'visible, eye sockets with eyelids and a mouth with lips shaped '
+    'into the head, solid closed volumes with visible wall thickness, '
+    'closed watertight shell, one single body mesh, few flat separated '
+    'color areas, uniform material';
+
+/// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der
+/// Prompt kennt nur Verhältnisse – also wird das Verhältnis aus
+/// Grenze und Höhe gerechnet, mit Luft nach unten.
+String robloxDepthWords(double maxDepth, double studs) {
+  final anteil = studs <= 0 ? 0.4 : maxDepth / studs;
+  if (anteil <= 0.30) return 'less than a quarter of body height';
+  if (anteil <= 0.36) return 'less than one third of body height';
+  if (anteil <= 0.43) return 'less than two fifths of body height';
+  if (anteil <= 0.55) return 'less than half of body height';
+  return 'clearly less deep than tall';
+}
+
+/// Der Marktplatz-Schwanz für eine Höhe und eine Skala.
+///
+/// Bei 5 Studs und Normal ist das wörtlich [robloxMarketplaceTail].
+String robloxMarketplaceTailFor(
+    {double studs = marketplaceFigureStuds,
+    RobloxBodyScale scale = RobloxBodyScale.normal}) {
+  final wort = robloxDepthWords(scale.maxDepth, studs);
+  return _tailNormal5.replaceFirst(
+      'body depth less than half of body height', 'body depth $wort');
+}
 
 /// Ein Stück des Schwanzes, das in keinem Motiv vorkommt – daran
 /// erkennt die App, dass er schon im Prompt steht.
@@ -104,7 +155,11 @@ class MarketplacePrompt {
     required this.motifChars,
     required this.motifBudget,
     required this.notes,
+    this.tailChars = 0,
   });
+
+  /// Länge des festen Schwanzes, der angehängt wird.
+  final int tailChars;
 
   /// Was an Tripo geht: Motiv plus fester Schwanz (mit A-Pose).
   final String prompt;
@@ -135,14 +190,18 @@ class MarketplacePrompt {
 /// Formregeln kannte. Jetzt hängt die App ihn selbst an, sobald das
 /// Ziel Marktplatz-Avatar ist. Steht er schon im Text (die Vorlage
 /// wurde zurückkopiert), bleibt es bei einem.
-MarketplacePrompt marketplacePrompt(String motif, {String negative = ''}) {
+MarketplacePrompt marketplacePrompt(
+  String motif, {
+  String negative = '',
+  double studs = marketplaceFigureStuds,
+  RobloxBodyScale scale = RobloxBodyScale.normal,
+}) {
   final text = motif.trim();
   final notes = <String>[];
-  final budget = TripoService.maxPromptChars - robloxMarketplaceTail.length - 2;
+  final tail = robloxMarketplaceTailFor(studs: studs, scale: scale);
+  final budget = TripoService.maxPromptChars - tail.length - 2;
   final schonDa = text.toLowerCase().contains(robloxMarketplaceTailMarker);
-  final prompt = schonDa || text.isEmpty
-      ? text
-      : '$text, $robloxMarketplaceTail';
+  final prompt = schonDa || text.isEmpty ? text : '$text, $tail';
   if (schonDa) {
     notes.add('Der feste Marktplatz-Schwanz steht schon im Prompt – er '
         'wird nicht ein zweites Mal angehängt.');
@@ -168,6 +227,7 @@ MarketplacePrompt marketplacePrompt(String motif, {String negative = ''}) {
     tailAppended: !schonDa && text.isNotEmpty,
     motifChars: text.length,
     motifBudget: budget,
+    tailChars: tail.length,
     notes: notes,
   );
 }
@@ -182,11 +242,18 @@ MarketplacePrompt marketplacePrompt(String motif, {String negative = ''}) {
 /// Begriffe stärker, und `deep body` sowie `long hem` sind die beiden,
 /// an denen die Figur abgelehnt wurde. „painted flat eyes" ist dafür
 /// gewichen: Das bestellt der Schwanz jetzt positiv.
+///
+/// „thick legs" ist raus – das drückte die Figur genau dorthin, wo sie
+/// seit August 2026 scheitert (Teile unter 50 % Deckung). Stattdessen
+/// „spindly limbs". Und die Anbauten sind neu: Schwanz, Flügel, Hörner,
+/// abstehende Ohren, Haarsträhnen dürfen nicht im Körpernetz stecken;
+/// erlaubt sind genau ein Kopf, ein Rumpf, zwei Arme, zwei Beine.
 const String robloxMarketplaceNegative =
-    'hood, helmet, mask, visor, deep body, round belly, long hem, '
-    'thigh-length, skirt, cape, fingers, T-pose, arms out sideways, '
-    'thick legs, floating parts, thin parts, open mesh, holes, base, '
-    'pedestal, text, logo, second character, extra limbs, loose cloth';
+    'hood, helmet, mask, visor, tail, wings, horns, pointed ears, '
+    'hair strands, deep body, long hem, skirt, cape, fingers, '
+    'T-pose, arms out sideways, spindly limbs, thin arms, floating '
+    'parts, open mesh, holes, base, text, logo, second character, '
+    'extra limbs';
 
 /// Das Marktplatz-Beispiel – **ohne Kapuze**.
 ///
@@ -199,10 +266,11 @@ const String robloxMarketplaceNegative =
 /// eigenes Accessoire dazu (Gegenstandsart „Kapuze") – aus einer
 /// unmöglichen Aufgabe werden zwei lösbare.
 const String robloxMarketplaceExample =
-    'PROMPT: small stocky creature character, oversized rounded head, '
-    'two large round eyes with thick eyelids, a wide mouth with plump '
-    'lips, slim torso, thin plain sweater ending at the hip bone, flat '
-    'rounded feet, matte dark charcoal fabric, pale grey skin, '
+    'PROMPT: small stocky humanoid character, rounded head about a '
+    'quarter of the body height, two large round eyes with thick '
+    'eyelids, a wide mouth with plump lips, sturdy torso, plain fitted '
+    'sweater, tight dark shorts, sturdy legs, flat rounded feet, matte '
+    'dark charcoal fabric, pale grey skin, '
     '$robloxMarketplaceTail\n'
     'NEGATIV: $robloxMarketplaceNegative';
 
@@ -256,11 +324,15 @@ const String robloxAccessoryExample =
 String robloxPromptRules({
   required bool accessory,
   bool marketplace = false,
+  double studs = marketplaceFigureStuds,
+  RobloxBodyScale scale = RobloxBodyScale.normal,
 }) {
   final markt = marketplace && !accessory;
   final tail = accessory
       ? robloxAccessoryTail
-      : (markt ? robloxMarketplaceTail : robloxFigureTail);
+      : (markt
+          ? robloxMarketplaceTailFor(studs: studs, scale: scale)
+          : robloxFigureTail);
   final negative = accessory
       ? robloxAccessoryNegative
       : (markt ? robloxMarketplaceNegative : robloxFigureNegative);
@@ -293,8 +365,11 @@ String robloxPromptRules({
       : markt
           ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
               '  1. Was es ist („small stocky creature character").\n'
-              '  2. Proportionen („oversized rounded head, slim '
-              'torso").\n'
+              '  2. Proportionen („rounded head about a quarter of the '
+              'body height, sturdy torso"). Kein übergroßer Kopf: Die '
+              'Mindesthöhen für Rumpf (1,7) und Beine (1,4) sind '
+              'absolut, und bei 5 Studs bleibt unter einem 2-Studs-Kopf '
+              'nicht genug.\n'
               '  3. Das Gesicht, ausgeschrieben – es ist hier Pflicht, '
               'nicht Schmuck („two large round eyes with thick '
               'eyelids, a wide mouth with plump lips"; „face fully '
@@ -344,6 +419,26 @@ String robloxPromptRules({
           'sie sitzen. Was das Gesicht verdeckt, wird ein eigenes '
           'Accessoire (Gegenstandsart „Kapuze", „Helm", „Maske") und '
           'kommt danach auf die Figur.\n'
+          '- KEINE Anbauten am Körper: Schwanz, Flügel, Hörner, Geweih, '
+          'abstehende Ohren, Haarsträhnen. Erlaubt sind genau ein Kopf, '
+          'ein Rumpf, zwei Arme, zwei Beine – alles andere wird ein '
+          'eigenes Accessoire (Marktplatz-Policy: „tails, wings, extra '
+          'limbs … must be uploaded separately"). Bei einem „creature" '
+          'ist das die naheliegendste Fehlerquelle; deshalb steht im '
+          'Beispiel „humanoid".\n'
+          '- KEINE nackte Haut von der Hüfte bis unter Schritt und '
+          'Gesäß (Modesty-Layer): Der Marktplatz verlangt dort volle, '
+          'undurchsichtige Bedeckung in einer anderen Farbe als die '
+          'Haut. Der Schwanz bestellt deshalb eng anliegende Shorts, '
+          'die der Beinform folgen – kein hängender Saum, sonst kollidiert '
+          'es mit den getrennten Beinen. Ausnahme laut Policy: Figuren, '
+          'die Tieren oder Gegenständen gleichen.\n'
+          '- KEINE dünnen Gliedmaßen: Jedes Teil muss 50 % seines '
+          'Hüllkörpers füllen, von vorn, von der Seite und von hinten, '
+          'der Kopf eingeschlossen. Seit dem 17. August 2026 prüft der '
+          'Validator das schärfer, gegen zu kleine Körperteile. „slim '
+          'legs" und „thick legs" im Negativ bestellten genau das '
+          'Falsche.\n'
       : '- KEINE T-Pose in den Prompt schreiben. Der Importer '
           'verlangt sie, aber die App hängt sie über den '
           'Posen-Schalter selbst an (${tPoseSuffix.length + 2} '
@@ -387,22 +482,42 @@ String robloxPromptRules({
       '- KEINE Schrift, keine Logos, keine Marken- oder '
       'Figurenbezüge: Alles Hochgeladene geht durch die '
       'Roblox-Moderation.\n'
-      '${markt ? '\nGrenzen des Marktplatz-Validators – gemessen, '
-          'nicht dokumentiert (alle Werte bei '
-          '${robloxCharacterStuds.toStringAsFixed(0)} Studs Höhe):\n'
-          '- Tiefe höchstens 2,00 Studs, also unter zwei Fünfteln der '
-          'Höhe. Die abgelehnte Testfigur hatte 2,45 – 49 % statt '
-          '40 %.\n'
-          '- Jedes Bein höchstens 1,50 breit und 2,00 tief.\n'
-          '- Rumpfbreite mindestens 2,54, Armspanne mindestens 6,22 – '
-          '„flach" darf nicht „dünn" werden.\n'
-          '- Jedes Körperteil muss seinen Hüllkörper ausfüllen: der '
-          'Rumpf von vorn zu 50 %, von der Seite zu 46 %; ein Bein '
-          'von vorn und von der Seite zu 30 %. Die Testfigur kam am '
-          'Bein auf 26 % – nicht weil das Bein zu dünn war, sondern '
-          'weil der Saum den Hüllkörper aufblähte.\n'
-          '- Der Hals muss höchstens halb so breit sein wie der Kopf. '
-          '59 % haben in einem echten Lauf nicht gereicht.\n' : ''}'
+      '${markt ? '\nGrenzen des Marktplatz-Validators – aus der '
+          'Dokumentation (Character body specifications, Tabellen je '
+          'Skala, nachgesehen 3. September 2026), alle Werte absolut '
+          'in Studs, gewählt: ${scale.label}, Figur '
+          '${studs.toStringAsFixed(studs == studs.roundToDouble() ? 0 : 2)} '
+          'Studs hoch:\n'
+          '- Tiefe höchstens ${scale.maxDepth.toStringAsFixed(2)} '
+          '(Classic und Slender 2,00, Normal 2,25) – bei dieser Höhe '
+          '${(scale.maxDepth / studs * 100).round()} %. Die abgelehnte '
+          'Testfigur hatte 2,45, bei jeder Skala zu viel.\n'
+          '- Kopf höchstens ${scale.maxHeadWidth.toStringAsFixed(1)} '
+          'breit (Classic 1,5, Slender 2, Normal 3). Ein großer Kopf '
+          'passt nur in Normal: im Importer „Rig Scale: '
+          '${scale.rigScale}".\n'
+          '- Mindestmaße, für alle Skalen: Rumpf 1,7 hoch und 0,85 '
+          'breit, Bein 1,4 hoch, Arm 1,5 lang, Kopf 0,5, Körper 3,6. '
+          'Bei ${studs.toStringAsFixed(0)} Studs bleibt unter dem Kopf '
+          'für Rumpf und Beine genug, wenn der Kopf etwa ein Viertel '
+          'der Höhe hat.\n'
+          '- Jedes Bein höchstens 1,50 breit.\n'
+          '- Jedes Körperteil füllt seinen Hüllkörper zu mindestens '
+          '50 %, von vorn, von der Seite, von hinten – auch der Kopf. '
+          'Zu wenig Deckung heißt fast immer: Etwas ragt aus dem Outer '
+          'Cage, den Auto Setup um das Teil legt, ohne selbst Volumen '
+          'zu haben – der Saum.\n'
+          '- Sicherheitsaufschlag aus einem echten Validator-Lauf, '
+          'nicht aus der Doku: Rumpfbreite mindestens 2,54, Armspanne '
+          'mindestens 6,22, Hals höchstens halb so breit wie der Kopf '
+          '(59 % haben nicht gereicht). Zwischen Doku und Validator gibt '
+          'es dazu offene Bugreports; die Doku ist die harte Grenze, '
+          'diese Werte sind die Reserve.\n'
+          '- Dynamischer Kopf: mindestens 17 FACS-Posen, und der '
+          'Validator prüft, ob sich Lider und Lippen für Blinzeln, '
+          'Mundöffnen, fröhlich und traurig wirklich bewegen. '
+          'Augenbrauen und Wimpern gehören als Accessoires ans '
+          'Bundle, nicht ins Kopfnetz.\n' : ''}'
       '\nGrenzen, die das Ziel setzt (aus Roblox\' Spezifikation):\n'
       '- Höchstens ${_n(triangles)} Dreiecke – deshalb grobe Volumen '
       'statt Zierrat. '

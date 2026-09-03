@@ -31,9 +31,104 @@ const String marketplaceMeasuredOn = '2026-08-31';
 /// Die Figurenhöhe, auf die alle Grenzen unten bezogen sind.
 const double marketplaceFigureStuds = 5.0;
 
-/// Größte Tiefe des Rumpfes (die kleinere waagerechte Achse).
+/// Die drei Körper-Skalen des Marktplatzes.
 ///
-/// Kapuzzee: 2,45 – abgelehnt. Der Prompt hatte „chunky" bestellt.
+/// Die Grenzen sind **absolut in Studs**, nicht relativ zur Höhe, und
+/// sie stehen in der Dokumentation (avatar/character-bodies/
+/// specifications.md, Tabellen „Body scale"). Die Zahlen hier sind
+/// daraus abgeschrieben, Stand 3. September 2026. Der Kopf entscheidet
+/// die Skala: Classic deckelt ihn bei 1,5 Studs Breite, Slender bei 2,
+/// Normal bei 3. Ein übergroßer Kopf passt nur in Normal – im Importer
+/// heißt das „Rig Scale: Rthro".
+enum RobloxBodyScale {
+  classic,
+  normal,
+  slender;
+
+  String get label => switch (this) {
+        RobloxBodyScale.classic => 'Classic',
+        RobloxBodyScale.normal => 'Normal (Rthro)',
+        RobloxBodyScale.slender => 'Slender (Rthro Slender)',
+      };
+
+  /// Was im Importer unter „Rig Scale" zu wählen ist.
+  String get rigScale => switch (this) {
+        RobloxBodyScale.classic => 'R15',
+        RobloxBodyScale.normal => 'Rthro',
+        RobloxBodyScale.slender => 'Rthro Slender',
+      };
+
+  /// Größte Tiefe des ganzen Körpers, Studs.
+  double get maxDepth => switch (this) {
+        RobloxBodyScale.classic => 2.0,
+        RobloxBodyScale.normal => 2.25,
+        RobloxBodyScale.slender => 2.0,
+      };
+
+  /// Größte Kopfbreite, Studs.
+  double get maxHeadWidth => switch (this) {
+        RobloxBodyScale.classic => 1.5,
+        RobloxBodyScale.normal => 3.0,
+        RobloxBodyScale.slender => 2.0,
+      };
+
+  /// Größte Kopfhöhe, Studs.
+  double get maxHeadHeight => switch (this) {
+        RobloxBodyScale.classic => 1.8,
+        RobloxBodyScale.normal => 2.0,
+        RobloxBodyScale.slender => 2.0,
+      };
+
+  /// Größte Rumpfbreite, Studs.
+  double get maxTorsoWidth => switch (this) {
+        RobloxBodyScale.classic => 4.0,
+        RobloxBodyScale.normal => 4.6,
+        RobloxBodyScale.slender => 3.0,
+      };
+
+  /// Größte Gesamtbreite (Armspanne), Studs.
+  double get maxTotalWidth => switch (this) {
+        RobloxBodyScale.classic => 8.0,
+        RobloxBodyScale.normal => 8.6,
+        RobloxBodyScale.slender => 6.0,
+      };
+
+  /// Größte Gesamthöhe, Studs.
+  double get maxTotalHeight => switch (this) {
+        RobloxBodyScale.classic => 9.1,
+        RobloxBodyScale.normal => 9.5,
+        RobloxBodyScale.slender => 9.5,
+      };
+}
+
+/// Mindestmaße, für alle Skalen gleich (Doku, Tabelle „Minimum").
+///
+/// Das sind die Zahlen, an denen die verschärfte Prüfung seit dem
+/// 17. August 2026 ansetzt: Körperteile unter diesen Maßen kommen nicht
+/// mehr durch. Sie sind absolut – bei 5 Studs Gesamthöhe und einem Kopf
+/// von 2 Studs bleiben 3,0 für Rumpf und Beine, die brauchen aber 3,1,
+/// den Hals nicht gerechnet.
+const double specMinTorsoHeight = 1.7;
+const double specMinTorsoWidth = 0.85;
+const double specMinLegHeight = 1.4;
+const double specMinLegWidth = 0.25;
+const double specMinArmLength = 1.5;
+const double specMinHeadSize = 0.5;
+const double specMinBodyHeight = 3.6;
+
+/// Wie viel Prozent seines Hüllkörpers jedes Teil füllen muss – laut
+/// Doku 50 %, von vorn, von der Seite und von hinten, der Kopf
+/// eingeschlossen.
+const int specMinCoveragePercent = 50;
+
+/// Größte Tiefe des Rumpfes (die kleinere waagerechte Achse) für
+/// Classic und Slender. Normal erlaubt 2,25 – siehe
+/// [RobloxBodyScale.maxDepth]. Die Grenze ist **absolut**: Dass 2,00
+/// bei 5,00 Studs Höhe „40 %" ergab, war Zufall der Größe; wer die
+/// Höhe ändert, darf nicht mit dem Verhältnis rechnen.
+///
+/// Kapuzzee: 2,45 – abgelehnt, bei jeder Skala. Der Prompt hatte
+/// „chunky" bestellt.
 const double marketplaceMaxDepth = 2.00;
 
 /// Größte Breite eines einzelnen Beins.
@@ -100,17 +195,23 @@ const double marketplaceTPoseBand = 3.5;
 const double marketplaceTPoseHeight = 0.68;
 
 /// Wie viel Prozent seines Hüllkörpers ein Teil aus welcher Richtung
-/// ausfüllen muss. Standardwerte aus `UGCValidation/flags/`.
+/// ausfüllen muss.
 ///
-/// Reihenfolge: von vorn, von der Seite, von oben. Ein Wert von 0
-/// heißt: aus dieser Richtung wird nicht geprüft.
+/// Laut Doku **50 % für jedes Teil**, von vorn, von der Seite und von
+/// hinten – der Kopf eingeschlossen. Vorher standen hier die Werte aus
+/// `UGCValidation/flags/` (Rumpf 50/46, Beine 30, Kopf 30, Arme gar
+/// nicht): Die waren kein Ziel, sondern ein Grenzfall, den die
+/// verschärfte Prüfung seit August 2026 nicht mehr durchlässt.
+///
+/// Reihenfolge: von vorn, von der Seite, von oben. Von oben prüft die
+/// Doku nicht; die 10 % fangen nur den Faden im Quader.
 const Map<String, (int, int, int)> marketplaceCoverage = {
-  'DynamicHead': (30, 30, 30),
-  'Torso': (50, 46, 10),
-  'LeftArm': (0, 0, 10),
-  'RightArm': (0, 0, 10),
-  'LeftLeg': (30, 30, 10),
-  'RightLeg': (30, 30, 10),
+  'DynamicHead': (specMinCoveragePercent, specMinCoveragePercent, 30),
+  'Torso': (specMinCoveragePercent, specMinCoveragePercent, 10),
+  'LeftArm': (specMinCoveragePercent, specMinCoveragePercent, 10),
+  'RightArm': (specMinCoveragePercent, specMinCoveragePercent, 10),
+  'LeftLeg': (specMinCoveragePercent, specMinCoveragePercent, 10),
+  'RightLeg': (specMinCoveragePercent, specMinCoveragePercent, 10),
 };
 
 /// Wie schwer ein Marktplatz-Befund wiegt.
@@ -166,8 +267,26 @@ class MarketplaceMeasurement {
     this.waistWidth = 0,
     this.topBandWidth = 0,
     this.widestBandHeight = 0,
+    this.headHeight = 0,
+    this.torsoHeight = 0,
+    this.legHeight = 0,
+    this.armLength = 0,
     required this.scale,
   });
+
+  /// Höhe des Kopfs: vom Halsband bis zum Scheitel, Studs.
+  final double headHeight;
+
+  /// Höhe des Rumpfs: vom Halsband bis zum Schritt, Studs.
+  final double torsoHeight;
+
+  /// Höhe der Beine: vom Boden bis zum Schritt, Studs.
+  final double legHeight;
+
+  /// Armlänge, **geschätzt** aus Armspanne und Schulterbreite für eine
+  /// A-Pose von 45°: (Spanne − Schulter) / 2 × √2. In T-Pose fällt
+  /// die Schätzung zu groß aus, in I-Pose zu klein.
+  final double armLength;
 
   /// Höhe in Studs nach der Skalierung – immer
   /// [marketplaceFigureStuds], wenn etwas zu messen war.
@@ -465,8 +584,32 @@ MarketplaceMeasurement measureMarketplaceFigure(
   final breitesteHoehe =
       bands <= 1 ? 0.0 : (breitestesBand + 0.5) / bands;
 
+  // Der Schritt: das höchste Band unterhalb von 60 % der Höhe, in dem
+  // die **Mitte frei** ist und der Querschnitt in mindestens zwei
+  // Inseln zerfällt. Zwei Inseln allein reichen nicht: Hängende Arme
+  // neben dem Rumpf sind auch Inseln, und dann läge der Schritt auf
+  // Schulterhöhe. Zwischen zwei Beinen ist die Mitte leer. Zerfällt
+  // kein Band, gilt die Beinzone als Schritt.
+  var schrittBand = beinZone;
+  for (var b = (bands * 0.6).floor(); b >= 0; b--) {
+    if (breiten[b] > 0 && _mitteFrei(belegt[b]) && _inseln(belegt[b]) >= 2) {
+      schrittBand = b + 1;
+      break;
+    }
+  }
+  final bandStuds = bandHoehe * scale;
+  final beinHoehe = schrittBand * bandStuds;
+  final rumpfHoehe = math.max(0, halsBand - schrittBand) * bandStuds;
+  final kopfHoehe = (bands - halsBand) * bandStuds;
+  // Armlänge aus Spanne und Schulter, für 45° geschätzt.
+  final armLaenge = math.max(
+      0.0,
+      (math.max(spanX, spanZ) - breiten[schulterBand]) / 2 * math.sqrt2);
+
   // Beine: In der unteren Zone muss der Querschnitt in zwei Inseln
-  // zerfallen.
+  // zerfallen. Die Zone bleibt fest bei 45 % – wer sie am gemessenen
+  // Schritt festmachte, übersähe den Saum, der den Schritt nach unten
+  // drückt.
   final beinBis = beinZone;
   var getrennt = 0, gezaehlt = 0;
   var beinBreite = 0.0;
@@ -475,11 +618,12 @@ MarketplaceMeasurement measureMarketplaceFigure(
     gezaehlt++;
     final inseln = _inseln(belegt[b]);
     if (inseln >= 2) getrennt++;
-    // Die Breite eines einzelnen Beins: In einem Band mit zwei Inseln
-    // ist es die breitere der beiden. Ein Band, in dem beide
-    // zusammenhängen, sagt nichts über ein Bein aus – dort steckt
-    // fast immer ein Saum.
-    if (inseln >= 2) {
+    // Die Breite eines einzelnen Beins: In einem Band mit freier Mitte
+    // ist es die breitere der Inseln. Ein Band, in dem beide Beine
+    // zusammenhängen, sagt nichts über ein Bein aus – dort steckt fast
+    // immer ein Saum. Und ein Band mit belegter Mitte über dem
+    // Schritt ist der Rumpf, dessen Inseln die hängenden Arme sind.
+    if (inseln >= 2 && b < schrittBand && _mitteFrei(belegt[b])) {
       beinBreite = math.max(beinBreite,
           _breitesteInsel(belegt[b]) / _zellen * achseSpanne * scale);
     }
@@ -499,7 +643,23 @@ MarketplaceMeasurement measureMarketplaceFigure(
     waistWidth: taille,
     topBandWidth: obenBreit,
     widestBandHeight: maxBreite <= 0 ? 0 : breitesteHoehe,
+    headHeight: kopfHoehe,
+    torsoHeight: rumpfHoehe,
+    legHeight: beinHoehe,
+    armLength: armLaenge,
   );
+}
+
+/// Ob die Mitte eines Bands frei ist – die drei Zellen um die Achse.
+///
+/// Zwischen zwei Beinen ist sie leer; im Rumpf, auch mit hängenden
+/// Armen daneben, ist sie belegt.
+bool _mitteFrei(List<bool> band) {
+  final m = band.length ~/ 2;
+  for (var z = m - 1; z <= m + 1; z++) {
+    if (z >= 0 && z < band.length && band[z]) return false;
+  }
+  return true;
 }
 
 /// In wie viele Zellen ein Band quer aufgeteilt wird.
@@ -669,7 +829,8 @@ List<MarketplaceFinding> checkCoverage(
 }
 
 /// Beurteilt eine Messung gegen die Marktplatz-Grenzen.
-List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
+List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
+    {RobloxBodyScale scale = RobloxBodyScale.normal}) {
   final out = <MarketplaceFinding>[];
   void add(String id, MarketplaceLevel level, String title, String reason,
       {MarketplaceOrigin origin = MarketplaceOrigin.prompt}) {
@@ -688,25 +849,106 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
   }
 
   final tiefeProzent = (m.depth / m.height * 100).round();
-  if (m.depth > marketplaceMaxDepth) {
+  final maxTiefe = scale.maxDepth;
+  if (m.depth > maxTiefe) {
     add(
         'tiefe',
         MarketplaceLevel.fehler,
         'Tiefe ${m.depth.toStringAsFixed(2)} von höchstens '
-            '$marketplaceMaxDepth Studs',
-        'Der Validator lehnt eine Figur ab, die tiefer ist als zwei '
-            'Studs bei fünf Studs Höhe (gemessen: $tiefeProzent % der '
-            'Höhe, erlaubt sind 40 %). Nachträglich flach drücken geht '
-            'nicht, ohne die Figur zu verformen – das muss in den '
-            'Prompt: „body depth less than two fifths of body height, '
-            'flat chest and back", und „chunky" muss raus.');
+            '${maxTiefe.toStringAsFixed(2)} Studs (${scale.label})',
+        'Die Grenze ist absolut: ${maxTiefe.toStringAsFixed(2)} Studs '
+            'bei ${scale.label}, egal wie hoch die Figur ist – bei '
+            '${m.height.toStringAsFixed(2)} Studs Höhe sind das '
+            '${(maxTiefe / m.height * 100).round()} %, gemessen '
+            '$tiefeProzent %. Nachträglich flach drücken geht nur im '
+            'Reparatur-Modus, und der verformt; besser in den Prompt: '
+            '„flat chest and back", und „chunky" muss raus.');
   } else {
     add(
         'tiefe',
         MarketplaceLevel.ok,
         'Tiefe ${m.depth.toStringAsFixed(2)} Studs ($tiefeProzent % '
-            'der Höhe)',
+            'der Höhe, erlaubt ${maxTiefe.toStringAsFixed(2)} bei '
+            '${scale.label})',
         '');
+  }
+
+  // Der Kopf entscheidet die Skala – und die Höhenrechnung.
+  if (m.headWidth > scale.maxHeadWidth) {
+    final passt = RobloxBodyScale.values
+        .where((v) => v.maxHeadWidth >= m.headWidth)
+        .toList();
+    add(
+        'kopf_breite',
+        MarketplaceLevel.fehler,
+        'Kopf ${m.headWidth.toStringAsFixed(2)} breit von höchstens '
+            '${scale.maxHeadWidth.toStringAsFixed(1)} Studs (${scale.label})',
+        'Classic deckelt den Kopf bei 1,5 Studs, Slender bei 2, Normal '
+            'bei 3. '
+            '${passt.isEmpty ? 'Für diese Breite gibt es keine Skala – der '
+                'Kopf muss kleiner werden.' : 'Passend wäre die Skala '
+                '${passt.first.label}: im Importer „Rig Scale: '
+                '${passt.first.rigScale}".'}');
+  } else {
+    add(
+        'kopf_breite',
+        MarketplaceLevel.ok,
+        'Kopf ${m.headWidth.toStringAsFixed(2)} Studs breit (erlaubt '
+            '${scale.maxHeadWidth.toStringAsFixed(1)} bei ${scale.label}, '
+            'Rig Scale ${scale.rigScale})',
+        '');
+  }
+
+  // Mindestmaße sind absolut. Bei einem übergroßen Kopf reicht die
+  // Höhe für Rumpf und Beine nicht mehr.
+  if (m.torsoHeight > 0 && m.torsoHeight < specMinTorsoHeight) {
+    add(
+        'rumpf_hoehe',
+        MarketplaceLevel.fehler,
+        'Rumpf ${m.torsoHeight.toStringAsFixed(2)} hoch von mindestens '
+            '$specMinTorsoHeight Studs',
+        'Vom Halsband bis zum Schritt gemessen. Die Mindesthöhen sind '
+            'absolut (Rumpf $specMinTorsoHeight, Bein $specMinLegHeight, '
+            'Arm $specMinArmLength) und seit dem 17. August 2026 wird '
+            'darauf geprüft. Entweder der Kopf wird kleiner (etwa ein '
+            'Viertel der Höhe), oder die Figur bekommt mehr Studs – bei '
+            '6 statt 5 reicht es auch mit großem Kopf.');
+  }
+  if (m.legHeight > 0 && m.legHeight < specMinLegHeight) {
+    add(
+        'bein_hoehe',
+        MarketplaceLevel.fehler,
+        'Beine ${m.legHeight.toStringAsFixed(2)} hoch von mindestens '
+            '$specMinLegHeight Studs',
+        'Vom Boden bis zum Schritt gemessen – dem höchsten Band, in dem '
+            'der Querschnitt noch in zwei Beine zerfällt. Zu kurze '
+            'Beine heißt meist: zu viel Kopf oder ein Saum, der den '
+            'Schritt nach unten drückt.');
+  }
+  if (m.headHeight > 0 && m.torsoHeight > 0) {
+    final rest = m.height - m.headHeight;
+    final noetig = specMinTorsoHeight + specMinLegHeight;
+    if (rest < noetig) {
+      add(
+          'hoehenrechnung',
+          MarketplaceLevel.fehler,
+          'Kopf ${m.headHeight.toStringAsFixed(2)} hoch: unter ihm '
+              'bleiben ${rest.toStringAsFixed(2)} Studs, Rumpf und '
+              'Beine brauchen ${noetig.toStringAsFixed(1)}',
+          'Die Mindesthöhen sind absolut, nicht relativ. Zwei Wege: '
+              'Kopf auf rund ein Viertel der Höhe, oder Gesamthöhe auf '
+              '${(m.headHeight + noetig + 0.3).ceil()} Studs – dann '
+              'bleibt unter dem Kopf genug, den Hals eingerechnet.');
+    }
+  }
+  if (m.armLength > 0 && m.armLength < specMinArmLength) {
+    add(
+        'arm_laenge',
+        MarketplaceLevel.warnung,
+        'Arm etwa ${m.armLength.toStringAsFixed(2)} lang von mindestens '
+            '$specMinArmLength Studs',
+        'Geschätzt aus Armspanne und Schulterbreite für 45°. In I-Pose '
+            'fällt die Schätzung zu klein aus; dann sagt die Zahl nichts.');
   }
 
   if (m.width < marketplaceMinArmSpan) {
@@ -715,10 +957,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
         MarketplaceLevel.warnung,
         'Armspanne ${m.width.toStringAsFixed(2)} von mindestens '
             '$marketplaceMinArmSpan Studs',
-        'Zu schmal gebaute Arme reißen die Mindestbreite. Gemessen '
-            'wird die größere waagerechte Achse; steht die Figur in '
-            'I-Pose statt A- oder T-Pose, ist die Zahl zu klein, ohne '
-            'dass am Modell etwas falsch wäre.',
+        'Die Doku nennt keine Mindestspanne, nur Mindestmaße je Teil '
+            '(Arm $specMinArmLength lang); die $marketplaceMinArmSpan '
+            'stammen aus einem echten Validator-Lauf und stehen hier '
+            'als Sicherheitsaufschlag. Gemessen wird die größere '
+            'waagerechte Achse; steht die Figur in I-Pose statt A- '
+            'oder T-Pose, ist die Zahl zu klein, ohne dass am Modell '
+            'etwas falsch wäre.',
         origin: MarketplaceOrigin.export);
   } else {
     add('armspanne', MarketplaceLevel.ok,
@@ -791,11 +1036,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
           MarketplaceLevel.fehler,
           'Bein ${m.legWidth.toStringAsFixed(2)} breit von höchstens '
               '$marketplaceMaxLegWidth Studs',
-          'Gemessen am breitesten Band unterhalb der Hüfte, geteilt '
-              'durch zwei Beine. Zu breit heißt fast immer: Es ist gar '
-              'nicht das Bein, sondern ein Saum, der mitgemessen wird. '
-              'In den Prompt: „slim straight legs, each leg narrower '
-              'than one third of the body height".');
+          'Gemessen am breitesten Band unterhalb des Schritts, das '
+              'breitere der beiden Beine. Zu breit heißt fast immer: '
+              'Es ist gar nicht das Bein, sondern ein Saum, der '
+              'mitgemessen wird. Nicht „slim legs" bestellen – zu dünne '
+              'Beine füllen ihren Hüllkörper nicht mehr zu 50 % und '
+              'fallen seit August 2026 durch. In den Prompt: „tight '
+              'shorts following the leg shape, no loose hem".');
     } else {
       add('bein_breite', MarketplaceLevel.ok,
           'Bein ${m.legWidth.toStringAsFixed(2)} Studs breit', '');
@@ -816,9 +1063,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m) {
             'Was beide Beine verbindet, ist fast immer ein Saum: Er '
             'bläht den Hüllkörper des Beins auf, während das Bein '
             'darin dünn bleibt, und reißt damit Deckungsprüfung und '
-            'die Regel LegsSeparated zugleich. In den Prompt: „hoodie '
-            'ending at the hip bone, thighs fully uncovered, two fully '
-            'separate leg tubes from the hips down".');
+            'die Regel LegsSeparated zugleich – genauer: Das Netz ragt '
+            'aus dem Outer Cage des Beins heraus, den Auto Setup um '
+            'das Bein legt. In den Prompt: „tight opaque shorts '
+            'following the leg shape, no loose hem, two fully separate '
+            'leg tubes from the hips down". Nackte Oberschenkel sind '
+            'keine Lösung: Der Marktplatz verlangt eine Bedeckung von '
+            'der Hüfte bis unter Schritt und Gesäß.');
   } else {
     add('beine_getrennt', MarketplaceLevel.ok,
         'Beine zu $anteil % getrennt', '');

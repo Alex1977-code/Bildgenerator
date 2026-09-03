@@ -116,8 +116,20 @@ void main() {
     final schritt =
         r.report.steps.firstWhere((s) => s.rule == 'Tiefe');
     expect(schritt.origin, RepairOrigin.app);
+    // Standard-Skala Normal: Grenze 2,25, Ziel 2,15.
     expect((await miss(r.glb)).depth,
-        lessThanOrEqualTo(marketplaceMaxDepth));
+        lessThanOrEqualTo(RobloxBodyScale.normal.maxDepth));
+    // Bei Classic gilt 2,00 – und 2,20 wäre dort ein Fehler, der
+    // gestaucht wird.
+    final classic = await repairForMarketplace(figur(tiefe: 2.2),
+        addFace: false, decimate: false, scale: RobloxBodyScale.classic);
+    expect(classic.report.steps.map((s) => s.rule), contains('Tiefe'));
+    expect((await miss(classic.glb)).depth,
+        lessThanOrEqualTo(RobloxBodyScale.classic.maxDepth));
+    // Bei Normal ist 2,20 in Ordnung.
+    final normal = await repairForMarketplace(figur(tiefe: 2.2),
+        addFace: false, decimate: false);
+    expect(normal.report.steps.map((s) => s.rule), isNot(contains('Tiefe')));
 
     // 3,20: darüber wäre die Figur ein Brett.
     final zuTief = await repairForMarketplace(figur(tiefe: 3.2),

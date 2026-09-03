@@ -50,6 +50,20 @@ void main() {
       expect(v.findings.single.detail, contains('FACS'));
     });
 
+    test('Anbauten und nackte Haut sind Warnungen mit Ausweg', () {
+      final drache = pruefe('friendly dragon character with big eyes, a '
+          'wide mouth and a long tail');
+      expect(drache.blocked, isFalse);
+      expect(drache.hasWarning, isTrue);
+      final anbau = drache.findings.firstWhere((f) => f.hit == 'tail');
+      expect(anbau.title, contains('Schwanz'));
+      expect(anbau.detail, contains('Accessoire'));
+
+      final nackt = pruefe('naked troll with round eyes and a grin');
+      expect(nackt.hasWarning, isTrue);
+      expect(nackt.findings.any((f) => f.title == 'Nackte Haut'), isTrue);
+    });
+
     test('der Befund nennt die Stelle im Text', () {
       final v = pruefe('a creature, empty hood, no eyes');
       expect(v.findings.first.hit, 'empty hood');

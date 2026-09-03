@@ -172,6 +172,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Mundhöhle mit Lippengrat – vor den Gesichtsteilen.
   bool _sculptFace = true;
 
+  /// Die Körper-Skala des Marktplatzes. Normal (Rthro), weil nur dort
+  /// ein Kopf bis 3 Studs Breite und 2,25 Studs Tiefe erlaubt sind –
+  /// Classic deckelt den Kopf bei 1,5.
+  RobloxBodyScale _bodyScale = RobloxBodyScale.normal;
+
   /// Welche Pose der Zusatz beschreibt – oder keine.
   ///
   /// **Ein Schalter, drei Werte**, und er hängt an nichts anderem.
@@ -568,6 +573,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'studs': _studsCtrl.text,
         'addFaceParts': _addFaceParts,
         'sculptFace': _sculptFace,
+        'bodyScale': _bodyScale.name,
         'exportTextureSize': _exportTextureSize,
         'artStyle': _artStyle,
         'viewsFromText': _viewsFromText,
@@ -633,6 +639,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _studsCtrl.text = pick('studs', _studsCtrl.text);
       _addFaceParts = pick('addFaceParts', _addFaceParts);
       _sculptFace = pick('sculptFace', _sculptFace);
+      _bodyScale = RobloxBodyScale.values
+              .where((v) => v.name == pick('bodyScale', _bodyScale.name))
+              .firstOrNull ??
+          _bodyScale;
       _exportTextureSize =
           pick('exportTextureSize', _exportTextureSize);
       final poseName = pick('pose', '');
@@ -1077,7 +1087,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// vollständiges Beispiel.
   String get _robloxPromptRules => robloxPromptRules(
       accessory: _robloxTarget == RobloxTarget.accessory,
-      marketplace: _robloxTarget == RobloxTarget.marketplaceAvatar);
+      marketplace: _robloxTarget == RobloxTarget.marketplaceAvatar,
+      studs: _studsValue ?? robloxCharacterStuds,
+      scale: _bodyScale);
 
   /// Deutsche Bezeichnung des eingestellten Figurtyps.
   String get _rigTypeLabel {
@@ -1267,7 +1279,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// enthält), sonst mit dem Posen-Zusatz, sofern der Schalter an ist
   /// und die Pose nicht schon im Text steht.
   String _effectivePrompt(String prompt) {
-    final basis = _marketplaceText ? marketplacePrompt(prompt).prompt : prompt;
+    final basis = _marketplaceText
+        ? marketplacePrompt(prompt,
+                studs: _studsValue ?? robloxCharacterStuds,
+                scale: _bodyScale)
+            .prompt
+        : prompt;
     return withPose(basis, wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
   }
 
@@ -1276,7 +1293,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String _effectiveNegative() {
     final eigene = _negative3dCtrl.text.trim();
     if (!_marketplaceText) return eigene;
-    return marketplacePrompt(_promptCtrl.text, negative: eigene).negative;
+    return marketplacePrompt(_promptCtrl.text,
+            negative: eigene,
+            studs: _studsValue ?? robloxCharacterStuds,
+            scale: _bodyScale)
+        .negative;
   }
 
   /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
@@ -2223,7 +2244,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       reparatur = await repairForMarketplace(vorbereitet.glb,
           targetStuds: _studsValue ?? robloxCharacterStuds,
           addFace: _addFaceParts,
-          sculptFace: _sculptFace);
+          sculptFace: _sculptFace,
+          scale: _bodyScale);
     } catch (e) {
       if (mounted) {
         _showSnack('Reparatur fehlgeschlagen: '
@@ -2519,6 +2541,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           // A-Pose einstellt, bekam sonst trotzdem waagerechte Arme in
           // den Ansichten – die Wahl lief ins Leere.
           pose = poseSuffix(_pose!);
+        } else if (_marketplaceText) {
+          // Der Schalter steht beim Marktplatz-Ziel aus, weil die
+          // A-Pose im Schwanz steckt – der geht aber nur an Text→3D.
+          // Die Ansichten brauchen sie trotzdem.
+          pose = aPoseSuffix;
         }
         final generated = await generateViewsFromText(
           settings: settings,
@@ -3974,9 +4001,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         // das rohe Netz, das Tripos Rig-Schritt nicht angefasst hat.
         _promptSubject = 'figure';
         _rigging = false;
-        // A-Pose statt T-Pose: Deren waagerechte Arme wurden vom
-        // Segmentierer dem Kopf und dem Rumpf zugeschlagen.
-        _pose = PoseKind.aPose;
+        // Kein Posen-Zusatz: Die A-Pose steht im festen
+        // Marktplatz-Schwanz, den die App selbst anhängt. Ein zweiter
+        // Zusatz stünde doppelt und widersprüchlich drin.
+        _pose = null;
       } else {
         _promptSubject = 'figure';
         _rigging = true;
@@ -4178,6 +4206,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
               // Höhe und Gesichtsteile: zwei Angaben, die beim
               // Vorbereiten greifen und die bisher fest im Code
               // standen.
+              if (_robloxTarget == RobloxTarget.marketplaceAvatar) ...[
+                const SizedBox(height: 12),
+                Text('Körper-Skala', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 6),
+                SegmentedButton<RobloxBodyScale>(
+                  segments: [
+                    for (final v in RobloxBodyScale.values)
+                      ButtonSegment(value: v, label: Text(v.label)),
+                  ],
+                  selected: {_bodyScale},
+                  showSelectedIcon: false,
+                  onSelectionChanged: _running
+                      ? null
+                      : (sel) => setState(() => _bodyScale = sel.first),
+                ),
+                _optionInfo(
+                    'Die Grenzen sind absolut in Studs: Tiefe höchstens '
+                    '${_bodyScale.maxDepth.toStringAsFixed(2)}, Kopf '
+                    'höchstens ${_bodyScale.maxHeadWidth.toStringAsFixed(1)} '
+                    'breit. Ein großer Kopf passt nur in Normal. Im '
+                    'Importer: „Rig Scale: ${_bodyScale.rigScale}". Die '
+                    'Mindestmaße gelten für alle Skalen: Rumpf 1,7, Bein '
+                    '1,4, Arm 1,5 Studs.'),
+              ],
               if (_robloxTarget != RobloxTarget.accessory) ...[
                 const SizedBox(height: 12),
                 Row(
@@ -4345,16 +4397,19 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     final effective = _effectivePrompt(_promptCtrl.text).length;
     final suffix = _promptSuffixChars;
     final poseName = _pose == PoseKind.aPose ? 'A-Pose' : 'T-Pose';
-    final markt = _marketplaceText ? marketplacePrompt(_promptCtrl.text) : null;
+    final markt = _marketplaceText
+        ? marketplacePrompt(_promptCtrl.text,
+            studs: _studsValue ?? robloxCharacterStuds, scale: _bodyScale)
+        : null;
     final anhang = markt != null
         ? (markt.tailAppended
             ? ' Dazu kommt der feste Marktplatz-Schwanz '
-                '(${robloxMarketplaceTail.length} Zeichen, A-Pose '
+                '(${markt.tailChars} Zeichen, A-Pose '
                 'enthalten) – zusammen $effective. Fürs Motiv bleiben '
                 '${markt.motifBudget}.'
             : markt.motifChars == 0
                 ? ' Beim Erzeugen kommt der feste Marktplatz-Schwanz '
-                    '(${robloxMarketplaceTail.length} Zeichen, A-Pose '
+                    '(${markt.tailChars} Zeichen, A-Pose '
                     'enthalten) ans Motiv; dem bleiben '
                     '${markt.motifBudget} Zeichen.'
                 : ' Der feste Marktplatz-Schwanz steht schon drin.')
@@ -4486,7 +4541,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         try {
           final mesh = await parseGlbForPreview(glb);
           befunde = checkMarketplaceFigure(
-              measureMarketplaceFigure(mesh.positions, mesh.indices));
+              measureMarketplaceFigure(mesh.positions, mesh.indices,
+                  targetStuds: _studsValue ?? robloxCharacterStuds),
+              scale: _bodyScale);
           mesh.dispose();
           for (final f in befunde) {
             if (f.level == MarketplaceLevel.ok) continue;
@@ -5743,6 +5800,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                                 .where((k) => k.name == selection.first)
                                 .firstOrNull),
                   ),
+                  if (_marketplaceText)
+                    _optionInfo('Beim Marktplatz-Ziel bleibt der '
+                        'Schalter aus: Die A-Pose steht im festen '
+                        'Schwanz, den die App anhängt. Ein zweiter '
+                        'Zusatz stünde doppelt drin.'),
                   _optionInfo(rigPoseActive
                       ? 'Beim eigenen Auto-Rigging kommt die Pose aus '
                           'dem Figurtyp ($_rigType) – die Ansichten '
