@@ -263,6 +263,21 @@ Future<FaceSculptResult> sculptFaceIntoHead(
     );
   }
 
+  // Augen als Kugeln aus dem Kopf: Bei der ersten Figur mit dem
+  // Marktplatz-Schwanz standen sie 0,38 Studs vor der Gesichtsfläche
+  // (Kopfbreite 1,84). In einen Buckel lässt sich keine Höhle
+  // schneiden – die Verschiebung macht ihn nur flacher, und das Budget
+  // ist vorher aufgebraucht. Das gehört ins Motiv, nicht hierher.
+  final buckel = -kopf.width * 0.1;
+  if (vorher.leftEyeDepth < buckel && vorher.rightEyeDepth < buckel) {
+    notes.add('Die Augen stehen als Kugeln aus dem Kopf '
+        '(${(-vorher.leftEyeDepth).toStringAsFixed(2)} / '
+        '${(-vorher.rightEyeDepth).toStringAsFixed(2)} Studs vor der '
+        'Gesichtsfläche): In einen Buckel lässt sich keine Höhle '
+        'schneiden, die Verschiebung macht ihn nur flacher. Ins Motiv '
+        '„eyes sunk into the head", ins Negativ „bulging eyes".');
+  }
+
   // 1. Verfeinern.
   final b = kopf.width;
   final zielKante = proportions.targetEdge * b;

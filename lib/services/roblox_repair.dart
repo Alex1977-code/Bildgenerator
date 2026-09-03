@@ -236,6 +236,35 @@ _Zonen _messeZonen(Float32List pos) {
   );
 }
 
+/// Zählt die Dreiecke, deren Normale sich zwischen zwei Punktlagen
+/// umgedreht hat – das Maß dafür, dass eine Verformung ein Netz
+/// umgestülpt hat, statt es zu formen.
+///
+/// Bei der ersten Figur mit dem Marktplatz-Schwanz zog die Klemme
+/// unter der Hüfte den Bauch nach innen: 1.400 Dreiecke zeigten
+/// danach zusätzlich nach innen, und die Beine waren schlechter
+/// getrennt als vorher. Seitdem misst jede Verformung an einer Kopie
+/// nach und nimmt sich zurück, wenn sie umstülpt.
+int countFlippedTriangles(
+    Float32List vorher, Float32List nachher, List<int> idx) {
+  var n = 0;
+  final grenze = math.min(vorher.length, nachher.length);
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    final a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    if (a + 2 >= grenze || b + 2 >= grenze || c + 2 >= grenze) continue;
+    final nv = _normale(vorher, a, b, c);
+    final nn = _normale(nachher, a, b, c);
+    if (nv[0] * nn[0] + nv[1] * nn[1] + nv[2] * nn[2] < 0) n++;
+  }
+  return n;
+}
+
+List<double> _normale(Float32List p, int a, int b, int c) {
+  final ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+  final vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+  return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+}
+
 /// Staucht die Tiefe um die Z-Mitte.
 void _tiefeStauchen(Float32List pos, double faktor, double mitte) {
   for (var i = 2; i < pos.length; i += 3) {
@@ -446,21 +475,40 @@ Future<RepairResult> repairForMarketplace(
     }
   }
 
+  // Der Umstülp-Wächter: mehr als ein halbes Prozent der Dreiecke
+  // (mindestens 20) umgedreht, und die Verformung wird zurückgenommen.
+  int flipGrenze() => math.max(20, idx.length ~/ 600);
+
   // 2. Hals.
   if (!mass.hasNeck) {
     final bezug = math.min(mass.headWidth, mass.shoulderWidth);
     if (zonen.headWidth > 0 && bezug > 0 && mass.neckWidth > 0) {
       final ziel = bezug * repairNeckGoal;
       final faktor = (ziel / mass.neckWidth).clamp(0.2, 1.0);
+      final kopie = Float32List.fromList(pos);
       _halsEinschnueren(pos, zonen.neckY, zonen.height * 0.06, faktor,
           mitteX, mitteZ);
-      notiere(
-          'Hals',
-          '${(mass.neckRatio * 100).round()} %',
-          '${(repairNeckGoal * 100).round()} %',
-          RepairOrigin.app,
-          'Radial eingeschnürt, Glockenkurve über ± 6 % der Höhe – '
-              'ohne weichen Übergang entsteht eine sichtbare Kante.');
+      final flips = countFlippedTriangles(kopie, pos, idx);
+      if (flips > flipGrenze()) {
+        pos.setAll(0, kopie);
+        notiere(
+            'Hals',
+            '${(mass.neckRatio * 100).round()} %',
+            'verworfen',
+            RepairOrigin.prompt,
+            '$flips Dreiecke hätten sich beim Einschnüren umgedreht – '
+                'zwischen Kopf und Schulter sitzt hier ein Kragen oder '
+                'eine Kapuze, kein Hals. Ins Motiv: „narrow visible '
+                'neck between head and shoulders".');
+      } else {
+        notiere(
+            'Hals',
+            '${(mass.neckRatio * 100).round()} %',
+            '${(repairNeckGoal * 100).round()} %',
+            RepairOrigin.app,
+            'Radial eingeschnürt, Glockenkurve über ± 6 % der Höhe – '
+                'ohne weichen Übergang entsteht eine sichtbare Kante.');
+      }
     } else {
       notiere('Hals', '${(mass.neckRatio * 100).round()} %', '–',
           RepairOrigin.prompt,
@@ -469,27 +517,90 @@ Future<RepairResult> repairForMarketplace(
     }
   }
 
-  // 3. Beine freischneiden, wenn sie zusammenhängen.
+  // 3. Beine freischneiden, wenn sie zusammenhängen – auf Probe: Der
+  // Schnitt gilt nur, wenn die Trennung danach besser ist und der
+  // Schritt nicht tiefer liegt. Bei der ersten Figur mit dem
+  // Marktplatz-Schwanz saß der Schritt bei 0,9 Studs; das war kein
+  // Saum vor zwei Beinen, sondern ein Rumpf bis kurz über den Boden,
+  // und der Schnitt machte aus 50 % Trennung 41 %.
   if (mass.legSeparation < marketplaceLegSeparation) {
     if (zonen.legCenters.length == 2) {
+      final posVor = Float32List.fromList(pos);
+      final idxVor = List<int>.of(idx);
       final abstand = (zonen.legCenters[1] - zonen.legCenters[0]).abs();
       (pos, idx) = _beineFreischneiden(
           pos, idx, zonen.hipY, abstand * 0.5, mitteX);
-      notiere(
-          'Beine getrennt',
-          '${(mass.legSeparation * 100).round()} %',
-          'freigeschnitten',
-          RepairOrigin.app,
-          'Dreiecke im Mittelstreifen unter der Hüfte entfernt; die '
-              'Löcher schließt die Nachbearbeitung mit echter '
-              'Triangulierung.');
-      // 4. Zylinder-Klemme gegen den Trichter am Saum.
+      // 4. Zylinder-Klemme gegen den Trichter am Saum – mit Wächter:
+      // Unter der Hüfte kann auch ein Bauch sitzen, und den stülpt
+      // die Klemme nach innen.
+      final kopie = Float32List.fromList(pos);
       _zylinderKlemme(
           pos, zonen.hipY, zonen.legCenters, repairLegClampRadius, mitteZ);
-      notiere('Saum', 'Trichter', 'geklemmt', RepairOrigin.app,
-          'Unter der Hüfte auf höchstens '
-              '${repairLegClampRadius.toStringAsFixed(2)} Studs Abstand '
-              'zur Beinmitte gezogen – ohne eine Fläche zu löschen.');
+      final klemmFlips = countFlippedTriangles(kopie, pos, idx);
+      final klemmeVerworfen = klemmFlips > flipGrenze();
+      if (klemmeVerworfen) pos.setAll(0, kopie);
+      // Die Probe: geheilt und nachgemessen, wie es am Ende auch
+      // geschieht.
+      final probeGlb = fixGlbForRoblox(_bau(pos, uvs, idx, textur),
+              closeHoles: true, fixWinding: true)
+          .glb;
+      final probe = await parseGlbForPreview(probeGlb);
+      final probeMass = measureMarketplaceFigure(
+          probe.positions, probe.indices,
+          targetStuds: targetStuds);
+      probe.dispose();
+      final besser = probeMass.legSeparation > mass.legSeparation &&
+          probeMass.legHeight >= mass.legHeight - 0.05;
+      if (!besser) {
+        pos = posVor;
+        idx = idxVor;
+        final kurz = mass.legHeight < specMinLegHeight;
+        notiere(
+            'Beine getrennt',
+            '${(mass.legSeparation * 100).round()} %',
+            'verworfen',
+            RepairOrigin.prompt,
+            'Der Schnitt brachte die Trennung von '
+                '${(mass.legSeparation * 100).round()} auf '
+                '${(probeMass.legSeparation * 100).round()} % und den '
+                'Schritt von ${mass.legHeight.toStringAsFixed(2)} auf '
+                '${probeMass.legHeight.toStringAsFixed(2)} Studs – '
+                'zurückgenommen. '
+                '${kurz ? 'Bei einem Schritt von '
+                    '${mass.legHeight.toStringAsFixed(2)} Studs (Bein '
+                    'mindestens ${specMinLegHeight.toStringAsFixed(1)}) '
+                    'ist das kein Saum vor zwei Beinen, sondern ein '
+                    'Rumpf, der bis kurz über den Boden reicht; ein '
+                    'Schnitt macht die Beine nicht länger. Ins Motiv: '
+                    '„sturdy legs a third of body height, gap between '
+                    'the thighs", ins Negativ „short legs".' : 'Was die '
+                    'Beine verbindet, ist kein Saum, den ein '
+                    'Streifenschnitt löst. Ins Motiv: „gap between the '
+                    'thighs".'}');
+      } else {
+        notiere(
+            'Beine getrennt',
+            '${(mass.legSeparation * 100).round()} %',
+            'freigeschnitten',
+            RepairOrigin.app,
+            'Dreiecke im Mittelstreifen unter der Hüfte entfernt; die '
+                'Löcher schließt die Nachbearbeitung mit echter '
+                'Triangulierung. Probe: Trennung '
+                '${(probeMass.legSeparation * 100).round()} %, Schritt '
+                '${probeMass.legHeight.toStringAsFixed(2)} Studs.');
+        if (klemmeVerworfen) {
+          notiere('Saum', 'Trichter', 'nicht geklemmt', RepairOrigin.prompt,
+              '$klemmFlips Dreiecke hätten sich umgedreht – unter der '
+                  'Hüfte sitzt hier Bauch oder Hose, kein Saum; die '
+                  'Klemme ist zurückgenommen.');
+        } else {
+          notiere('Saum', 'Trichter', 'geklemmt', RepairOrigin.app,
+              'Unter der Hüfte auf höchstens '
+                  '${repairLegClampRadius.toStringAsFixed(2)} Studs '
+                  'Abstand zur Beinmitte gezogen – ohne eine Fläche zu '
+                  'löschen.');
+        }
+      }
     } else {
       notiere('Beine getrennt',
           '${(mass.legSeparation * 100).round()} %', '–',
@@ -503,14 +614,25 @@ Future<RepairResult> repairForMarketplace(
   if (mass.legWidth > marketplaceMaxLegWidth) {
     if (mass.legWidth <= repairLegWidth.repairableTo &&
         zonen.legCenters.isNotEmpty) {
+      final kopie = Float32List.fromList(pos);
       _beinBreite(pos, zonen.hipY, zonen.legCenters,
           repairLegWidth.goal / mass.legWidth);
-      notiere(
-          'Beinbreite',
-          mass.legWidth.toStringAsFixed(2),
-          repairLegWidth.goal.toStringAsFixed(2),
-          RepairOrigin.app,
-          'Jedes Bein um seine eigene Mitte geschmälert.');
+      final flips = countFlippedTriangles(kopie, pos, idx);
+      if (flips > flipGrenze()) {
+        pos.setAll(0, kopie);
+        notiere('Beinbreite', mass.legWidth.toStringAsFixed(2),
+            'verworfen', RepairOrigin.prompt,
+            '$flips Dreiecke hätten sich beim Schmälern umgedreht – '
+                'die Beine sind hier nicht zwei Röhren um je eine '
+                'Mitte. Ins Motiv: „two separate legs".');
+      } else {
+        notiere(
+            'Beinbreite',
+            mass.legWidth.toStringAsFixed(2),
+            repairLegWidth.goal.toStringAsFixed(2),
+            RepairOrigin.app,
+            'Jedes Bein um seine eigene Mitte geschmälert.');
+      }
     } else {
       notiere('Beinbreite', mass.legWidth.toStringAsFixed(2), '–',
           RepairOrigin.prompt,
@@ -522,17 +644,32 @@ Future<RepairResult> repairForMarketplace(
 
   // 6. A-Pose.
   if (mass.looksLikeTPose) {
+    final kopie = Float32List.fromList(pos);
     _armeSenken(pos, zonen.shoulderY, zonen.headWidth * 0.9,
         repairArmDrop, zonen.height * 0.04);
-    notiere(
-        'Pose',
-        'T (breiteste Stelle auf '
-            '${(mass.widestBandHeight * 100).round()} % der Höhe)',
-        'A (${repairArmDrop.round()}°)',
-        RepairOrigin.app,
-        'Um das Schultergelenk gedreht, weicher Anlauf zum Rumpf. '
-            'Waagerechte Arme hat der Segmentierer zweimal dem Kopf '
-            'und dem Rumpf zugeschlagen.');
+    final flips = countFlippedTriangles(kopie, pos, idx);
+    if (flips > flipGrenze()) {
+      pos.setAll(0, kopie);
+      notiere(
+          'Pose',
+          'T (breiteste Stelle auf '
+              '${(mass.widestBandHeight * 100).round()} % der Höhe)',
+          'verworfen',
+          RepairOrigin.prompt,
+          '$flips Dreiecke hätten sich beim Senken der Arme umgedreht '
+              '– die Schulter lässt sich hier nicht als Gelenk fassen. '
+              'Die A-Pose gehört in den Prompt.');
+    } else {
+      notiere(
+          'Pose',
+          'T (breiteste Stelle auf '
+              '${(mass.widestBandHeight * 100).round()} % der Höhe)',
+          'A (${repairArmDrop.round()}°)',
+          RepairOrigin.app,
+          'Um das Schultergelenk gedreht, weicher Anlauf zum Rumpf. '
+              'Waagerechte Arme hat der Segmentierer zweimal dem Kopf '
+              'und dem Rumpf zugeschlagen.');
+    }
   }
 
   // Zurückbauen und die Geometrie in Ordnung bringen: Der Schnitt hat

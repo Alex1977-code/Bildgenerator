@@ -1755,6 +1755,108 @@ Zwei Fehler steckten noch in der überarbeiteten Fassung.
   (T-Pose 119, A-Pose 108 Zeichen). Zwei Widget-Tests halten den
   gesperrten Schalter und den kopierten Text fest.
 
+### Die erste Figur mit dem Marktplatz-Schwanz
+
+Das Beispielmotiv der Vorlage, unverändert an Tripo (P1-20260311,
+face_limit 5.500, Smart Low-Poly, ohne Rigging): 5.321 Dreiecke, ein
+Netz, A-Pose, Gesicht sichtbar, Ohren, Pullover, Shorts – die Form,
+die der Schwanz bestellt. Die Prüfung der App auf der rohen Datei sah
+0,93 Studs ohne Gesichtsteile; das ist der Zustand vor dem Herrichten.
+Nach „Für Roblox vorbereiten" (5 Studs, Zehen nach +Z, Gesicht ins
+Kopfnetz, Gesichtsteile) ergibt die Messung:
+
+| Maß | gemessen | Grenze | Urteil |
+| --- | --- | --- | --- |
+| Tiefe | 2,15 (43 %) | 2,25 Normal / 2,00 Classic, Slender | nur Normal |
+| Kopf breit | 1,84 | 3,0 Normal | ok |
+| Kopf hoch | 1,40 (28 %) | etwa ein Viertel | knapp |
+| Hals | 55 % der Kopfbreite | höchstens 50 % | Reparatur schnürt auf 45 % |
+| Schritt | 0,90 Studs | Bein mindestens 1,4 | **Stummelbeine** |
+| Beine getrennt | 50 % der Bänder | 90 % | **Block bis zum Knie** |
+| Augen | 0,38 Studs **vor** dem Gesicht | Höhle 0,06 tief | **Kugeln statt Höhlen** |
+| Armspanne | 5,36 | 6,22 (Reserve aus dem Validator) | Warnung |
+| Hände | Finger | Fäustlinge | Warnung im Bericht |
+
+Drei Dinge hat der Prompt bestellt und Tripo anders gebaut, und keines
+davon behebt eine Reparatur:
+
+- **„small stocky … sturdy legs" wurden Stummelbeine.** Der Schritt
+  liegt bei 0,9 Studs, verlangt sind 1,4; die Shorts sind ein Block bis
+  zum Knie. Der Schwanz sagte nur „two separate leg tubes", nichts über
+  die Länge. Jetzt: `two separate legs one third of body height with a
+  gap between the thighs`, im Beispiel „compact humanoid" statt „small
+  stocky" und „sturdy legs a third of body height", im Negativ „short
+  legs".
+- **„large round eyes with thick eyelids" wurden Kugeln aus dem
+  Kopf.** Die Augen stehen 0,38 Studs vor der Gesichtsfläche. In einen
+  Buckel lässt sich keine Höhle schneiden: Das Gesicht-ins-Kopfnetz
+  macht ihn nur flacher (auf 0,25) und hat sein Budget vorher
+  verbraucht. Jetzt: `eyes sunk into sockets with eyelids` im Schwanz,
+  „eyes sunk into the head" im Beispiel, „bulging eyes" im Negativ; der
+  Einbau sagt es, wenn er Kugeln vorfindet.
+- **Das Beispielmotiv war zu lang.** 329 Zeichen bei 285 Budget – mit
+  dem Schwanz 1.068, und Tripo schneidet hinten ab: „few flat separated
+  color areas, uniform material" wären weg gewesen, beim Beispiel, das
+  die Vorlage selbst vormacht. Jetzt 266 Zeichen, und ein Test hält das
+  Beispiel unter dem Budget. Um Platz zu behalten, ist der Schwanz an
+  zwei Stellen kürzer („narrow visible neck between head and
+  shoulders", Shorts ohne „following the leg shape"), „logo" und „arms
+  out sideways" sind aus dem Negativ.
+
+**Die Reparatur hat diese Figur beschädigt – und merkt es jetzt.** Der
+Beinschnitt nahm den Streifen zwischen Hüfte (2,25) und Schritt (0,9)
+heraus, die Klemme zog den Bauch auf 0,75 Studs an die Beinmitten:
+danach zeigten 2.800 statt 1.400 Dreiecke im Rumpf nach innen, die
+längste Kante war 1,4 statt 0,6, und die Beine waren zu 41 statt 50 %
+getrennt – der Bericht meldete „freigeschnitten" und „geklemmt". Zwei
+Wächter stehen jetzt davor:
+
+- **Umstülp-Wächter.** Hals, Klemme, Beinbreite und Armsenkung messen
+  an einer Kopie, wie viele Dreiecke ihre Normale umkehren; mehr als
+  ein halbes Prozent (mindestens 20), und der Schritt wird
+  zurückgenommen, mit dem Satz, was stattdessen in den Prompt gehört.
+- **Der Beinschnitt auf Probe.** Nach Schnitt und Klemme wird geheilt
+  und nachgemessen, wie am Ende auch. Wird die Trennung nicht besser
+  oder der Schritt tiefer, kommt die Geometrie von vor dem Schnitt
+  zurück. Bei dieser Figur: „Der Schnitt brachte die Trennung von 50
+  auf 41 % und den Schritt von 0,90 auf 0,80 Studs – zurückgenommen.
+  Bei einem Schritt von 0,90 Studs ist das kein Saum vor zwei Beinen,
+  sondern ein Rumpf, der bis kurz über den Boden reicht." Die
+  Testfigur mit echtem Saum wird weiter geschnitten; dort bestätigt
+  die Probe den Schnitt.
+
+**Zwei Fehler der App, die diese Figur erst sichtbar gemacht hat:**
+
+- **Das automatische Herrichten lief nie.** Die Vorlage verspricht,
+  dass nach dem Lauf hergerichtet und vermessen wird – die Prüfung im
+  Bild zeigte aber die rohe Datei (0,93 Studs, keine Gesichtsteile).
+  Ursache: Das Herrichten wurde direkt nach dem Ergebnis angestoßen,
+  der Lauf holte danach aber noch das Guthaben, und solange
+  `_running` stand, ließ das Herrichten sich selbst nicht zu – still.
+  Jetzt wird die Figur vorgemerkt und hergerichtet, sobald der Lauf
+  zu Ende ist. Es muss nichts mehr geklickt werden: Bei der Vorlage
+  „Roblox: Marktplatz-Avatar" kommt die Figur hergerichtet in die
+  Liste, mit dem Vermerk „Marktplatz: hergerichtet …", und bei
+  Fehlern öffnet sich die Reparatur.
+- **Die Wicklungs-Vereinheitlichung stülpte die Hülle um.** „Für
+  Roblox anpassen" und das Herrichten drehen zuerst alle Dreiecke in
+  eine Richtung. Der Algorithmus reichte die Richtung über jede
+  geteilte Kante weiter – auch über Kanten, an denen drei oder mehr
+  Dreiecke liegen (Saumring, Bund, Augapfel im Gesicht). Dort
+  durchläuft die Innenwand die Kante zwangsläufig wie eines der
+  beiden Hüllendreiecke, wurde „korrigiert", und über sie dann die
+  Hülle dahinter: 1.737 von 5.321 Dreiecken gedreht, die Hülle in
+  Flecken nach innen (Blender zählte 22 solcher Kanten). Jetzt läuft
+  die Richtung nur über Mantelkanten mit genau zwei Dreiecken, und
+  die Prüfung zählt „gegenläufige" Kanten auch nur dort – die 42, die
+  sie an dieser Figur meldete, waren Innenwände. Ein Test mit einem
+  Würfel und einer Wand quer hindurch schlägt am alten Code fehl.
+
+Was bleibt: Diese Figur braucht einen neuen Lauf mit dem geänderten
+Prompt. Die Tiefe (43 %) geht nur in der Skala Normal durch; wer
+Classic will, braucht „flat chest and back" stärker im Motiv als den
+Bauch.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

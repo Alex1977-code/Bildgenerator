@@ -251,10 +251,20 @@ MeshOrientationResult checkMeshOrientation(
   }
 
   // Eine Kante, die zweimal in derselben Richtung vorkommt, trennt zwei
-  // gegenläufig gewickelte Dreiecke.
+  // gegenläufig gewickelte Dreiecke – auf einer Mantelkante mit genau
+  // zwei Dreiecken. An einer Innenwand (drei und mehr an der Kante)
+  // durchläuft eine Fläche die Kante zwangsläufig wie eine der beiden
+  // anderen; das ist keine falsche Wicklung, sondern eine Innenwand,
+  // und die zählt die Netzprüfung als nonManifoldEdges. Bei der ersten
+  // Figur mit dem Marktplatz-Schwanz standen hier 42 Kanten, die die
+  // Vereinheitlichung dann „behob", indem sie 1.737 Dreiecke drehte.
   var reversed = 0;
   for (final entry in directed.entries) {
-    if (entry.value > 1) reversed += entry.value - 1;
+    if (entry.value < 2) continue;
+    final p = entry.key ~/ weldedCount, q = entry.key % weldedCount;
+    final zurueck = directed[q * weldedCount + p] ?? 0;
+    if (entry.value + zurueck != 2) continue;
+    reversed++;
   }
 
   return MeshOrientationResult(

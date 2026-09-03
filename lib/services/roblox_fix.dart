@@ -452,6 +452,16 @@ List<int> _triangulateLoop(Float32List positions, List<int> ring) {
 /// Dreht Dreiecke so, dass benachbarte dieselbe Kante gegenläufig
 /// durchlaufen, und kehrt am Ende das ganze Netz um, wenn es nach
 /// innen zeigt. Liefert die Zahl der gedrehten Dreiecke.
+///
+/// Weitergereicht wird die Richtung nur über Kanten mit **genau zwei**
+/// Dreiecken. An einer Kante mit dreien oder mehr stößt eine Innenwand
+/// an die Hülle (Saumring, Bund, Augapfel im Gesicht), und die
+/// durchläuft die Kante zwangsläufig wie eines der beiden
+/// Hüllendreiecke – wer dort „korrigiert", dreht die Innenwand um und
+/// über sie dann die Hülle dahinter. Bei der ersten Figur mit dem
+/// Marktplatz-Schwanz wurden so 1.737 von 5.321 Dreiecken gedreht, und
+/// die Hülle stülpte sich in Flecken um; Blender zählte an derselben
+/// Datei 22 solcher Kanten.
 int _makeWindingConsistent(Float32List positions, Uint32List indices) {
   final weld = _weldByPosition(positions);
   final faceCount = indices.length ~/ 3;
@@ -498,7 +508,11 @@ int _makeWindingConsistent(Float32List positions, Uint32List indices) {
       final c = weld[indices[f * 3 + 2]];
       for (final (u, v) in [(a, b), (b, c), (c, a)]) {
         if (u == v) continue;
-        for (final other in edgeFaces[key(u, v)] ?? const <int>[]) {
+        final anlieger = edgeFaces[key(u, v)] ?? const <int>[];
+        // Nur Mantelkanten: genau zwei Dreiecke. Rand (eines) hat
+        // keinen Nachbarn, Innenwände (drei und mehr) keine Richtung.
+        if (anlieger.length != 2) continue;
+        for (final other in anlieger) {
           if (other == f || seen[other]) continue;
           // Der Nachbar muss die Kante andersherum durchlaufen.
           if (sameDirection(other, u, v)) {

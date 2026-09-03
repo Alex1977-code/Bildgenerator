@@ -118,8 +118,9 @@ void main() {
         'body depth less than two fifths of body height',
         'head about one quarter of body height',
         'tight opaque shorts',
-        'following the leg shape',
-        'separate leg tubes',
+        'two separate legs one third of body height',
+        'gap between the thighs',
+        'eyes sunk into sockets with eyelids',
         'mitten hands',
         'narrow visible neck',
         'sturdy arms and legs filling their outlines',
@@ -186,6 +187,9 @@ void main() {
       expect(teile, containsAll(<String>['tail', 'wings', 'horns',
           'spindly limbs']));
       expect(teile, isNot(contains('thick legs')));
+      // Nach der ersten Figur mit dem Schwanz: Stummelbeine und
+      // Kugelaugen sind die zwei Fehler, die keine Reparatur behebt.
+      expect(teile, containsAll(<String>['short legs', 'bulging eyes']));
       expect(robloxMarketplaceNegative.length,
           lessThanOrEqualTo(TripoService.maxNegativePromptChars));
     });
@@ -285,6 +289,28 @@ void main() {
           .replaceFirst('PROMPT: ', '');
       expect(promptZeile.length,
           lessThanOrEqualTo(TripoService.maxPromptChars));
+    });
+
+    test('das Beispielmotiv passt ins Motiv-Budget', () {
+      // Das alte Beispiel hatte 329 Zeichen bei einem Budget von 285:
+      // Mit dem Schwanz waren es 1.068, und Tripo hätte hinten „few
+      // flat separated color areas, uniform material" abgeschnitten –
+      // beim Beispiel, das die Vorlage selbst vormacht.
+      final motiv = robloxMarketplaceExample
+          .split('\n')
+          .first
+          .replaceFirst('PROMPT: ', '')
+          .replaceFirst(', $robloxMarketplaceTail', '');
+      expect(motiv, isNot(contains(robloxMarketplaceTailMarker)));
+      final budget = marketplacePrompt(motiv).motifBudget;
+      expect(motiv.length, lessThanOrEqualTo(budget),
+          reason: 'Motiv ${motiv.length}, Budget $budget');
+      expect(marketplacePrompt(motiv).motifTooLong, isFalse);
+      // Und es bestellt die zwei Dinge, die die erste Figur nicht
+      // hatte: Beine von einem Drittel und Augen im Kopf.
+      expect(motiv, contains('a third of body height'));
+      expect(motiv, contains('sunk into the head'));
+      expect(motiv, isNot(contains('small stocky')));
     });
 
     test('verlangt die A-Pose und begründet sie', () {

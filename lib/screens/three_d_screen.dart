@@ -2737,8 +2737,25 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           _runTicker = null;
           _stage = null;
         });
+        // Jetzt, da der Lauf zu Ende ist: die vorgemerkte
+        // Marktplatz-Figur herrichten.
+        _flushPendingMarketplace();
       }
     }
+  }
+
+  /// Die Marktplatz-Figur, die nach dem Lauf hergerichtet werden soll.
+  ThreeDResult? _pendingMarketplace;
+
+  /// Richtet die vorgemerkte Marktplatz-Figur her, sobald kein Lauf
+  /// mehr läuft. Wird zweimal angestoßen – nach dem Bild und am Ende
+  /// des Laufs –, und nimmt sich beim ersten Mal, das passt.
+  void _flushPendingMarketplace() {
+    if (!mounted || _running) return;
+    final ergebnis = _pendingMarketplace;
+    if (ergebnis == null) return;
+    _pendingMarketplace = null;
+    unawaited(_autoMarketplace(ergebnis));
   }
 
   void _addResult({
@@ -2791,11 +2808,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // vermessen – das ist der Weg, den der Nutzer bestellt hat: Aus
     // dem Text soll eine hochladbare Figur werden, nicht ein Rohling
     // und drei Klicks.
+    //
+    // Vorgemerkt, nicht sofort: Der Lauf ist hier noch nicht zu Ende
+    // (nach dem Ergebnis holt er noch das Guthaben), und solange
+    // `_running` steht, ließ das Herrichten sich selbst nicht zu. So
+    // kam die erste Figur mit dem Marktplatz-Schwanz roh in die Liste
+    // – 0,93 Studs, ohne Gesichtsteile –, und niemand hat es gesehen.
     if (_marketplaceText && itemKind == null && format == ModelFormat.glb) {
-      final ergebnis = _results.first;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_autoMarketplace(ergebnis));
-      });
+      _pendingMarketplace = _results.first;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _flushPendingMarketplace());
     }
     // Für die Empfehlungen mitschreiben: Einstellungen und – sobald
     // gemessen – die Beschaffenheit des Netzes. Läuft nebenher, ein

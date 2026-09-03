@@ -142,6 +142,22 @@ void main() {
     expect((await miss(zuTief.glb)).depth, closeTo(3.2, 0.05));
   });
 
+  test('umgedrehte Dreiecke werden gezählt', () {
+    // Der Umstülp-Wächter: Bei der ersten Figur mit dem
+    // Marktplatz-Schwanz stülpte die Klemme den Bauch nach innen, und
+    // niemand hat es gemerkt – der Bericht meldete „geklemmt".
+    final vorher = Float32List.fromList([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    final gleich = Float32List.fromList(vorher);
+    final idx = [0, 1, 2];
+    expect(countFlippedTriangles(vorher, gleich, idx), 0);
+    // Zwei Punkte tauschen die Lage: Die Normale kehrt sich um.
+    final gespiegelt = Float32List.fromList([0, 0, 0, 0, 1, 0, 1, 0, 0]);
+    expect(countFlippedTriangles(vorher, gespiegelt, idx), 1);
+    // Eine bloße Verschiebung dreht nichts um.
+    final verschoben = Float32List.fromList([1, 1, 1, 2, 1, 1, 1, 2, 1]);
+    expect(countFlippedTriangles(vorher, verschoben, idx), 0);
+  });
+
   test('ein fehlender Hals wird eingeschnürt', () async {
     final vorher = await miss(figur(hals: false));
     expect(vorher.hasNeck, isFalse);
@@ -163,6 +179,11 @@ void main() {
         addFace: false, decimate: false);
     expect(r.report.steps.map((s) => s.rule), contains('Beine getrennt'));
     expect(r.report.steps.map((s) => s.rule), contains('Saum'));
+    // Der Schnitt gilt nur, wenn die Probe ihn bestätigt.
+    final schnitt =
+        r.report.steps.firstWhere((s) => s.rule == 'Beine getrennt');
+    expect(schnitt.after, 'freigeschnitten');
+    expect(schnitt.note, contains('Probe'));
     final nachher = await miss(r.glb);
     expect(nachher.legSeparation, greaterThan(vorher.legSeparation),
         reason: 'mehr Bänder müssen in zwei Inseln zerfallen');

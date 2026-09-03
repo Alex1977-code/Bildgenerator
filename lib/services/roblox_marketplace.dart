@@ -922,8 +922,11 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             '$specMinLegHeight Studs',
         'Vom Boden bis zum Schritt gemessen – dem höchsten Band, in dem '
             'der Querschnitt noch in zwei Beine zerfällt. Zu kurze '
-            'Beine heißt meist: zu viel Kopf oder ein Saum, der den '
-            'Schritt nach unten drückt.');
+            'Beine heißt: zu viel Kopf, ein Saum, der den Schritt nach '
+            'unten drückt – oder ein Motiv wie „small stocky", das bei '
+            'der ersten Figur mit dem Marktplatz-Schwanz Beine von 0,9 '
+            'Studs gab. Ins Motiv „sturdy legs a third of body height, '
+            'gap between the thighs", ins Negativ „short legs".');
   }
   if (m.headHeight > 0 && m.torsoHeight > 0) {
     final rest = m.height - m.headHeight;
@@ -982,8 +985,10 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             '${(m.neckRatio * 100).round()} % statt höchstens '
             '${(marketplaceNeckRatio * 100).round()} %. Ohne '
             'Einschnürung findet Roblox\' Auto Setup die Grenze '
-            'zwischen Kopf und Rumpf nicht. In den Prompt: „visible '
-            'neck gap between hood and shoulders".');
+            'zwischen Kopf und Rumpf nicht. In den Prompt: „narrow '
+            'visible neck between head and shoulders" – bei der ersten '
+            'Figur mit dem Marktplatz-Schwanz war es der Pulloverkragen, '
+            'der den Hals auf 55 % brachte.');
   } else {
     add(
         'hals',
@@ -1042,7 +1047,7 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
               'mitgemessen wird. Nicht „slim legs" bestellen – zu dünne '
               'Beine füllen ihren Hüllkörper nicht mehr zu 50 % und '
               'fallen seit August 2026 durch. In den Prompt: „tight '
-              'shorts following the leg shape, no loose hem".');
+              'shorts, gap between the thighs, no loose hem".');
     } else {
       add('bein_breite', MarketplaceLevel.ok,
           'Bein ${m.legWidth.toStringAsFixed(2)} Studs breit', '');
@@ -1065,11 +1070,15 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'darin dünn bleibt, und reißt damit Deckungsprüfung und '
             'die Regel LegsSeparated zugleich – genauer: Das Netz ragt '
             'aus dem Outer Cage des Beins heraus, den Auto Setup um '
-            'das Bein legt. In den Prompt: „tight opaque shorts '
-            'following the leg shape, no loose hem, two fully separate '
-            'leg tubes from the hips down". Nackte Oberschenkel sind '
-            'keine Lösung: Der Marktplatz verlangt eine Bedeckung von '
-            'der Hüfte bis unter Schritt und Gesäß.');
+            'das Bein legt. Liegt der Schritt dazu tief (Bein unter '
+            '1,4 Studs), ist es kein Saum, sondern ein Rumpf bis kurz '
+            'über den Boden – bei der ersten Figur mit dem '
+            'Marktplatz-Schwanz waren es „small stocky … sturdy legs". '
+            'In den Prompt: „two separate legs one third of body height '
+            'with a gap between the thighs, tight opaque shorts, no '
+            'loose hem", ins Negativ „short legs". Nackte Oberschenkel '
+            'sind keine Lösung: Der Marktplatz verlangt eine Bedeckung '
+            'von der Hüfte bis unter Schritt und Gesäß.');
   } else {
     add('beine_getrennt', MarketplaceLevel.ok,
         'Beine zu $anteil % getrennt', '');

@@ -39,6 +39,39 @@ Uint8List cube({int dropFaces = 0, List<int> flip = const []}) {
 }
 
 void main() {
+  test('Innenwände drehen die Hülle nicht mit', () async {
+    // Ein Würfel mit einer Wand quer durch die Mitte, die vier Kanten
+    // mit der Hülle teilt – an jeder liegen drei Dreiecke. Solche
+    // Kanten hat jede erzeugte Figur (Saumring, Bund, Augapfel). Die
+    // Vereinheitlichung lief früher über sie hinweg und drehte bei der
+    // ersten Figur mit dem Marktplatz-Schwanz 1.737 von 5.321
+    // Dreiecken um: Die Hülle war in Flecken nach innen gestülpt, und
+    // die Prüfung meldete vorher 42 „gegenläufige" Kanten, die keine
+    // waren.
+    final mesh = LocalMesh();
+    for (final c in _corners) {
+      mesh.addVertex(c[0], c[1], c[2], 0, 0, r: 0.7, g: 0.5, b: 0.3);
+    }
+    for (final f in _faces) {
+      mesh.addTriangle(f[0], f[1], f[2]);
+    }
+    mesh.addTriangle(0, 1, 6);
+    mesh.addTriangle(0, 6, 7);
+    final glb = buildGlb(mesh);
+
+    // Die Prüfung: Die Hülle ist einheitlich, die Wand keine Wicklung.
+    final vorher = await readRobloxFacts(glb);
+    expect(vorher.reversedEdges, 0);
+    expect(vorher.signedVolume, greaterThan(0));
+
+    // Die Vereinheitlichung lässt alles stehen.
+    final fixed = fixGlbForRoblox(glb, closeHoles: false, fixWinding: true);
+    expect(fixed.report.flippedFaces, 0);
+    final nachher = await readRobloxFacts(fixed.glb);
+    expect(nachher.reversedEdges, 0);
+    expect(nachher.signedVolume, closeTo(vorher.signedVolume, 1e-6));
+  });
+
   test('Ein Loch wird geschlossen', () async {
     // Zwei Dreiecke fehlen – das ist ein viereckiges Loch mit vier
     // offenen Kanten.

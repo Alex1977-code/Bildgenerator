@@ -105,23 +105,41 @@ const String robloxAccessoryImageTail =
 /// * „head about one quarter of body height" ist neu: Die
 ///   Mindesthöhen (Rumpf 1,7, Bein 1,4) sind absolut, und ein Kopf
 ///   von 2 Studs lässt bei 5 Studs nicht genug darunter.
+///
+/// **Nach der ersten Figur mit diesem Schwanz geändert** (Tripo,
+/// Beispielmotiv, 5.321 Dreiecke): Sie kam in A-Pose, als ein Netz,
+/// mit Gesicht – und mit dem Schritt bei 0,9 Studs, Augen als Kugeln
+/// 0,38 Studs aus dem Kopf, dem Hals bei 55 % der Kopfbreite.
+///
+/// * „two separate leg tubes from the hips down" sagte nichts über
+///   die Länge; jetzt „two separate legs one third of body height
+///   with a gap between the thighs". Bein 1,4 von 5 sind 28 %.
+/// * „eye sockets with eyelids" wurde zu Kugeln mit Lidern; jetzt
+///   „eyes sunk into sockets with eyelids". Im Negativ „bulging
+///   eyes" und „short legs" – dafür „logo" und „arms out sideways"
+///   raus (das deckt „T-pose").
+/// * Gekürzt, damit das Motiv Platz behält: „narrow visible neck
+///   between head and shoulders", Shorts ohne „following the leg
+///   shape" (das sagt jetzt die Lücke zwischen den Schenkeln). Das
+///   Beispielmotiv war mit 329 Zeichen über dem Budget von 285 –
+///   Tripo hätte „few flat separated color areas, uniform material"
+///   abgeschnitten.
 const String robloxMarketplaceTail = _tailNormal5;
 
 /// Der Schwanz für die Standardhöhe und -skala – als Konstante, weil
 /// die Vorlagen ihn wörtlich zitieren.
 const String _tailNormal5 =
-    'arms straight and angled 45 degrees down in an A-pose, never '
-    'horizontal, single connected body, symmetrical, head about one '
-    'quarter of body height, body depth less than two fifths of body '
-    'height, flat chest and back, narrow visible neck clearly separating '
-    'head from shoulders, mitten hands without fingers, sturdy arms and '
-    'legs filling their outlines, tight opaque shorts in a contrasting '
-    'colour covering hips, crotch and buttocks and following the leg '
-    'shape, two separate leg tubes from the hips down, face fully '
-    'visible, eye sockets with eyelids and a mouth with lips shaped '
-    'into the head, solid closed volumes with visible wall thickness, '
-    'closed watertight shell, one single body mesh, few flat separated '
-    'color areas, uniform material';
+    'arms straight and angled 45 degrees down in an A-pose, never horizontal, '
+    'single connected body, symmetrical, head about one quarter of body '
+    'height, body depth less than two fifths of body height, flat chest and '
+    'back, narrow visible neck between head and shoulders, mitten hands '
+    'without fingers, sturdy arms and legs filling their outlines, tight '
+    'opaque shorts in a contrasting colour covering hips, crotch and buttocks, '
+    'two separate legs one third of body height with a gap between the thighs, '
+    'face fully visible, eyes sunk into sockets with eyelids and a mouth with '
+    'lips shaped into the head, solid closed volumes with visible wall '
+    'thickness, closed watertight shell, one single body mesh, few flat '
+    'separated color areas, uniform material';
 
 /// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der
 /// Prompt kennt nur Verhältnisse – also wird das Verhältnis aus
@@ -268,11 +286,10 @@ MarketplacePrompt marketplacePrompt(
 /// abstehende Ohren, Haarsträhnen dürfen nicht im Körpernetz stecken;
 /// erlaubt sind genau ein Kopf, ein Rumpf, zwei Arme, zwei Beine.
 const String robloxMarketplaceNegative =
-    'hood, helmet, mask, visor, tail, wings, horns, pointed ears, '
-    'hair strands, deep body, long hem, skirt, cape, fingers, '
-    'T-pose, arms out sideways, spindly limbs, thin arms, floating '
-    'parts, open mesh, holes, base, text, logo, second character, '
-    'extra limbs';
+    'hood, helmet, mask, visor, tail, wings, horns, pointed ears, hair '
+    'strands, deep body, long hem, skirt, cape, fingers, T-pose, spindly '
+    'limbs, thin arms, short legs, bulging eyes, floating parts, open mesh, '
+    'holes, base, text, second character, extra limbs';
 
 /// Das Marktplatz-Beispiel – **ohne Kapuze**.
 ///
@@ -285,13 +302,12 @@ const String robloxMarketplaceNegative =
 /// eigenes Accessoire dazu (Gegenstandsart „Kapuze") – aus einer
 /// unmöglichen Aufgabe werden zwei lösbare.
 const String robloxMarketplaceExample =
-    'PROMPT: small stocky humanoid character, rounded head about a '
-    'quarter of the body height, two large round eyes with thick '
-    'eyelids, a wide mouth with plump lips, sturdy torso, plain fitted '
-    'sweater, tight dark shorts, sturdy legs, flat rounded feet, matte '
-    'dark charcoal fabric, pale grey skin, '
-    '$robloxMarketplaceTail\n'
-    'NEGATIV: $robloxMarketplaceNegative';
+    'PROMPT: compact humanoid, round head a quarter of body height, big round '
+    'eyes sunk into the head, wide mouth with plump lips, straight torso, '
+    'fitted sweater, tight dark shorts, sturdy legs a third of body height, '
+    'gap between the thighs, matte charcoal fabric, pale grey skin, '
+    '$robloxMarketplaceTail'
+    '\nNEGATIV: $robloxMarketplaceNegative';
 
 /// Die NEGATIV-Zeile für eine Figur (248 Zeichen – Tripo nimmt 255).
 ///
@@ -383,19 +399,26 @@ String robloxPromptRules({
           '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
       : markt
           ? '- AUFBAU des PROMPT, in dieser Reihenfolge:\n'
-              '  1. Was es ist („small stocky creature character").\n'
-              '  2. Proportionen („rounded head about a quarter of the '
-              'body height, sturdy torso"). Kein übergroßer Kopf: Die '
+              '  1. Was es ist („compact humanoid"). Nicht „small '
+              'stocky": Die erste Figur mit diesem Schwanz war klein '
+              'und stämmig – mit Stummelbeinen und dem Schritt bei 0,9 '
+              'Studs.\n'
+              '  2. Proportionen („round head a quarter of body height, '
+              'sturdy legs a third of body height, gap between the '
+              'thighs"). Kein übergroßer Kopf, keine kurzen Beine: Die '
               'Mindesthöhen für Rumpf (1,7) und Beine (1,4) sind '
               'absolut, und bei 5 Studs bleibt unter einem 2-Studs-Kopf '
               'nicht genug.\n'
               '  3. Das Gesicht, ausgeschrieben – es ist hier Pflicht, '
-              'nicht Schmuck („two large round eyes with thick '
-              'eyelids, a wide mouth with plump lips"; „face fully '
-              'visible" steht schon im Schwanz). Dann Kleidung und '
-              'das erkennende Merkmal mit '
-              'Ort am Körper („thin plain sweater ending at the hip '
-              'bone"). Knapp genannt geht es unter.\n'
+              'nicht Schmuck („big round eyes sunk into the head, wide '
+              'mouth with plump lips"; „face fully visible" und die '
+              'Lider stehen schon im Schwanz). „sunk into the head", '
+              'weil Tripo aus „large round eyes" Kugeln macht, die aus '
+              'dem Kopf stehen – und in einen Buckel lässt sich keine '
+              'Augenhöhle bauen. Dann Kleidung und das erkennende '
+              'Merkmal mit Ort am Körper („fitted sweater with one '
+              'white stripe across the chest"). Knapp genannt geht es '
+              'unter.\n'
               '  4. Farben und Material („matte dark charcoal fabric, '
               'pale grey skin").\n'
               '  5. Dann wörtlich der feste Schwanz (siehe unten).\n'
@@ -519,7 +542,10 @@ String robloxPromptRules({
           'breit, Bein 1,4 hoch, Arm 1,5 lang, Kopf 0,5, Körper 3,6. '
           'Bei ${studs.toStringAsFixed(0)} Studs bleibt unter dem Kopf '
           'für Rumpf und Beine genug, wenn der Kopf etwa ein Viertel '
-          'der Höhe hat.\n'
+          'und die Beine etwa ein Drittel der Höhe haben. Zu kurze '
+          'Beine sind der häufigste Fehlschlag: Aus „sturdy legs" '
+          'machte Tripo Beine von 0,9 Studs, und die Reparatur kann '
+          'sie nicht verlängern.\n'
           '- Jedes Bein höchstens 1,50 breit.\n'
           '- Jedes Körperteil füllt seinen Hüllkörper zu mindestens '
           '50 %, von vorn, von der Seite, von hinten – auch der Kopf. '

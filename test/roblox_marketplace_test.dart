@@ -406,14 +406,14 @@ void main() {
       final f = _finde(befunde, 'hals');
       expect(f.level, MarketplaceLevel.fehler);
       expect(mass.neckRatio, greaterThan(marketplaceNeckRatio));
-      expect(f.reason, contains('neck gap'));
+      expect(f.reason, contains('narrow visible neck'));
     });
 
     test('der Saum verbindet die Beine', () {
       final f = _finde(befunde, 'beine_getrennt');
       expect(f.level, MarketplaceLevel.fehler);
       expect(mass.legSeparation, lessThan(marketplaceLegSeparation));
-      expect(f.reason, contains('separate leg tubes'));
+      expect(f.reason, contains('gap between the thighs'));
     });
 
     test('ein Hals, der knapp nicht reicht, gilt nicht als Hals', () {
