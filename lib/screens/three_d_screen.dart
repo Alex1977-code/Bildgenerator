@@ -1057,16 +1057,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'ignorieren sie oder werden schlechter.\n'
           '- Kurz halten: eine Zeile im Stichwort-Stil mit Kommas. '
           'Wird das Ergebnis matschig, kürzen statt ergänzen.\n'
-          '- KEINE Posen-Angabe schreiben. Die App hängt die Pose '
-          'selbst an, wenn der Posen-Schalter im 3D-Tab auf T- oder '
-          'A-Pose steht ("full body character in T-pose, arms '
-          'stretched out horizontally, …"). Steht sie doppelt drin, '
-          'kostet das nur Platz und verschiebt die Gewichtung – '
-          'Text→3D-Modelle wichten frühe Begriffe stärker. Steht der '
-          'Schalter auf Aus, bekommt das Modell gar keine Pose – für '
-          'eine riggbare Figur muss er an sein.\n'
-          '- Höchstens etwa 850 Zeichen. Tripo nimmt 1024, davon '
-          'gehen rund 120 für den Posen-Zusatz drauf.\n'
+          // Pose und Länge hängen vom Ziel ab und werden beim
+          // Kopieren eingesetzt – siehe [_nativePoseBudgetRules]. Als
+          // fester Text standen hier „für eine riggbare Figur muss er
+          // an sein" (beim Marktplatz-Ziel falsch: dort steht die
+          // A-Pose im Schwanz) und „höchstens 850 Zeichen, 120 für den
+          // Posen-Zusatz" (eine Zahl von gestern).
+          '$_nativePoseBudgetMarker'
           '- Erzeuge zusätzlich einen englischen Negativ-Prompt '
           '(z. B. "low poly, blobby, melted, floating parts, base, '
           'pedestal, text").\n\n'
@@ -1074,6 +1071,75 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'Gib Prompt und Negativ-Prompt getrennt aus.',
     ),
   ];
+
+  /// Der Platzhalter in der Vorlage „Natives Text→3D", an dem die
+  /// beiden Regeln stehen, die vom Ziel abhängen: Pose und Länge.
+  static const _nativePoseBudgetMarker = '[POSE UND LÄNGE]\n';
+
+  /// Die Vorlage „Natives Text→3D" für den aktuellen Stand.
+  ///
+  /// Zwei Zeilen darin hängen vom Ziel ab, und als fester Text waren
+  /// sie falsch: „für eine riggbare Figur muss der Posen-Schalter an
+  /// sein" gilt beim Marktplatz-Ziel gerade nicht – dort steht die
+  /// A-Pose im festen Schwanz, und ein Zusatz obendrauf schöbe den
+  /// Text über Tripos Grenze; gekürzt wird hinten, wo die Regeln
+  /// stehen. Und „höchstens 850 Zeichen, 120 für den Posen-Zusatz" war
+  /// eine Zahl von gestern; jetzt wird gerechnet, mit demselben Wert,
+  /// den der Hinweis unter dem Feld zeigt.
+  String get _nativeTemplateText {
+    final text = _promptTemplates[3].$3;
+    assert(text.contains(_nativePoseBudgetMarker));
+    return text.replaceFirst(
+        _nativePoseBudgetMarker, _nativePoseBudgetRules);
+  }
+
+  /// Die beiden Zeilen zu Pose und Länge, passend zum Ziel.
+  String get _nativePoseBudgetRules {
+    const max = TripoService.maxPromptChars;
+    if (_marketplaceText) {
+      final markt = marketplacePrompt('',
+          studs: _studsValue ?? robloxCharacterStuds, scale: _bodyScale);
+      return '- KEINE Posen-Angabe schreiben. Beim Ziel '
+          'Marktplatz-Avatar hängt die App den festen '
+          'Marktplatz-Schwanz selbst an, und darin steht die A-Pose '
+          'schon („arms straight and angled 45 degrees down in an '
+          'A-pose"). Der Posen-Schalter im 3D-Tab bleibt auf „Keiner" '
+          '– die App sperrt ihn dort. Ein zweiter Zusatz stünde '
+          'doppelt drin und schöbe den Text über Tripos Grenze; '
+          'gekürzt wird hinten, und hinten stehen die Regeln.\n'
+          '- Höchstens rund ${markt.motifBudget} Zeichen fürs Motiv. '
+          'Tripo nimmt $max, davon belegt der feste Schwanz '
+          '${markt.tailChars} (plus Komma und Leerzeichen).\n';
+    }
+    final pose = '- KEINE Posen-Angabe schreiben. Die App hängt die '
+        'Pose selbst an, wenn der Posen-Schalter im 3D-Tab auf T- '
+        'oder A-Pose steht ("full body character in T-pose, arms '
+        'stretched out horizontally, …"). Steht sie doppelt drin, '
+        'kostet das nur Platz und verschiebt die Gewichtung – '
+        'Text→3D-Modelle wichten frühe Begriffe stärker. Steht der '
+        'Schalter auf Aus, bekommt das Modell gar keine Pose – für '
+        'eine riggbare Figur muss er an sein, für Objekte bleibt er '
+        'aus.\n';
+    if (_robloxMode) {
+      // Der feste Roblox-Schwanz hängt mit an der Vorlage, und dessen
+      // Regeltext rechnet das Motiv-Budget selbst vor – hier eine
+      // zweite Zahl zu nennen, hieße zwei Zahlen zu pflegen.
+      return '$pose- Länge: Die Roblox-Regeln unten rechnen vor, was '
+          'der feste Schwanz und der Posen-Zusatz belegen und was dem '
+          'Motiv bleibt.\n';
+    }
+    if (_pose case final gewaehlt?) {
+      final zusatz = poseSuffix(gewaehlt);
+      final name = gewaehlt == PoseKind.aPose ? 'A-Pose' : 'T-Pose';
+      return '$pose- Höchstens rund ${max - zusatz.length - 2} '
+          'Zeichen. Tripo nimmt $max, davon gehen ${zusatz.length} '
+          'für den $name-Zusatz drauf (plus Komma und Leerzeichen).\n';
+    }
+    return '$pose- Höchstens rund ${max - tPoseSuffix.length - 2} '
+        'Zeichen, damit der Posen-Zusatz noch Platz hat (T-Pose '
+        '${tPoseSuffix.length}, A-Pose ${aPoseSuffix.length} Zeichen, '
+        'plus Komma und Leerzeichen). Tripo nimmt $max.\n';
+  }
 
   /// Zusatz für die Prompt-Vorlage, wenn die Roblox-Vorlage aktiv ist.
   /// Hier steht nur, was ein Bild- oder 3D-Prompt überhaupt
@@ -1139,7 +1205,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ? _promptTemplates[0]
           : _promptTemplates[1],
       'wrapped' => _promptTemplates[2],
-      _ => _promptTemplates[3],
+      _ => (
+          _promptTemplates[3].$1,
+          _promptTemplates[3].$2,
+          _nativeTemplateText,
+        ),
     };
     final String hint;
     if (mode == 'native') {
@@ -1276,16 +1346,18 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   /// Der Prompt, wie er tatsächlich an den Anbieter geht – beim
   /// Marktplatz-Ziel mit dem festen Schwanz (der die A-Pose schon
-  /// enthält), sonst mit dem Posen-Zusatz, sofern der Schalter an ist
-  /// und die Pose nicht schon im Text steht.
+  /// enthält) und ohne Posen-Zusatz, was auch immer der Schalter
+  /// gespeichert hat; sonst mit dem Posen-Zusatz, sofern der Schalter
+  /// an ist und die Pose nicht schon im Text steht.
   String _effectivePrompt(String prompt) {
-    final basis = _marketplaceText
-        ? marketplacePrompt(prompt,
-                studs: _studsValue ?? robloxCharacterStuds,
-                scale: _bodyScale)
-            .prompt
-        : prompt;
-    return withPose(basis, wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
+    if (_marketplaceText) {
+      return marketplacePrompt(prompt,
+              studs: _studsValue ?? robloxCharacterStuds,
+              scale: _bodyScale)
+          .prompt;
+    }
+    return withPose(prompt,
+        wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
   }
 
   /// Die NEGATIV-Zeile, wie sie geht: beim Marktplatz-Ziel die eigenen
@@ -1300,9 +1372,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         .negative;
   }
 
-  /// Wie viele Zeichen der Anhang beim aktuellen Stand kostet.
-  int get _promptSuffixChars =>
-      poseExtraChars(_promptCtrl.text,
+  /// Wie viele Zeichen der Posen-Anhang beim aktuellen Stand kostet.
+  /// Beim Marktplatz-Ziel keinen: Die A-Pose steht im Schwanz.
+  int get _promptSuffixChars => _marketplaceText
+      ? 0
+      : poseExtraChars(_promptCtrl.text,
           wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
 
   ModelRelay? _modelRelay;
@@ -2536,16 +2610,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 isRodin ||
                 isReplicate)) {
           pose = rigPoseParts[_rigType];
+        } else if (_marketplaceText) {
+          // Der Schalter steht beim Marktplatz-Ziel gesperrt auf
+          // „Keiner", weil die A-Pose im Schwanz steckt – der geht aber
+          // nur an Text→3D. Die Ansichten brauchen sie trotzdem, und
+          // zwar diese, nicht eine gespeicherte Wahl von früher.
+          pose = aPoseSuffix;
         } else if (_pose != null) {
           // Die gewählte Pose, nicht pauschal die T-Pose: Wer hier die
           // A-Pose einstellt, bekam sonst trotzdem waagerechte Arme in
           // den Ansichten – die Wahl lief ins Leere.
           pose = poseSuffix(_pose!);
-        } else if (_marketplaceText) {
-          // Der Schalter steht beim Marktplatz-Ziel aus, weil die
-          // A-Pose im Schwanz steckt – der geht aber nur an Text→3D.
-          // Die Ansichten brauchen sie trotzdem.
-          pose = aPoseSuffix;
         }
         final generated = await generateViewsFromText(
           settings: settings,
@@ -5791,44 +5866,53 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           label: Text('A-Pose'),
                           icon: Icon(Icons.accessibility)),
                     ],
-                    selected: {_pose?.name ?? 'keine'},
+                    // Beim Marktplatz-Ziel gesperrt auf „Keiner": Die
+                    // A-Pose steht im festen Schwanz. Ein Zusatz
+                    // obendrauf schöbe den Text über Tripos Grenze –
+                    // gekürzt wird hinten, und hinten stehen die Regeln.
+                    selected: {
+                      _marketplaceText ? 'keine' : (_pose?.name ?? 'keine')
+                    },
                     showSelectedIcon: false,
-                    onSelectionChanged: _running || rigPoseActive
-                        ? null
-                        : (selection) => setState(() => _pose =
-                            PoseKind.values
-                                .where((k) => k.name == selection.first)
-                                .firstOrNull),
+                    onSelectionChanged:
+                        _running || rigPoseActive || _marketplaceText
+                            ? null
+                            : (selection) => setState(() => _pose =
+                                PoseKind.values
+                                    .where((k) => k.name == selection.first)
+                                    .firstOrNull),
                   ),
-                  if (_marketplaceText)
-                    _optionInfo('Beim Marktplatz-Ziel bleibt der '
-                        'Schalter aus: Die A-Pose steht im festen '
-                        'Schwanz, den die App anhängt. Ein zweiter '
-                        'Zusatz stünde doppelt drin.'),
-                  _optionInfo(rigPoseActive
-                      ? 'Beim eigenen Auto-Rigging kommt die Pose aus '
-                          'dem Figurtyp ($_rigType) – die Ansichten '
-                          'werden damit erzeugt, und der Zusatz bleibt '
-                          'außen vor.'
-                      : switch (_pose) {
-                          PoseKind.aPose =>
-                            'Arme gestreckt, etwa 45° nach unten. Für '
-                                'Roblox\' Auto Setup die richtige Wahl: '
-                                'Die waagerechten Arme der T-Pose wurden '
-                                'dort dem Kopf und dem Rumpf '
-                                'zugeschlagen. '
-                                '(${aPoseSuffix.length} Zeichen Zusatz.)',
-                          PoseKind.tPose =>
-                            'Arme waagerecht. So verlangt es der '
-                                'Roblox-Importer für animierbare Figuren. '
-                                '(${tPoseSuffix.length} Zeichen Zusatz.)',
-                          null =>
-                            'Kein Zusatz. Richtig für Objekte (Gebäude, '
-                                'Fahrzeuge, Gegenstände). Für Figuren '
-                                'kostet es Qualität: Gespreizte Arme '
-                                'lassen sich deutlich besser räumlich '
-                                'rekonstruieren.',
-                        }),
+                  _optionInfo(_marketplaceText
+                      ? 'Beim Marktplatz-Ziel steht der Schalter auf '
+                          '„Keiner" und ist gesperrt: Die A-Pose steht '
+                          'im festen Schwanz, den die App anhängt. Ein '
+                          'zweiter Zusatz stünde doppelt drin und schöbe '
+                          'den Text über Tripos Grenze – gekürzt wird '
+                          'hinten, und hinten stehen die Regeln.'
+                      : rigPoseActive
+                          ? 'Beim eigenen Auto-Rigging kommt die Pose aus '
+                              'dem Figurtyp ($_rigType) – die Ansichten '
+                              'werden damit erzeugt, und der Zusatz bleibt '
+                              'außen vor.'
+                          : switch (_pose) {
+                              PoseKind.aPose =>
+                                'Arme gestreckt, etwa 45° nach unten. Für '
+                                    'Roblox\' Auto Setup die richtige Wahl: '
+                                    'Die waagerechten Arme der T-Pose wurden '
+                                    'dort dem Kopf und dem Rumpf '
+                                    'zugeschlagen. '
+                                    '(${aPoseSuffix.length} Zeichen Zusatz.)',
+                              PoseKind.tPose =>
+                                'Arme waagerecht. So verlangt es der '
+                                    'Roblox-Importer für animierbare Figuren. '
+                                    '(${tPoseSuffix.length} Zeichen Zusatz.)',
+                              null =>
+                                'Kein Zusatz. Richtig für Objekte (Gebäude, '
+                                    'Fahrzeuge, Gegenstände). Für Figuren '
+                                    'kostet es Qualität: Gespreizte Arme '
+                                    'lassen sich deutlich besser räumlich '
+                                    'rekonstruieren.',
+                            }),
                   if (_rigging && _pose == null && !rigPoseActive)
                     _optionInfo('Rigging ist an, aber keine Pose '
                         'gewählt. Das Skelett trifft dann schlechter – '

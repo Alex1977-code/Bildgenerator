@@ -115,7 +115,7 @@ void main() {
 
     test('nennt jede der Formregeln – nach der Doku-Prüfung', () {
       for (final baustein in [
-        'body depth less than half of body height',
+        'body depth less than two fifths of body height',
         'head about one quarter of body height',
         'tight opaque shorts',
         'following the leg shape',
@@ -126,17 +126,41 @@ void main() {
       ]) {
         expect(robloxMarketplaceTail, contains(baustein), reason: baustein);
       }
-      // Was raus musste: ein Verhältnis, nackte Haut, dünne Beine.
-      for (final falsch in ['two fifths', 'thighs uncovered', 'slim',
+      // Was raus musste: nackte Haut, dünne Beine – und „less than
+      // half", das bei 5 Studs 2,5 bestellt, mehr als jede Skala erlaubt.
+      for (final falsch in ['less than half', 'thighs uncovered', 'slim',
           'hip bone', 'narrower than one third']) {
         expect(robloxMarketplaceTail, isNot(contains(falsch)), reason: falsch);
       }
     });
 
+    test('das Tiefenwort bestellt nie mehr, als die Skala erlaubt', () {
+      // Der Fehler der Zwischenfassung: 0,45 wurde „less than half",
+      // und das sind 2,5 bei 5 Studs – über Normals 2,25.
+      for (final scale in RobloxBodyScale.values) {
+        for (var zehntel = 36; zehntel <= 95; zehntel++) {
+          final studs = zehntel / 10;
+          final wort = robloxDepthWords(scale.maxDepth, studs);
+          final bestellt = robloxDepthFraction(wort) * studs;
+          expect(bestellt, lessThanOrEqualTo(scale.maxDepth + 1e-6),
+              reason: '${scale.label} bei $studs: $wort');
+        }
+      }
+      // Bei 5 Studs heißt es für alle drei Skalen „two fifths" – 2,0:
+      // unter Normals 2,25, gerade an Classics und Slenders 2,0.
+      for (final scale in RobloxBodyScale.values) {
+        expect(robloxDepthWords(scale.maxDepth, 5),
+            'less than two fifths of body height',
+            reason: scale.label);
+      }
+    });
+
     test('die Tiefe wird aus Höhe und Skala gerechnet, nicht angenommen',
         () {
-      // Die Grenze ist absolut: 2,00 bei Classic, 2,25 bei Normal.
-      expect(robloxDepthWords(2.25, 5), 'less than half of body height');
+      // Die Grenze ist absolut: 2,00 bei Classic, 2,25 bei Normal. Und
+      // 0,45 ist nicht „less than half" (das wären 2,5), sondern das
+      // nächste Wort darunter.
+      expect(robloxDepthWords(2.25, 5), 'less than two fifths of body height');
       expect(robloxDepthWords(2.0, 5), 'less than two fifths of body height');
       expect(robloxDepthWords(2.0, 6), 'less than one third of body height');
       expect(robloxDepthWords(2.0, 8), 'less than a quarter of body height');

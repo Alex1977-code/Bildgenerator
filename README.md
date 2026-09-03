@@ -1611,7 +1611,7 @@ behoben:
 
   | Ziel | Schwanz | Posen-Zusatz | bleibt fürs Motiv |
   | --- | --- | --- | --- |
-  | Marktplatz-Körper | 687 | in der Pose enthalten | 335 |
+  | Marktplatz-Körper | 737 | in der Pose enthalten | 285 |
   | Figur im Erlebnis | 267 | 121 | 634 |
   | Accessoire | 228 | — | 794 |
 
@@ -1665,9 +1665,12 @@ Was das geändert hat:
 - **Tiefe.** „2,00 sind 40 % von 5,00" war Zufall der Größe; die
   Grenze ist 2,00 (Classic, Slender) oder 2,25 (Normal), bei jeder
   Höhe. Prüfung und Reparatur rechnen jetzt mit der Skala, und der
-  feste Schwanz leitet sein Wort aus Höhe und Skala ab („less than
-  half" bei 5 Studs Normal, „less than one third" bei 6 Studs
-  Classic).
+  feste Schwanz leitet sein Wort aus Höhe und Skala ab – immer das
+  größte Wort, das noch unter der Grenze bleibt („less than two
+  fifths" bei 5 Studs für alle drei Skalen, „less than one third" bei
+  6 Studs Classic). Eine Zwischenfassung sagte bei 5 Studs Normal
+  „less than half" – das sind 2,5, über den 2,25; siehe den Nachtrag
+  unten.
 - **Der große Kopf sprengt die Höhenrechnung.** Rumpf 1,7 und Bein
   1,4 sind absolut; bei 5 Studs bleiben unter einem 2-Studs-Kopf nur
   3,0. Die Prüfung misst jetzt Kopf-, Rumpf- und Beinhöhe am Netz (der
@@ -1717,7 +1720,40 @@ Was das geändert hat:
   im festen Schwanz; die App hätte ohnehin keine zweite angehängt
   (sie erkennt die Pose im Text), aber der Schalter zeigte „A-Pose"
   an und erklärte nichts. Jetzt steht er auf „Keiner" mit dem Satz,
-  warum.
+  warum – und seit dem Nachtrag unten ist er dort auch gesperrt.
+
+### Nachtrag zur Doku-Prüfung: Tiefe und Posen-Schalter
+
+Zwei Fehler steckten noch in der überarbeiteten Fassung.
+
+- **Die Tiefenangabe war zu großzügig.** Der Schwanz bestellte „body
+  depth less than half of body height" – bei 5 Studs sind das 2,5,
+  über dem Maximum von 2,25 (Normal) und weit über 2,00 (Classic,
+  Slender). Die Rechnung hatte das nächstgrößere Wort genommen, wenn
+  es „nah genug" lag. Jetzt nimmt sie das größte Wort, das noch unter
+  der Grenze bleibt: bei 5 Studs für alle drei Skalen wieder `body
+  depth less than two fifths of body height` (2,0), bei 6 Studs
+  Classic „one third", bei 8 „a quarter", darüber „a fifth". Ein Test
+  rechnet für jede Skala von 3,6 bis 9,5 Studs nach, dass Wort mal
+  Höhe nie über der Grenze liegt. Der Schwanz ist damit 737 Zeichen
+  lang, dem Motiv bleiben 285.
+- **Der Posen-Schalter widersprach sich.** Die Vorlage „Natives
+  Text→3D" sagte „für eine riggbare Figur muss er an sein", der feste
+  Marktplatz-Schwanz enthält die A-Pose aber schon. Mit eingeschaltetem
+  Schalter wäre der Text über Tripos 1.024 gelandet, und Tripo kürzt
+  hinten – wo die Regeln stehen. Jetzt ist der Schalter beim
+  Marktplatz-Ziel **gesperrt** auf „Keiner" (mit dem Satz, warum), der
+  fertige Prompt bekommt dort keinen Zusatz, was auch immer gespeichert
+  war, und die Ansichten nehmen die A-Pose aus dem Schwanz.
+- **Die Vorlage rechnet statt zu behaupten.** „Höchstens etwa 850
+  Zeichen, rund 120 für den Posen-Zusatz" war eine Zahl von gestern.
+  Die beiden Zeilen zu Pose und Länge werden beim Kopieren zum Ziel
+  eingesetzt: beim Marktplatz „Schalter bleibt auf Keiner" und das
+  Motiv-Budget, das auch der Hinweis unter dem Feld zeigt (285); mit
+  Roblox-Figur der Verweis auf die Roblox-Regeln, die es unten
+  vorrechnen; ohne Roblox die Grenze minus gewähltem Posen-Zusatz
+  (T-Pose 119, A-Pose 108 Zeichen). Zwei Widget-Tests halten den
+  gesperrten Schalter und den kopierten Text fest.
 
 ### Aus dem Text eine Marktplatz-Figur
 
@@ -1734,7 +1770,9 @@ geschlossen:
   Negativ-Begriffe vorn, dann die festen, ohne Doppelte, in Tripos
   Grenze. Steht der Schwanz schon im Text (Vorlage zurückkopiert),
   bleibt es bei einem. Der Hinweis unter dem Feld zählt den fertigen
-  Text und nennt, was dem Motiv bleibt: 335 Zeichen.
+  Text und nennt, was dem Motiv bleibt: 285 Zeichen (die App rechnet
+  den Wert aus dem Schwanz; zuerst waren es 335, dann wuchs der
+  Schwanz mit der Doku-Prüfung).
 - **Nach dem Lauf wird von selbst hergerichtet.** Löcher schließen,
   Textur auf 2048, 5 Studs, Zehen nach +Z, Gesicht ins Kopfnetz,
   Gesichtsteile, Messung. Das Ergebnis in der Liste ist danach die

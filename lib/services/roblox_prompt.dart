@@ -85,10 +85,14 @@ const String robloxAccessoryImageTail =
 ///
 /// **Nach der Doku-Prüfung vom 3. September 2026 geändert:**
 ///
-/// * „body depth less than two fifths of body height" war ein
-///   Verhältnis; die Grenze ist absolut (2,00 Studs bei Classic und
-///   Slender, 2,25 bei Normal). Der Schwanz rechnet das Wort jetzt aus
-///   Höhe und Skala aus – siehe [robloxMarketplaceTailFor].
+/// * Die Tiefe ist absolut begrenzt (2,00 Studs bei Classic und
+///   Slender, 2,25 bei Normal), der Prompt kennt nur Verhältnisse.
+///   Der Schwanz rechnet sein Wort deshalb aus Höhe und Skala – siehe
+///   [robloxMarketplaceTailFor] – und nimmt nie eines, das über der
+///   Grenze liegt. Bei 5 Studs heißt das für alle drei Skalen „less
+///   than two fifths of body height" (2,0): unter Normals 2,25 und
+///   gerade an Classics 2,0. Eine Zwischenfassung sagte „less than
+///   half" – das sind 2,5, mehr als jede Skala erlaubt.
 /// * „slim straight legs narrower than one third" bestellte, was seit
 ///   dem 17. August 2026 durchfällt: Jedes Teil muss 50 % seines
 ///   Hüllkörpers füllen. Jetzt „sturdy arms and legs filling their
@@ -108,10 +112,10 @@ const String robloxMarketplaceTail = _tailNormal5;
 const String _tailNormal5 =
     'arms straight and angled 45 degrees down in an A-pose, never '
     'horizontal, single connected body, symmetrical, head about one '
-    'quarter of body height, body depth less than half of body height, '
-    'flat chest and back, narrow visible neck clearly separating head '
-    'from shoulders, mitten hands without fingers, sturdy arms and legs '
-    'filling their outlines, tight opaque shorts in a contrasting '
+    'quarter of body height, body depth less than two fifths of body '
+    'height, flat chest and back, narrow visible neck clearly separating '
+    'head from shoulders, mitten hands without fingers, sturdy arms and '
+    'legs filling their outlines, tight opaque shorts in a contrasting '
     'colour covering hips, crotch and buttocks and following the leg '
     'shape, two separate leg tubes from the hips down, face fully '
     'visible, eye sockets with eyelids and a mouth with lips shaped '
@@ -121,15 +125,30 @@ const String _tailNormal5 =
 
 /// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der
 /// Prompt kennt nur Verhältnisse – also wird das Verhältnis aus
-/// Grenze und Höhe gerechnet, mit Luft nach unten.
+/// Grenze und Höhe gerechnet, und genommen wird das größte Wort, das
+/// noch **unter** der Grenze bleibt. Nie eines darüber: Bei 2,25 zu 5
+/// (0,45) stand hier einmal „less than half", und das bestellt 2,5.
 String robloxDepthWords(double maxDepth, double studs) {
   final anteil = studs <= 0 ? 0.4 : maxDepth / studs;
-  if (anteil <= 0.30) return 'less than a quarter of body height';
-  if (anteil <= 0.36) return 'less than one third of body height';
-  if (anteil <= 0.43) return 'less than two fifths of body height';
-  if (anteil <= 0.55) return 'less than half of body height';
-  return 'clearly less deep than tall';
+  // Ein Hauch Toleranz gegen 2,0 / 6 = 0,3333…, das ein Drittel ist.
+  const eps = 1e-9;
+  if (anteil + eps >= 0.50) return 'less than half of body height';
+  if (anteil + eps >= 0.40) return 'less than two fifths of body height';
+  if (anteil + eps >= 1 / 3) return 'less than one third of body height';
+  if (anteil + eps >= 0.25) return 'less than a quarter of body height';
+  return 'less than a fifth of body height';
 }
+
+/// Der Bruch, den ein Wort aus [robloxDepthWords] bestellt – damit ein
+/// Test nachrechnen kann, dass Wort mal Höhe nie über der Grenze liegt.
+double robloxDepthFraction(String words) => switch (words) {
+      'less than half of body height' => 0.50,
+      'less than two fifths of body height' => 0.40,
+      'less than one third of body height' => 1 / 3,
+      'less than a quarter of body height' => 0.25,
+      'less than a fifth of body height' => 0.20,
+      _ => throw ArgumentError.value(words, 'words', 'kein Tiefenwort'),
+    };
 
 /// Der Marktplatz-Schwanz für eine Höhe und eine Skala.
 ///
@@ -139,7 +158,7 @@ String robloxMarketplaceTailFor(
     RobloxBodyScale scale = RobloxBodyScale.normal}) {
   final wort = robloxDepthWords(scale.maxDepth, studs);
   return _tailNormal5.replaceFirst(
-      'body depth less than half of body height', 'body depth $wort');
+      'body depth less than two fifths of body height', 'body depth $wort');
 }
 
 /// Ein Stück des Schwanzes, das in keinem Motiv vorkommt – daran
