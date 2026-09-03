@@ -1001,9 +1001,39 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
               'bleibt unter dem Kopf genug, den Hals eingerechnet.');
     }
   }
-  if (m.armLength > 0 && m.armLength < specMinArmLength) {
+  // Die Arme: **ein** Befund, nicht zwei. Vorher standen hier eine
+  // Warnung „Arm zu kurz" und eine „Armspanne zu klein" – dieselbe
+  // Sache zweimal, und beide entschuldigten sich im Text mit „in
+  // I-Pose sagt die Zahl nichts", ohne die I-Pose je zu erkennen. Eine
+  // nackte Figur mit hängenden Armen bekam so zwei Warnungen, die wie
+  // Messrauschen klangen, und darüber „keine Fehler".
+  //
+  // Gemessen wird, wie weit die Arme überhaupt abstehen: Spanne minus
+  // Rumpf im selben Band. Bei 45° braucht ein Arm von
+  // [specMinArmLength] dafür 2 × 1,5 × cos 45° = 2,12 Studs.
+  final reichweite = m.width - m.spanTorsoWidth;
+  final noetig = 2 * specMinArmLength * (m.looksLikeTPose ? 1.0 : 1 / math.sqrt2);
+  if (m.spanTorsoWidth > 0 && reichweite < noetig) {
     add(
-        'arm_laenge',
+        'arme_frei',
+        MarketplaceLevel.warnung,
+        'Arme stehen nur ${reichweite.toStringAsFixed(2)} Studs ab, '
+            'nötig sind ${noetig.toStringAsFixed(2)}',
+        'Spanne ${m.width.toStringAsFixed(2)} minus Rumpf im selben '
+            'Band ${m.spanTorsoWidth.toStringAsFixed(2)}. So wenig '
+            'heißt: Die Arme hängen am Körper – eine I-Pose. Auto '
+            'Setup nennt sie ausdrücklich schlechter („Character '
+            'bodies with I-pose may yield lower quality results") und '
+            'verlangt zusätzlich, dass von vorn keine Gliedmaße eine '
+            'andere verdeckt. Wie lang die Arme wirklich sind, lässt '
+            'sich an einer solchen Silhouette **nicht** messen; die '
+            'Mindestlänge von $specMinArmLength Studs bleibt damit '
+            'ungeprüft. Ins Motiv gehört die Pose: „upright A-pose, '
+            'arms angled down and clear of the torso".',
+        origin: MarketplaceOrigin.prompt);
+  } else if (m.armLength > 0 && m.armLength < specMinArmLength) {
+    add(
+        'arme_frei',
         MarketplaceLevel.warnung,
         'Arm etwa ${m.armLength.toStringAsFixed(2)} lang von mindestens '
             '$specMinArmLength Studs',
@@ -1011,44 +1041,12 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'dem Rumpf daneben '
             '(${m.spanTorsoWidth.toStringAsFixed(2)}), '
             '${m.looksLikeTPose ? 'waagerecht gerechnet (T-Pose)' : 'für '
-                '45° zurückgerechnet (A-Pose)'}. In I-Pose steckt der '
-            'Arm in der Rumpfinsel; dann sagt die Zahl nichts. Ins '
-            'Motiv: „long arms reaching mid thigh".');
-  }
-
-  // Die 6,22 stammen aus einem T-Pose-Lauf. Der Marktplatz-Schwanz
-  // bestellt aber eine A-Pose, und dort ist dieselbe Armlänge um
-  // cos 45° schmaler – die Schwelle unverändert anzulegen, meldete
-  // jede A-Pose-Figur als zu schmal. Umgerechnet wird über den
-  // gemessenen Rumpf an der Schulter: Was an ihm hängt, klappt um 45°
-  // ein, der Rumpf selbst nicht.
-  final spannenGrenze = m.looksLikeTPose || m.spanTorsoWidth <= 0
-      ? marketplaceMinArmSpan
-      : m.spanTorsoWidth +
-          (marketplaceMinArmSpan - m.spanTorsoWidth) / math.sqrt2;
-  if (m.width < spannenGrenze) {
-    add(
-        'armspanne',
-        MarketplaceLevel.warnung,
-        'Armspanne ${m.width.toStringAsFixed(2)} von mindestens '
-            '${spannenGrenze.toStringAsFixed(2)} Studs'
-            '${m.looksLikeTPose ? '' : ' (A-Pose; in T-Pose wären es '
-                '$marketplaceMinArmSpan)'}',
-        'Die Doku nennt keine Mindestspanne, nur Mindestmaße je Teil '
-            '(Arm $specMinArmLength lang); die $marketplaceMinArmSpan '
-            'stammen aus einem echten Validator-Lauf in T-Pose und '
-            'stehen hier als Sicherheitsaufschlag. Der '
-            'Marktplatz-Schwanz bestellt eine A-Pose, und dort ist '
-            'dieselbe Armlänge um cos 45° schmaler – deshalb wird die '
-            'Schwelle über den Rumpf im breitesten Band '
-            '(${m.spanTorsoWidth.toStringAsFixed(2)}) umgerechnet. '
-            'Gemessen wird die größere waagerechte Achse; steht die '
-            'Figur in I-Pose, ist die Zahl zu klein, ohne dass am '
-            'Modell etwas falsch wäre.',
-        origin: MarketplaceOrigin.export);
+                '45° zurückgerechnet (A-Pose)'}. Die Arme stehen frei, '
+            'die Zahl ist also belastbar.',
+        origin: MarketplaceOrigin.prompt);
   } else {
-    add('armspanne', MarketplaceLevel.ok,
-        'Armspanne ${m.width.toStringAsFixed(2)} Studs', '');
+    add('arme_frei', MarketplaceLevel.ok,
+        'Arme frei, etwa ${m.armLength.toStringAsFixed(2)} Studs lang', '');
   }
 
   if (!m.hasNeck) {
@@ -1181,8 +1179,24 @@ String marketplaceAsText(List<MarketplaceFinding> findings) {
     zeilen.add('$zeichen [${f.origin.label}] ${f.title}');
     if (f.reason.isNotEmpty) zeilen.add('   ${f.reason}');
   }
+  zeilen.add(marketplaceUncheckable);
   return zeilen.join('\n');
 }
+
+/// Was an der Geometrie **nicht** zu prüfen ist.
+///
+/// Ohne diesen Satz las sich „keine Fehler" wie „darf hochgeladen
+/// werden". Eine nackte Figur in I-Pose kam so durch: Der
+/// Modesty-Layer ist eine Frage an das Aussehen, nicht an die Form,
+/// und die Policy knüpft ihn ausdrücklich an „smooth and flat
+/// skin-like surface texture in the groin and chest area".
+const String marketplaceUncheckable =
+    'Nicht messbar und deshalb ungeprüft: ob die Figur einem Menschen '
+    'ähnelt und damit eine Schicht Kleidung über Ober- und '
+    'Unterkörper braucht (Modesty-Layer), ob sie den Community '
+    'Standards entspricht, und ob Auto Setup aus den Kopfteilen '
+    'wirklich die 17 FACS-Posen baut. Das entscheidet der Lauf in '
+    'Studio.';
 
 /// Ab welchem Signal die Blickrichtung als bestimmt gilt.
 ///

@@ -136,6 +136,8 @@ class FaceCavities {
     required this.rightEyeDepth,
     required this.mouthDepth,
     required this.eyeCenters,
+    this.eyeBulge = 0,
+    this.mouthBulge = 0,
   });
 
   final double headWidth;
@@ -153,25 +155,44 @@ class FaceCavities {
   /// Ab wann eine Vertiefung als Höhle gilt: 3 % der Kopfbreite.
   static const double minDepthOfHeadWidth = 0.03;
 
+  /// Ob am Auge eine Höhle sitzt: Die Fläche liegt dort hinter der
+  /// an das Gesicht angepassten Fläche.
+  ///
+  /// Gemessen wird gegen die Anpassung, nicht gegen den Ring um das
+  /// Auge. Auf einem runden Kopf liegt der Ring schon durch die
+  /// Wölbung hinter der Mitte – ein glatter Kugelkopf kam so auf
+  /// −0,12 bei einer Schwelle von 0,04, und nach einem gelungenen
+  /// Einbau meldete die Prüfung die frisch gebauten Höhlen weiter als
+  /// fehlend. [leftEyeDepth] bleibt als gemessene Zahl im Bericht.
   bool get hasEyeSockets =>
-      headWidth > 0 &&
-      leftEyeDepth >= headWidth * minDepthOfHeadWidth &&
-      rightEyeDepth >= headWidth * minDepthOfHeadWidth;
+      headWidth > 0 && eyeBulge <= -headWidth * minDepthOfHeadWidth;
 
   bool get hasMouthCavity =>
-      headWidth > 0 && mouthDepth >= headWidth * minDepthOfHeadWidth;
+      headWidth > 0 && mouthBulge <= -headWidth * minDepthOfHeadWidth;
 
   /// Ob **echte Höhlen** da sind – das, was Auto Setup für die
   /// FACS-Posen braucht. Ein vorstehender Augapfel zählt hier nicht.
   bool get hasFace => hasEyeSockets && hasMouthCavity;
 
-  /// Wie stark die Fläche am Augenzentrum von ihrem Ring abweicht,
-  /// ohne Vorzeichen: Höhle **oder** Augapfel.
-  double get eyeRelief =>
-      math.max(leftEyeDepth.abs(), rightEyeDepth.abs());
+  /// Abweichung des Augenzentrums von der an das Gesicht angepassten
+  /// Fläche: positiv = steht davor (Augapfel), negativ = dahinter
+  /// (Höhle). Genommen wird das auffälligere der beiden Augen.
+  final double eyeBulge;
 
-  /// Dasselbe für den Mund: Höhle oder vorstehende Lippen.
-  double get mouthRelief => mouthDepth.abs();
+  /// Dasselbe für die Mundmitte.
+  final double mouthBulge;
+
+  /// Wie stark das Auge von der Gesichtsfläche abweicht, ohne
+  /// Vorzeichen: Höhle **oder** Augapfel.
+  ///
+  /// Gemessen gegen die angepasste Fläche, nicht gegen den Ring: Auf
+  /// einem runden Kopf liegt der Ring schon durch die Wölbung hinter
+  /// der Mitte, und ein glatter Kugelkopf ohne Gesicht sah damit aus
+  /// wie ein modellierter Augapfel.
+  double get eyeRelief => eyeBulge.abs();
+
+  /// Dasselbe für den Mund.
+  double get mouthRelief => mouthBulge.abs();
 
   /// Ob der Kopf im Gesicht **überhaupt Geometrie** hat – gleich in
   /// welche Richtung.
@@ -247,11 +268,18 @@ Future<FaceSculptResult> sculptFaceIntoHead(
   FaceSculptProportions proportions = const FaceSculptProportions(),
 }) async {
   final json = splitGlb(glb).json;
-  final namen = [
+  // Gezählt werden nur Teile mit **Geometrie**. [withoutFaceMeshes]
+  // leert die Primitive und lässt den Namen stehen – wer nur Namen
+  // zählt, hält eine gerade entleerte Datei für belegt. Genau so
+  // scheiterte der Einbau in der Reparatur: Sie beginnt mit
+  // `withoutFaceMeshes`, und der nächste Schritt warf „stehen schon
+  // in der Datei", still weggefangen als Notiz.
+  final schonDa = [
     for (final mesh in ((json['meshes'] as List?) ?? const []).cast<Map>())
-      mesh['name'] as String?,
+      if (faceMeshNames.contains(mesh['name']) &&
+          ((mesh['primitives'] as List?) ?? const []).isNotEmpty)
+        mesh['name'] as String,
   ];
-  final schonDa = faceMeshNames.where(namen.contains).toList();
   if (schonDa.isNotEmpty) {
     throw Exception('Die Gesichtsteile ${schonDa.join(', ')} stehen '
         'schon in der Datei. Erst die Höhlen bauen, dann die Teile – '
@@ -600,17 +628,113 @@ FaceCavities _messeHoehlen(
   final links = tiefe(augen[0], kopf.eyeY, r * ring, r * ring, imMund);
   final rechts = tiefe(augen[1], kopf.eyeY, r * ring, r * ring, imMund);
   final mund = tiefe(kopf.centerX, kopf.mouthY, a * ring, c * ring, imAuge);
+
+  // Das Relief gegen eine an das Gesicht **angepasste** Fläche.
+  //
+  // Der Ring oben taugt zum Finden einer Höhle, nicht zum Finden von
+  // Geometrie überhaupt: Auf einem runden Kopf liegt sein tiefster
+  // Punkt schon durch die Wölbung weit hinter der Mitte. Ein glatter
+  // Kugelkopf ohne jedes Gesicht kam so auf −0,12 bei einer Schwelle
+  // von 0,04 und galt als „Augapfel modelliert" – der Einbau ließ
+  // genau den Kopf in Ruhe, für den er gebaut ist.
+  //
+  // Deshalb wird die Gesichtsfläche außerhalb von Augen und Mund
+  // abgetastet, eine Quadrik `z = a + bx + cy + dx² + ey²`
+  // kleinste-Quadrate hineingelegt und der Rest gemessen. Eine Kugel
+  // trifft die Quadrik fast genau; was übrig bleibt, ist das Merkmal.
+  final (augeRest, mundRest) = _relief(tris, kopf, p, imAuge, imMund);
   return FaceCavities(
     headWidth: b,
     headHeight: kopf.height,
     leftEyeDepth: links,
     rightEyeDepth: rechts,
     mouthDepth: mund,
+    eyeBulge: augeRest,
+    mouthBulge: mundRest,
     eyeCenters: [
       [kopf.centerX - kopf.eyeX, kopf.eyeY],
       [kopf.centerX + kopf.eyeX, kopf.eyeY],
     ],
   );
+}
+
+/// Wie weit Augen und Mund von der angepassten Gesichtsfläche
+/// abweichen: positiv = steht vor (Augapfel, Lippen), negativ =
+/// liegt dahinter (Höhle). Auf einem Kopf ohne Gesicht beides ~0.
+(double, double) _relief(
+    List<double> tris,
+    _Kopf kopf,
+    FaceSculptProportions p,
+    bool Function(double, double) imAuge,
+    bool Function(double, double) imMund) {
+  final xs = <double>[], ys = <double>[], zs = <double>[];
+  const n = 11;
+  final halbBreite = kopf.width * 0.42;
+  final vonY = kopf.bottomY + kopf.height * 0.15;
+  final bisY = kopf.bottomY + kopf.height * 0.92;
+  for (var i = 0; i < n; i++) {
+    for (var k = 0; k < n; k++) {
+      final x = kopf.centerX - halbBreite + 2 * halbBreite * i / (n - 1);
+      final y = vonY + (bisY - vonY) * k / (n - 1);
+      // Die Merkmale selbst dürfen die Fläche nicht mitbestimmen.
+      if (imAuge(x, y) || imMund(x, y)) continue;
+      final z = faceFrontHitZ(tris, x, y, kopf.bottomY);
+      if (z == null) continue;
+      xs.add(x - kopf.centerX);
+      ys.add(y - kopf.eyeY);
+      zs.add(z);
+    }
+  }
+  if (xs.length < 12) return (0, 0);
+  // Normalengleichungen für z = c0 + c1·x + c2·y + c3·x² + c4·y².
+  List<double> basis(double x, double y) => [1, x, y, x * x, y * y];
+  final a = List.generate(5, (_) => List<double>.filled(6, 0));
+  for (var i = 0; i < xs.length; i++) {
+    final f = basis(xs[i], ys[i]);
+    for (var r = 0; r < 5; r++) {
+      for (var c = 0; c < 5; c++) {
+        a[r][c] += f[r] * f[c];
+      }
+      a[r][5] += f[r] * zs[i];
+    }
+  }
+  // Gauß mit Spaltenpivot; singulär heißt: kein Relief messbar.
+  for (var sp = 0; sp < 5; sp++) {
+    var best = sp;
+    for (var r = sp + 1; r < 5; r++) {
+      if (a[r][sp].abs() > a[best][sp].abs()) best = r;
+    }
+    if (a[best][sp].abs() < 1e-12) return (0, 0);
+    final t = a[sp];
+    a[sp] = a[best];
+    a[best] = t;
+    for (var r = 0; r < 5; r++) {
+      if (r == sp) continue;
+      final f = a[r][sp] / a[sp][sp];
+      for (var c = sp; c < 6; c++) {
+        a[r][c] -= f * a[sp][c];
+      }
+    }
+  }
+  final koef = [for (var r = 0; r < 5; r++) a[r][5] / a[r][r]];
+  double flaeche(double x, double y) {
+    final f = basis(x - kopf.centerX, y - kopf.eyeY);
+    var z = 0.0;
+    for (var i = 0; i < 5; i++) {
+      z += koef[i] * f[i];
+    }
+    return z;
+  }
+
+  double rest(double x, double y) {
+    final z = faceFrontHitZ(tris, x, y, kopf.bottomY);
+    return z == null ? 0.0 : z - flaeche(x, y);
+  }
+
+  final links = rest(kopf.centerX - kopf.eyeX, kopf.eyeY);
+  final rechts = rest(kopf.centerX + kopf.eyeX, kopf.eyeY);
+  final auge = links.abs() > rechts.abs() ? links : rechts;
+  return (auge, rest(kopf.centerX, kopf.mouthY));
 }
 
 // ---------------------------------------------------------------------

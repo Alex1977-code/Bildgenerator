@@ -2275,21 +2275,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         .toList();
     setState(() {
       result.glbBytes = markt.glb;
-      result.robloxNote = fehler.isEmpty
-          ? 'Marktplatz: hergerichtet und vermessen, keine Fehler'
-              '${warnungen.isEmpty ? '' : ', ${warnungen.length} '
-                  'Warnung${warnungen.length == 1 ? '' : 'en'}'}. '
-              'Bereit für Export/Roblox-Paket.'
-          : 'Marktplatz: hergerichtet, ${fehler.length} '
-              'Fehler: ${fehler.map((f) => f.title).join('; ')}.';
+      // „Bereit" nur, wenn auch nichts gewarnt hat. Eine nackte Figur
+      // in I-Pose stand mit „keine Fehler, 2 Warnungen. Bereit für
+      // Export/Roblox-Paket." in der Liste – die zwei Warnungen waren
+      // genau die Pose, und gelesen wurde die erste Zeile.
+      result.robloxNote = fehler.isNotEmpty
+          ? 'Marktplatz: hergerichtet, ${fehler.length} '
+              'Fehler: ${fehler.map((f) => f.title).join('; ')}.'
+          : warnungen.isEmpty
+              ? 'Marktplatz: hergerichtet und vermessen, nichts zu '
+                  'beanstanden. Was die App an der Geometrie nicht '
+                  'sehen kann, steht in der Prüfung.'
+              : 'Marktplatz: hergerichtet, keine Fehler, aber '
+                  '${warnungen.length} '
+                  'Warnung${warnungen.length == 1 ? '' : 'en'}: '
+                  '${warnungen.map((f) => f.title).join('; ')}.';
       _running = false;
       _stage = null;
     });
     if (fehler.isEmpty) {
-      _showSnack('Marktplatz-Figur hergerichtet und vermessen: keine '
-          'Fehler${warnungen.isEmpty ? '' : ', '
-              '${warnungen.length} Warnung${warnungen.length == 1 ? '' : 'en'}'}. '
-          'Export/Roblox-Paket ist der nächste Schritt.');
+      _showSnack(warnungen.isEmpty
+          ? 'Marktplatz-Figur hergerichtet und vermessen: nichts zu '
+              'beanstanden. Export/Roblox-Paket ist der nächste Schritt.'
+          : 'Marktplatz-Figur hergerichtet: keine Fehler, aber '
+              '${warnungen.length} '
+              'Warnung${warnungen.length == 1 ? '' : 'en'} – erst in '
+              'die Prüfung sehen, dann exportieren.');
       return;
     }
     // Fehler: Die Reparatur anbieten – sie fragt vor dem Übernehmen.

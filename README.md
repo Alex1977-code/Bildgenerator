@@ -2044,6 +2044,70 @@ Motiv bleiben **393 statt 277**. Ein Test führt die Zuordnung als
 Tabelle mit und prüft beides: dass jede belegte Angabe drinsteht und
 dass keine der gestrichenen zurückkommt.
 
+### Die dritte Figur: die Wölbung als Augapfel gelesen
+
+Eine Figur ohne Gesicht, nackt, Arme am Körper — und die Prüfung sagte
+„keine Fehler, 2 Warnungen. Bereit für Export/Roblox-Paket." Vier
+Fehler steckten dahinter, drei davon in der App.
+
+**Die Relief-Messung las die Wölbung als Merkmal.** Der Kopf war eine
+glatte Kugel ohne Augen und Mund. Gemessen wurde das Relief als
+„Ring um das Augenzentrum minus Mitte" — und auf einer Kugel liegt
+dieser Ring schon durch die **Wölbung** hinter der Mitte:
+
+| Kopf | Ring-Tiefe | Schwelle | Urteil |
+| --- | --- | --- | --- |
+| glatter Kugelkopf | −0,12 | 0,04 | „Augapfel modelliert" — **falsch** |
+| Kastenkopf (flach) | 0,00 | 0,04 | nichts da — richtig |
+
+Der Wächter, den die letzte Runde eingebaut hat, ließ damit
+ausgerechnet den Kopf in Ruhe, für den der Einbau gebaut ist. Er
+wirkte richtig, weil die Testvorlage ein **flacher** Kasten ist: Dort
+gibt es keine Wölbung. Jetzt wird eine Quadrik
+`z = a + bx + cy + dx² + ey²` kleinste-Quadrate in die Gesichtsfläche
+gelegt (Augen und Mund von der Anpassung ausgenommen) und der Rest
+gemessen. Eine Kugel trifft die Quadrik fast genau: Aus −0,12 wird
+−0,007, der Einbau läuft wieder, und danach steht dort eine echte
+Höhle (−0,080). Dieselbe Ursache hatte die Prüfung: Sie meldete die
+frisch gebauten Höhlen weiter als fehlend; auch `hasEyeSockets` und
+`hasMouthCavity` rechnen jetzt gegen die angepasste Fläche. Eine neue
+Testvorlage ist eine Figur mit **rundem** Kopf.
+
+**`withoutFaceMeshes` und der Einbau passten nicht zusammen.** Das
+Entfernen leert die Primitive und lässt den Namen stehen; der Einbau
+zählte nur Namen und warf „Die Gesichtsteile stehen schon in der
+Datei". Die Reparatur beginnt genau mit diesem Entfernen — aus dem
+Fehler wurde eine weggefangene Notiz, und die Höhlen fehlten. Jetzt
+zählen nur Teile mit Geometrie.
+
+**Zwei Warnungen für dieselbe Sache, beide entschuldigend.** Die Figur
+stand in I-Pose (Arme am Körper). Dafür meldete die App „Arm etwa 0,55
+lang von mindestens 1,5" und „Armspanne 1,77 von mindestens 4,69" —
+und beide Texte schoben hinterher, in I-Pose sage die Zahl nichts,
+ohne die I-Pose je zu erkennen. Jetzt ein Befund: **wie weit die Arme
+abstehen**, Spanne minus Rumpf im selben Band, gegen die 2 × 1,5 ×
+cos 45° = 2,12 Studs, die ein Arm von Mindestlänge dafür braucht. Bei
+0,78 heißt das im Klartext: I-Pose, und Auto Setup nennt sie
+ausdrücklich schlechter („Character bodies with I-pose may yield lower
+quality results"). Dass die Armlänge damit **ungeprüft** bleibt, steht
+dabei.
+
+**„Bereit" bei zwei Warnungen.** Der Vermerk in der Liste nannte die
+Warnungen nur als Zahl und schloss mit „Bereit für
+Export/Roblox-Paket". Jetzt nennt er sie beim Namen und sagt „erst in
+die Prüfung sehen, dann exportieren". Und die Prüfung endet mit dem,
+was sie **nicht** kann: ob die Figur einem Menschen ähnelt und damit
+einen Modesty-Layer braucht (die Policy knüpft ihn an „smooth and flat
+skin-like surface texture in the groin and chest area" — eine Frage
+ans Aussehen, nicht an die Form), ob sie den Community Standards
+entspricht, und ob Auto Setup aus den Kopfteilen die 17 FACS-Posen
+baut.
+
+**Was am Prompt lag:** nichts, was der Schwanz nicht schon bestellt —
+er verlangt A-Pose, Gesicht und Kleidung. Tripo hat alle drei
+ignoriert. Dagegen hilft kein weiterer Satz im Prompt, sondern ein
+neuer Lauf.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

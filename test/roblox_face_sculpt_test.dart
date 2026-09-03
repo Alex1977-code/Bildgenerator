@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:bildgenerator/services/glb_preview.dart';
@@ -102,6 +103,75 @@ Uint8List figurMitAugaepfeln() {
   // Augenzentrum hinter der Gesichtsmitte?") eine Höhle sah, wo keine
   // war: Der Strahl in der Mitte trifft den Rücken, nicht die Fläche.
   quader(-0.16, 4.45, 0.6, 0.16, 4.70, 0.90);
+  return buildGlb(m);
+}
+
+/// Eine Figur mit **rundem** Kopf und glattem Gesicht – so, wie eine
+/// Text-zu-3D-KI sie liefert, wenn im Motiv kein Gesicht steht.
+///
+/// Der Kopf ist eine UV-Kugel ohne jedes Merkmal. Genau daran ist die
+/// Relief-Messung gescheitert: Der Ring um das Augenzentrum liegt auf
+/// einer Kugel schon durch die **Wölbung** hinter der Mitte (gemessen
+/// −0,12 bei einer Schwelle von 0,04), und der Einbau hielt das für
+/// einen modellierten Augapfel – er ließ ausgerechnet den Kopf in
+/// Ruhe, für den er gebaut ist.
+Uint8List figurMitKugelkopf() {
+  final m = LocalMesh();
+  void quader(double x0, double y0, double z0, double x1, double y1,
+      double z1) {
+    final p = [
+      m.addVertex(x0, y0, z0, 0, 0),
+      m.addVertex(x1, y0, z0, 1, 0),
+      m.addVertex(x1, y1, z0, 1, 1),
+      m.addVertex(x0, y1, z0, 0, 1),
+      m.addVertex(x0, y0, z1, 0, 0),
+      m.addVertex(x1, y0, z1, 1, 0),
+      m.addVertex(x1, y1, z1, 1, 1),
+      m.addVertex(x0, y1, z1, 0, 1),
+    ];
+    m.addQuad(p[0], p[3], p[2], p[1]);
+    m.addQuad(p[4], p[5], p[6], p[7]);
+    m.addQuad(p[0], p[1], p[5], p[4]);
+    m.addQuad(p[2], p[3], p[7], p[6]);
+    m.addQuad(p[1], p[2], p[6], p[5]);
+    m.addQuad(p[0], p[4], p[7], p[3]);
+  }
+
+  quader(-1.1, 2.3, -0.6, 1.1, 3.8, 0.6);
+  quader(-0.3, 3.8, -0.22, 0.3, 4.15, 0.22);
+  quader(-1.8, 2.6, -0.2, -1.1, 3.7, 0.2);
+  quader(1.1, 2.6, -0.2, 1.8, 3.7, 0.2);
+  quader(-0.6, 0.35, -0.25, -0.15, 2.3, 0.25);
+  quader(0.15, 0.35, -0.25, 0.6, 2.3, 0.25);
+  quader(-0.6, 0.0, 0.25, -0.15, 0.30, 0.9);
+  quader(0.15, 0.0, 0.25, 0.6, 0.30, 0.9);
+
+  // Der Kopf: eine UV-Kugel mit Mittelpunkt (0 | 4,58) und Radius
+  // 0,42 – Scheitel bei 5,0, Ansatz bei 4,16.
+  const ringe = 16, segmente = 24;
+  const cy = 4.58, r = 0.42;
+  final gitter = <List<int>>[];
+  for (var i = 0; i <= ringe; i++) {
+    final phi = math.pi * i / ringe;
+    final reihe = <int>[];
+    for (var k = 0; k < segmente; k++) {
+      final theta = 2 * math.pi * k / segmente;
+      reihe.add(m.addVertex(
+          r * math.sin(phi) * math.sin(theta),
+          cy + r * math.cos(phi),
+          r * math.sin(phi) * math.cos(theta),
+          k / segmente,
+          i / ringe));
+    }
+    gitter.add(reihe);
+  }
+  for (var i = 0; i < ringe; i++) {
+    for (var k = 0; k < segmente; k++) {
+      final k2 = (k + 1) % segmente;
+      m.addQuad(gitter[i][k], gitter[i][k2], gitter[i + 1][k2],
+          gitter[i + 1][k]);
+    }
+  }
   return buildGlb(m);
 }
 
@@ -222,6 +292,42 @@ void main() {
     final notizen = r.report.notes.join(' ');
     expect(notizen, contains('modellierter Augapfel'));
     expect(notizen, isNot(contains('liegt eine Höhle')));
+  });
+
+  test('ein glatter Kugelkopf wird gebaut, nicht in Ruhe gelassen',
+      () async {
+    // Der Fund an der dritten echten Figur: ein Kopf ohne jedes
+    // Gesicht. Der Ring um das Augenzentrum maß dort die Wölbung der
+    // Kugel und meldete „Augapfel modelliert" – der Einbau tat nichts.
+    final v = await lies(figurMitKugelkopf());
+    final vorher = measureFaceCavities(v.positions, v.indices.toList())!;
+    v.dispose();
+    // Die Ring-Zahl ist auf einer Kugel negativ, ohne dass dort etwas
+    // wäre; das Relief gegen die angepasste Fläche ist es nicht.
+    expect(vorher.leftEyeDepth, lessThan(0), reason: 'Wölbung');
+    expect(vorher.eyeRelief,
+        lessThan(vorher.headWidth * FaceCavities.minDepthOfHeadWidth),
+        reason: 'kein Merkmal auf einer glatten Kugel');
+    expect(vorher.hasFaceRelief, isFalse);
+
+    final r = await sculptFaceIntoHead(figurMitKugelkopf());
+    expect(r.report.addedTriangles, greaterThan(0));
+    // Danach sind es echte Höhlen – und ein zweiter Aufruf lässt sie.
+    expect(r.report.after.eyeBulge, lessThan(0), reason: 'Höhle');
+    expect(r.report.after.hasFaceRelief, isTrue);
+    final zweiter = await sculptFaceIntoHead(r.glb);
+    expect(zweiter.report.addedTriangles, 0);
+  });
+
+  test('geleerte Gesichtsteile blockieren den Einbau nicht', () async {
+    // `withoutFaceMeshes` leert die Primitive und lässt den Namen
+    // stehen. Der Einbau zählte nur Namen und warf „stehen schon in
+    // der Datei" – in der Reparatur, die genau so beginnt, wurde
+    // daraus eine weggefangene Notiz, und die Höhlen fehlten.
+    final mitTeilen = addFaceParts(figurMitKugelkopf()).glb;
+    final ohne = withoutFaceMeshes(mitTeilen);
+    final r = await sculptFaceIntoHead(ohne);
+    expect(r.report.addedTriangles, greaterThan(0));
   });
 
   test('die Hülle bleibt geschlossen und nach außen gewickelt', () async {

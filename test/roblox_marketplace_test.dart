@@ -288,11 +288,57 @@ void main() {
       expect(mass.legHeight, greaterThanOrEqualTo(specMinLegHeight));
       expect(mass.armLength, greaterThanOrEqualTo(specMinArmLength));
       expect(mass.headHeight, lessThan(RobloxBodyScale.normal.maxHeadHeight));
-      for (final id in ['rumpf_hoehe', 'bein_hoehe', 'hoehenrechnung',
-          'arm_laenge']) {
+      for (final id in ['rumpf_hoehe', 'bein_hoehe', 'hoehenrechnung']) {
         expect(befunde.where((f) => f.id == id), isEmpty, reason: id);
       }
       expect(_finde(befunde, 'kopf_breite').level, MarketplaceLevel.ok);
+      expect(_finde(befunde, 'arme_frei').level, MarketplaceLevel.ok);
+    });
+
+    test('hängende Arme heißen I-Pose, nicht „Arm zu kurz"', () {
+      // Die dritte echte Figur: Spanne 1,77 bei einem Rumpf von 1,00 –
+      // die Arme liegen am Körper. Vorher standen dafür zwei
+      // Warnungen da („Arm etwa 0,55 lang" und „Armspanne 1,77 von
+      // 4,69"), beide mit dem Zusatz „in I-Pose sagt die Zahl nichts",
+      // ohne die I-Pose je zu erkennen. Auto Setup nennt sie
+      // ausdrücklich schlechter.
+      const i = MarketplaceMeasurement(
+        height: 5,
+        width: 1.77,
+        depth: 1.18,
+        widthAxis: 0,
+        headWidth: 1.22,
+        neckWidth: 0.44,
+        shoulderWidth: 1.2,
+        spanTorsoWidth: 1.0,
+        legSeparation: 1,
+        legWidth: 0.47,
+        scale: 1,
+        headHeight: 1.3,
+        torsoHeight: 2.0,
+        legHeight: 1.7,
+        armLength: 0.55,
+      );
+      final f = _finde(checkMarketplaceFigure(i), 'arme_frei');
+      expect(f.level, MarketplaceLevel.warnung);
+      expect(f.origin, MarketplaceOrigin.prompt);
+      expect(f.title, contains('stehen nur'));
+      expect(f.reason, contains('I-Pose'));
+      // Und die Zahl wird nicht als Armlänge ausgegeben: Die lässt
+      // sich an dieser Silhouette nicht messen.
+      expect(f.reason, contains('ungeprüft'));
+      // Genau **ein** Befund zu den Armen, nicht zwei.
+      expect(checkMarketplaceFigure(i).where((x) => x.id == 'armspanne'),
+          isEmpty);
+    });
+
+    test('der Bericht sagt, was er nicht prüfen kann', () {
+      // „keine Fehler" las sich wie „darf hochgeladen werden". Der
+      // Modesty-Layer ist eine Frage ans Aussehen, nicht an die Form.
+      final text = marketplaceAsText(checkMarketplaceFigure(mass));
+      expect(text, contains('Nicht messbar'));
+      expect(text, contains('Modesty-Layer'));
+      expect(text, contains('FACS'));
     });
 
     test('die Skala entscheidet: derselbe Kopf fällt bei Classic durch',
