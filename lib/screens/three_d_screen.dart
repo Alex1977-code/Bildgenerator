@@ -2357,14 +2357,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Der Haken kommt vom Ergebnis, nicht von der
+                        // Herkunft: Eine Nachmessung mit Herkunft
+                        // „Export" – die Armspanne – trug ihn sonst,
+                        // obwohl daneben „offen" stand.
                         Icon(
-                            schritt.origin == RepairOrigin.app
+                            schritt.fixed
                                 ? Icons.check_circle_outline
-                                : Icons.edit_note,
+                                : schritt.origin == RepairOrigin.prompt
+                                    ? Icons.edit_note
+                                    : Icons.error_outline,
                             size: 18,
-                            color: schritt.origin == RepairOrigin.app
+                            color: schritt.fixed
                                 ? Colors.green.shade700
-                                : Colors.orange.shade800),
+                                : schritt.origin == RepairOrigin.prompt
+                                    ? Colors.orange.shade800
+                                    : Colors.amber.shade800),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -2388,9 +2396,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                 const SizedBox(height: 6),
                 Text(
                   'Der grüne Haken heißt: Die App hat es behoben. Der '
-                  'Stift heißt: Das muss der Prompt richten – die '
-                  'Korrektur würde die Figur sonst so verformen, dass '
-                  'sie nicht mehr wie das Konzept aussieht.',
+                  'Stift heißt: offen, und das muss der Prompt richten '
+                  '– die Korrektur würde die Figur sonst so verformen, '
+                  'dass sie nicht mehr wie das Konzept aussieht. Das '
+                  'Ausrufezeichen heißt: offen, aber am Export oder an '
+                  'der Messung, nicht am Motiv.',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline),
                 ),

@@ -118,8 +118,8 @@ void main() {
         'body depth less than two fifths of body height',
         'head about one quarter of body height',
         'tight opaque shorts',
-        'two separate legs one third of body height',
-        'gap between the thighs',
+        'hips at mid body height',
+        'clear gap between the thighs',
         'eyes sunk into sockets with eyelids',
         'mitten hands',
         'narrow visible neck',
@@ -308,7 +308,7 @@ void main() {
       expect(marketplacePrompt(motiv).motifTooLong, isFalse);
       // Und es bestellt die zwei Dinge, die die erste Figur nicht
       // hatte: Beine von einem Drittel und Augen im Kopf.
-      expect(motiv, contains('a third of body height'));
+      expect(motiv, contains('hips at mid body height'));
       expect(motiv, contains('sunk into the head'));
       expect(motiv, isNot(contains('small stocky')));
     });

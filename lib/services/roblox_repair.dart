@@ -91,6 +91,7 @@ class RepairStep {
     required this.after,
     required this.origin,
     required this.note,
+    this.fixed = true,
   });
 
   final String rule;
@@ -98,6 +99,15 @@ class RepairStep {
   final String after;
   final RepairOrigin origin;
   final String note;
+
+  /// Ob dieser Schritt die Regel wirklich erfüllt hat.
+  ///
+  /// Der Bericht zeigte den grünen Haken nach [origin]: Wer ihn trug,
+  /// galt als behoben. Eine Nachmessung mit Herkunft „Export" – etwa
+  /// die Armspanne – bekam ihn deshalb ebenfalls, obwohl daneben
+  /// „offen" stand. Wer nur auf die Haken sah, hielt eine Figur für
+  /// fertig, die es nicht war.
+  final bool fixed;
 
   bool get changed => before != after;
 }
@@ -107,14 +117,14 @@ class RepairReport {
 
   final List<RepairStep> steps;
 
-  bool get anythingLeft =>
-      steps.any((s) => s.origin == RepairOrigin.prompt);
+  bool get anythingLeft => steps.any((s) => !s.fixed);
 
   String get text => [
         'Reparatur-Bericht',
         for (final s in steps)
           '  ${s.rule}: ${s.before} → ${s.after} '
-              '[${s.origin == RepairOrigin.app ? 'App' : 'Prompt'}] '
+              '[${s.fixed ? 'behoben' : 'offen, '
+                  '${s.origin == RepairOrigin.app ? 'Export' : 'Prompt'}'}] '
               '${s.note}',
       ].join('\n');
 }
@@ -438,14 +448,20 @@ Future<RepairResult> repairForMarketplace(
     mitteZ = (minZ + maxZ) / 2;
   }
 
+  // Der Haken kommt aus der Herkunft: „App" heißt, die Reparatur hat
+  // es getan, „Prompt" heißt, sie konnte es nicht. Nur die Nachmessung
+  // muss ihn ausdrücklich verneinen – dort steht auch bei Herkunft
+  // „Export" ein offener Befund.
   void notiere(String regel, String vorher, String nachher,
-      RepairOrigin herkunft, String hinweis) {
+      RepairOrigin herkunft, String hinweis,
+      {bool? fixed}) {
     schritte.add(RepairStep(
         rule: regel,
         before: vorher,
         after: nachher,
         origin: herkunft,
-        note: hinweis));
+        note: hinweis,
+        fixed: fixed ?? herkunft == RepairOrigin.app));
   }
 
   // 1. Tiefe – gegen die absolute Grenze der gewählten Skala (2,00
@@ -758,7 +774,8 @@ Future<RepairResult> repairForMarketplace(
         f.origin == MarketplaceOrigin.prompt
             ? RepairOrigin.prompt
             : RepairOrigin.app,
-        f.reason);
+        f.reason,
+        fixed: false);
   }
 
   return RepairResult(arbeit, RepairReport(schritte));

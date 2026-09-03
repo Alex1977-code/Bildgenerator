@@ -1857,6 +1857,55 @@ Prompt. Die Tiefe (43 %) geht nur in der Skala Normal durch; wer
 Classic will, braucht „flat chest and back" stärker im Motiv als den
 Bauch.
 
+### Die zweite Figur: drei Messfehler der App
+
+Derselbe Weg noch einmal, mit dem geänderten Prompt. Diesmal lief das
+Herrichten von selbst, und die Reparatur behob Hals, Beinschnitt, Saum,
+Löcher, Dreieckszahl und die Pose (Tripo lieferte trotz „A-pose" im
+Schwanz und „T-pose" im Negativ eine T-Pose). Der Bericht danach hat
+drei Dinge falsch dargestellt:
+
+- **Ein grüner Haken auf einem offenen Befund.** Die Zeile „Armspanne
+  4,12 von mindestens 6,22 Studs: – → offen" trug den grünen Haken,
+  also „Die App hat es behoben". Das Symbol kam aus der *Herkunft* des
+  Schritts (App oder Prompt), nicht aus dem Ergebnis; eine Nachmessung
+  mit Herkunft „Export" bekam ihn deshalb ebenfalls. Dasselbe traf
+  „Tiefe: 3,20 → 3,20", wenn die Tiefe zu groß zum Stauchen war. Jetzt
+  hat jeder Schritt ein Feld `fixed`, das aus dem Ergebnis kommt: grüner
+  Haken nur, wenn die Regel wirklich erfüllt ist, Stift für „offen, das
+  muss der Prompt richten", Ausrufezeichen für „offen, aber am Export
+  oder an der Messung".
+- **Die Armlänge maß den Arm gegen sich selbst.** Geschätzt wurde
+  `(Spanne − Schulterbreite) / 2 × √2`. Die Schulterbreite war die
+  Breite des ganzen Bandes an der Schulter — und dort hängt der Arm am
+  Rumpf, steckt also in derselben Insel. Für diese Figur: Spanne 4,12,
+  „Schulter" 2,90, Ergebnis 0,87 — Warnung „Arm zu kurz", obwohl der Arm
+  1,7 Studs lang ist. Jetzt wird der Rumpf **im selben Band** gemessen,
+  in dem auch die Spanne entsteht (dem breitesten): dort steht die Hand
+  in der A-Pose frei neben dem Körper, der Rumpf misst 1,74, und der Arm
+  kommt auf 1,69 — über dem Mindestmaß von 1,5. Ist die Mitte dieses
+  Bandes frei, sagt die Schätzung nichts und wird gar nicht erst
+  gemeldet.
+- **Eine T-Pose-Schwelle an einer A-Pose-Figur.** Die 6,22 Studs
+  Armspanne stammen aus einem Validator-Lauf **in T-Pose**. Der
+  Marktplatz-Schwanz bestellt aber eine A-Pose, und dort ist dieselbe
+  Armlänge um cos 45° schmaler — die App maß also gegen eine Schwelle,
+  die sie durch ihren eigenen Prompt unerreichbar gemacht hatte. Jetzt
+  wird die Schwelle über den gemessenen Rumpf umgerechnet (hier 4,91
+  statt 6,22), und die Zeile nennt beide Zahlen. Aus demselben Grund
+  rechnet die Armlänge das √2 nur noch in der A-Pose heraus; in T-Pose
+  fiel die Schätzung vorher 41 % zu hoch aus.
+
+**Was am Prompt lag: die Hüfte, nicht die Beine.** Die Figur hatte
+Beine von 1,00 Studs statt 1,4 — obwohl im Schwanz „two separate legs
+one third of body height" stand. Der Grund: Die Beine sind, was unter
+der Hüfte übrig bleibt, und über die Hüfte sagte der Satz nichts. Tripo
+baute den Rumpf bis 2,70 von 5,00 hinunter; darunter blieb 1,00. Jetzt
+steht eine Linie im Schwanz, die sich messen lässt: `hips at mid body
+height, two separate legs with a clear gap between the thighs`. Im
+Beispiel und in den Befunden ebenso — eine Länge zu bestellen half
+nicht, eine Höhe schon.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

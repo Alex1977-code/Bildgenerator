@@ -112,8 +112,13 @@ const String robloxAccessoryImageTail =
 /// 0,38 Studs aus dem Kopf, dem Hals bei 55 % der Kopfbreite.
 ///
 /// * „two separate leg tubes from the hips down" sagte nichts über
-///   die Länge; jetzt „two separate legs one third of body height
-///   with a gap between the thighs". Bein 1,4 von 5 sind 28 %.
+///   die Länge; erst „two separate legs one third of body height".
+///   **Auch das reichte nicht** (zweite Figur: Beine 1,0 statt 1,4):
+///   Die Beine sind, was unter der Hüfte übrig bleibt, und über die
+///   Hüfte stand nichts – Tripo baute den Rumpf bis 2,7 von 5,0
+///   hinunter. Jetzt „hips at mid body height, two separate legs with
+///   a clear gap between the thighs": eine Linie, die sich messen
+///   lässt, statt einer Länge, die sich aus dem Rest ergibt.
 /// * „eye sockets with eyelids" wurde zu Kugeln mit Lidern; jetzt
 ///   „eyes sunk into sockets with eyelids". Im Negativ „bulging
 ///   eyes" und „short legs" – dafür „logo" und „arms out sideways"
@@ -135,10 +140,10 @@ const String _tailNormal5 =
     'back, narrow visible neck between head and shoulders, mitten hands '
     'without fingers, sturdy arms and legs filling their outlines, tight '
     'opaque shorts in a contrasting colour covering hips, crotch and buttocks, '
-    'two separate legs one third of body height with a gap between the thighs, '
-    'face fully visible, eyes sunk into sockets with eyelids and a mouth with '
-    'lips shaped into the head, solid closed volumes with visible wall '
-    'thickness, closed watertight shell, one single body mesh, few flat '
+    'hips at mid body height, two separate legs with a clear gap between the '
+    'thighs, face fully visible, eyes sunk into sockets with eyelids and a '
+    'mouth with lips shaped into the head, solid closed volumes with visible '
+    'wall thickness, closed watertight shell, one single body mesh, few flat '
     'separated color areas, uniform material';
 
 /// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der
@@ -304,8 +309,8 @@ const String robloxMarketplaceNegative =
 const String robloxMarketplaceExample =
     'PROMPT: compact humanoid, round head a quarter of body height, big round '
     'eyes sunk into the head, wide mouth with plump lips, straight torso, '
-    'fitted sweater, tight dark shorts, sturdy legs a third of body height, '
-    'gap between the thighs, matte charcoal fabric, pale grey skin, '
+    'fitted sweater, tight dark shorts, hips at mid body height, sturdy legs '
+    'with a gap between the thighs, matte charcoal fabric, pale grey skin, '
     '$robloxMarketplaceTail'
     '\nNEGATIV: $robloxMarketplaceNegative';
 
@@ -404,11 +409,14 @@ String robloxPromptRules({
               'und stämmig – mit Stummelbeinen und dem Schritt bei 0,9 '
               'Studs.\n'
               '  2. Proportionen („round head a quarter of body height, '
-              'sturdy legs a third of body height, gap between the '
-              'thighs"). Kein übergroßer Kopf, keine kurzen Beine: Die '
-              'Mindesthöhen für Rumpf (1,7) und Beine (1,4) sind '
-              'absolut, und bei 5 Studs bleibt unter einem 2-Studs-Kopf '
-              'nicht genug.\n'
+              'hips at mid body height, sturdy legs"). Die Hüftlinie '
+              'ist die wirksamste Angabe: „sturdy legs a third of body '
+              'height" ließ Tripo einen Rumpf bauen, der bis auf 1,0 '
+              'Studs an den Boden reichte – die Beine sind, was unter '
+              'der Hüfte übrig bleibt, und über die Hüfte sagte der '
+              'Satz nichts. Die Mindesthöhen für Rumpf (1,7) und Beine '
+              '(1,4) sind absolut, und bei 5 Studs bleibt unter einem '
+              '2-Studs-Kopf nicht genug.\n'
               '  3. Das Gesicht, ausgeschrieben – es ist hier Pflicht, '
               'nicht Schmuck („big round eyes sunk into the head, wide '
               'mouth with plump lips"; „face fully visible" und die '

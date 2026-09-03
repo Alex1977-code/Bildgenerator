@@ -262,6 +262,7 @@ class MarketplaceMeasurement {
     required this.headWidth,
     required this.neckWidth,
     required this.shoulderWidth,
+    this.spanTorsoWidth = 0,
     required this.legSeparation,
     required this.legWidth,
     this.waistWidth = 0,
@@ -283,9 +284,14 @@ class MarketplaceMeasurement {
   /// Höhe der Beine: vom Boden bis zum Schritt, Studs.
   final double legHeight;
 
-  /// Armlänge, **geschätzt** aus Armspanne und Schulterbreite für eine
-  /// A-Pose von 45°: (Spanne − Schulter) / 2 × √2. In T-Pose fällt
-  /// die Schätzung zu groß aus, in I-Pose zu klein.
+  /// Armlänge, **geschätzt** aus Armspanne und Rumpfbreite im
+  /// breitesten Band: (Spanne − Rumpf) / 2, in A-Pose mal √2,
+  /// in T-Pose unverändert. Welche der beiden Posen gilt, sagt die
+  /// Messung selbst ([looksLikeTPose]) – vorher stand hier immer √2,
+  /// und eine T-Pose-Figur bekam 41 % zu viel.
+  ///
+  /// In I-Pose (Arme am Körper) sagt die Zahl nichts: Dort steckt der
+  /// Arm in der Rumpfinsel, und die Differenz wird null.
   final double armLength;
 
   /// Höhe in Studs nach der Skalierung – immer
@@ -311,8 +317,22 @@ class MarketplaceMeasurement {
   /// Schmalste Stelle zwischen Kopf und Schulter.
   final double neckWidth;
 
-  /// Breite an der Schulter.
+  /// Breite des ganzen Bandes an der Schulter – **mit** den Armen,
+  /// wenn sie dort schon abstehen.
   final double shoulderWidth;
+
+  /// Breite allein des Rumpfes **in dem Band, in dem die Spanne
+  /// gemessen wird** – die Insel, die die Mitte enthält, ohne die
+  /// Arme daneben. Null, wenn die Mitte dort frei ist; dann trägt
+  /// nicht der Arm die Spanne, und [armLength] sagt nichts.
+  ///
+  /// Für die Armlänge ist das die richtige Bezugsgröße: Beides muss
+  /// aus derselben Höhe kommen. Gegen [shoulderWidth] gerechnet zog
+  /// sich der Arm selbst ab – an der Schulter hängt er am Rumpf und
+  /// steckt in derselben Insel. Eine A-Pose-Figur mit 4,12 Spanne kam
+  /// so auf 0,87 statt 1,71, und die Prüfung meldete einen zu kurzen
+  /// Arm, der in Wahrheit über dem Mindestmaß lag.
+  final double spanTorsoWidth;
 
   /// Anteil der Bänder in der Beinzone, die in zwei getrennte Inseln
   /// zerfallen (0 bis 1).
@@ -601,10 +621,23 @@ MarketplaceMeasurement measureMarketplaceFigure(
   final beinHoehe = schrittBand * bandStuds;
   final rumpfHoehe = math.max(0, halsBand - schrittBand) * bandStuds;
   final kopfHoehe = (bands - halsBand) * bandStuds;
-  // Armlänge aus Spanne und Schulter, für 45° geschätzt.
-  final armLaenge = math.max(
-      0.0,
-      (math.max(spanX, spanZ) - breiten[schulterBand]) / 2 * math.sqrt2);
+  // Armlänge aus Spanne und Rumpfbreite – beides aus **demselben
+  // Band**, dem breitesten. An der Schulter gemessen zog sich der Arm
+  // selbst ab: Dort hängt er am Rumpf und steckt in derselben Insel.
+  // Im breitesten Band steht in der A-Pose die Hand frei daneben.
+  final spannenRumpf =
+      _mittelInsel(belegt[breitestesBand]) / _zellen * achseSpanne * scale;
+  // Und mit dem Winkel, der wirklich gemessen wurde: In T-Pose ist der
+  // Arm waagerecht, in A-Pose steht er 45° schräg.
+  final spanne = math.max(spanX, spanZ);
+  final tPose = spanne >= targetStuds * marketplaceTPoseSpan &&
+      (maxBreite <= 0 ? 0.0 : breitesteHoehe) >= marketplaceTPoseHeight;
+  // Ist die Mitte im breitesten Band frei, liegt die Spanne nicht an
+  // den Armen (breite Füße unter dem Schritt) – dann keine Schätzung.
+  final armLaenge = spannenRumpf <= 0
+      ? 0.0
+      : math.max(
+          0.0, (spanne - spannenRumpf) / 2 * (tPose ? 1.0 : math.sqrt2));
 
   // Beine: In der unteren Zone muss der Querschnitt in zwei Inseln
   // zerfallen. Die Zone bleibt fest bei 45 % – wer sie am gemessenen
@@ -637,6 +670,7 @@ MarketplaceMeasurement measureMarketplaceFigure(
     headWidth: kopfBreite,
     neckWidth: breiten[halsBand],
     shoulderWidth: breiten[schulterBand],
+    spanTorsoWidth: spannenRumpf,
     legSeparation: gezaehlt == 0 ? 0 : getrennt / gezaehlt,
     legWidth: beinBreite,
     scale: scale,
@@ -660,6 +694,27 @@ bool _mitteFrei(List<bool> band) {
     if (z >= 0 && z < band.length && band[z]) return false;
   }
   return true;
+}
+
+/// Die Zellenzahl der Insel, die die **Mitte** des Bandes enthält –
+/// bei einer stehenden Figur der Rumpf, ohne die Arme daneben.
+///
+/// Null, wenn die Mitte frei ist (unter dem Schritt).
+int _mittelInsel(List<bool> band) {
+  final geglaettet = List<bool>.from(band);
+  for (var i = 1; i < band.length - 1; i++) {
+    if (!band[i] && band[i - 1] && band[i + 1]) geglaettet[i] = true;
+  }
+  final m = geglaettet.length ~/ 2;
+  if (!geglaettet[m]) return 0;
+  var von = m, bis = m;
+  while (von > 0 && geglaettet[von - 1]) {
+    von--;
+  }
+  while (bis < geglaettet.length - 1 && geglaettet[bis + 1]) {
+    bis++;
+  }
+  return bis - von + 1;
 }
 
 /// In wie viele Zellen ein Band quer aufgeteilt wird.
@@ -923,10 +978,12 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
         'Vom Boden bis zum Schritt gemessen – dem höchsten Band, in dem '
             'der Querschnitt noch in zwei Beine zerfällt. Zu kurze '
             'Beine heißt: zu viel Kopf, ein Saum, der den Schritt nach '
-            'unten drückt – oder ein Motiv wie „small stocky", das bei '
-            'der ersten Figur mit dem Marktplatz-Schwanz Beine von 0,9 '
-            'Studs gab. Ins Motiv „sturdy legs a third of body height, '
-            'gap between the thighs", ins Negativ „short legs".');
+            'unten drückt – oder ein Rumpf, der zu weit hinunter '
+            'reicht. Die Beine sind, was unter der Hüfte übrig bleibt: '
+            'Eine Länge zu bestellen half nicht („a third of body '
+            'height" gab 1,0), eine Linie schon. Ins Motiv „hips at '
+            'mid body height, two separate legs with a clear gap '
+            'between the thighs", ins Negativ „short legs".');
   }
   if (m.headHeight > 0 && m.torsoHeight > 0) {
     final rest = m.height - m.headHeight;
@@ -950,23 +1007,44 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
         MarketplaceLevel.warnung,
         'Arm etwa ${m.armLength.toStringAsFixed(2)} lang von mindestens '
             '$specMinArmLength Studs',
-        'Geschätzt aus Armspanne und Schulterbreite für 45°. In I-Pose '
-            'fällt die Schätzung zu klein aus; dann sagt die Zahl nichts.');
+        'Geschätzt aus der Spanne (${m.width.toStringAsFixed(2)}) und '
+            'dem Rumpf daneben '
+            '(${m.spanTorsoWidth.toStringAsFixed(2)}), '
+            '${m.looksLikeTPose ? 'waagerecht gerechnet (T-Pose)' : 'für '
+                '45° zurückgerechnet (A-Pose)'}. In I-Pose steckt der '
+            'Arm in der Rumpfinsel; dann sagt die Zahl nichts. Ins '
+            'Motiv: „long arms reaching mid thigh".');
   }
 
-  if (m.width < marketplaceMinArmSpan) {
+  // Die 6,22 stammen aus einem T-Pose-Lauf. Der Marktplatz-Schwanz
+  // bestellt aber eine A-Pose, und dort ist dieselbe Armlänge um
+  // cos 45° schmaler – die Schwelle unverändert anzulegen, meldete
+  // jede A-Pose-Figur als zu schmal. Umgerechnet wird über den
+  // gemessenen Rumpf an der Schulter: Was an ihm hängt, klappt um 45°
+  // ein, der Rumpf selbst nicht.
+  final spannenGrenze = m.looksLikeTPose || m.spanTorsoWidth <= 0
+      ? marketplaceMinArmSpan
+      : m.spanTorsoWidth +
+          (marketplaceMinArmSpan - m.spanTorsoWidth) / math.sqrt2;
+  if (m.width < spannenGrenze) {
     add(
         'armspanne',
         MarketplaceLevel.warnung,
         'Armspanne ${m.width.toStringAsFixed(2)} von mindestens '
-            '$marketplaceMinArmSpan Studs',
+            '${spannenGrenze.toStringAsFixed(2)} Studs'
+            '${m.looksLikeTPose ? '' : ' (A-Pose; in T-Pose wären es '
+                '$marketplaceMinArmSpan)'}',
         'Die Doku nennt keine Mindestspanne, nur Mindestmaße je Teil '
             '(Arm $specMinArmLength lang); die $marketplaceMinArmSpan '
-            'stammen aus einem echten Validator-Lauf und stehen hier '
-            'als Sicherheitsaufschlag. Gemessen wird die größere '
-            'waagerechte Achse; steht die Figur in I-Pose statt A- '
-            'oder T-Pose, ist die Zahl zu klein, ohne dass am Modell '
-            'etwas falsch wäre.',
+            'stammen aus einem echten Validator-Lauf in T-Pose und '
+            'stehen hier als Sicherheitsaufschlag. Der '
+            'Marktplatz-Schwanz bestellt eine A-Pose, und dort ist '
+            'dieselbe Armlänge um cos 45° schmaler – deshalb wird die '
+            'Schwelle über den Rumpf im breitesten Band '
+            '(${m.spanTorsoWidth.toStringAsFixed(2)}) umgerechnet. '
+            'Gemessen wird die größere waagerechte Achse; steht die '
+            'Figur in I-Pose, ist die Zahl zu klein, ohne dass am '
+            'Modell etwas falsch wäre.',
         origin: MarketplaceOrigin.export);
   } else {
     add('armspanne', MarketplaceLevel.ok,
@@ -1074,9 +1152,9 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             '1,4 Studs), ist es kein Saum, sondern ein Rumpf bis kurz '
             'über den Boden – bei der ersten Figur mit dem '
             'Marktplatz-Schwanz waren es „small stocky … sturdy legs". '
-            'In den Prompt: „two separate legs one third of body height '
-            'with a gap between the thighs, tight opaque shorts, no '
-            'loose hem", ins Negativ „short legs". Nackte Oberschenkel '
+            'In den Prompt: „hips at mid body height, two separate legs '
+            'with a clear gap between the thighs, tight opaque shorts, '
+            'no loose hem", ins Negativ „short legs". Nackte Oberschenkel '
             'sind keine Lösung: Der Marktplatz verlangt eine Bedeckung '
             'von der Hüfte bis unter Schritt und Gesäß.');
   } else {

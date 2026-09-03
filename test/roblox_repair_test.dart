@@ -235,9 +235,19 @@ void main() {
     final r = await repairForMarketplace(figur(tiefe: 3.2, hals: false),
         addFace: false, decimate: false);
     expect(r.report.text, contains('Reparatur-Bericht'));
-    expect(r.report.text, contains('[Prompt]'));
-    expect(r.report.text, contains('[App]'));
+    expect(r.report.text, contains('[behoben]'));
+    expect(r.report.text, contains('[offen, Prompt]'));
     expect(r.report.anythingLeft, isTrue);
+    // Der Haken kommt aus dem Ergebnis, nicht aus der Herkunft: Eine
+    // Tiefe, die zu groß zum Stauchen ist, stand mit „3.20 → 3.20" da
+    // und trug trotzdem „behoben".
+    final tiefe = r.report.steps.firstWhere((s) => s.rule == 'Tiefe');
+    expect(tiefe.fixed, isFalse);
+    for (final s in r.report.steps) {
+      if (s.rule.startsWith('Nachmessung')) {
+        expect(s.fixed, isFalse, reason: s.rule);
+      }
+    }
   });
 
   test('das Gesicht kommt vor den Teilen ins Kopfnetz', () async {
