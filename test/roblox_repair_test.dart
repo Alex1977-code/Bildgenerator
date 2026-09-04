@@ -41,10 +41,16 @@ Uint8List figur({
   }
 
   final t = tiefe / 2;
-  // Rumpf bis 3,80; Hals 3,80–4,15 (0,35 hoch, also gut drei Bänder
+  // Rumpf 2,05–3,80; Hals 3,80–4,15 (0,35 hoch, also gut drei Bänder
   // von 2 % – ein kürzerer Hals liegt unter der Auflösung der
   // Messung); Kopf darüber.
-  quader(-1.1, 2.3, -t, 1.1, 3.8, t);
+  //
+  // Der Schritt sitzt bei 2,05 und nicht bei 2,30: Mit 1,50 Rumpfhöhe
+  // riss die Vorlage das absolute Mindestmaß von
+  // [specMinTorsoHeight] = 1,7, und eine Figur, an der „ohne Mängel"
+  // geprüft wird, darf keines reißen. Aufgefallen ist es erst, als
+  // der Maßstab-Schritt anfing, genau das zu beheben.
+  quader(-1.1, 2.05, -t, 1.1, 3.8, t);
   if (hals) {
     quader(-0.3, 3.8, -0.22, 0.3, 4.15, 0.22);
     quader(-0.78, 4.15, -0.6, 0.78, 5.0, 0.6);
@@ -61,8 +67,8 @@ Uint8List figur({
   }
   // Beine, mit Schienbeinring für die Zehen-Heuristik.
   final b = beinBreite;
-  quader(-0.15 - b, 1.2, -0.25, -0.15, 2.3, 0.25);
-  quader(0.15, 1.2, -0.25, 0.15 + b, 2.3, 0.25);
+  quader(-0.15 - b, 1.2, -0.25, -0.15, 2.05, 0.25);
+  quader(0.15, 1.2, -0.25, 0.15 + b, 2.05, 0.25);
   quader(-0.15 - b, 0.35, -0.25, -0.15, 1.2, 0.25);
   quader(0.15, 0.35, -0.25, 0.15 + b, 1.2, 0.25);
   // Füße nach +Z, damit nichts gedreht werden muss.
@@ -82,15 +88,17 @@ Uint8List figur({
     final schritt = (bis - von) / scheiben;
     for (var i = 0; i < scheiben; i++) {
       quader(von + i * schritt, 1.2, -0.25, von + (i + 1) * schritt,
-          2.2, 0.25);
+          2.0, 0.25);
     }
   }
   return buildGlb(m);
 }
 
-Future<MarketplaceMeasurement> miss(Uint8List glb) async {
+Future<MarketplaceMeasurement> miss(Uint8List glb,
+    {double studs = marketplaceFigureStuds}) async {
   final v = await parseGlbForPreview(glb);
-  final m = measureMarketplaceFigure(v.positions, v.indices);
+  final m =
+      measureMarketplaceFigure(v.positions, v.indices, targetStuds: studs);
   v.dispose();
   return m;
 }
@@ -315,5 +323,91 @@ void main() {
     final schritt =
         r.report.steps.firstWhere((s) => s.rule == 'Gesichtsteile');
     expect(schritt.after, '5');
+  });
+
+  group('Maßstab: die Mindestmaße sind absolut, die Höhe ist frei', () {
+    /// Eine Figur mit zu kurzen Beinen – 1,30 von 1,40 verlangten,
+    /// genau der Fehler aus der fünften Figur. Alles andere hält die
+    /// Regeln.
+    Uint8List kurzbeinig() {
+      final m = LocalMesh();
+      void quader(double x0, double y0, double z0, double x1, double y1,
+          double z1) {
+        final b = m.positions.length ~/ 3;
+        for (final (x, y, z) in [
+          (x0, y0, z0),
+          (x1, y0, z0),
+          (x1, y1, z0),
+          (x0, y1, z0),
+          (x0, y0, z1),
+          (x1, y0, z1),
+          (x1, y1, z1),
+          (x0, y1, z1),
+        ]) {
+          m.addVertex(x, y, z, 0, 0);
+        }
+        for (final f in const [
+          [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+          [0, 5, 1], [0, 4, 5], [2, 6, 7], [2, 7, 3],
+          [1, 5, 6], [1, 6, 2], [0, 3, 7], [0, 7, 4],
+        ]) {
+          m.addTriangle(b + f[0], b + f[1], b + f[2]);
+        }
+      }
+
+      quader(-0.6, 0.0, -0.3, -0.1, 1.3, 0.3); // linkes Bein bis 1,30
+      quader(0.1, 0.0, -0.3, 0.6, 1.3, 0.3); // rechtes Bein
+      quader(-0.9, 1.3, -0.5, 0.9, 3.8, 0.5); // Rumpf
+      quader(-0.25, 3.8, -0.2, 0.25, 4.15, 0.2); // Hals
+      quader(-0.7, 4.15, -0.55, 0.7, 5.0, 0.55); // Kopf
+      // Arme, damit die Spanne auf X liegt.
+      quader(-1.6, 2.4, -0.2, -0.9, 3.6, 0.2);
+      quader(0.9, 2.4, -0.2, 1.6, 3.6, 0.2);
+      return buildGlb(m);
+    }
+
+    test('zu kurze Beine werden durch eine größere Ausgabe gelöst',
+        () async {
+      final vorher = await miss(kurzbeinig());
+      expect(vorher.legHeight, lessThan(specMinLegHeight),
+          reason: 'die Vorlage muss den Fehler wirklich haben');
+
+      final r = await repairForMarketplace(kurzbeinig(),
+          addFace: false, sculptFace: false, decimate: false);
+      final schritt =
+          r.report.steps.firstWhere((s) => s.rule == 'Maßstab');
+      expect(schritt.origin, RepairOrigin.app);
+      expect(schritt.fixed, isTrue);
+
+      // Die Figur ist jetzt höher – und in **dieser** Höhe gemessen
+      // halten die Beine ihr Mindestmaß.
+      expect(r.studs, greaterThan(marketplaceFigureStuds));
+      expect(r.studs, lessThanOrEqualTo(RobloxBodyScale.normal.maxTotalHeight));
+      final nachher = await miss(r.glb, studs: r.studs);
+      expect(nachher.legHeight, greaterThanOrEqualTo(specMinLegHeight));
+
+      // Und der Fehler steht nicht mehr in der Nachmessung. Geprüft
+      // wird auf den Wortlaut der Mindestmaß-Befunde („… hoch von
+      // mindestens …"): Dass die Beine dieser Vorlage nur zu 55 %
+      // getrennt sind, ist eine andere Sache und bleibt zu Recht
+      // stehen – ein Maßstab trennt nichts.
+      expect(
+          r.report.steps.any((s) =>
+              s.rule.startsWith('Nachmessung') &&
+              s.rule.contains('hoch von mindestens')),
+          isFalse);
+    });
+
+    test('kein Verhältnis ändert sich dabei', () async {
+      final vorher = await miss(kurzbeinig());
+      final r = await repairForMarketplace(kurzbeinig(),
+          addFace: false, sculptFace: false, decimate: false);
+      // Auf dieselbe Höhe normiert gemessen ist die Figur dieselbe:
+      // Ein gleichmäßiger Maßstab verschiebt nichts gegeneinander.
+      final gleich = await miss(r.glb);
+      expect(gleich.legHeight, closeTo(vorher.legHeight, 0.06));
+      expect(gleich.headWidth, closeTo(vorher.headWidth, 0.06));
+      expect(gleich.depth, closeTo(vorher.depth, 0.06));
+    });
   });
 }

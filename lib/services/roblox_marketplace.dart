@@ -24,6 +24,7 @@ import 'dart:typed_data';
 
 import 'auto_rig.dart' show estimateFrontSignal;
 import 'glb_preview.dart' show splitGlb, joinGlb, readGltfFloats;
+import 'roblox_face_parts.dart' show headBottomBand;
 
 /// Das Datum, an dem diese Werte am Validator gemessen wurden.
 const String marketplaceMeasuredOn = '2026-08-31';
@@ -392,6 +393,147 @@ class MarketplaceMeasurement {
       height > 0 &&
       width >= height * marketplaceTPoseSpan &&
       widestBandHeight >= marketplaceTPoseHeight;
+
+  /// Stehen die Arme weit genug ab, dass [armLength] etwas aussagt?
+  ///
+  /// Hängen sie am Körper, steckt der Arm in derselben Insel wie der
+  /// Rumpf, und die Schätzung „Spanne minus Rumpf" misst nur noch die
+  /// Schulterbreite. Bei 45° braucht ein Arm von [specMinArmLength]
+  /// dafür 2 × 1,5 × cos 45° = 2,12 Studs Abstand.
+  bool get armsFree {
+    if (spanTorsoWidth <= 0) return false;
+    final noetig =
+        2 * specMinArmLength * (looksLikeTPose ? 1.0 : 1 / math.sqrt2);
+    return width - spanTorsoWidth >= noetig;
+  }
+}
+
+/// Der Aufschlag auf den nötigen Maßstab: ein halbes Prozent.
+///
+/// Ohne ihn trifft der Faktor die Grenze **genau** – und 1,4 / 1,3 mal
+/// 1,3 ist in Fließkomma 1,3999999999999997. Die Prüfung vergleicht
+/// mit `<`, also stand der Fehler nach dem Vergrößern immer noch da.
+/// Ein halbes Prozent liegt weit innerhalb eines Messbands (2 % der
+/// Höhe) und ändert an keiner Höchstgrenze etwas Fühlbares.
+const double marketplaceScaleMargin = 1.005;
+
+/// Was ein gleichmäßiger Maßstab an den absoluten Grenzen ausrichtet.
+///
+/// **Warum es das gibt.** „Beine 1,30 hoch von mindestens 1,4 Studs"
+/// war bisher ein Fehler ohne Ausweg: Die Reparatur kann Beine nicht
+/// verlängern, und der Prompt trifft die Zahl nicht zuverlässig. Aber
+/// die Mindestmaße sind **absolut**, und die Gesamthöhe ist frei: Die
+/// Doku erlaubt für jede Skala 3,6 bis 9,5 Studs
+/// ([RobloxBodyScale.maxTotalHeight]). Dieselbe Figur, als 5,39 Studs
+/// statt als 5,00 ausgegeben, hat Beine von 1,40.
+///
+/// Das ist kein Trick, sondern die Rechnung, die die Doku vorgibt:
+/// Der Importer nimmt eine glTF-Einheit als einen Stud, also
+/// entscheidet allein die ausgegebene Größe, welche Studs-Maße der
+/// Validator misst. Die App hat diese Größe bisher fest auf 5,00
+/// gesetzt und nie nachgerechnet, ob ein anderer Wert die Fehler löst.
+///
+/// **Was der Maßstab nicht kann:** Er ändert kein einziges
+/// Verhältnis. Hals, Beintrennung, Pose, Symmetrie, Dreieckszahl
+/// bleiben, wie sie sind – und ein Kopf, der ein Drittel der Höhe
+/// misst, misst danach immer noch ein Drittel. Deshalb gibt es Figuren,
+/// bei denen kein Faktor passt: Dann steht [possible] auf `false`, und
+/// die Proportionen muss der Prompt richten.
+class MarketplaceScaleFit {
+  const MarketplaceScaleFit({
+    required this.needed,
+    required this.allowed,
+    required this.fromHeight,
+    this.forcedBy = '',
+    this.limitedBy = '',
+  });
+
+  /// Der kleinste Faktor, mit dem **alle** Mindestmaße erfüllt sind.
+  final double needed;
+
+  /// Der größte Faktor, mit dem **keine** Höchstgrenze reißt.
+  final double allowed;
+
+  /// Die Höhe, von der aus gerechnet wurde.
+  final double fromHeight;
+
+  /// Welches Mindestmaß den Faktor erzwingt.
+  final String forcedBy;
+
+  /// Welche Höchstgrenze ihn deckelt.
+  final String limitedBy;
+
+  /// Muss überhaupt vergrößert werden?
+  bool get needsScaling => needed > 1 + 1e-6;
+
+  /// Passt der nötige Faktor unter alle Höchstgrenzen?
+  bool get possible => needed <= allowed + 1e-6;
+
+  /// Die Höhe, die dabei herauskommt.
+  double get height => fromHeight * needed;
+}
+
+/// Rechnet aus, ob ein gleichmäßiger Maßstab die absoluten
+/// Mindestmaße erfüllt, ohne eine Höchstgrenze zu reißen.
+///
+/// [depthAfterRepair] ist die Tiefe, mit der zu rechnen ist – nach
+/// dem Stauchen, nicht davor. Ohne diesen Wert deckelte eine Figur,
+/// die ohnehin gleich flacher wird, den Maßstab an ihrer alten Tiefe.
+///
+/// Die Armlänge bleibt außen vor, wenn die Arme am Körper hängen:
+/// Dann ist sie nicht gemessen, sondern geschätzt, und die Prüfung
+/// meldet sie selbst nur als Warnung, nicht als Fehler.
+MarketplaceScaleFit fitMarketplaceScale(
+  MarketplaceMeasurement m, {
+  RobloxBodyScale scale = RobloxBodyScale.normal,
+  double? depthAfterRepair,
+}) {
+  var needed = 1.0;
+  var forcedBy = '';
+  void mindestens(double ist, double soll, String was) {
+    if (ist <= 0 || soll <= 0) return;
+    final f = soll / ist * marketplaceScaleMargin;
+    if (f > needed) {
+      needed = f;
+      forcedBy = was;
+    }
+  }
+
+  var allowed = double.infinity;
+  var limitedBy = '';
+  void hoechstens(double ist, double grenze, String was) {
+    if (ist <= 0 || grenze <= 0) return;
+    final f = grenze / ist;
+    if (f < allowed) {
+      allowed = f;
+      limitedBy = was;
+    }
+  }
+
+  mindestens(m.height, specMinBodyHeight, 'Gesamthöhe');
+  mindestens(m.legHeight, specMinLegHeight, 'Beinhöhe');
+  mindestens(m.torsoHeight, specMinTorsoHeight, 'Rumpfhöhe');
+  mindestens(m.headHeight, specMinHeadSize, 'Kopfhöhe');
+  mindestens(m.headWidth, specMinHeadSize, 'Kopfbreite');
+  if (m.armsFree) {
+    mindestens(m.armLength, specMinArmLength, 'Armlänge');
+  }
+
+  hoechstens(m.height, scale.maxTotalHeight, 'Gesamthöhe');
+  hoechstens(depthAfterRepair ?? m.depth, scale.maxDepth, 'Tiefe');
+  hoechstens(m.headWidth, scale.maxHeadWidth, 'Kopfbreite');
+  hoechstens(m.headHeight, scale.maxHeadHeight, 'Kopfhöhe');
+  hoechstens(m.legWidth, marketplaceMaxLegWidth, 'Beinbreite');
+  hoechstens(m.spanTorsoWidth, scale.maxTorsoWidth, 'Rumpfbreite');
+  hoechstens(m.width, scale.maxTotalWidth, 'Gesamtbreite');
+
+  return MarketplaceScaleFit(
+    needed: needed,
+    allowed: allowed.isFinite ? allowed : needed,
+    fromHeight: m.height,
+    forcedBy: forcedBy,
+    limitedBy: limitedBy,
+  );
 }
 
 /// Misst eine Figur aus ihrer Geometrie.
@@ -533,8 +675,18 @@ MarketplaceMeasurement measureMarketplaceFigure(
         lo < 0 ? 0 : (hi - lo + 1) / _zellen * achseSpanne * scale;
   }
 
-  // Kopf: das breiteste Band im obersten Fünftel.
-  final kopfAb = (bands * 0.8).floor();
+  // Kopf: das breiteste Band über der **gemessenen** Unterkante.
+  //
+  // Hier stand „das oberste Fünftel ist der Kopf". Das hält nur,
+  // solange der Kopf ein Fünftel hoch ist. Bei der Frankenstein-Figur
+  // ist er 0,62 Studs breit und sitzt über 4,20; im obersten Fünftel
+  // (alles über 4,00) liegen die Schultern mit 1,39 und 1,80 mit
+  // drin. Gemessene Kopfbreite 1,85 statt 0,62 – und damit war der
+  // Hals rechnerisch so breit wie der Kopf, also keiner. „Kein
+  // erkennbarer Hals" kam so auch bei Figuren, die einen hatten.
+  // Dieselbe Falle war in [headBottomY] schon behoben; die Regel
+  // liegt jetzt einmal da und wird hier mitbenutzt.
+  final kopfAb = headBottomBand(breiten) ?? (bands * 0.8).floor();
   var kopfBand = kopfAb;
   for (var b = kopfAb; b < bands; b++) {
     if (breiten[b] > breiten[kopfBand]) kopfBand = b;
@@ -1013,7 +1165,7 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
   // [specMinArmLength] dafür 2 × 1,5 × cos 45° = 2,12 Studs.
   final reichweite = m.width - m.spanTorsoWidth;
   final noetig = 2 * specMinArmLength * (m.looksLikeTPose ? 1.0 : 1 / math.sqrt2);
-  if (m.spanTorsoWidth > 0 && reichweite < noetig) {
+  if (m.spanTorsoWidth > 0 && !m.armsFree) {
     add(
         'arme_frei',
         MarketplaceLevel.warnung,

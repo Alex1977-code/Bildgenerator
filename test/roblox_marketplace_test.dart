@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:bildgenerator/services/auto_rig.dart';
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
+import 'package:bildgenerator/services/roblox_face_parts.dart'
+    show headBottomBand;
 import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -719,6 +721,139 @@ void main() {
       expect(bericht.didSomething, isFalse);
       expect(bericht.bones, 0);
       expect((json['nodes'] as List).length, vorher);
+    });
+  });
+
+  group('Kopfunterkante statt oberstes Fünftel', () {
+    test('das Breitenprofil verrät, wo der Kopf aufhört', () {
+      // 50 Bänder: unten Rumpf (1,8), dann Schulter, ein schmaler
+      // Hals bei 40–42, darüber der Kopf.
+      final profil = <double>[
+        for (var b = 0; b < 40; b++) 1.8,
+        for (var b = 40; b < 43; b++) 0.26,
+        for (var b = 43; b < 50; b++) 0.62,
+      ];
+      expect(headBottomBand(profil), 43);
+
+      // Eine Säule ohne jede Einschnürung hat keine Kopfgrenze.
+      expect(headBottomBand(List<double>.filled(50, 1.0)), isNull);
+
+      // Und ein leeres Profil auch nicht.
+      expect(headBottomBand(List<double>.filled(50, 0)), isNull);
+    });
+
+    test('ein kleiner Kopf über breiten Schultern wird richtig '
+        'gemessen – und sein Hals gefunden', () async {
+      // Der Fall aus der vierten und fünften Figur: Kopf 0,62 breit,
+      // Schultern 1,80, und die Schultern ragen ins oberste Fünftel.
+      // Mit „das oberste Fünftel ist der Kopf" wurde die Schulter zur
+      // Kopfbreite (1,80). Dann liegt der echte Hals **über** dem so
+      // bestimmten Kopfband, und die Suche nach der schmalsten Stelle
+      // darunter kann ihn gar nicht finden: gemessen 1,80 von 1,80,
+      // also 100 % – „kein erkennbarer Hals" für eine Figur, die
+      // einen hat.
+      final b = _Bau();
+      b.quader(-0.7, 0.0, -0.5, -0.1, 2.1, 0.5); // linkes Bein
+      b.quader(0.1, 0.0, -0.5, 0.7, 2.1, 0.5); // rechtes Bein
+      b.quader(-0.7, 2.1, -0.5, 0.7, 3.9, 0.5); // Rumpf
+      b.quader(-0.9, 3.9, -0.5, 0.9, 4.05, 0.5); // Schultern, 1,80
+      b.quader(-0.13, 4.05, -0.13, 0.13, 4.3, 0.13); // Hals, 0,26
+      b.quader(-0.31, 4.3, -0.31, 0.31, 5.0, 0.31); // Kopf, 0,62
+
+      final m = measureMarketplaceFigure(b.positions, b.i);
+      expect(m.headWidth, closeTo(0.62, 0.08),
+          reason: 'die Kopfbreite, nicht die Schulterbreite');
+      expect(m.shoulderWidth, closeTo(1.8, 0.08));
+      expect(m.neckWidth, closeTo(0.26, 0.08));
+      expect(m.neckRatio, closeTo(0.42, 0.06));
+      expect(m.hasNeck, isTrue,
+          reason: 'Hals 0,26 gegen Kopf 0,62 sind 42 %, erlaubt sind 50');
+    });
+  });
+
+  group('Maßstab gegen die absoluten Mindestmaße', () {
+    // Die Mindestmaße sind absolut, die Gesamthöhe ist frei (3,6 bis
+    // 9,5 Studs). Also lässt sich „Bein 1,30 von mindestens 1,4"
+    // durch eine größere Ausgabe lösen – ohne ein einziges Verhältnis
+    // zu ändern.
+    MarketplaceMeasurement mass({
+      double height = 5.0,
+      double legHeight = 1.3,
+      double torsoHeight = 1.9,
+      double headHeight = 1.2,
+      double headWidth = 1.0,
+      double depth = 1.5,
+      double width = 3.0,
+      double torsoWidth = 1.4,
+      double legWidth = 0.6,
+    }) =>
+        MarketplaceMeasurement(
+          height: height,
+          width: width,
+          widthAxis: 0,
+          depth: depth,
+          headWidth: headWidth,
+          neckWidth: headWidth * 0.4,
+          shoulderWidth: torsoWidth,
+          legSeparation: 1.0,
+          headHeight: headHeight,
+          torsoHeight: torsoHeight,
+          legHeight: legHeight,
+          legWidth: legWidth,
+          spanTorsoWidth: torsoWidth,
+          scale: 1.0,
+        );
+
+    test('kurze Beine bestimmen den Faktor, die Höhe folgt', () {
+      final fit = fitMarketplaceScale(mass());
+      expect(fit.needsScaling, isTrue);
+      expect(fit.possible, isTrue);
+      expect(fit.forcedBy, 'Beinhöhe');
+      expect(fit.needed, closeTo(1.4 / 1.3 * marketplaceScaleMargin, 0.001));
+      expect(fit.height, closeTo(5.41, 0.02));
+      // Der Aufschlag muss die Grenze wirklich überschreiten – genau
+      // treffen reicht nicht, siehe [marketplaceScaleMargin].
+      expect(1.3 * fit.needed, greaterThan(specMinLegHeight));
+    });
+
+    test('eine Figur, die alle Mindestmaße hält, wird nicht '
+        'angefasst', () {
+      final fit = fitMarketplaceScale(mass(legHeight: 1.6));
+      expect(fit.needsScaling, isFalse);
+      expect(fit.needed, 1.0);
+    });
+
+    test('die Tiefe deckelt den Maßstab – aber die gestauchte', () {
+      // Roh 2,20 tief: Platz bis 2,25 ist nur der Faktor 1,023, und
+      // der reicht für die Beine nicht. Nach dem Stauchen auf 1,95
+      // sind es 1,154 – und dann geht es.
+      final roh = fitMarketplaceScale(mass(depth: 2.2));
+      expect(roh.possible, isFalse);
+      expect(roh.limitedBy, 'Tiefe');
+
+      final nachStauchen =
+          fitMarketplaceScale(mass(depth: 2.2), depthAfterRepair: 1.95);
+      expect(nachStauchen.possible, isTrue);
+      expect(nachStauchen.allowed, closeTo(2.25 / 1.95, 0.001));
+    });
+
+    test('falsche Verhältnisse rettet kein Maßstab', () {
+      // Ein Kopf, der schon 2,0 Studs hoch ist, darf nicht größer
+      // werden – gleichzeitig bräuchten die Beine mehr.
+      final fit = fitMarketplaceScale(mass(headHeight: 2.0));
+      expect(fit.needsScaling, isTrue);
+      expect(fit.possible, isFalse);
+      expect(fit.limitedBy, 'Kopfhöhe');
+    });
+
+    test('die Skala setzt die Höchstgrenzen', () {
+      // Classic deckelt den Kopf bei 1,5 Studs Breite, Normal bei 3.
+      final classic = fitMarketplaceScale(mass(headWidth: 1.45),
+          scale: RobloxBodyScale.classic);
+      expect(classic.limitedBy, 'Kopfbreite');
+      expect(classic.possible, isFalse);
+      final normal = fitMarketplaceScale(mass(headWidth: 1.45));
+      expect(normal.possible, isTrue);
     });
   });
 }

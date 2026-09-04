@@ -2472,6 +2472,91 @@ was sie tun *würde*, die Prüfung misst die Datei, wie sie *ist*. Die
 Zahlen gingen trotzdem auseinander, weil beide den Kopf verschieden
 suchten — mit der gemessenen Unterkante messen sie dasselbe.
 
+### Dieselbe Falle stand an drei Stellen, behoben war eine
+
+Die fünfte Figur brachte zwei Fehler zurück: „Beine 1.30 hoch von
+mindestens 1.4 Studs" und „Kein erkennbarer Hals". Der Prompt enthielt
+beide Regeln wörtlich. Das Problem lag nicht mehr am Text.
+
+**„Das oberste Fünftel ist der Kopf" stand an drei Stellen im Code.**
+Behoben war es nach der vierten Figur nur beim Einbau der
+Gesichtsteile. Die Marktplatz-Messung
+(`measureMarketplaceFigure`) und die Zonen der Reparatur
+(`_messeZonen`) rieten weiter — und die Reparatur maß ihre Bänder
+zusätzlich über **Punkte** statt über Dreiecke, die zweite Falle aus
+derselben Runde.
+
+Was daraus folgt, ist eine Kette:
+
+1. Die Schultern ragen ins oberste Fünftel, also wird die
+   Schulterbreite (1,80) als Kopfbreite gemessen statt 0,62.
+2. Das so bestimmte „Kopfband" liegt damit **unter** dem echten Hals.
+   Die Suche nach der schmalsten Stelle sucht ab dort abwärts — der
+   Hals liegt darüber und kann gar nicht gefunden werden.
+3. Gemeldet wird „Hals 1,80 von 1,80, also 100 %" — kein erkennbarer
+   Hals, für eine Figur, die einen hat.
+4. Die Reparatur schnürt daraufhin am Kopf selbst ein. Sie schrumpft
+   ihn mit, das Verhältnis bleibt, und der Fehler steht nach der
+   Reparatur genauso da wie davor.
+
+Die Regel liegt jetzt einmal da (`headBottomBand`) und wird von allen
+drei Stellen benutzt: das breiteste Band in den obersten 12 % ist die
+Kopfbreite, von dort abwärts endet der Kopf beim ersten Band, das
+deutlich schmaler ist (ein Hals) oder deutlich breiter (die Schultern).
+Ein Test hält den Fall fest: Kopf 0,62 über Schultern von 1,80, dazu
+ein Hals von 0,26. Mit der alten Regel misst die App 1,80 Kopfbreite
+und findet keinen Hals; mit der neuen 0,62 und einen Hals bei 42 %.
+
+### Der Maßstab: die Mindestmaße sind absolut, die Höhe ist frei
+
+„Beine 1,30 von mindestens 1,4" war bisher ein Fehler ohne Ausweg. Die
+Reparatur kann Beine nicht verlängern, und ein Prompt trifft die Zahl
+nicht zuverlässig — „a third of body height" gab 1,0.
+
+Der Ausweg steht in der Doku selbst. Die Mindestmaße sind **absolut**
+(Rumpf 1,7, Bein 1,4, Arm 1,5 Studs), die Gesamthöhe dagegen ist
+**frei**: Die Tabelle „Character body specifications" erlaubt für jede
+Skala 3,6 bis 9,5 Studs. Und der Importer nimmt eine glTF-Einheit als
+einen Stud — also entscheidet allein die ausgegebene Größe, welche
+Studs-Maße der Validator misst. Die App hatte 5,00 fest verdrahtet und
+nie nachgerechnet, ob ein anderer Wert die Fehler löst.
+
+Dieselbe Figur als 5,41 Studs statt als 5,00 hat Beine von 1,41. Kein
+Verhältnis ändert sich dabei — Hals, Beintrennung, Pose, Symmetrie und
+Dreieckszahl bleiben, wie sie sind.
+
+Die Reparatur rechnet das jetzt aus (`fitMarketplaceScale`) und
+vergrößert, wenn es aufgeht:
+
+- **Der nötige Faktor** ist der größte über alle Mindestmaße —
+  Gesamthöhe, Beinhöhe, Rumpfhöhe, Kopfhöhe, Kopfbreite und, wenn die
+  Arme frei genug abstehen, die Armlänge. Hängen sie am Körper, bleibt
+  die Armlänge außen vor: Dann ist sie geschätzt, nicht gemessen, und
+  die Prüfung meldet sie selbst nur als Warnung.
+- **Der erlaubte Faktor** ist der kleinste über alle Höchstgrenzen —
+  Gesamthöhe, Tiefe, Kopfbreite, Kopfhöhe, Beinbreite, Rumpfbreite,
+  Gesamtbreite, alle aus der Skala.
+- **Passt der nötige unter den erlaubten**, wird vergrößert, und die
+  Höhe im 3D-Tab wandert mit. Sonst steht im Bericht, welches Maß den
+  Faktor fordert und welches ihn deckelt — dann stimmen die
+  Verhältnisse nicht, und das richtet nur der Prompt.
+
+Zwei Dinge, die beim Bauen aufgefallen sind:
+
+- **Der Schritt gehört hinter das Tiefen-Stauchen.** Eine Figur mit
+  2,20 Tiefe lässt bis 2,25 nur den Faktor 1,023 — zu wenig für die
+  Beine. Gestaucht auf 1,95 sind es 1,154, und dann geht es.
+- **Genau treffen reicht nicht.** 1,4 / 1,3 × 1,3 ist in Fließkomma
+  1,3999999999999997, und die Prüfung vergleicht mit „kleiner als".
+  Der Faktor bekommt deshalb ein halbes Prozent Aufschlag — weit
+  innerhalb eines Messbands von 2 %.
+
+Nebenbei aufgefallen: Die Testvorlage „eine Figur ohne Mängel" hatte
+selbst einen — 1,50 Rumpfhöhe gegen die geforderten 1,70. Gemeldet
+wurde das immer, nur eben als Zeile in der Nachmessung, die niemand
+für einen Mangel der Vorlage hielt. Der Maßstab-Schritt fing an, ihn
+zu beheben, und damit fiel er auf.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

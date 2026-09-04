@@ -2509,9 +2509,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       ),
     );
     if (uebernehmen != true || !mounted) return;
-    setState(() => result.glbBytes = reparatur.glb);
-    _showSnack('Reparierte Figur übernommen – die Prüfung zeigt jetzt '
-        'diesen Stand.');
+    // Die Höhe mitübernehmen: Der Maßstab-Schritt darf sie anheben,
+    // und die Prüfung rechnet alles auf die eingetragene Höhe um.
+    // Bliebe hier 5,00 stehen, meldete sie genau die Fehler wieder,
+    // die der Maßstab gerade gelöst hat.
+    final alteHoehe = _studsValue ?? robloxCharacterStuds;
+    final neueHoehe = reparatur.studs;
+    final gewachsen = (neueHoehe - alteHoehe).abs() > 0.005;
+    setState(() {
+      result.glbBytes = reparatur.glb;
+      if (gewachsen) _studsCtrl.text = neueHoehe.toStringAsFixed(2);
+    });
+    _showSnack(gewachsen
+        ? 'Reparierte Figur übernommen. Die Höhe steht jetzt auf '
+            '${neueHoehe.toStringAsFixed(2)} statt '
+            '${alteHoehe.toStringAsFixed(2)} Studs – so erreichen die '
+            'Teile ihre absoluten Mindestmaße. Erlaubt sind '
+            '${specMinBodyHeight.toStringAsFixed(1)} bis '
+            '${_bodyScale.maxTotalHeight.toStringAsFixed(1)}.'
+        : 'Reparierte Figur übernommen – die Prüfung zeigt jetzt '
+            'diesen Stand.');
   }
 
   /// Zeigt das Urteil des Konzept-Gates und fragt, ob trotzdem.

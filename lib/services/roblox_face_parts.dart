@@ -567,9 +567,9 @@ FacePartsResult addFaceParts(
 /// Breite vom Scheitel an, und die Regel löste sofort aus.
 double headBottomY(Float32List pos, List<int> idx, double minY,
     double maxY, double headTopFraction) {
-  const bands = 60;
   final hoehe = maxY - minY;
   if (hoehe <= 0) return maxY;
+  const bands = headBandCount;
   final breite = List<double>.filled(bands, 0);
   final lo = List<double>.filled(bands, double.infinity);
   final hi = List<double>.filled(bands, double.negativeInfinity);
@@ -600,20 +600,57 @@ double headBottomY(Float32List pos, List<int> idx, double minY,
   for (var b = 0; b < bands; b++) {
     breite[b] = lo[b].isFinite ? hi[b] - lo[b] : 0;
   }
-  // Die Kopfbreite aus den obersten 12 %.
-  final obenAb = (bands * 0.88).floor();
+  final kopfAb = headBottomBand(breite);
+  if (kopfAb == null) return maxY - hoehe * headTopFraction;
+  return minY + kopfAb / bands * hoehe;
+}
+
+/// Wie viele Bänder die Kopfsuche über die Figur legt.
+const int headBandCount = 60;
+
+/// Der oberste Anteil der Figur, in dem die Kopfbreite gesucht wird.
+const double headTopBandFraction = 0.12;
+
+/// Ab welchem Anteil der Kopfbreite ein Band als Hals gilt.
+const double headNeckDrop = 0.75;
+
+/// Ab welchem Vielfachen der Kopfbreite ein Band als Schulter gilt.
+const double headShoulderRise = 1.4;
+
+/// Das unterste Band, das noch zum Kopf gehört – aus einem
+/// **Breitenprofil**, damit dieselbe Regel überall gilt.
+///
+/// Die Regel und ihre beiden Fallen stehen bei [headBottomY]. Diese
+/// Fassung nimmt das fertige Profil entgegen, weil drei Stellen den
+/// Kopf finden müssen und jede ihre Bänder anders füllt: der Einbau
+/// der Gesichtsteile über Dreiecke in der XY-Ebene, die
+/// Marktplatz-Messung über ihr Belegungsraster, die Reparatur über
+/// ihre eigenen Zonen. Geraten wurde bisher an allen drei Stellen
+/// dasselbe – „das oberste Fünftel ist der Kopf" –, und behoben war
+/// es nur an der ersten.
+///
+/// Gibt `null` zurück, wenn sich keine Grenze finden lässt: kein Band
+/// mit Breite ganz oben, oder von dort abwärts keines, das deutlich
+/// schmaler oder deutlich breiter wäre. Dann bleibt es beim Anteil,
+/// den die aufrufende Stelle vorgibt.
+int? headBottomBand(List<double> breiten,
+    {double topFraction = headTopBandFraction}) {
+  final bands = breiten.length;
+  if (bands <= 1) return null;
+  final obenAb = (bands * (1 - topFraction)).floor().clamp(0, bands - 1);
   var kopfMax = 0.0;
   for (var b = obenAb; b < bands; b++) {
-    kopfMax = math.max(kopfMax, breite[b]);
+    kopfMax = math.max(kopfMax, breiten[b]);
   }
-  if (kopfMax <= 0) return maxY - hoehe * headTopFraction;
+  if (kopfMax <= 0) return null;
   for (var b = obenAb - 1; b >= 0; b--) {
-    if (breite[b] <= 0) continue;
-    if (breite[b] < kopfMax * 0.75 || breite[b] > kopfMax * 1.4) {
-      return minY + (b + 1) / bands * hoehe;
+    if (breiten[b] <= 0) continue;
+    if (breiten[b] < kopfMax * headNeckDrop ||
+        breiten[b] > kopfMax * headShoulderRise) {
+      return b + 1;
     }
   }
-  return maxY - hoehe * headTopFraction;
+  return null;
 }
 
 double? faceFrontHitZ(List<double> tris, double x, double y, double abY) {

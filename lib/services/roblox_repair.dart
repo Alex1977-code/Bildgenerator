@@ -130,7 +130,16 @@ class RepairReport {
 }
 
 class RepairResult {
-  const RepairResult(this.glb, this.report);
+  const RepairResult(this.glb, this.report,
+      {this.studs = marketplaceFigureStuds});
+
+  /// Wie hoch die Figur am Ende ist, Studs.
+  ///
+  /// Nicht immer die angefragte Höhe: Erfüllt ein gleichmäßiger
+  /// Maßstab die absoluten Mindestmaße, nimmt die Reparatur ihn –
+  /// siehe [fitMarketplaceScale]. Die Prüfung danach muss mit
+  /// **dieser** Zahl rechnen, sonst misst sie die alte Figur.
+  final double studs;
   final Uint8List glb;
   final RepairReport report;
 }
@@ -154,11 +163,16 @@ class _Zonen {
 
 /// Misst die Zonen, die für die Korrekturen gebraucht werden.
 ///
-/// Bänder von 2 % der Höhe, wie im Pflichtenheft. Gerechnet wird an
-/// Punkten, nicht an Dreiecken: Für Hüfte, Schulter und Beinmitten
-/// genügt das, und die Insel-Zählung, für die es nicht genügt, macht
-/// [measureMarketplaceFigure].
-_Zonen _messeZonen(Float32List pos) {
+/// Bänder von 2 % der Höhe, wie im Pflichtenheft, gefüllt über
+/// **Dreiecke**. Über Punkte ging es lange gut und dann nicht mehr:
+/// Ein Kasten hat zwischen Unter- und Oberkante keine Punkte, ein
+/// punktweise gefülltes Band ist dort leer, und der Hals einer
+/// solchen Figur war unsichtbar. Dieselbe Falle war in [headBottomY]
+/// schon behoben – hier nicht.
+///
+/// Die Insel-Zählung, für die auch Dreiecksbänder nicht genügen,
+/// macht weiter [measureMarketplaceFigure].
+_Zonen _messeZonen(Float32List pos, List<int> idx) {
   var minY = double.infinity, maxY = double.negativeInfinity;
   var minX = double.infinity, maxX = double.negativeInfinity;
   for (var i = 0; i + 2 < pos.length; i += 3) {
@@ -172,21 +186,41 @@ _Zonen _messeZonen(Float32List pos) {
   final breite = List<double>.filled(bands, 0);
   final loX = List<double>.filled(bands, double.infinity);
   final hiX = List<double>.filled(bands, double.negativeInfinity);
-  for (var i = 0; i + 2 < pos.length; i += 3) {
-    if (hoehe <= 0) continue;
-    final b = (((pos[i + 1] - minY) / hoehe) * bands)
-        .floor()
-        .clamp(0, bands - 1);
-    loX[b] = math.min(loX[b], pos[i]);
-    hiX[b] = math.max(hiX[b], pos[i]);
+  if (hoehe > 0) {
+    int band(double y) =>
+        (((y - minY) / hoehe) * bands).floor().clamp(0, bands - 1);
+    for (var t = 0; t + 2 < idx.length; t += 3) {
+      var yLo = double.infinity, yHi = double.negativeInfinity;
+      var xLo = double.infinity, xHi = double.negativeInfinity;
+      for (var k = 0; k < 3; k++) {
+        final v = idx[t + k] * 3;
+        if (v + 2 >= pos.length) continue;
+        yLo = math.min(yLo, pos[v + 1]);
+        yHi = math.max(yHi, pos[v + 1]);
+        xLo = math.min(xLo, pos[v]);
+        xHi = math.max(xHi, pos[v]);
+      }
+      if (!yLo.isFinite) continue;
+      for (var b = band(yLo); b <= band(yHi); b++) {
+        loX[b] = math.min(loX[b], xLo);
+        hiX[b] = math.max(hiX[b], xHi);
+      }
+    }
   }
   for (var b = 0; b < bands; b++) {
     breite[b] = loX[b].isFinite ? hiX[b] - loX[b] : 0;
   }
 
-  // Kopf: breitestes Band im obersten Fünftel. Schulter: von dort nach
-  // unten das erste Band über dem Anderthalbfachen davon.
-  var kopfBand = (bands * 0.8).floor();
+  // Kopf: das breiteste Band über der **gemessenen** Unterkante –
+  // dieselbe Regel wie beim Einbau der Gesichtsteile und bei der
+  // Messung. Vorher stand hier „das oberste Fünftel". Bei einer Figur
+  // mit kleinem Kopf steckten die Schultern in diesem Fünftel; dann
+  // ist breite[kopfBand] die Schulterbreite, die Suche nach einer
+  // Schulter über dem Anderthalbfachen davon findet nichts, und die
+  // Einschnürung setzt am Kopf selbst an – sie schrumpft ihn mit, und
+  // das Verhältnis bleibt, wie es war. Genau der Fall, den der
+  // Rückfall unten auffangen sollte und nicht auffing.
+  var kopfBand = headBottomBand(breite) ?? (bands * 0.8).floor();
   for (var b = kopfBand; b < bands; b++) {
     if (breite[b] > breite[kopfBand]) kopfBand = b;
   }
@@ -432,8 +466,11 @@ Future<RepairResult> repairForMarketplace(
   vorschau.dispose();
   final textur = firstGlbTexturePng(glb);
 
-  var mass = measureMarketplaceFigure(pos, idx, targetStuds: targetStuds);
-  var zonen = _messeZonen(pos);
+  // Die Höhe ist von hier an veränderlich: Der Maßstab-Schritt darf
+  // sie anheben, und jede spätere Messung muss mit der neuen rechnen.
+  var hoehe = targetStuds;
+  var mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+  var zonen = _messeZonen(pos, idx);
   var mitteX = 0.0, mitteZ = 0.0;
   {
     var minX = double.infinity, maxX = double.negativeInfinity;
@@ -494,6 +531,60 @@ Future<RepairResult> repairForMarketplace(
   // Der Umstülp-Wächter: mehr als ein halbes Prozent der Dreiecke
   // (mindestens 20) umgedreht, und die Verformung wird zurückgenommen.
   int flipGrenze() => math.max(20, idx.length ~/ 600);
+
+  // 1b. Maßstab – der einzige Hebel gegen zu kleine Teile.
+  //
+  // Muss nach dem Stauchen kommen: Die Tiefe deckelt den Maßstab, und
+  // gestaucht ist sie eine andere. Und vor allem Weiteren, weil jede
+  // spätere Zone in Mesh-Koordinaten liegt und ein Maßstab sie
+  // verschöbe.
+  {
+    mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+    final fit = fitMarketplaceScale(mass, scale: scale);
+    if (fit.needsScaling && fit.possible) {
+      var minY = double.infinity;
+      for (var i = 1; i < pos.length; i += 3) {
+        minY = math.min(minY, pos[i]);
+      }
+      final f = fit.needed;
+      for (var i = 0; i + 2 < pos.length; i += 3) {
+        pos[i] = mitteX + (pos[i] - mitteX) * f;
+        pos[i + 1] = minY + (pos[i + 1] - minY) * f;
+        pos[i + 2] = mitteZ + (pos[i + 2] - mitteZ) * f;
+      }
+      hoehe = fit.height;
+      mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+      zonen = _messeZonen(pos, idx);
+      notiere(
+          'Maßstab',
+          '${fit.fromHeight.toStringAsFixed(2)} Studs',
+          '${hoehe.toStringAsFixed(2)} Studs',
+          RepairOrigin.app,
+          'Die Mindestmaße sind absolut, die Gesamthöhe ist frei '
+              '(${specMinBodyHeight.toStringAsFixed(1)} bis '
+              '${scale.maxTotalHeight.toStringAsFixed(1)} Studs bei '
+              '${scale.label}). Gefordert hat den Faktor '
+              '${f.toStringAsFixed(3)} die ${fit.forcedBy}; gedeckelt '
+              'wäre er bei ${fit.allowed.toStringAsFixed(3)} durch die '
+              '${fit.limitedBy}. Kein Verhältnis ändert sich dabei – '
+              'die Figur wird als Ganzes größer ausgegeben, und der '
+              'Importer nimmt eine glTF-Einheit als einen Stud.');
+    } else if (fit.needsScaling) {
+      notiere(
+          'Maßstab',
+          '${fit.fromHeight.toStringAsFixed(2)} Studs',
+          'nicht möglich',
+          RepairOrigin.prompt,
+          'Die ${fit.forcedBy} bräuchte den Faktor '
+              '${fit.needed.toStringAsFixed(3)} '
+              '(${fit.height.toStringAsFixed(2)} Studs), die '
+              '${fit.limitedBy} lässt nur '
+              '${fit.allowed.toStringAsFixed(3)} zu '
+              '(${(fit.fromHeight * fit.allowed).toStringAsFixed(2)} '
+              'Studs). Ein Maßstab ändert kein Verhältnis: Hier stimmen '
+              'die Proportionen nicht, und das richtet nur der Prompt.');
+    }
+  }
 
   // 2. Hals.
   if (!mass.hasNeck) {
@@ -563,7 +654,7 @@ Future<RepairResult> repairForMarketplace(
       final probe = await parseGlbForPreview(probeGlb);
       final probeMass = measureMarketplaceFigure(
           probe.positions, probe.indices,
-          targetStuds: targetStuds);
+          targetStuds: hoehe);
       probe.dispose();
       final besser = probeMass.legSeparation > mass.legSeparation &&
           probeMass.legHeight >= mass.legHeight - 0.05;
@@ -775,7 +866,7 @@ Future<RepairResult> repairForMarketplace(
   // 9. Nachmessen.
   final nach = await parseGlbForPreview(arbeit);
   final endmass = measureMarketplaceFigure(nach.positions, nach.indices,
-      targetStuds: targetStuds);
+      targetStuds: hoehe);
   nach.dispose();
   for (final f in checkMarketplaceFigure(endmass, scale: scale)) {
     if (f.level == MarketplaceLevel.ok) continue;
@@ -787,7 +878,7 @@ Future<RepairResult> repairForMarketplace(
         fixed: false);
   }
 
-  return RepairResult(arbeit, RepairReport(schritte));
+  return RepairResult(arbeit, RepairReport(schritte), studs: hoehe);
 }
 
 /// Das Dreiecksziel, ab dem reduziert wird – hier gespiegelt, damit
