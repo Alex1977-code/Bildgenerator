@@ -197,7 +197,7 @@ void main() {
     // Wörtern weit über jedem Budget.
     test('Für Stichwort-Modelle ist es eine Kette ohne Verneinungen', () {
       final kette = viewFrontKeywords('a small stone tower', null,
-          trueAlpha: false);
+          background: ViewBackground.magenta);
       for (final wort in ['NOT', 'no ', 'without']) {
         expect(kette, isNot(contains(wort)), reason: 'Verneinung: $wort');
       }
@@ -208,7 +208,7 @@ void main() {
 
     test('Die Kette bleibt im Budget des sparsamsten Modells', () {
       final kette = viewFrontKeywords('a small stone tower', null,
-          trueAlpha: true);
+          background: ViewBackground.alpha);
       final woerter = kette.split(RegExp(r'\s+')).length;
       final knappstes =
           promptProfileFor(GenProvider.selfhost, 'sdxl-turbo').maxWords;
@@ -218,9 +218,9 @@ void main() {
     });
 
     test('Dreiviertel und Frontal schließen sich gegenseitig aus', () {
-      final vorn = viewFrontKeywords('x', null, trueAlpha: true);
+      final vorn = viewFrontKeywords('x', null, background: ViewBackground.alpha);
       final schraeg = viewFrontKeywords('x', null,
-          threeQuarter: true, trueAlpha: true);
+          threeQuarter: true, background: ViewBackground.alpha);
       expect(vorn, contains('front view'));
       expect(vorn, isNot(contains('three quarter')));
       expect(schraeg, contains('three quarter view'));
@@ -247,7 +247,7 @@ void main() {
 
     test('Die Pose steht mit in der Kette', () {
       final kette = viewFrontKeywords('a hero', 'T-pose, arms straight out',
-          trueAlpha: true);
+          background: ViewBackground.alpha);
       expect(kette, contains('T-pose'));
     });
   });

@@ -718,6 +718,275 @@ blurry, low quality
 
 19 Wörter Motiv, 34 Wörter Stil, zusammen 53.
 
+## Jeder Bild-Prompt gegen sein Ziel gehalten
+
+Eine Durchsicht aller Texte, die die App an ein **Bildmodell** gibt –
+und aller Vorlagen, aus denen solche Texte entstehen. Die Frage war
+jedes Mal dieselbe: Welches Modell bekommt diesen Prompt, und tut
+darin jedes Wort etwas für das Ziel? Ein Bild, aus dem hinterher ein
+3D-Modell gerechnet wird, braucht andere Wörter als ein hübsches Bild.
+
+Der Ausgangspunkt ist die Landkarte: Derselbe Satz kann an drei ganz
+verschiedene Empfänger gehen, und was beim einen wirkt, ist beim
+anderen verlorener Platz.
+
+| Empfänger | Wer das ist | Was dort wirkt | Was dort nichts tut |
+| --- | --- | --- | --- |
+| Bildmodell, Briefing | GPT-Image, Gemini | ganze Sätze, Verneinungen, Maße | Netz-Begriffe (`single mesh`) |
+| Bildmodell, Stichworte | Stability, eigene GPU | dichte Kette, Reihenfolge = Gewichtung | Verneinungen, Sätze, Netz-Begriffe |
+| Text→3D | Tripo, Meshy, Rodin | Form, Proportion, Netz-Begriffe | Kamera, Licht, Hintergrund |
+
+Geprüft wurde mit Tests, nicht nach Gefühl: `test/image_prompt_audit_test.dart`
+hält jeden Befund fest, `test/prompt_template_audit_test.dart` prüft
+weiterhin jede Vorlage gegen jedes eingebaute Modell und jede
+Blickrichtung.
+
+### Der Gegenstands-Prompt hatte drei Empfänger und eine Fassung
+
+**Befund.** Der Prompt für einen Gegenstand („Passende Gegenstände zu
+einer Figur") geht auf drei Wegen los: als kopierter Block in den
+Massenprompt des Bild-Tabs, über die Ansichten-Pipeline an ein
+Bildmodell, oder direkt an Tripo/Meshy. Er sah auf allen drei Wegen
+gleich aus und schleppte dabei jeweils Wörter mit, die dort nichts
+bewirken können.
+
+**Beleg.** Der Schwanz endete auf `even neutral lighting, plain flat
+background`. Geht derselbe Text über die Ansichten, hängt
+`viewFrontKeywords` seinerseits `single subject, centered … even
+diffuse studio lighting` an – und bei jedem Anbieter außer OpenAI
+zusätzlich `uniform magenta background, chroma key magenta`. Genau
+diesen Magenta-Screen entfernt die App hinterher per Chroma-Key
+(`removeGeneratedBackground`); bleibt weniger als 30 % des Bildrands
+magenta, fällt sie auf den generischen Flutlauf zurück.
+`plain flat background` arbeitet also gegen den einen Schritt, von dem
+das Freistellen abhängt. Umgekehrt sagt die App in ihrer eigenen
+Vorlage „Natives Text→3D": *keine Kamera-, Licht- oder
+Qualitätswörter – Text-zu-3D-Modelle ignorieren sie oder werden
+schlechter.* Und `closed watertight shell, single mesh` sagt einem
+Bildmodell nichts – das steht seit Längerem so im Code, als
+Begründung für `robloxAccessoryImageTail`; im allgemeinen Schwanz
+standen die Wörter trotzdem weiter.
+
+**Geändert.** Der Schwanz ist in drei Teile zerlegt
+(`itemShapeTail`, `itemMeshTail`, `itemStagingTail`), und
+`itemPromptParts` bekommt mit `ItemPromptTarget`, wer den Text liest.
+
+| Empfänger | Formworte | Netz-Angaben | Inszenierung | Länge (Schwert, mit Stilvorlage) |
+| --- | --- | --- | --- | --- |
+| `image` (kopierter Block) | ja | nein | ja | 70 Wörter |
+| `views` (Ansichten) | ja | nein | nein | 63 Wörter |
+| `text3d` (Tripo/Meshy) | ja | ja | nein | 68 Wörter |
+
+Der zusammengesetzte Ansichts-Prompt ist damit von 105 auf 93 Wörter
+gefallen, `centered` und die Lichtangabe stehen je einmal statt
+zweimal, und `plain flat background` steht dem Magenta-Screen nicht
+mehr entgegen.
+
+### Ein Verweis auf ein Referenzbild, das nie mitging
+
+**Befund.** Mit eingeschalteter Stilvorlage begann der
+Gegenstands-Prompt mit *„in exactly the same art style … as the
+reference image"*. Ob wirklich eines mitgeht, wurde nicht geprüft.
+
+**Beleg.** `generateViewsFromText` verwirft Referenzbilder, sobald der
+Bild-Anbieter keine auswertet (`provider.supportsReferences` – das
+sind nur OpenAI und Gemini). Und bei reinem Text→3D gibt es überhaupt
+keinen Bildschritt. In beiden Fällen verwies der Prompt auf ein Bild,
+das nie ankam – und die Figur, an deren Stil sich der Gegenstand
+halten soll, stand dann nirgends mehr, weil die Beschreibung nur
+*statt* des Verweises eingesetzt wird.
+
+**Geändert.** Der Verweis steht nur noch, wenn alle drei Bedingungen
+erfüllt sind: gerenderte Stilvorlage, referenzbildfähiges Bild-Modell,
+Lauf über die Ansichten-Pipeline. Sonst wandert wieder die gekürzte
+Figurbeschreibung in den Text.
+
+### „no character in the image" holte den Charakter ins Bild
+
+**Befund.** Derselbe Satz endete auf `no character in the image`. Der
+Zusatz war ausdrücklich für die Modelle gedacht, die keinen
+Negativ-Prompt auswerten (SDXL Turbo, FLUX schnell) – also für
+Diffusions-Modelle.
+
+**Beleg.** Es ist die Regel, vor der dieselbe App an vier Stellen
+warnt: In einer Stichwortkette wirkt „no text" wie „text". Hier hieß
+das Substantiv `character`, und genau das sollte nicht ins Bild. Bei
+den Modellen, für die der Zusatz gedacht war, wirkte er also gegen
+sich selbst.
+
+**Geändert.** Positiv formuliert: *„but the image shows the object on
+its own"*. Ausgeschlossen wird über die NEGATIV-Zeile, die ohnehin mit
+`character, person, hand, arm` beginnt.
+
+### Der Schalter „Roblox-Regeln anhängen" tat innerhalb der App nichts
+
+**Befund.** Im Gegenstands-Dialog schaltet er die Roblox-Bausteine zu.
+Beim **Kopieren** wirkte er; beim **Erzeugen** in der App nicht.
+
+**Beleg.** `itemPromptParts` wertet `roblox` nur zusammen mit
+`accessoryTail`/`accessoryNegative` aus, und der Lauf innerhalb der App
+gab beide nicht mit. `roblox: true` änderte dort kein Zeichen.
+
+**Geändert.** Der Lauf gibt sie jetzt mit – für die Ansichten die
+Formworte (`robloxAccessoryImageTail`), für Text→3D den vollen
+Schwanz (`robloxAccessoryTail`), dazu die NEGATIV-Begriffe.
+
+### „plain fully transparent background" an ein Modell ohne Alphakanal
+
+**Befund.** Die Ansichten kannten zwei Hintergründe: echtes Alpha oder
+Magenta-Screen. Die eigene GPU wurde dem Alpha-Fall zugeschlagen und
+bekam *„plain fully transparent background"* bestellt.
+
+**Beleg.** Ein Diffusions-Modell hat keinen Alphakanal. Auf der
+eigenen GPU schneidet **der Server** frei: `_cutout` in
+`server/local_image_server.py` ruft rembg auf, ausgelöst durch
+`transparent: true`. Die vier Wörter konnten dort also nichts
+bewirken, während das, was das Freistellen wirklich braucht – eine
+gleichmäßige, schattenfreie Fläche – nicht bestellt wurde.
+
+**Geändert.** Aus dem Schalter ist `ViewBackground` mit drei Fällen
+geworden:
+
+| Anbieter | Bestellt wird | Freigestellt wird |
+| --- | --- | --- |
+| OpenAI | `plain fully transparent background` | vom Modell selbst (`background: transparent`) |
+| Stability, Gemini | Magenta-Screen `#FF00FF` | Chroma-Key in der App |
+| Eigene GPU | eine gleichmäßige, unbeleuchtete graue Fläche | rembg auf dem Server |
+
+Alle drei Ketten bleiben unter 40 Wörtern, dem Budget des sparsamsten
+Modells (SDXL Turbo): 31, 34 und 35 Wörter.
+
+### Die Spielgrafik-Regeln nannten eine zweite Wortzahl
+
+**Befund.** In einer einzigen kopierten Vorlage standen zwei
+Höchstlängen: die des Modells („Höchstlänge des PROMPT-Blocks: etwa 40
+Wörter") und die feste Zeile der Spielgrafik-Regeln („Zusammen unter
+60 Wörter").
+
+**Beleg.** Die feste Stil-Kette hat 34 Wörter. Bei SDXL Turbo
+(40 Wörter) blieben dem Motiv damit 6, bei SD 1.5 (50) sechzehn – für
+Gebäudeart *und* erkennendes Merkmal zu wenig. Der erprobte Block
+selbst ist 53 Wörter lang und passt bei beiden gar nicht.
+
+**Geändert.** Die Vorlage rechnet das Budget jetzt aus dem gewählten
+Modell aus und schreibt es hin. Reicht es nicht, steht das dort auch:
+
+| Modell | Budget | Feste Kette | Fürs Motiv | Text in der Vorlage |
+| --- | --- | --- | --- | --- |
+| SDXL Turbo | 40 | 34 | 6 | ACHTUNG … besser SDXL Base oder SD 3.5 |
+| SD 1.5 | 50 | 34 | 16 | ACHTUNG … besser SDXL Base oder SD 3.5 |
+| SDXL Base | 60 | 34 | 26 | „dem Motiv bleiben rund 26" |
+| Stability Core | 60 | 34 | 26 | „dem Motiv bleiben rund 26" |
+| FLUX.1 schnell | 120 | 34 | 86 | „dem Motiv bleiben rund 86" |
+
+### Eine NEGATIV-Zeile für Modelle, die keine lesen
+
+**Befund.** Dieselben Spielgrafik-Regeln verlangten „immer genau diese
+Zeile NEGATIV:" – auch von SDXL Turbo und FLUX schnell, die ohne
+Guidance laufen.
+
+**Beleg.** Die Prüfung des Massenprompts sagt es seit Längerem selbst:
+*„… wertet den NEGATIV-Block nicht aus (Guidance ≤ 1). Bodenfleck,
+Bodenplatte und ein zweites Gebäude lassen sich damit nicht
+ausschließen."* Der ganze Bodenausschluss der Spielgrafik hängt an
+dieser Zeile. Der Server bestätigt es: `MODELS` in
+`server/local_image_server.py` führt für beide Guidance `0.0`, und
+`/health` meldet je Modell `negativePrompt: guidance > 0 and family
+!= "flux"`.
+
+**Geändert.** Bei diesen Modellen verlangt die Vorlage keine
+NEGATIV-Zeile mehr, sagt stattdessen, dass der Boden **nirgends**
+stehen darf – es gibt keinen Block, in den er ausweichen könnte –, und
+empfiehlt dasselbe wie die Prüfung: SDXL Base oder SD 3.5.
+
+### Die Roblox-Regeln an einer Bild-Vorlage
+
+**Befund.** Im 3D-Tab hängt die App bei eingeschaltetem Roblox-Ziel
+ihren Regelblock an die kopierte Vorlage – auch an die Bild-Vorlagen
+„Figur für Bild→3D" und „Objekt/Fahrzeug". Der Block ist für Text→3D
+geschrieben. Drei seiner Angaben stimmten dort nicht.
+
+| Angabe im Block | Warum sie an einer Bild-Vorlage falsch ist |
+| --- | --- |
+| „KEINE T-Pose in den Prompt schreiben" | Die Vorlage „Figur für Bild→3D" verlangt zwei Zeilen weiter oben genau eine T- oder A-Pose. Den Posen-Zusatz hängt die App nur an einen Text→3D-Prompt an; einem Bild lässt sich die Pose nachträglich nicht mehr geben. |
+| „Der PROMPT darf höchstens 1.024 Zeichen haben" | Das ist Tripos Grenze. Ein Bild-Prompt geht an GPT-Image, Gemini oder Stable Diffusion; dort greift sie nicht. |
+| `closed watertight shell, single mesh` im festen Schwanz | Sagt einem Bildmodell nichts – dieselbe Begründung wie oben. |
+
+**Geändert.** `robloxPromptRules` kennt jetzt einen Bild-Fall
+(`image: true`, gesetzt vom 3D-Tab im Bild-Modus): Die Pose gehört
+dann ausdrücklich **in** den Prompt – an beiden Stellen, an denen der
+Block sie erwähnt –, Tripos Zeichengrenze entfällt mit
+einem Verweis darauf, was stattdessen zählt, und beim festen Schwanz
+steht, welche zwei Begriffe im Bild nichts bewirken. Der Bauplan, die
+Dreiecksgrenzen und die NEGATIV-Zeile bleiben unverändert – die gelten
+für beide Wege.
+
+### Kleinigkeiten, die dabei auffielen
+
+- **„Pixar-Stil" als Stilbeispiel** stand in der Vorlage „Figur für
+  Bild→3D". Wer die Roblox-Regeln dazuschaltet, bekommt im selben
+  kopierten Text „keine Marken- oder Figurenbezüge: Alles Hochgeladene
+  geht durch die Roblox-Moderation". Jetzt steht dort „stilisierter
+  3D-Zeichentrick".
+- **Die fehlende Kamera-Angabe.** Die Ansichten, die die App selbst
+  erzeugt, bestellen `orthographic view without perspective
+  distortion` und führen `perspective distortion` im Negativ-Block.
+  Für eine von Hand geschriebene Bildvorlage galt das nicht – dabei
+  geht dieselbe Rekonstruktion darüber. Die Vorlage verlangt jetzt
+  „wie durch ein langes Objektiv gesehen".
+- **„die App wählt die Pose"** stand in der Vorlage
+  „Motiv-Beschreibung". Das stimmt nur, solange Rigging oder der
+  Posen-Schalter an ist; sonst bleibt `pose` null und das Bild bekommt
+  gar keine. Die Vorlage sagt jetzt beides.
+- **„15 Wörter Motiv"** stand als Kommentar am Massenprompt-Beispiel;
+  die Vorgabe ist seit Längerem 20, das Beispiel hat 19. Die Zahlen im
+  Vorlagentext werden jetzt aus dem Beispiel gerechnet statt
+  festgeschrieben.
+
+### Was in Ordnung war
+
+- **`_turnPrompt` und `_depthPrompt`** (gedrehte Ansichten,
+  Tiefenkarte) entstehen nur bei referenzbildfähigen Anbietern, also
+  bei GPT-Image und Gemini. Sie dürfen deshalb Sätze und Verneinungen
+  enthalten, und sie tun es.
+- **`viewNegativePrompt`** geht nur dorthin, wo es ein Negativ-Feld
+  gibt (Stability, eigene GPU mit Guidance) – geprüft über
+  `negativeHandling == separateField`.
+- **Die Vorlage „Objekt/Fahrzeug"** verlangt die Dreiviertelansicht
+  und deckt sich mit dem, was `_frontPrompt` im
+  Dreiviertel-Fall bestellt (rund 40° seitlich, leicht erhöht).
+- **Der Massenprompt** setzt eine Zeile `NEGATIV:` je nach Modell als
+  eigenes Feld ab, webt sie als Satz in den Prompt oder meldet, dass
+  sie wirkungslos bleibt. Das war schon richtig.
+
+### Was offen bleibt
+
+- **Meshys Zeichengrenze ist ungeprüft.** Für Tripo stehen 1.024 und
+  255 Zeichen im Code, und `clipToLimit` kürzt an einer Kommastelle,
+  bevor die API mit 400 antwortet. `MeshyService` schickt `prompt`,
+  `negative_prompt` und `texture_prompt` ungekürzt. Aus dieser
+  Umgebung ließ sich Meshys Dokumentation nicht abrufen (der
+  Netz-Proxy blockt `docs.meshy.ai`), und eine Zahl ohne Beleg
+  einzutragen wäre schlimmer als keine. Der Punkt bleibt offen – zu
+  tun ist: die Grenze in der Doku nachsehen und wie bei Tripo als
+  Konstante mit `clipToLimit` eintragen.
+- **Die harten Zeichengrenzen der Bild-APIs** (OpenAI, Gemini,
+  Stability) konnten aus demselben Grund nicht gegen die
+  Dokumentation belegt werden. Was die App stattdessen kennt und
+  einhält, ist die Grenze, die praktisch zählt: Ein CLIP-Block fasst
+  75 Tokens, also rund 60 Wörter – daraus stammen die Wortbudgets je
+  Modell. Der eigene Server belegt das Verfahren: Er zerlegt lange
+  Prompts in bis zu fünf Blöcke (`_MAX_BLOCKS = 5`, `_CLIP_CHUNK =
+  75`) und meldet, wenn darüber hinaus etwas wegfiel.
+- **Der Gegenstands-Prompt bleibt für die sparsamen Modelle zu lang.**
+  Zusammengesetzt mit der Ansichts-Kette sind es 93 Wörter (vorher
+  105); SDXL Turbo gewichtet 40, SDXL Base und Stability Core 60. Das
+  liegt am Kern des Gegenstands plus Größensatz plus Stilverweis –
+  jedes davon trägt Information, die das Ergebnis braucht. Gekürzt
+  wurde deshalb nur, was nichts trägt. Der Lauf für Gegenstände geht
+  außerdem nicht durch die Massenprompt-Prüfung und warnt darum auch
+  nicht.
+
 ## Massenprompt: viele Bilder in einem Lauf
 
 Im Tab **Bild** oben auf **Massenprompt** umschalten. Statt einer

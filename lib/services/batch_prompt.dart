@@ -727,7 +727,9 @@ String batchPromptBriefing(
   // auf, wenn alle fertig sind.
   final kamera = '\n\n${viewDirectionBriefing(direction, profile.style, profile.negativeHandling, profile.modelLabel)}';
   final assets = direction.extraRules == 'spielgrafik'
-      ? '\n\n${gameAssetBriefing(profile.style)}'
+      ? '\n\n${gameAssetBriefing(profile.style,
+          maxWords: profile.maxWords,
+          handling: profile.negativeHandling)}'
       : '';
   return 'Aufgabe: Erstelle einen „Massenprompt" für einen '
       'KI-Bildgenerator. Er enthält die Beschreibungen mehrerer Bilder, '
@@ -816,7 +818,8 @@ String batchPromptExample(PromptProfile profile,
     {ViewDirection direction = freeDirection}) {
   final gameAssets = direction.extraRules == 'spielgrafik';
   // Bei Spielgrafiken ist der erprobte Block die beste Vorlage: Er
-  // zeigt die Aufteilung 15 Wörter Motiv, dann der feste Stil-Schwanz.
+  // zeigt die Aufteilung – erst das Motiv in rund
+  // [gameAssetLeadWords] Wörtern, dann der feste Stil-Schwanz.
   if (gameAssets && profile.style == PromptStyle.keywords) {
     return gameAssetExample;
   }

@@ -314,8 +314,10 @@ PromptProfile promptProfileFor(GenProvider provider, String model,
   final kamera = '\n\n${viewDirectionBriefing(direction, style, handling, label)}';
   // Die Spielgrafik-Regeln hängen an der isometrischen Ansicht: Wer
   // ein Gebäude-Asset für eine Karte baut, wählt genau die.
+  // Die Spielgrafik-Regeln müssen dasselbe Budget nennen wie die
+  // Zeile darüber; sonst stehen in einer Vorlage zwei Zahlen.
   final assets = direction.extraRules == 'spielgrafik'
-      ? '\n\n${gameAssetBriefing(style)}'
+      ? '\n\n${gameAssetBriefing(style, maxWords: limit, handling: handling)}'
       : '';
 
   final briefing = keywords
@@ -487,15 +489,52 @@ const String gameAssetKeep =
     'Materialien, weiches Licht, gerundete Kanten, Fachwerk und '
     'Reetdach.';
 
+/// Wörter eines Prompt-Stücks – Kommas trennen wie Leerzeichen.
+int gameAssetWordCount(String text) => text
+    .replaceAll(',', ' ')
+    .split(RegExp(r'\s+'))
+    .where((w) => w.isNotEmpty)
+    .length;
+
+/// Der Motivteil des erprobten Beispielblocks – alles zwischen
+/// „PROMPT: " und dem festen Stil-Schwanz.
+String get gameAssetExampleMotif => gameAssetExample
+    .split('PROMPT: ')[1]
+    .split(gameAssetKeywords)[0]
+    .trim();
+
 /// Der Spielgrafik-Abschnitt für die Vorlage der Prompt-KI, passend
 /// zur Prompt-Art des Modells.
-String gameAssetBriefing(PromptStyle style) {
+///
+/// [maxWords] und [handling] sind die des gewählten Modells. Ohne sie
+/// stand hier eine feste Zahl („zusammen unter 60 Wörter") und eine
+/// feste Anweisung („immer genau diese Zeile NEGATIV:") – beides
+/// widersprach bei den sparsamen Modellen dem, was zwei Zeilen weiter
+/// oben in derselben Vorlage stand: SDXL Turbo bekommt „höchstens 40
+/// Wörter" genannt, und Turbo wie FLUX schnell werten den
+/// NEGATIV-Block gar nicht aus.
+String gameAssetBriefing(PromptStyle style,
+    {int maxWords = 0,
+    NegativeHandling handling = NegativeHandling.separateField}) {
   if (style == PromptStyle.keywords) {
+    final kette = gameAssetWordCount(gameAssetKeywords);
+    final rest = maxWords - kette;
+    final laenge = maxWords <= 0
+        ? 'Zusammen unter 60 Wörter.'
+        : rest >= gameAssetLeadWords
+            ? 'Zusammen höchstens $maxWords Wörter – die feste Kette '
+                'belegt davon $kette, dem Motiv bleiben rund $rest.'
+            : 'ACHTUNG: Die feste Kette allein hat $kette Wörter, '
+                'dieses Modell gewichtet aber nur rund $maxWords. Für '
+                'das Motiv bleiben ${rest < 0 ? 0 : rest} Wörter – zu '
+                'wenig für Gebäudeart und erkennendes Merkmal. Für '
+                'Gebäude-Assets besser ein Modell mit größerem Budget '
+                'wählen (SDXL Base oder SD 3.5).';
     return 'Spielgrafik (Gebäude-Asset):\n'
         '$gameAssetReason\n'
         '- Aufbau jedes PROMPT: erst das MOTIV in etwa '
         '$gameAssetLeadWords Wörtern, dann wörtlich der feste '
-        'Stil-Schwanz. Zusammen unter 60 Wörter. Diffusions-Modelle '
+        'Stil-Schwanz. $laenge Diffusions-Modelle '
         'gewichten nach Position und Menge – ein langer Stil-Teil '
         'überstimmt sonst das Gebäude.\n'
         '- Das Motiv nennt zuerst die Gebäudeart, dann sofort das '
@@ -506,13 +545,23 @@ String gameAssetBriefing(PromptStyle style) {
         '„big domed stone oven" wurden zwei Schornsteine.\n'
         '- Danach immer genau diese Kette, unverändert:\n'
         '  $gameAssetKeywords\n'
-        '- Und immer genau diese Zeile „NEGATIV:":\n'
-        '  $gameAssetNegativeTerms\n'
+        '${handling == NegativeHandling.ignored ? '- Dieses Modell '
+            'wertet den NEGATIV-Block nicht aus (Guidance 1). '
+            'Bodenfleck, Bodenplatte und ein zweites Gebäude lassen '
+            'sich damit nicht ausschließen – dafür gibt es keinen '
+            'positiven Ersatz, „plain grey background" in der Kette '
+            'ist alles, was bleibt. Für Gebäude-Assets besser SDXL '
+            'Base oder SD 3.5 wählen.\n' : '- Und immer genau diese '
+            'Zeile „NEGATIV:":\n  $gameAssetNegativeTerms\n'}'
         '- KEIN Wort über den Boden im PROMPT – auch kein '
         '„centered on empty ground", kein „standing on grass", kein '
         '„on the ground". Das Modell malt, was dasteht: Genau so kam '
-        'der Gras- und Erdfleck zurück. Der Boden gehört '
-        'ausschließlich in den NEGATIV-Block, die Vereinzelung trägt '
+        'der Gras- und Erdfleck zurück. '
+        '${handling == NegativeHandling.ignored ? 'Der Boden darf '
+            'nirgends stehen – dieses Modell hat keinen '
+            'NEGATIV-Block, in den er ausweichen könnte.' : 'Der '
+            'Boden gehört ausschließlich in den NEGATIV-Block.'} '
+        'Die Vereinzelung trägt '
         '„single isolated 3d building model".\n'
         '- Der Blickwinkel braucht alle drei Angaben aus der Kette '
         '(„isometric view from high above", „looking down onto the '
@@ -532,8 +581,11 @@ String gameAssetBriefing(PromptStyle style) {
         'Mauerwerk, angekommen ist „Gebäude aus Findlingen" – runde '
         'Lehmkuppeln ohne Dach.\n'
         '- $gameAssetKeep\n\n'
-        'So sieht ein fertiger Block aus ($gameAssetLeadWords Wörter '
-        'Motiv, dann die Kette – zusammen 53 Wörter):\n\n'
+        'So sieht ein fertiger Block aus '
+        '(${gameAssetWordCount(gameAssetExampleMotif)} Wörter Motiv, '
+        'dann die Kette – zusammen '
+        '${gameAssetWordCount('$gameAssetExampleMotif '
+            '$gameAssetKeywords')} Wörter):\n\n'
         '$gameAssetExample';
   }
   return 'Spielgrafik (Gebäude-Asset):\n'

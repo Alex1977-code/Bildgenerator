@@ -48,21 +48,46 @@ const rigPoseParts = {
       'without any occlusion',
 };
 
-/// Studio-Vorgaben der Ansichten. Nur OpenAI liefert echte
-/// Transparenz; alle anderen Provider bekommen einen Magenta-Screen
-/// angefordert, der anschließend per Chroma-Key entfernt wird –
-/// robuster als das Erraten „neutraler“ Hintergründe, die Bild-KIs
-/// gern mit Studioboden und Schatten füllen. Magenta statt Grün, weil
-/// Grün ständig im Motiv vorkommt (Fahrzeuge, Pflanzen, Kleidung) und
-/// als Farbschein auf Lack und Glas abfärbte.
-String _stagingPart(bool trueAlpha) =>
+/// Was der Prompt über den Hintergrund bestellen darf.
+///
+/// Drei Fälle, und sie hingen bisher an einem einzigen Schalter
+/// „echtes Alpha ja/nein" – womit die eigene GPU dieselbe Anweisung
+/// bekam wie OpenAI: „plain fully transparent background". Ein
+/// Diffusions-Modell kann keinen Alphakanal malen; auf der eigenen
+/// GPU schneidet **der Server** frei (`_cutout` mit rembg in
+/// server/local_image_server.py, ausgelöst durch `transparent: true`).
+/// Die vier Wörter konnten dort also nichts bewirken. Bestellt wird
+/// jetzt, was das Freistellen wirklich braucht: eine gleichmäßige
+/// Fläche.
+enum ViewBackground {
+  /// OpenAI: `background: 'transparent'`, das Bild kommt mit Alpha
+  /// zurück.
+  alpha,
+
+  /// Magenta-Screen, den die App anschließend per Chroma-Key
+  /// entfernt. Magenta statt Grün, weil Grün ständig im Motiv
+  /// vorkommt (Fahrzeuge, Pflanzen, Kleidung) und als Farbschein auf
+  /// Lack und Glas abfärbte.
+  magenta,
+
+  /// Eigene GPU: gleichmäßige Fläche, freigestellt wird danach.
+  plain,
+}
+
+/// Studio-Vorgaben der Ansichten.
+String _stagingPart(ViewBackground background) =>
     'single subject only, perfectly centered, completely '
     'visible with a small margin, orthographic view without perspective '
     'distortion, '
-    '${trueAlpha ? 'plain fully transparent background' : 'the ENTIRE '
-        'background is a perfectly uniform bright magenta screen '
-        '(chroma key magenta #FF00FF), no color bounce from the '
-        'backdrop onto the subject'}, the subject floats with no '
+    '${switch (background) {
+      ViewBackground.alpha => 'plain fully transparent background',
+      ViewBackground.magenta => 'the ENTIRE background is a perfectly '
+          'uniform bright magenta screen (chroma key magenta #FF00FF), '
+          'no color bounce from the backdrop onto the subject',
+      ViewBackground.plain => 'the ENTIRE background is one perfectly '
+          'even, unlit, flat mid-grey surface without any texture, '
+          'gradient or vignette',
+    }}, the subject floats with no '
     'ground plane, no floor, absolutely no shadow cast anywhere, no '
     'reflections, even diffuse studio lighting, crisp details';
 
@@ -77,7 +102,8 @@ String _stagingPart(bool trueAlpha) =>
 /// die Anweisung rund 90 Wörter lang – mehr als das Budget von SDXL
 /// Turbo, SD 1.5 und SDXL zusammen erlaubt.
 String viewFrontKeywords(String description, String? pose,
-        {bool threeQuarter = false, required bool trueAlpha}) =>
+        {bool threeQuarter = false,
+        required ViewBackground background}) =>
     [
       description.trim(),
       if (pose != null && pose.trim().isNotEmpty) pose.trim(),
@@ -88,9 +114,13 @@ String viewFrontKeywords(String description, String? pose,
         'front view, facing the camera, horizontal camera axis, '
             'camera at mid height',
       'single subject, centered, fully visible, orthographic',
-      trueAlpha
-          ? 'plain transparent background'
-          : 'uniform magenta background, chroma key magenta',
+      switch (background) {
+        ViewBackground.alpha => 'plain transparent background',
+        ViewBackground.magenta =>
+          'uniform magenta background, chroma key magenta',
+        ViewBackground.plain => 'plain flat grey background, even '
+            'unlit backdrop',
+      },
       'even diffuse studio lighting, crisp details',
     ].join(', ');
 
@@ -109,7 +139,8 @@ String viewNegativePrompt({required bool threeQuarter}) => [
     ].join(', ');
 
 String _frontPrompt(String description, String? pose,
-        {bool threeQuarter = false, required bool trueAlpha}) =>
+        {bool threeQuarter = false,
+        required ViewBackground background}) =>
     // Kamera-Anweisung ZUERST und nachdrücklich – Bild-KIs neigen bei
     // dichten Objektbeschreibungen sonst zur dramatischen Frontale
     // oder zum erhöhten „Hero-Shot“ (der die Silhouetten des lokalen
@@ -124,14 +155,15 @@ String _frontPrompt(String description, String? pose,
         'camera directly. NOT elevated, NOT from above, no bird\'s-eye '
         'or hero angle. '}'
     '$description. ${pose == null ? '' : '$pose, '}'
-    '${_stagingPart(trueAlpha)}';
+    '${_stagingPart(background)}';
 
-String _turnPrompt(String viewInstruction, {required bool trueAlpha}) =>
+String _turnPrompt(String viewInstruction,
+        {required ViewBackground background}) =>
     'Exactly the same subject as in the reference image: identical shape, '
     'proportions, colors, materials, clothing and details – do not change '
     'anything about the subject itself. $viewInstruction Keep exactly the '
     'same camera height, scale, framing and camera distance as the '
-    'reference image, ${_stagingPart(trueAlpha)}';
+    'reference image, ${_stagingPart(background)}';
 
 /// Prüft den konfigurierten Bild-Provider und liefert Provider,
 /// Schlüssel und Generator. [needsReferences] verlangt zusätzlich
@@ -277,7 +309,11 @@ Future<GeneratedViews> generateViewsFromText({
     return ReferenceImage(bytes: bytes, name: 'ansicht_$label.png');
   }
 
-  final trueAlpha = provider == GenProvider.openai || provider.isLocal;
+  final background = provider == GenProvider.openai
+      ? ViewBackground.alpha
+      : provider.isLocal
+          ? ViewBackground.plain
+          : ViewBackground.magenta;
   // Die Ansichts-Vorgabe in der Schreibweise des gewählten Modells.
   // Die gedrehten Ansichten brauchen das nicht: Sie entstehen nur bei
   // referenzbildfähigen Anbietern, und das sind genau die
@@ -290,9 +326,9 @@ Future<GeneratedViews> generateViewsFromText({
         'Vorn',
         profile.style == PromptStyle.keywords
             ? viewFrontKeywords(description, pose,
-                threeQuarter: dreiviertel, trueAlpha: trueAlpha)
+                threeQuarter: dreiviertel, background: background)
             : _frontPrompt(description, pose,
-                threeQuarter: dreiviertel, trueAlpha: trueAlpha),
+                threeQuarter: dreiviertel, background: background),
         negative: profile.negativeHandling ==
                 NegativeHandling.separateField
             ? viewNegativePrompt(threeQuarter: dreiviertel)
@@ -310,7 +346,7 @@ Future<GeneratedViews> generateViewsFromText({
       views[entry.key] = existing[entry.key] ??
           await generateOne(
             labels[entry.key]!,
-            _turnPrompt(entry.value, trueAlpha: trueAlpha),
+            _turnPrompt(entry.value, background: background),
             references: [front],
           );
     }

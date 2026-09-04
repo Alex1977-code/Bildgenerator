@@ -684,15 +684,74 @@ String _englishFraction(double share) {
   return '${(share * 100).round()} percent';
 }
 
-/// Der feste Schwanz für einen Gegenstand außerhalb von Roblox –
-/// dieselben vier Angaben, die auch eine Figur brauchbar machen:
-/// ein zusammenhängendes Volumen, sichtbare Wandstärke, geschlossene
-/// Hülle, ein Netz.
-const String itemTail =
-    'single solid object shown alone, centered, thick rounded shapes '
-    'with visible wall thickness, closed watertight shell, single '
-    'mesh, clean readable silhouette, even neutral lighting, plain '
-    'flat background';
+/// Wer den Prompt bekommt.
+///
+/// Derselbe Gegenstand geht auf drei Wegen los, und jeder Weg
+/// verträgt andere Wörter. Was für den falschen Empfänger dasteht,
+/// ist verlorener Platz – bei einem Diffusions-Modell verschiebt es
+/// zusätzlich die Gewichtung, weil es nach Position und Menge
+/// gewichtet.
+enum ItemPromptTarget {
+  /// Ein Bildmodell, und sonst nichts: der Block, den der
+  /// Gegenstands-Dialog in den Massenprompt des Bild-Tabs kopiert.
+  /// Nur hier muss die Inszenierung im Text stehen.
+  image,
+
+  /// Die Ansichten-Pipeline. Kamera, Licht und Hintergrund hängt
+  /// [viewFrontKeywords] selbst an, und zwar in der Fassung, die zum
+  /// Anbieter passt – ein zweiter Hintergrund im Text stünde dagegen.
+  views,
+
+  /// Ein Text→3D-Modell (Tripo, Meshy, Rodin). Kein Bild, keine
+  /// Kamera, kein Licht; dafür zählen hier die Netz-Angaben.
+  text3d,
+}
+
+/// Die Formworte: ein zusammenhängendes Volumen, sichtbare
+/// Wandstärke, lesbare Silhouette.
+///
+/// Sie gehen an jeden Empfänger – über ein Bild vererben sie sich in
+/// die Rekonstruktion.
+const String itemShapeTail =
+    'single solid object shown alone, thick rounded shapes with '
+    'visible wall thickness, clean readable silhouette';
+
+/// Die Netz-Angaben. Sie gehören **nur** in einen Text→3D-Prompt.
+///
+/// Die Begründung steht schon in [robloxAccessoryImageTail]: Einem
+/// Bildmodell sagen „closed watertight shell" und „single mesh"
+/// nichts. Der Gegenstands-Dialog tauscht sie dort deshalb aus – im
+/// allgemeinen Schwanz standen sie trotzdem weiter.
+const String itemMeshTail = 'closed watertight shell, single mesh';
+
+/// Die Inszenierung: Bildmitte, Licht, Hintergrund.
+///
+/// Sie gehört **nur** in einen Prompt, der allein an ein Bildmodell
+/// geht – also in den Block, den der Gegenstands-Dialog in den
+/// Massenprompt des Bild-Tabs kopiert. In den beiden Wegen innerhalb
+/// der App richtet sie Schaden an:
+///
+/// * **Text→3D** (Tripo, Meshy, Rodin) kennt weder Kamera noch Licht
+///   noch Hintergrund. Die Vorlage „Natives Text→3D" sagt es selbst:
+///   keine Kamera-, Licht- oder Qualitätswörter.
+/// * **Ansichten-Pipeline**: [viewFrontKeywords] hängt „single
+///   subject, centered … even diffuse studio lighting" ohnehin an,
+///   und bei jedem Anbieter außer OpenAI bestellt sie einen
+///   Magenta-Screen, den die App anschließend als Chroma-Key
+///   entfernt. „plain flat background" steht dagegen.
+const String itemStagingTail =
+    'centered, even neutral lighting, plain flat background';
+
+/// Der Schwanz für den jeweiligen Empfänger.
+String itemTailFor(ItemPromptTarget target) => switch (target) {
+      ItemPromptTarget.image => '$itemShapeTail, $itemStagingTail',
+      ItemPromptTarget.views => itemShapeTail,
+      ItemPromptTarget.text3d => '$itemShapeTail, $itemMeshTail',
+    };
+
+/// Der Schwanz eines reinen Bild-Prompts – so, wie ihn der kopierte
+/// Block trägt.
+final String itemTail = itemTailFor(ItemPromptTarget.image);
 
 /// Die NEGATIV-Zeile für einen Gegenstand. „character", „hand" und
 /// „person" stehen ganz vorn: Der häufigste Fehlschlag ist, dass das
@@ -753,24 +812,30 @@ String mergeTerms(List<String> lists) {
 /// Farben und Formensprache direkt zu sehen sind. Ohne Referenz
 /// wandert die gekürzte Figurbeschreibung in den Text.
 ///
-/// [roblox] hängt statt des allgemeinen Schwanzes die Roblox-Regeln
-/// an, die die Plattformprüfung verlangt.
+/// [roblox] hängt die Roblox-Bausteine **zusätzlich** an – Schwanz
+/// und NEGATIV-Zusatz muss der Aufrufer mitgeben ([accessoryTail],
+/// [accessoryNegative]), passend zum [target]: für ein Bild die
+/// Formworte ([robloxAccessoryImageTail]), für Text→3D den vollen
+/// Schwanz ([robloxAccessoryTail]).
+///
+/// [target] entscheidet, welche Wörter überhaupt etwas bewirken –
+/// siehe [ItemPromptTarget].
 (String, String) itemPromptParts({
   required ItemKind kind,
   required String figurePrompt,
   bool roblox = false,
   bool withReference = false,
+  ItemPromptTarget target = ItemPromptTarget.image,
   String accessoryTail = '',
   String accessoryNegative = '',
 }) {
-  // Der Roblox-Schwanz kommt **dazu**, er ersetzt die Inszenierung
-  // nicht: „shown alone, centered, plain flat background" hält die
-  // Figur aus dem Bild, und genau das ging vorher mit dem Tausch
-  // verloren – die kopierten Gegenstände bekamen „watertight shell,
-  // single mesh" und verloren „alone".
+  // Der Roblox-Schwanz kommt **dazu**, er ersetzt die Formworte
+  // nicht: „single solid object shown alone" hält die Figur aus dem
+  // Bild, und genau das ging vorher mit dem Tausch verloren.
+  final basis = itemTailFor(target);
   final tail = roblox && accessoryTail.isNotEmpty
-      ? '$itemTail, $accessoryTail'
-      : itemTail;
+      ? '$basis, $accessoryTail'
+      : basis;
   // Dasselbe beim Negativ: „hand, arm, second object" stehen nur im
   // allgemeinen, und das Schwert samt Hand ist der häufigste
   // Fehlschlag. Also mischen statt tauschen – ohne Doppelte.
@@ -778,13 +843,19 @@ String mergeTerms(List<String> lists) {
       ? mergeTerms([itemNegative, accessoryNegative])
       : itemNegative;
   final stil = withReference
-      // „no character in the image" doppelt zum Negativ-Prompt: Bei
-      // einem Referenzbild mit Figur ist der Zug, sie mitzumalen, am
-      // stärksten – ein Modell, das den Negativ-Prompt gar nicht
-      // auswertet (SDXL Turbo, FLUX), hört sonst nichts davon.
+      // Hier stand „no character in the image". Gemeint war der
+      // häufigste Fehlschlag – das Referenzbild zeigt die Figur, und
+      // das Modell malt sie mit. Nur ist eine Verneinung in einer
+      // Stichwortkette genau der Fehler, vor dem diese App sonst
+      // warnt: „no text" wirkt wie „text", und hier hieße das
+      // Substantiv „character". Bei den Modellen, für die der Zusatz
+      // gedacht war (SDXL Turbo, FLUX schnell – kein Negativ-Feld),
+      // wirkte er deshalb gegen sich selbst. Jetzt steht dasselbe
+      // positiv; das Ausschließen trägt die NEGATIV-Zeile, die mit
+      // „character, person, hand, arm" beginnt.
       ? 'in exactly the same art style, colour palette and level of '
-          'detail as the reference image, but showing only the object '
-          'itself, no character in the image'
+          'detail as the reference image, but the image shows the '
+          'object on its own'
       : 'in the same art style and colour palette as this character: '
           '${figureStyleHint(figurePrompt)}';
   final full = kind.extraNegative.isEmpty

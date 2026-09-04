@@ -976,6 +976,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'etwas Rand – nichts anschneiden.\n'
           '- Exakte Vorderansicht, Figur schaut direkt in die Kamera, '
           'aufrecht stehend.\n'
+          // Die Ansichten, die die App selbst erzeugt, bestellen
+          // „orthographic view without perspective distortion" und
+          // führen „perspective distortion" im Negativ-Block
+          // (view_generator.dart). Für eine von Hand geschriebene
+          // Bildvorlage galt das bisher nicht – dabei geht dieselbe
+          // Rekonstruktion darüber.
+          '- Wie durch ein langes Objektiv gesehen: keine '
+          'perspektivische Verzerrung, keine Weitwinkel-Wirkung, '
+          'Kopf und Füße gleich groß abgebildet.\n'
           '- T-Pose (Arme waagerecht) oder A-Pose (Arme gestreckt, '
           '45 Grad nach unten), Beine leicht auseinander – Gliedmaßen '
           'dürfen Körper und Kopf NICHT berühren oder verdecken '
@@ -988,8 +997,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           'scharfe Details.\n'
           '- KEIN Text, kein Wasserzeichen, keine Requisiten, die die '
           'Silhouette überlappen.\n'
-          '- Stil nennen (z. B. Pixar-Stil, realistisch, Chibi) und '
-          '2–4 markante Merkmale der Figur hervorheben.\n\n'
+          // Kein Studio- oder Figurenname als Stilangabe: Wer die
+          // Roblox-Regeln dazuschaltet, bekommt im selben kopierten
+          // Text „keine Marken- oder Figurenbezüge" – alles
+          // Hochgeladene geht durch die Roblox-Moderation.
+          '- Stil nennen (z. B. stilisierter 3D-Zeichentrick, '
+          'realistisch, Chibi) und 2–4 markante Merkmale der Figur '
+          'hervorheben.\n\n'
           'Meine Figur: [HIER BESCHREIBEN]\n\n'
           'Gib nur den fertigen englischen Prompt aus.',
     ),
@@ -1034,9 +1048,17 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           '- KEINE Licht-, Hintergrund- oder Studio-Angaben (lighting, '
           'background, shadow, reflections, studio …) und KEINE '
           'Qualitäts-Floskeln (8k, photorealistic, sharp focus).\n'
+          // Die App hängt eine Pose nur an, wenn Rigging oder der
+          // Posen-Schalter an ist (siehe _generate: pose bleibt
+          // sonst null). „Die App wählt die Pose" stimmte deshalb
+          // nicht immer – bei beiden aus kam die Figur in einer
+          // beliebigen Haltung zurück.
           '- KEINE Pose- oder Aufstellungs-Anweisungen (T-pose, '
-          'standing, facing …) – die App wählt die zum Figurtyp '
-          'passende Pose.\n'
+          'standing, facing …), solange Rigging oder der '
+          'Posen-Schalter im 3D-Tab an ist: Dann hängt die App die '
+          'zum Figurtyp passende Pose selbst an. Stehen beide auf '
+          'Aus, gehört die Pose doch in die Beschreibung – sonst '
+          'bekommt das Bild gar keine.\n'
           '- Nur das Motiv: Objektklasse zuerst, dann Silhouette und '
           'Proportionen, dann markante Details, Materialien und '
           'Farben – als kommagetrennte Stichwortliste in einer '
@@ -1154,6 +1176,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   String get _robloxPromptRules => robloxPromptRules(
       accessory: _robloxTarget == RobloxTarget.accessory,
       marketplace: _robloxTarget == RobloxTarget.marketplaceAvatar,
+      // Im Bild-Modus hängt der Block an einer Bild-Vorlage. Drei
+      // seiner Angaben gelten dann nicht – siehe [robloxPromptRules].
+      image: _imageMode,
       studs: _studsValue ?? robloxCharacterStuds,
       scale: _bodyScale);
 
@@ -1379,6 +1404,23 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       : poseExtraChars(_promptCtrl.text,
           wanted: _pose != null, kind: _pose ?? PoseKind.tPose);
 
+  /// Ob aus der Beschreibung erst Bilder werden.
+  ///
+  /// „Lokal", Stability, fal.ai (Bild→3D), Replicate und der eigene
+  /// Server können nur aus einem Bild rechnen, bei Meshy und Tripo ist
+  /// die Pipeline zuschaltbar. Die Unterscheidung entscheidet, wer den
+  /// Prompt bekommt: ein Bild-Modell oder ein Text→3D-Dienst. Beide
+  /// wollen andere Wörter.
+  bool _viewsPipeline(SettingsService settings) {
+    final anbieter = settings.threeDProvider;
+    return anbieter == 'local' ||
+        anbieter == 'stability' ||
+        (anbieter == 'fal' && !_falIsTextToModel) ||
+        anbieter == 'selfhost' ||
+        anbieter == 'replicate' ||
+        _viewsFromText;
+  }
+
   ModelRelay? _modelRelay;
   ImageRelay? _imageRelay;
 
@@ -1603,6 +1645,16 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _pose = null;
       _imageMode = false;
     });
+    final settings = context.read<SettingsService>();
+    final ueberAnsichten = _viewsPipeline(settings);
+    // Geht ein Referenzbild wirklich mit? Drei Bedingungen, alle drei
+    // notwendig: eine gerenderte Stilvorlage, ein Bild-Modell, das
+    // Referenzen auswertet ([generateViewsFromText] wirft sie sonst
+    // weg), und ein Lauf, der überhaupt über die Ansichten geht – bei
+    // reinem Text→3D gibt es keinen Bildschritt.
+    final mitReferenz = style != null &&
+        settings.provider.supportsReferences &&
+        ueberAnsichten;
     try {
       for (final kind in choice.kinds) {
         if (!mounted || !_itemRun) break;
@@ -1610,7 +1662,32 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           kind: kind,
           figurePrompt: figurePrompt,
           roblox: choice.roblox,
-          withReference: style != null,
+          // Der Satz „as the reference image" darf nur dastehen, wenn
+          // wirklich eines mitgeht. Es geht nur über die
+          // Ansichten-Pipeline mit, und nur zu einem Bild-Modell, das
+          // Referenzen auswertet (OpenAI, Gemini). Sonst verwies der
+          // Prompt auf ein Bild, das nie ankam – und die Figur, an
+          // deren Stil sich der Gegenstand halten soll, stand
+          // nirgends mehr.
+          withReference: mitReferenz,
+          // Kamera, Licht und Hintergrund kommen hier nicht aus
+          // diesem Prompt: Entweder hängt die Ansichten-Pipeline sie
+          // an, oder der Text geht an ein Text→3D-Modell, das keines
+          // davon kennt. Was die beiden trennt, sind die
+          // Netz-Angaben – die versteht nur Text→3D.
+          target: ueberAnsichten
+              ? ItemPromptTarget.views
+              : ItemPromptTarget.text3d,
+          // Der Schalter „Roblox-Regeln anhängen" im Dialog wirkte
+          // bisher nur auf den kopierten Block: Ohne Schwanz und ohne
+          // NEGATIV-Zusatz änderte `roblox: true` hier gar nichts.
+          accessoryTail: choice.roblox
+              ? (ueberAnsichten
+                  ? robloxAccessoryImageTail
+                  : robloxAccessoryTail)
+              : '',
+          accessoryNegative:
+              choice.roblox ? robloxAccessoryNegative : '',
         );
         setState(() {
           _itemCurrent = kind.label;
@@ -2544,16 +2621,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       return;
     }
     final prompt = _promptCtrl.text.trim();
-    // Text-Modus: „Lokal“, Stability, fal.ai, Replicate und der eigene
-    // Server gehen immer über KI-Ansichten, bei Meshy/Tripo ist die
-    // Pipeline zuschaltbar.
-    final viewPipeline = !_imageMode &&
-        (isLocal ||
-            isStability ||
-            (isFal && !_falIsTextToModel) ||
-            isSelfHost ||
-            isReplicate ||
-            _viewsFromText);
+    final viewPipeline = !_imageMode && _viewsPipeline(settings);
     // Bild-Modus: fehlende Ansichten optional per Bild-KI ergänzen –
     // gleiche Konsistenz-Prompts, Vorderansicht als Referenz.
     final augmentViews = _imageMode &&

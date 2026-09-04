@@ -146,10 +146,14 @@ void main() {
           figurePrompt: figur,
           withReference: true);
       expect(p, contains('reference image'));
-      // Und sagt ausdrücklich, dass die Figur nicht mitzumalen ist –
-      // Modelle ohne Negativ-Prompt (Turbo, FLUX) hören sonst nichts
-      // davon.
-      expect(p, contains('no character in the image'));
+      // Und sagt ausdrücklich, dass nur der Gegenstand zu sehen sein
+      // soll – Modelle ohne Negativ-Prompt (Turbo, FLUX) hören sonst
+      // nichts davon. Positiv formuliert: Eine Verneinung in einer
+      // Stichwortkette nennt genau das Substantiv, das nicht ins Bild
+      // soll.
+      expect(p, contains('the image shows the object on its own'));
+      expect(p.split('NEGATIV:').first.toLowerCase(),
+          isNot(contains('no character')));
     });
 
     test('„character" steht ganz vorn im Negativ-Prompt', () {

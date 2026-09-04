@@ -318,9 +318,16 @@ const String robloxAccessoryExample =
 /// Bauanleitung, aber mit den fünf Formregeln, an denen eine Figur
 /// scheitert, die im eigenen Erlebnis läuft. Wirkt nur zusammen mit
 /// `accessory: false` – ein Accessoire hat weder Beine noch Hals.
+/// [image] sagt, dass der Block an eine **Bild**-Vorlage gehängt wird
+/// (3D-Tab, „Aus Bild"). Drei Angaben stimmen dann nicht: Die App
+/// hängt an einen Bild-Prompt keine Pose an – die muss im Bild zu
+/// sehen sein, und die Vorlage „Figur für Bild→3D" verlangt sie auch;
+/// Tripos Zeichengrenze gilt für ein Bild-Modell nicht; und zwei
+/// Wörter des festen Schwanzes beschreiben ein Netz, kein Bild.
 String robloxPromptRules({
   required bool accessory,
   bool marketplace = false,
+  bool image = false,
   double studs = marketplaceFigureStuds,
   RobloxBodyScale scale = RobloxBodyScale.normal,
 }) {
@@ -441,12 +448,17 @@ String robloxPromptRules({
           '- Wasserdicht, **außer an Augen und Mund**: Genau dort '
           'sollen Öffnungen sein – die Augensäcke und der Mundsack. '
           'Sonst keine Löcher und keine Rückseiten.\n'
-      : '- KEINE T-Pose in den Prompt schreiben. Der Importer '
-          'verlangt sie, aber die App hängt sie über den '
-          'Posen-Schalter selbst an (${tPoseSuffix.length + 2} '
-          'Zeichen; beim Roblox-Ziel „Figur im Erlebnis" steht er '
-          'auf T-Pose) – doppelt kostet nur Platz und verschiebt die '
-          'Gewichtung.\n'
+      : '${image ? '- Die T-Pose gehört in den Bild-Prompt: Arme '
+              'waagerecht, Beine leicht auseinander, nichts berührt '
+              'Körper oder Kopf. Den Posen-Zusatz hängt die App nur '
+              'an einen Text→3D-Prompt an; einem Bild lässt sich die '
+              'Pose nachträglich nicht mehr geben.\n' : '- KEINE '
+              'T-Pose in den Prompt schreiben. Der Importer verlangt '
+              'sie, aber die App hängt sie über den Posen-Schalter '
+              'selbst an (${tPoseSuffix.length + 2} Zeichen; beim '
+              'Roblox-Ziel „Figur im Erlebnis" steht er auf T-Pose) – '
+              'doppelt kostet nur Platz und verschiebt die '
+              'Gewichtung.\n'}'
           '- KEINE Umhänge, Röcke, langen Mäntel oder Schleier, die '
           'Arme oder Beine verdecken: Was verdeckt ist, verschmilzt '
           'bei der Rekonstruktion mit dem Rumpf, und dort kann kein '
@@ -465,6 +477,11 @@ String robloxPromptRules({
       '$aufbau'
       '\n- Der FESTE SCHWANZ, wörtlich und unverändert ans Ende:\n'
       '  $tail\n'
+      '${image ? '  In einem Bild-Prompt sagen „closed watertight '
+          'shell" und „single mesh" nichts – sie stehen dort für den '
+          'Text→3D-Weg. Was sich über das Bild in die Rekonstruktion '
+          'vererbt, sind die Formworte davor: massive Volumen, '
+          'sichtbare Wandstärke, glatte Flächen, klare Silhouette.\n' : ''}'
       '\n- Die NEGATIV-Zeile, wörtlich:\n'
       '  $negative\n'
       '\nWas den Prompt kaputtmacht:\n'
@@ -555,22 +572,28 @@ String robloxPromptRules({
           'Beine frei und vom Rumpf getrennt, damit die 15 '
           'R15-Gelenke (LowerTorso, UpperTorso, Head, '
           'LeftUpperArm … RightFoot) darin Platz haben. Roblox nimmt '
-          '$posen – die App hängt die gewählte Pose über den '
-          'Posen-Schalter selbst an.\n'}'
+          '$posen – ${image ? 'die muss im Bild zu sehen sein.' : 'die '
+              'App hängt die gewählte Pose über den Posen-Schalter '
+              'selbst an.'}\n'}'
       '- Ein Material je Mesh, alles in einer einzigen '
       '${robloxMaxTexture}er-Textur: wenige, klar getrennte '
       'Farbflächen.\n'
       '${accessory ? '' : '- ${robloxCharacterStuds.toStringAsFixed(0)} '
           'Studs hoch (rund 1,4 m) – kompakte, gedrungene '
           'Proportionen wirken auf diese Größe besser als schlanke.\n'}'
-      '- Der PROMPT darf höchstens '
-      '${_n(TripoService.maxPromptChars)} Zeichen haben. Der feste '
-      'Schwanz belegt davon ${_n(tail.length)}'
-      '${accessory || markt ? '' : ', der T-Pose-Zusatz weitere '
-          '${tPoseSuffix.length + 2}'}, für das MOTIV bleiben also '
-      'rund ${_n(motivBudget)} Zeichen. Wird es länger, kürzt Tripo '
-      'hinten – und hinten stehen die Regeln. Die NEGATIV-Zeile '
-      'höchstens ${_n(TripoService.maxNegativePromptChars)}.\n'
+      '${image ? '- Tripos Zeichengrenze gilt hier nicht: Dieser '
+          'Prompt geht an ein Bild-Modell. Was dort an Länge zählt, '
+          'steht im Bild-Tab unter „Prompt-Vorlage für <Modell>" – '
+          'bei Stable Diffusion eine Wortzahl, bei GPT-Image und '
+          'Gemini keine, die hier greift.\n' : '- Der PROMPT darf '
+          'höchstens ${_n(TripoService.maxPromptChars)} Zeichen '
+          'haben. Der feste Schwanz belegt davon ${_n(tail.length)}'
+          '${accessory || markt ? '' : ', der T-Pose-Zusatz weitere '
+              '${tPoseSuffix.length + 2}'}, für das MOTIV bleiben '
+          'also rund ${_n(motivBudget)} Zeichen. Wird es länger, '
+          'kürzt Tripo hinten – und hinten stehen die Regeln. Die '
+          'NEGATIV-Zeile höchstens '
+          '${_n(TripoService.maxNegativePromptChars)}.\n'}'
       '\nSo sieht ein fertiger Block für $was aus:\n\n'
       '$example';
 }
