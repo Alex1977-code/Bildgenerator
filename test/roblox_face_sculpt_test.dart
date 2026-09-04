@@ -106,6 +106,48 @@ Uint8List figurMitAugaepfeln() {
   return buildGlb(m);
 }
 
+/// Eine Figur mit **kleinem** Kopf: Der Kopf ist nur 16 % der Höhe,
+/// die Schultern ragen damit ins oberste Fünftel.
+///
+/// Genau daran ist die Kopfmessung gescheitert: „Das oberste Fünftel
+/// ist der Kopf" ergab an einer echten Figur eine Kopfbreite von 1,85
+/// statt 0,62 – die Schultern. Die Augen landeten bei ± 0,33 und
+/// standen als zwei Knöpfe **neben** dem Kopf.
+Uint8List figurMitKleinemKopf() {
+  final m = LocalMesh();
+  void quader(double x0, double y0, double z0, double x1, double y1,
+      double z1) {
+    final p = [
+      m.addVertex(x0, y0, z0, 0, 0),
+      m.addVertex(x1, y0, z0, 1, 0),
+      m.addVertex(x1, y1, z0, 1, 1),
+      m.addVertex(x0, y1, z0, 0, 1),
+      m.addVertex(x0, y0, z1, 0, 0),
+      m.addVertex(x1, y0, z1, 1, 0),
+      m.addVertex(x1, y1, z1, 1, 1),
+      m.addVertex(x0, y1, z1, 0, 1),
+    ];
+    m.addQuad(p[0], p[3], p[2], p[1]);
+    m.addQuad(p[4], p[5], p[6], p[7]);
+    m.addQuad(p[0], p[1], p[5], p[4]);
+    m.addQuad(p[2], p[3], p[7], p[6]);
+    m.addQuad(p[1], p[2], p[6], p[5]);
+    m.addQuad(p[0], p[4], p[7], p[3]);
+  }
+
+  // Rumpf bis 4,15 – die Schultern reichen also weit ins oberste
+  // Fünftel (ab 4,00). Der Kopf darüber ist 0,80 breit und 0,85 hoch.
+  quader(-1.25, 2.3, -0.55, 1.25, 4.15, 0.55);
+  quader(-1.9, 2.6, -0.2, -1.25, 3.9, 0.2);
+  quader(1.25, 2.6, -0.2, 1.9, 3.9, 0.2);
+  quader(-0.6, 0.35, -0.25, -0.15, 2.3, 0.25);
+  quader(0.15, 0.35, -0.25, 0.6, 2.3, 0.25);
+  quader(-0.6, 0.0, 0.25, -0.15, 0.30, 0.9);
+  quader(0.15, 0.0, 0.25, 0.6, 0.30, 0.9);
+  quader(-0.4, 4.15, -0.4, 0.4, 5.0, 0.4);
+  return buildGlb(m);
+}
+
 /// Eine Figur mit **rundem** Kopf und glattem Gesicht – so, wie eine
 /// Text-zu-3D-KI sie liefert, wenn im Motiv kein Gesicht steht.
 ///
@@ -328,6 +370,27 @@ void main() {
     final ohne = withoutFaceMeshes(mitTeilen);
     final r = await sculptFaceIntoHead(ohne);
     expect(r.report.addedTriangles, greaterThan(0));
+  });
+
+  test('bei kleinem Kopf werden nicht die Schultern gemessen', () async {
+    // Der Kopf ist 0,80 breit, die Schultern 2,50 und sie reichen ins
+    // oberste Fünftel. Gemessen werden muss der Kopf.
+    final v = await lies(figurMitKleinemKopf());
+    final c = measureFaceCavities(v.positions, v.indices.toList())!;
+    v.dispose();
+    expect(c.headWidth, closeTo(0.80, 0.05),
+        reason: 'die Schultern sind 2,50 breit');
+    expect(c.headHeight, closeTo(0.85, 0.12));
+
+    // Und die Augen sitzen im Kopf, nicht daneben: Der Kopf reicht von
+    // -0,40 bis 0,40, das Auge sitzt bei 0,18 x B plus seinem Radius.
+    final r = addFaceParts(figurMitKleinemKopf());
+    for (final teil in r.report.parts) {
+      if (teil.name != 'LeftEye' && teil.name != 'RightEye') continue;
+      expect(teil.center[0].abs(), lessThan(0.4 - 0.06),
+          reason: '${teil.name} bei x=${teil.center[0]}');
+    }
+    expect(r.report.headWidth, closeTo(0.80, 0.05));
   });
 
   test('die Hülle bleibt geschlossen und nach außen gewickelt', () async {

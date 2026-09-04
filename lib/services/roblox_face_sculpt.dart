@@ -57,7 +57,7 @@ import 'glb_preview.dart' show joinGlb, parseGlbForPreview, splitGlb;
 import 'local_3d.dart';
 import 'mesh_budget.dart' show firstGlbTexturePng;
 import 'roblox_face_parts.dart'
-    show FaceProportions, faceFrontHitZ, faceMeshNames;
+    show FaceProportions, faceFrontHitZ, faceMeshNames, headBottomY;
 
 /// Wie viele Dreiecke der Eingriff höchstens hinzufügt.
 ///
@@ -155,6 +155,21 @@ class FaceCavities {
   /// Ab wann eine Vertiefung als Höhle gilt: 3 % der Kopfbreite.
   static const double minDepthOfHeadWidth = 0.03;
 
+  /// Ab wann ein Gesicht als **modelliert** gilt und in Ruhe bleibt.
+  ///
+  /// Nicht dieselbe Schwelle wie [minDepthOfHeadWidth]: Die fragt, ob
+  /// eine Vertiefung tief genug für Auto Setup ist; diese fragt, ob
+  /// überhaupt schon ein Gesicht da ist. Der Maßstab dafür ist, was
+  /// der Einbau selbst gräbt – [FaceSculptProportions.socketDepth],
+  /// 6 % der Kopfbreite. Wo schon so viel Relief sitzt, bringt
+  /// Nachgraben nichts und schadet; darunter ist es Rauschen.
+  ///
+  /// Gemessen an vier echten Köpfen (Relief als Anteil der
+  /// Kopfbreite): glatte Kugel 0,6 %, flaches Gesicht mit Brauenwulst
+  /// 3,2 %, frisch gebaute Höhlen 7,8 %, modellierte Augäpfel 22 %.
+  /// Die 5 % trennen die beiden Paare.
+  static const double minReliefOfHeadWidth = 0.05;
+
   /// Ob am Auge eine Höhle sitzt: Die Fläche liegt dort hinter der
   /// an das Gesicht angepassten Fläche.
   ///
@@ -207,12 +222,13 @@ class FaceCavities {
   /// Reparatur) haben so aus einem sauberen Tripo-Gesicht Matsch
   /// gemacht.
   ///
-  /// Gemessen an einem leeren Kastenkopf: 0,000. An Tripos Gesicht:
-  /// 0,376 am Auge, 0,088 am Mund. Der Betrag trennt beides sauber.
+  /// Gemessen an einem leeren Kastenkopf: 0,000. An einem gerundeten
+  /// Kopf ohne Gesicht: 0,007. An Tripos Gesicht: 0,376 am Auge.
+  /// Die Schwelle ist [minReliefOfHeadWidth], nicht die für Höhlen.
   bool get hasFaceRelief =>
       headWidth > 0 &&
-      (eyeRelief >= headWidth * minDepthOfHeadWidth ||
-          mouthRelief >= headWidth * minDepthOfHeadWidth);
+      (eyeRelief >= headWidth * minReliefOfHeadWidth ||
+          mouthRelief >= headWidth * minReliefOfHeadWidth);
 }
 
 class FaceSculptReport {
@@ -524,7 +540,7 @@ _Kopf? _messeKopf(Float32List pos, List<int> idx, double headTopFraction,
     maxY = math.max(maxY, pos[i]);
   }
   if (!(maxY > minY)) return null;
-  final kopfAb = maxY - (maxY - minY) * headTopFraction;
+  final kopfAb = headBottomY(pos, idx, minY, maxY, headTopFraction);
   var minX = double.infinity, maxX = double.negativeInfinity;
   var maxZ = double.negativeInfinity;
   var punkte = 0;

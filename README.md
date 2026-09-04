@@ -2146,6 +2146,63 @@ Fünftel (dort lagen bei A-Pose-Figuren die Schultern mit drin), und die
 Augen sind ganze Kugeln statt Halbkugeln — eine Halbkugel hätte einen
 offenen Rand, und Doku 9 verlangt wasserdichte Netze.
 
+### Die vierte Figur: der Kopf war gar nicht der Kopf
+
+Ein Frankenstein aus dem lokalen Generator — Flachschädel, Jacke,
+Hose. Zwei Berichte, die sich widersprachen: Die Reparatur meldete
+„Hals: 100 % → 45 % behoben", die Prüfung „Kein erkennbarer Hals" als
+Fehler. Und am Kopf saßen zwei Knöpfe, die aussahen wie Halsbolzen.
+
+**Die Knöpfe waren die Augen, die die App neben den Kopf gesetzt
+hatte.** Das Breitenprofil zeigt, warum:
+
+| Höhe | Breite | was dort ist |
+| --- | --- | --- |
+| 4,90–5,00 | 0,62 | Kopf |
+| 4,30–4,40 | 0,66 | Kopf |
+| 4,20–4,30 | 0,80 | Kopfunterkante |
+| 4,10–4,20 | 1,39 | Schulter |
+| 4,00–4,10 | 1,80 | Schulter |
+
+Die Kopfmessung nahm „das oberste Fünftel ist der Kopf". Bei 5 Studs
+Höhe ist das alles über 4,00 — und da liegen die Schultern mit drin.
+Gemessene Kopfbreite: **1,85 statt 0,62**. Alles Weitere folgt daraus:
+Die Augen sitzen bei 0,18 × B = ± 0,33, der Kopf reicht aber nur bis
+± 0,31. Sie standen daneben.
+
+Die Regel hielt nur, solange der Kopf ungefähr ein Fünftel hoch ist.
+Jetzt wird die Unterkante **gemessen**: Das breiteste Band in den
+obersten 12 % ist die Kopfbreite; von dort abwärts endet der Kopf beim
+ersten Band, das deutlich schmaler ist (ein Hals) oder deutlich breiter
+(die Schultern, wenn es keinen Hals gibt). Zwei Fallen dabei, beide an
+echten Vorlagen aufgelaufen:
+
+- **Nicht gegen das vorige Band vergleichen.** Auf einem runden Kopf
+  wächst die Breite vom Scheitel an; die Regel löste sofort aus und
+  machte den Kopf 0,25 Studs hoch.
+- **Über Dreiecke messen, nicht über Punkte.** Ein Kasten hat zwischen
+  Unter- und Oberkante keine Punkte — der Hals einer Kastenfigur war
+  unsichtbar, und der Kopf reichte in den Rumpf.
+
+Ergebnis an vier Vorlagen: Kastenfigur 1,56 (Kopf ist 1,56), Kugelkopf
+0,84 (Durchmesser 0,84), Frankenstein 0,75 statt 1,85, kleiner Kopf
+0,80 statt 2,50. Die Augen sitzen danach im Kopf.
+
+**Die Relief-Schwelle war zu eng.** Sie lag bei 3 % der Kopfbreite —
+derselben Zahl, ab der eine Vertiefung als Höhle gilt. Damit blockierte
+ein Brauenwulst von 3,2 % das Höhlenbauen auf einem sonst flachen
+Gesicht. Die beiden Fragen sind verschieden: „ist diese Vertiefung tief
+genug für Auto Setup" und „ist hier überhaupt schon ein Gesicht". Für
+die zweite ist der Maßstab, was der Einbau selbst gräbt — 6 % der
+Kopfbreite. Die Schwelle steht jetzt bei 5 %, gemessen an vier Köpfen:
+glatte Kugel 0,6 %, flaches Gesicht mit Brauenwulst 3,2 %, frisch
+gebaute Höhlen 7,8 %, modellierte Augäpfel 22 %.
+
+**Der Widerspruch der zwei Berichte** war keiner: Die Reparatur zeigt,
+was sie tun *würde*, die Prüfung misst die Datei, wie sie *ist*. Die
+Zahlen gingen trotzdem auseinander, weil beide den Kopf verschieden
+suchten — mit der gemessenen Unterkante messen sie dasselbe.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

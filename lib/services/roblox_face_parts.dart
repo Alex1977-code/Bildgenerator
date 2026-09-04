@@ -267,7 +267,16 @@ FacePartsResult addFaceParts(
   final minY = huelleVorMin[1], maxY = huelleVorMax[1];
   final gesamtHoehe = maxY - minY;
   if (gesamtHoehe <= 0) throw Exception('Das Modell hat keine Höhe.');
-  final kopfAb = maxY - gesamtHoehe * headTopFraction;
+  // Die Unterkante des Kopfes wird **gemessen**, nicht angenommen –
+  // siehe [headBottomY]. Mit dem festen Fünftel lagen bei einer Figur
+  // mit kleinem Kopf die Schultern im Kopfband: gemessene Kopfbreite
+  // 1,80 statt 0,75, und die Augen landeten bei ± 0,33 neben dem Kopf.
+  final kopfAb = headBottomY(
+      Float32List.fromList(flaechen),
+      [for (var i = 0; i * 3 + 2 < flaechen.length; i++) i],
+      minY,
+      maxY,
+      headTopFraction);
 
   var kopfMinX = double.infinity, kopfMaxX = double.negativeInfinity;
   var kopfMaxZ = double.negativeInfinity;
@@ -539,6 +548,74 @@ FacePartsResult addFaceParts(
 /// Der **größte** Wert gewinnt – das ist die Fläche, die man von vorn
 /// sieht, denn vorn ist +z. Dreiecke unterhalb von [abY] bleiben außen
 /// vor, damit eine erhobene Hand nicht als Gesicht durchgeht.
+/// Wo der Kopf unten anfängt: am **gemessenen Übergang**, nicht an
+/// einem festen Anteil der Höhe.
+///
+/// „Das oberste Fünftel ist der Kopf" hält nur, solange der Kopf ein
+/// Fünftel hoch ist. Bei einer Figur mit kleinem Kopf ragen die
+/// Schultern hinein, und dann ist alles falsch, was daraus folgt: An
+/// einer gemessenen Figur war der Kopf 0,62 Studs breit, gemessen
+/// wurden 1,85 – die Schultern. Die Augen landeten bei ± 0,33 und
+/// damit **neben** dem Kopf, als zwei Knöpfe an seinen Seiten.
+///
+/// Gemessen wird gegen die Kopfbreite **oben**: das breiteste Band in
+/// den obersten 12 % der Figur liegt bei jeder brauchbaren Figur im
+/// Kopf. Von dort abwärts endet der Kopf beim ersten Band, das
+/// deutlich schmaler ist (ein Hals) **oder** deutlich breiter (die
+/// Schultern, wenn es keinen Hals gibt). Ein Vergleich mit dem
+/// jeweils vorigen Band taugt nicht: Auf einem runden Kopf wächst die
+/// Breite vom Scheitel an, und die Regel löste sofort aus.
+double headBottomY(Float32List pos, List<int> idx, double minY,
+    double maxY, double headTopFraction) {
+  const bands = 60;
+  final hoehe = maxY - minY;
+  if (hoehe <= 0) return maxY;
+  final breite = List<double>.filled(bands, 0);
+  final lo = List<double>.filled(bands, double.infinity);
+  final hi = List<double>.filled(bands, double.negativeInfinity);
+  // Über **Dreiecke**, nicht über Punkte: Ein Kasten hat zwischen
+  // seiner Unter- und seiner Oberkante keine Punkte, und ein
+  // punktweise gefülltes Band wäre dort leer. Genau dadurch blieb der
+  // Hals einer Kastenfigur unsichtbar, und der Kopf reichte bis in den
+  // Rumpf.
+  int band(double y) =>
+      (((y - minY) / hoehe) * bands).floor().clamp(0, bands - 1);
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    var yLo = double.infinity, yHi = double.negativeInfinity;
+    var xLo = double.infinity, xHi = double.negativeInfinity;
+    for (var k = 0; k < 3; k++) {
+      final v = idx[t + k] * 3;
+      if (v + 2 >= pos.length) continue;
+      yLo = math.min(yLo, pos[v + 1]);
+      yHi = math.max(yHi, pos[v + 1]);
+      xLo = math.min(xLo, pos[v]);
+      xHi = math.max(xHi, pos[v]);
+    }
+    if (!yLo.isFinite) continue;
+    for (var b = band(yLo); b <= band(yHi); b++) {
+      lo[b] = math.min(lo[b], xLo);
+      hi[b] = math.max(hi[b], xHi);
+    }
+  }
+  for (var b = 0; b < bands; b++) {
+    breite[b] = lo[b].isFinite ? hi[b] - lo[b] : 0;
+  }
+  // Die Kopfbreite aus den obersten 12 %.
+  final obenAb = (bands * 0.88).floor();
+  var kopfMax = 0.0;
+  for (var b = obenAb; b < bands; b++) {
+    kopfMax = math.max(kopfMax, breite[b]);
+  }
+  if (kopfMax <= 0) return maxY - hoehe * headTopFraction;
+  for (var b = obenAb - 1; b >= 0; b--) {
+    if (breite[b] <= 0) continue;
+    if (breite[b] < kopfMax * 0.75 || breite[b] > kopfMax * 1.4) {
+      return minY + (b + 1) / bands * hoehe;
+    }
+  }
+  return maxY - hoehe * headTopFraction;
+}
+
 double? faceFrontHitZ(List<double> tris, double x, double y, double abY) {
   var best = double.negativeInfinity;
   for (var t = 0; t + 8 < tris.length; t += 9) {

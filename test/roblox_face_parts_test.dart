@@ -94,8 +94,12 @@ void main() {
 
   test('die Maße hängen an der Kopfbreite, nicht an festen Studs', () {
     expect(ergebnis.report.headWidth, closeTo(1.5, 0.01));
-    // Das Kopfband ist das oberste Fünftel von 5,0 Studs.
-    expect(ergebnis.report.headHeight, closeTo(1.0, 0.01));
+    // Das Kopfband wird **gemessen**, nicht als oberstes Fünftel
+    // angenommen: Der Kopf der Vorlage sitzt auf 3,9 und ist damit
+    // 1,10 hoch, nicht 1,00. Die alte Zahl war die Annahme, nicht die
+    // Figur — an einer echten Figur mit kleinem Kopf lagen mit ihr die
+    // Schultern im Kopfband (Kopfbreite 1,85 statt 0,62).
+    expect(ergebnis.report.headHeight, closeTo(1.08, 0.03));
     expect(ergebnis.report.text, contains('Anteile'));
 
     // Ein breiterer Kopf: Alle Maße wachsen im selben Verhältnis mit.
@@ -121,19 +125,26 @@ void main() {
   });
 
   test('die Teile sitzen auf den Höhen aus der Übergabe', () {
-    // Alles gemessen im Kopfband: unten 4,0, H = 1,0.
+    // Alles gemessen im Kopfband. Dessen Unterkante ist der gemessene
+    // Übergang zum Rumpf, nicht das oberste Fünftel: Der Kopf der
+    // Vorlage sitzt auf 3,9, und die Bandauflösung von 5,0/60 legt die
+    // Kante auf 3,917. H ist damit 1,083.
+    final unten = 5.0 - ergebnis.report.headHeight;
+    final h = ergebnis.report.headHeight;
+    expect(unten, closeTo(3.917, 0.03));
     double y(String name) => ergebnis.report.parts
         .firstWhere((p) => p.name == name)
         .center[1];
-    expect(y('LeftEye'), closeTo(4.0 + 0.55, 1e-6));
-    expect(y('UpperTeeth'), closeTo(4.0 + 0.36, 1e-6));
+    expect(y('LeftEye'), closeTo(unten + h * 0.55, 1e-6));
+    expect(y('UpperTeeth'), closeTo(unten + h * 0.36, 1e-6));
     // 33 % und der Abstand von 0,01 × H widersprechen sich: Bei 33 %
     // stießen die Reihen aneinander. Der Abstand gewinnt, die
     // Unterzähne rutschen auf 32 %, und der Bericht sagt es an.
-    expect(y('LowerTeeth'), closeTo(4.0 + 0.32, 1e-6));
+    expect(y('LowerTeeth'), closeTo(unten + h * 0.32, 0.005));
     expect(ergebnis.report.text, contains('32 % statt 33 %'));
-    final abstand = (y('UpperTeeth') - 0.015) - (y('LowerTeeth') + 0.015);
-    expect(abstand, closeTo(0.01, 1e-6));
+    final abstand = (y('UpperTeeth') - h * 0.015) -
+        (y('LowerTeeth') + h * 0.015);
+    expect(abstand, closeTo(h * 0.01, 1e-6));
     // Die Zunge liegt zwischen den Reihen.
     expect(y('Tongue'), lessThan(y('UpperTeeth')));
     expect(y('Tongue'), greaterThan(y('LowerTeeth')));
