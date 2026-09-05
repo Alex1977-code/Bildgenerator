@@ -858,7 +858,74 @@ void main() {
       }
     });
 
-    test('die Liste „anderswo erledigt" nennt genau die Vorgaben ohne '
+    test('die Vorgaben gehen auch an ein Bildmodell – bis auf die '
+        'drei, die einem Bild nichts sagen', () {
+      final bild = marketplaceImageClauses();
+      // Netz-Topologie kann ein Bild weder zeigen noch verletzen.
+      expect(bild, isNot(contains('one single body mesh')));
+      expect(
+          bild,
+          isNot(contains('watertight closed surface apart from the eye '
+              'and mouth openings')));
+      // Die Pose geht als eigener, ausführlicherer Zusatz mit.
+      expect(bild, isNot(contains('upright A-pose')));
+      // Alles Übrige aus dem Schwanz muss ankommen.
+      for (final satz in marketplacePromptClauses()) {
+        if (satz == 'one single body mesh' ||
+            satz == 'upright A-pose' ||
+            satz.startsWith('watertight')) {
+          continue;
+        }
+        expect(bild, contains(satz));
+      }
+    });
+
+    test('die beiden Sätze, an denen drei echte Figuren gescheitert '
+        'sind, gehen mit', () {
+      // Drei Läufe über Nano Banana: kein Hals (der Jackenkragen
+      // reicht bis an den Kopf) und Arme, die am Körper hängen. Beide
+      // Sätze standen im Text→3D-Schwanz und wurden auf diesem Weg nie
+      // verschickt.
+      final bild = marketplaceImageClauses();
+      expect(bild, contains('distinct narrow neck not merged with the '
+          'shoulders'));
+      expect(bild, contains('arms angled down and clear of the torso'));
+    });
+
+    test('ohne Wortgrenze geht alles mit, mit knapper Grenze fällt '
+        'etwas weg – und das wird gemeldet', () {
+      final ohne = marketplaceImagePrompt('compact heavy humanoid');
+      expect(ohne.dropped, isEmpty);
+      expect(ohne.used.length, marketplaceImageClauses().length);
+      // Was das Motiv schon wörtlich sagt, kommt nicht ein zweites Mal.
+      final doppelt = marketplaceImagePrompt(
+          'compact humanoid, hips at mid body height, symmetrical');
+      expect(doppelt.used, isNot(contains('hips at mid body height')));
+      expect(doppelt.used, isNot(contains('symmetrical')));
+      expect('hips at mid body height'.allMatches(doppelt.text).length, 1);
+      expect(ohne.text, startsWith('compact heavy humanoid, '));
+      for (final satz in marketplaceImageClauses()) {
+        expect(ohne.text, contains(satz));
+      }
+
+      // SDXL-Turbo: 40 Wörter, davon 60 für Kamera, Pose und
+      // Hintergrund reserviert – da passt nichts mehr.
+      final eng = marketplaceImagePrompt('compact heavy humanoid',
+          wordBudget: 40);
+      expect(eng.used, isEmpty);
+      expect(eng.dropped.length, marketplaceImageClauses().length);
+      expect(eng.text, 'compact heavy humanoid');
+
+      // Ein mittleres Budget nimmt einen Teil und meldet den Rest.
+      final mittel = marketplaceImagePrompt('compact heavy humanoid',
+          wordBudget: 120);
+      expect(mittel.used, isNotEmpty);
+      expect(mittel.dropped, isNotEmpty);
+      expect(mittel.used.length + mittel.dropped.length,
+          marketplaceImageClauses().length);
+    });
+
+        test('die Liste „anderswo erledigt" nennt genau die Vorgaben ohne '
         'Messung', () {
       final zeilen = marketplaceHandledElsewhere();
       expect(zeilen.length,

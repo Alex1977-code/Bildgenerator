@@ -468,6 +468,7 @@ class MarketplaceRule {
     this.repairStep = '',
     this.byApp = '',
     this.note = '',
+    this.inImagePrompt = true,
   });
 
   /// Die Regel-Id der Prüfung, wenn die Geometrie das messen kann.
@@ -491,6 +492,20 @@ class MarketplaceRule {
   /// Wo die Zuordnung nur mittelbar ist – ausgeschrieben statt
   /// verschwiegen.
   final String note;
+
+  /// Ob [clause] auch einem **Bildmodell** etwas sagt.
+  ///
+  /// Auf dem Weg Text → Ansichten → 3D (Nano Banana, OpenAI, die
+  /// eigene GPU) entscheidet das **Bild** über die Form: Der
+  /// 3D-Anbieter rekonstruiert nur, was darauf zu sehen ist. Der feste
+  /// Schwanz ging bisher ausschließlich an Text→3D-Anbieter, und was
+  /// nie beim Bildmodell ankam, konnte es auch nicht umsetzen.
+  ///
+  /// Nicht jeder Satz taugt dafür: „one single body mesh" und
+  /// „watertight closed surface" beschreiben die Netz-Topologie, nicht
+  /// das Aussehen. Ein Bild kann beides weder zeigen noch verletzen –
+  /// im Bild-Prompt kosten sie nur Aufmerksamkeit.
+  final bool inImagePrompt;
 
   MarketplaceRuleOwner get owner => clause.isNotEmpty
       ? MarketplaceRuleOwner.prompt
@@ -520,7 +535,10 @@ const List<MarketplaceRule> marketplaceRules = [
   MarketplaceRule(
       demand: 'Ein einziges Körpernetz',
       clause: 'one single body mesh',
-      source: 'Auto Setup 1'),
+      source: 'Auto Setup 1',
+      inImagePrompt: false,
+      note: 'Netz-Topologie – ein Bild kann sie weder zeigen noch '
+          'verletzen. Geht nur an Text→3D.'),
   MarketplaceRule(
       demand: 'Zwei Augensäcke mit Halbkugel-Augen und ein Mundsack mit '
           'Ober-, Unterzähnen und Zunge',
@@ -551,7 +569,11 @@ const List<MarketplaceRule> marketplaceRules = [
       demand: 'Aufrechte A- oder T-Pose',
       clause: 'upright A-pose',
       repairStep: repairStepPose,
-      source: 'Auto Setup 6'),
+      source: 'Auto Setup 6',
+      inImagePrompt: false,
+      note: 'Die Ansichten bekommen die Pose als eigenen Zusatz '
+          '(aPoseSuffix), ausführlicher als dieser Satz – zweimal '
+          'dieselbe Anweisung widerspricht sich leicht.'),
   MarketplaceRule(
       id: 'arme_frei',
       demand: 'Von vorn verdeckt keine Gliedmaße eine andere',
@@ -570,7 +592,11 @@ const List<MarketplaceRule> marketplaceRules = [
       clause: 'watertight closed surface apart from the eye and mouth '
           'openings',
       repairStep: repairStepHoles,
-      source: 'Auto Setup 9'),
+      source: 'Auto Setup 9',
+      inImagePrompt: false,
+      note: 'Netz-Topologie – aus einem Bild lässt sich Dichtheit '
+          'weder ablesen noch bestellen. Die Reparatur schließt die '
+          'Löcher.'),
   MarketplaceRule(
       demand: 'Keine Accessoires im Netz – kein Haar, keine Brauen, kein '
           'Bart, keine Wimpern',
@@ -1654,6 +1680,80 @@ String marketplaceAsText(List<MarketplaceFinding> findings) {
 /// Modesty-Layer ist eine Frage an das Aussehen, nicht an die Form,
 /// und die Policy knüpft ihn ausdrücklich an „smooth and flat
 /// skin-like surface texture in the groin and chest area".
+/// Die Sätze für einen **Bild**-Prompt.
+///
+/// Warum es die gibt, steht bei [MarketplaceRule.inImagePrompt]: Auf
+/// dem Weg Text → Ansichten → 3D entscheidet das Bild über die Form,
+/// und der feste Schwanz ging bisher nur an Text→3D-Anbieter. Eine
+/// Figur, deren Bild keinen Hals zeigt, bekommt auch keinen – kein
+/// 3D-Anbieter erfindet einen dazu.
+List<String> marketplaceImageClauses() => <String>{
+      for (final r in marketplaceRules)
+        if (r.clause.isNotEmpty && r.inImagePrompt) r.clause,
+    }.toList();
+
+/// Was von den Vorgaben in ein Bild-Prompt passt – und was nicht mehr.
+class MarketplaceImagePrompt {
+  const MarketplaceImagePrompt(this.text, this.used, this.dropped);
+
+  /// Motiv und Vorgaben, wie sie an das Bildmodell gehen.
+  final String text;
+
+  /// Die Sätze, die mitgingen.
+  final List<String> used;
+
+  /// Die Sätze, die das Wortbudget des Modells nicht mehr zuließ.
+  final List<String> dropped;
+}
+
+/// Hängt die bildtauglichen Vorgaben an ein Motiv.
+///
+/// [wordBudget] ist die Wortgrenze des Bildmodells (0 = keine, so bei
+/// Gemini und OpenAI). Bei einem knappen Budget – Stability und die
+/// eigene GPU liegen zwischen 40 und 120 Wörtern – gehen die Sätze in
+/// der Reihenfolge der Doku mit, so weit sie passen; der Rest steht in
+/// [MarketplaceImagePrompt.dropped] und **gehört gemeldet**, statt
+/// still zu verschwinden. [reservedWords] hält Platz für das frei, was
+/// die Ansichts-Vorlage selbst noch anhängt (Kamera, Pose,
+/// Hintergrund).
+MarketplaceImagePrompt marketplaceImagePrompt(String motif,
+    {int wordBudget = 0, int reservedWords = 60}) {
+  int woerter(String t) =>
+      t.trim().isEmpty ? 0 : t.trim().split(RegExp(r'\s+')).length;
+  // Was das Motiv schon wörtlich sagt, nicht doppelt bestellen: Die
+  // empfohlene Motiv-Ordnung nennt Proportionen und Höhlen selbst, und
+  // ein Bildmodell gewichtet eine zweimal genannte Anweisung nicht
+  // stärker – es verliert nur Aufmerksamkeit an die Wiederholung.
+  final klein = motif.toLowerCase();
+  final saetze = [
+    for (final c in marketplaceImageClauses())
+      if (!klein.contains(c.toLowerCase())) c,
+  ];
+  if (wordBudget <= 0) {
+    return MarketplaceImagePrompt(
+        motif.trim().isEmpty ? saetze.join(', ') : '$motif, ${saetze.join(', ')}',
+        saetze,
+        const []);
+  }
+  var frei = wordBudget - reservedWords - woerter(motif);
+  final genommen = <String>[];
+  final weg = <String>[];
+  for (final satz in saetze) {
+    final n = woerter(satz);
+    if (n <= frei) {
+      genommen.add(satz);
+      frei -= n;
+    } else {
+      weg.add(satz);
+    }
+  }
+  final teile = [
+    if (motif.trim().isNotEmpty) motif.trim(),
+    ...genommen,
+  ];
+  return MarketplaceImagePrompt(teile.join(', '), genommen, weg);
+}
+
 /// Die verschiedenen Sätze, mit denen der Schwanz Vorgaben bestellt.
 ///
 /// Verschieden, weil mehrere Vorgaben denselben Satz benutzen:

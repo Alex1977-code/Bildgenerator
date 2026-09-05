@@ -2626,6 +2626,56 @@ Die Namen der Reparaturschritte sind jetzt Konstanten, die sich Tabelle
 und Reparatur teilen — sonst hätte die Tabelle auf Schritte verweisen
 können, die es nicht gibt.
 
+### Die Vorgaben erreichten das Bildmodell gar nicht
+
+Drei Figuren über Nano Banana, alle mit denselben zwei Befunden: **kein
+erkennbarer Hals** und **Arme, die am Körper hängen**. Auf den erzeugten
+Bildern ist beides zu sehen — der Jackenkragen reicht bis an den Kopf,
+die Arme fallen fast senkrecht.
+
+Die Prüfung nannte dazu die zuständigen Sätze: „distinct narrow neck not
+merged with the shoulders" und „arms angled down and clear of the
+torso". Nur waren die nie verschickt worden.
+
+**Der feste Marktplatz-Schwanz ging ausschließlich an Text→3D-Anbieter.**
+`_effectivePrompt` — die Funktion, die ihn anhängt — wird an genau zwei
+Stellen benutzt: beim Meshy-Text-Task und beim Tripo-Text-Task. Der Weg
+Text → Ansichten → 3D ruft `generateViewsFromText(description: prompt)`
+mit dem **rohen** Motiv auf. Das Einzige, was von den Regeln beim
+Bildmodell ankam, war der Posen-Zusatz.
+
+Auf diesem Weg entscheidet aber das **Bild** über die Form: Der
+3D-Anbieter rekonstruiert nur, was darauf zu sehen ist. Eine Figur,
+deren Bild keinen Hals zeigt, bekommt auch keinen — kein Anbieter
+erfindet einen dazu.
+
+Jetzt gehen die Vorgaben mit ins Bild, und zwar die, die ein Bild
+umsetzen kann. Drei von 15 Sätzen bleiben draußen, jeder mit
+Begründung in der Tabelle:
+
+| Satz | Warum nicht ins Bild |
+| --- | --- |
+| `one single body mesh` | Netz-Topologie — ein Bild kann sie weder zeigen noch verletzen |
+| `watertight closed surface apart from the eye and mouth openings` | dasselbe; die Löcher schließt die Reparatur |
+| `upright A-pose` | Die Ansichten bekommen die Pose als eigenen, ausführlicheren Zusatz |
+
+Zwei Dinge dabei, die sonst geschadet hätten:
+
+- **Was das Motiv schon wörtlich sagt, kommt nicht doppelt.** Die
+  empfohlene Motiv-Ordnung nennt Proportionen und Höhlen selbst, und
+  ein Bildmodell gewichtet eine zweimal genannte Anweisung nicht
+  stärker — es verliert nur Aufmerksamkeit an die Wiederholung.
+- **Knappe Wortbudgets werden gemeldet, nicht verschwiegen.** Gemini
+  und OpenAI haben keine Grenze; Stability und die eigene GPU liegen
+  zwischen 40 und 120 Wörtern. Was dort nicht mehr hineinpasst, steht
+  namentlich in einer Meldung, statt still zu fehlen. Bei SDXL-Turbo
+  (40 Wörter) passt nach Kamera, Pose und Hintergrund nichts mehr — und
+  genau das sagt die App dann auch.
+
+Für das Frankenstein-Motiv heißt das: 12 Vorgabe-Sätze gehen mit, der
+Bild-Prompt kommt auf rund 150 Wörter, und Gemini hat dafür keine
+Grenze.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

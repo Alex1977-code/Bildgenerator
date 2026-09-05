@@ -65,6 +65,8 @@ import '../services/asset_pack.dart';
 import '../services/roblox_face_parts.dart';
 import '../services/roblox_face_sculpt.dart';
 import '../services/roblox_marketplace.dart';
+import '../services/prompt_briefing.dart'
+    show promptProfileFor;
 import '../services/roblox_repair.dart';
 import '../services/roblox_rig.dart';
 import '../services/roblox_spec.dart';
@@ -2745,9 +2747,38 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           // den Ansichten – die Wahl lief ins Leere.
           pose = poseSuffix(_pose!);
         }
+        // Beim Marktplatz-Ziel gehen die Vorgaben **mit ins Bild**.
+        //
+        // Auf dem Weg Text → Ansichten → 3D entscheidet das Bild über
+        // die Form; der 3D-Anbieter rekonstruiert nur, was darauf zu
+        // sehen ist. Der feste Marktplatz-Schwanz ging bisher aber
+        // ausschließlich an Text→3D-Anbieter (Meshy, Tripo) – auf
+        // diesem Weg kam beim Bildmodell nur das Motiv plus der
+        // Posen-Zusatz an. An drei erzeugten Figuren war genau das zu
+        // sehen: kein Hals (der Jackenkragen reicht bis an den Kopf)
+        // und Arme, die am Körper hängen – die beiden Sätze dagegen
+        // („distinct narrow neck not merged with the shoulders",
+        // „arms angled down and clear of the torso") hatte nie jemand
+        // verschickt. Die Prüfung nannte sie hinterher als zuständig,
+        // was schlicht nicht stimmte.
+        final marktBild = _marketplaceText
+            ? marketplaceImagePrompt(prompt,
+                wordBudget: promptProfileFor(settings.provider,
+                        settings.modelFor(settings.provider))
+                    .maxWords)
+            : null;
+        if (marktBild != null && marktBild.dropped.isNotEmpty) {
+          // Nicht still weglassen: Bei einem knappen Wortbudget
+          // (Stability, eigene GPU) passt nicht alles, und dann muss
+          // dastehen, was fehlt.
+          _showSnack('Bild-Prompt: ${marktBild.dropped.length} von '
+              '${marketplaceImageClauses().length} Roblox-Vorgaben '
+              'passen nicht ins Wortbudget dieses Bildmodells und '
+              'gehen nicht mit: ${marktBild.dropped.join('; ')}.');
+        }
         final generated = await generateViewsFromText(
           settings: settings,
-          description: prompt,
+          description: marktBild?.text ?? prompt,
           pose: pose,
           onProgress: progress,
           isCancelled: cancelled,
