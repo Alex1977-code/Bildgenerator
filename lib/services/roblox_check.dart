@@ -20,7 +20,8 @@ import 'glb_preview.dart';
 import 'mesh_check.dart';
 import 'roblox_rig.dart';
 import 'roblox_face_parts.dart' show faceMeshNames;
-import 'roblox_marketplace.dart' show marketplaceClauseAdvice;
+import 'roblox_marketplace.dart'
+    show marketplaceClauseAdvice, marketplaceFaceClause;
 import 'roblox_face_sculpt.dart'
     show FaceCavities, measureFaceCavities, withoutFaceMeshes;
 import 'roblox_spec.dart';
@@ -575,9 +576,7 @@ List<RobloxFinding> checkRobloxFacts(RobloxFacts facts, RobloxTarget target) {
             hoehlen.eyeRelief >=
                 hoehlen.headWidth * FaceCavities.minDepthOfHeadWidth;
         // Nicht zu einem Satz raten, den der Lauf selbst verschickt.
-        final rat = marketplaceClauseAdvice(
-            'two eye sockets each holding a half-sphere eye, an open '
-            'mouth cavity',
+        final rat = marketplaceClauseAdvice(marketplaceFaceClause,
             negative: 'bulging eyes');
         findings.add(RobloxFinding(
             RobloxLevel.warning,

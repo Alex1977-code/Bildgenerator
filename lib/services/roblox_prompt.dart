@@ -99,15 +99,17 @@ const String robloxMarketplaceTail = _tailNormal5;
 /// Der Schwanz für die Standardhöhe und -skala – als Konstante, weil
 /// die Vorlagen ihn wörtlich zitieren.
 const String _tailNormal5 =
-    'upright A-pose, arms angled down and clear of the torso, symmetrical, '
+    'upright A-pose, arms angled down and away from the body, a visible '
+    'gap between each arm and the torso, symmetrical, '
     'humanoid with one head, one torso, two arms with hands, two legs with '
     'feet, distinct narrow neck not merged with the shoulders, head about one '
     'quarter of body height, hips at about two fifths of body height, '
     'body depth less than two '
     'fifths of body height, arms and legs thick enough to fill their outlines, '
     'two separate legs with a gap between the thighs, opaque clothing covering '
-    'upper and lower torso, face uncovered, two eye sockets each holding a '
-    'half-sphere eye, an open mouth cavity, watertight closed surface apart '
+    'upper and lower torso, face uncovered, two eye sockets carved into the '
+    'head, each holding a half-sphere eye set back inside, an open mouth '
+    'cavity, watertight closed surface apart '
     'from the eye and mouth openings, one single body mesh';
 
 /// Das Wort für die erlaubte Tiefe: Die Grenze ist absolut, der

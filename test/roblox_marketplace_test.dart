@@ -947,7 +947,7 @@ void main() {
       final bild = marketplaceImageClauses();
       expect(bild, contains('distinct narrow neck not merged with the '
           'shoulders'));
-      expect(bild, contains('arms angled down and clear of the torso'));
+      expect(bild, contains(marketplaceArmsClause));
     });
 
     test('ohne Wortgrenze geht alles mit, mit knapper Grenze fällt '
@@ -1313,9 +1313,8 @@ void main() {
     // Marktplatz-Lauf mitgeht. Der Nutzer las das als eigene Aufgabe
     // und trug sie nach – ohne Wirkung, denn der Satz war längst
     // draußen.
-    const augenSatz = 'two eye sockets each holding a half-sphere eye, '
-        'an open mouth cavity';
-    const armSatz = 'arms angled down and clear of the torso';
+    const augenSatz = marketplaceFaceClause;
+    const armSatz = marketplaceArmsClause;
 
     test('beide Sätze stehen wirklich im Bild-Prompt', () {
       expect(marketplaceImageClauses(), contains(augenSatz));

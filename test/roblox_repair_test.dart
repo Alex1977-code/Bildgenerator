@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:flutter/painting.dart' show Color;
 
 import 'package:bildgenerator/services/glb_preview.dart';
 import 'package:bildgenerator/services/local_3d.dart';
@@ -18,6 +21,9 @@ Uint8List figur({
   bool beineZusammen = false,
   bool tPose = false,
   double beinBreite = 0.45,
+  double armUnten = 2.6,
+  double armLuecke = 0.0,
+  Uint8List? textur,
 }) {
   final m = LocalMesh();
   void quader(double x0, double y0, double z0, double x1, double y1,
@@ -62,8 +68,9 @@ Uint8List figur({
     quader(-2.6, 3.2, -0.2, -1.1, 3.7, 0.2);
     quader(1.1, 3.2, -0.2, 2.6, 3.7, 0.2);
   } else {
-    quader(-1.8, 2.6, -0.2, -1.1, 3.7, 0.2);
-    quader(1.1, 2.6, -0.2, 1.8, 3.7, 0.2);
+    final ai = 1.1 + armLuecke;
+    quader(-ai - 0.7, armUnten, -0.2, -ai, 3.7, 0.2);
+    quader(ai, armUnten, -0.2, ai + 0.7, 3.7, 0.2);
   }
   // Beine, mit Schienbeinring für die Zehen-Heuristik.
   final b = beinBreite;
@@ -91,7 +98,7 @@ Uint8List figur({
           2.0, 0.25);
     }
   }
-  return buildGlb(m);
+  return buildGlb(m, pngTexture: textur);
 }
 
 Future<MarketplaceMeasurement> miss(Uint8List glb,
@@ -112,8 +119,17 @@ void main() {
     expect(nachher.depth, closeTo(vorher.depth, 0.02));
     expect(nachher.width, closeTo(vorher.width, 0.02));
     // Nur die Nachmessung darf etwas melden, keine Korrektur.
+    //
+    // Gezählt wird nach der Herkunft, nicht nach der Zahl der Zeilen:
+    // Auch diese Figur steht in I-Pose, also probiert der Schritt
+    // „Arme abspreizen" es und nimmt es zurück, weil dabei nichts
+    // besser würde. Diese Zeile steht mit Herkunft „Prompt" im
+    // Bericht - verändert hat die App nichts, und genau das prüfen
+    // die beiden Maße darüber.
     expect(
-        r.report.steps.where((s) => !s.rule.startsWith('Nachmessung')),
+        r.report.steps.where((s) =>
+            !s.rule.startsWith('Nachmessung') &&
+            s.origin == RepairOrigin.app),
         isEmpty);
   });
 
@@ -516,4 +532,78 @@ void main() {
       expect(gleich.depth, closeTo(vorher.depth, 0.06));
     });
   });
+
+  group('I-Pose: Arme abspreizen', () {
+    test('herabhängende Arme werden zur A-Pose gedreht', () async {
+      // Arme von 1,6 bis 3,7 und mit einer Lücke zum Rumpf: lang
+      // genug, dass die Drehung die breiteste Stelle nicht bis auf
+      // Schulterhöhe hebt, und getrennt genug, dass die Messung
+      // Rumpf und Arm überhaupt auseinanderhält.
+      const wie = (armUnten: 1.6, armLuecke: 0.3);
+      final vorher =
+          await miss(figur(armUnten: wie.armUnten, armLuecke: wie.armLuecke));
+      expect(vorher.armsFree, isFalse);
+      final r = await repairForMarketplace(
+          figur(armUnten: wie.armUnten, armLuecke: wie.armLuecke),
+          addFace: false,
+          sculptFace: false,
+          decimate: false);
+      final schritt = r.report.steps
+          .firstWhere((s) => s.rule == repairStepArmsApart);
+      expect(schritt.origin, RepairOrigin.app);
+      final nachher = await miss(r.glb);
+      expect(nachher.width - nachher.spanTorsoWidth,
+          greaterThan(vorher.width - vorher.spanTorsoWidth));
+    });
+
+    test('was dabei schlechter würde, wird zurückgenommen', () async {
+      // Bei kurzen Armen hebt dieselbe Drehung die breiteste Stelle
+      // auf Schulterhöhe – aus einer Warnung („I-Pose") würde ein
+      // Fehler („T-Pose"). Dann bleibt der Schritt aus.
+      final vorher = await miss(figur());
+      final r = await repairForMarketplace(figur(),
+          addFace: false, sculptFace: false, decimate: false);
+      final schritt = r.report.steps
+          .firstWhere((s) => s.rule == repairStepArmsApart);
+      expect(schritt.after, 'verworfen');
+      expect(schritt.origin, RepairOrigin.prompt);
+      final nachher = await miss(r.glb);
+      expect(nachher.width, closeTo(vorher.width, 0.02));
+    });
+
+    test('die Gesichtsteile kosten die Figur nicht ihre Textur',
+        () async {
+      // Der Fund hinter „im 3D-Viewer sieht die Textur anders aus als
+      // in der Galerie": Ein Teilnetz ohne UVs (die fünf
+      // Gesichtsteile) machte die Textur des ganzen Netzes
+      // unbrauchbar – im Viewer blieben nur die Vertex-Farben, und der
+      // Reduzieren-Knopf gab eine GLB ganz ohne Textur zurück.
+      final png = await _kleinesPng();
+      final mitTextur = figur(textur: png);
+      final ohneGesicht = await parseGlbForPreview(mitTextur);
+      expect(ohneGesicht.uvs, isNotNull);
+      ohneGesicht.dispose();
+
+      final gesicht = addFaceParts(mitTextur);
+      expect(gesicht.report.parts, isNotEmpty);
+      final mitGesicht = await parseGlbForPreview(gesicht.glb);
+      expect(mitGesicht.uvs, isNotNull,
+          reason: 'Fünf Teilnetze ohne UVs dürfen die Textur der '
+              'anderen nicht kosten.');
+      expect(mitGesicht.texture, isNotNull);
+      mitGesicht.dispose();
+    });
+  });
+}
+
+/// Ein 2x2-PNG als Textur – der Inhalt ist egal, es geht um ihr
+/// Vorhandensein.
+Future<Uint8List> _kleinesPng() async {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawRect(
+      const ui.Rect.fromLTWH(0, 0, 2, 2), ui.Paint()..color = const Color(0xFFCCDDEE));
+  final bild = await recorder.endRecording().toImage(2, 2);
+  final daten = await bild.toByteData(format: ui.ImageByteFormat.png);
+  bild.dispose();
+  return daten!.buffer.asUint8List();
 }

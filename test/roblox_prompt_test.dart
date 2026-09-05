@@ -122,7 +122,7 @@ void main() {
       // Links steht die Angabe, rechts die Stelle, die sie verlangt.
       const belegt = {
         'upright A-pose': 'Auto Setup 6: „upright A-pose or T-Pose"',
-        'clear of the torso':
+        'a visible gap between each arm and the torso':
             'Auto Setup 6: „no limbs obscure or overlap each other"',
         'symmetrical': 'Auto Setup 8',
         'humanoid with one head, one torso, two arms with hands, two '
@@ -141,7 +141,8 @@ void main() {
         'opaque clothing covering upper and lower torso':
             'Policy „Modesty layers" + Visibility „fully opaque"',
         'face uncovered': 'Auto Setup 10: keine Accessoires im Netz',
-        'two eye sockets each holding a half-sphere eye':
+        'two eye sockets carved into the head, each holding a '
+            'half-sphere eye set back inside':
             'Auto Setup 2: „2 connected eyebags containing half-sphere eyes"',
         'an open mouth cavity': 'Auto Setup 2: „a connected mouthbag"',
         'watertight closed surface apart from the eye and mouth openings':

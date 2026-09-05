@@ -375,9 +375,15 @@ int? _baseColorImageIndex(_Gltf gltf, Map<String, dynamic> primitive) {
 /// Dekodiert die Basisfarb-Textur eines Primitivs zum Farb-Abtasten.
 Future<({Uint8List rgba, int width, int height})?> _decodeTexture(
     _Gltf gltf, Map<String, dynamic> primitive) async {
+  final imageIndex = _baseColorImageIndex(gltf, primitive);
+  if (imageIndex == null) return null;
+  return _decodeImageRgba(gltf, imageIndex);
+}
+
+/// Dasselbe für ein Bild, zu dem es kein Primitiv gibt.
+Future<({Uint8List rgba, int width, int height})?> _decodeImageRgba(
+    _Gltf gltf, int imageIndex) async {
   try {
-    final imageIndex = _baseColorImageIndex(gltf, primitive);
-    if (imageIndex == null) return null;
     final image = (gltf.json['images'] as List)[imageIndex]
         as Map<String, dynamic>;
     final bufferView = image['bufferView'] as int?;
@@ -574,9 +580,22 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
   final allWeights = <double>[];
   final allUvs = <double>[];
   var hasSkinData = false;
-  // Volltextur fürs echte Mapping: nur nutzbar, wenn alle Primitive
-  // dieselbe Textur und UV-Koordinaten haben.
+  // Volltextur fürs echte Mapping: nutzbar, solange alle **texturierten**
+  // Primitive dasselbe Bild benutzen.
+  //
+  // Hier stand „alle Primitive brauchen UVs". Das kostete jede fertige
+  // Marktplatz-Figur ihre Textur: Die fünf Gesichtsteile (Augen,
+  // Zähne, Zunge) haben weder UVs noch Material, und schon war
+  // textureUsable für das ganze Netz falsch. Sichtbar wurde es
+  // doppelt - der Viewer zeigte statt der Textur nur die
+  // Vertex-Farben (deshalb sah dieselbe Datei dort anders aus als in
+  // der Galerie), und wer im Viewer auf „Reduzieren" drückte, bekam
+  // eine GLB ganz ohne Textur zurück. Ein Teilnetz ohne eigene Textur
+  // macht die der anderen nicht unbrauchbar; es bekommt unten die UV
+  // des hellsten Texels, damit es unter BlendMode.modulate so hell
+  // bleibt wie zuvor.
   var textureUsable = true;
+  final ohneEigeneUv = <(int, int)>[];
   int? textureImage;
   ui.Image? fullTexture;
 
@@ -599,15 +618,18 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
 
       // UVs und Volltextur fürs echte Textur-Mapping.
       final uvAccessorIndex = attributes['TEXCOORD_0'] as int?;
-      if (uvAccessorIndex != null) {
+      final imageIndex = _baseColorImageIndex(gltf, primitive);
+      if (uvAccessorIndex != null && imageIndex != null) {
         allUvs.addAll(_readFloats(gltf, uvAccessorIndex));
       } else {
+        // Vorerst (0,0); die endgültige UV steht erst fest, wenn die
+        // Textur dekodiert ist.
         allUvs.addAll(List.filled(vertexCount * 2, 0.0));
-        textureUsable = false;
+        ohneEigeneUv.add((base, vertexCount));
       }
-      final imageIndex = _baseColorImageIndex(gltf, primitive);
       if (imageIndex == null) {
-        textureUsable = false;
+        // Kein Bild an diesem Teilnetz - das sagt nichts über die
+        // anderen.
       } else if (textureImage == null) {
         textureImage = imageIndex;
         fullTexture = await _decodeTextureImage(gltf, imageIndex,
@@ -717,6 +739,40 @@ Future<PreviewMesh> parseGlbForPreview(Uint8List glb) async {
   if (!textureUsable) {
     fullTexture?.dispose();
     fullTexture = null;
+  }
+
+  // Teilnetze ohne eigene Textur auf den hellsten Texel legen.
+  //
+  // Der Maler zeichnet texturierte Netze mit BlendMode.modulate:
+  // Ergebnis ist Texel x Helligkeit. Ein weißer Texel liefert damit
+  // genau das Grau, das ein Netz ohne Textur vorher hatte - Augen,
+  // Zähne und Zunge bleiben hell statt die Farbe der Atlas-Ecke zu
+  // erben. Einen nahezu weißen Texel hat ein Figuren-Atlas praktisch
+  // immer; fehlt er, ist der hellste vorhandene die beste Wahl.
+  if (textureUsable && ohneEigeneUv.isNotEmpty && textureImage != null) {
+    final roh = await _decodeImageRgba(gltf, textureImage);
+    var u = 0.5, v = 0.5;
+    if (roh != null && roh.width > 0 && roh.height > 0) {
+      var beste = -1;
+      for (var y = 0; y < roh.height; y++) {
+        for (var x = 0; x < roh.width; x++) {
+          final o = (y * roh.width + x) * 4;
+          if (roh.rgba[o + 3] < 250) continue;
+          final helligkeit = roh.rgba[o] + roh.rgba[o + 1] + roh.rgba[o + 2];
+          if (helligkeit > beste) {
+            beste = helligkeit;
+            u = (x + 0.5) / roh.width;
+            v = (y + 0.5) / roh.height;
+          }
+        }
+      }
+    }
+    for (final (start, anzahl) in ohneEigeneUv) {
+      for (var i = 0; i < anzahl; i++) {
+        allUvs[(start + i) * 2] = u;
+        allUvs[(start + i) * 2 + 1] = v;
+      }
+    }
   }
 
   // PBR-Oberfläche (Metall/Rauheit) aus dem ersten Material für die

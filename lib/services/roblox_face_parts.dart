@@ -397,9 +397,10 @@ FacePartsResult addFaceParts(
             '${(-tiefe).toStringAsFixed(2)} Studs **vor** ihrem Rand – '
             'dort ist ein modellierter Augapfel, keine Höhle. Die '
             'Kugel sitzt darauf; für die FACS-Posen fehlt die '
-            'Vertiefung. Ins Motiv: „two eye sockets each holding '
-            'a half-sphere eye", ins '
-            'Negativ „bulging eyes".');
+            'Vertiefung. Die Höhle bestellt jeder Marktplatz-Lauf '
+            'selbst (Auto Setup 2); steht sie trotzdem nicht im Netz, '
+            'hat das Bildmodell den Satz nicht umgesetzt – dann hilft '
+            'nur ein neuer Lauf.');
       }
     }
     return treffer - augeR * proportions.eyeSink;

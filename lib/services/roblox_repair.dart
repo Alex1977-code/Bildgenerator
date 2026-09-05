@@ -72,6 +72,13 @@ const double repairLegClampRadius = 0.75;
 /// Um wie viel Grad die Arme aus der T- in die A-Pose fallen.
 const double repairArmDrop = 45;
 
+/// Wie weit herabhängende Arme abgespreizt werden (Grad).
+///
+/// Die Gegenbewegung zu [repairArmDrop] und derselbe Winkel: Der
+/// Posen-Zusatz an die Ansichten bestellt „arms straight and angled 45
+/// degrees down", und genau dorthin bringt der Schritt eine I-Pose.
+const double repairArmSpread = 45;
+
 /// Dreiecksziel nach der Dezimierung – etwas unter der Grenze, damit
 /// die Gesichtsteile noch hineinpassen.
 const int repairTriangleGoal = 6800;
@@ -982,6 +989,114 @@ Future<RepairResult> repairForMarketplace(
     }
   }
 
+  // 6b. I-Pose: Arme abspreizen.
+  //
+  // Schritt 6 kannte nur die T-Pose und ließ die I-Pose stehen - dabei
+  // ist sie der Fall, den Auto Setup ausdrücklich schlechter nennt
+  // („Character bodies with I-pose may yield lower quality results").
+  // Der Bericht riet stattdessen zum Prompt, obwohl der die A-Pose
+  // längst zweimal bestellt; das Bildmodell hatte sie nur nicht
+  // geliefert.
+  //
+  // Gedreht wird um die Achsel (Rumpfkante auf Schulterhöhe), nach
+  // außen statt nach unten - dieselbe Rechnung wie beim Senken, nur
+  // mit negativem Winkel.
+  //
+  // Gemessen wird **hier** neu statt [mass] zu benutzen: Die Schritte
+  // davor haben die Figur verändert, und wer nach alten Zahlen dreht,
+  // dreht am falschen Ort. Und was dabei herauskommt, wird
+  // nachgemessen: Das Abspreizen hebt die Arme, und damit wandert das
+  // breiteste Band nach oben - an Testfiguren aus Quadern hat das
+  // Rumpf- und Beinhöhe verschoben. Wird irgendeine Vorgabe dabei
+  // schlechter, gilt der Schritt als misslungen und wird
+  // zurückgenommen: eine Warnung weniger ist keinen neuen Fehler wert.
+  if (!mass.looksLikeTPose) {
+    final davor = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+    final steht = davor.width - davor.spanTorsoWidth;
+    // Hier stand zusätzlich „nur wenn überhaupt etwas absteht". Das
+    // war die Bedingung, die den einzigen Fall ausschloss, für den es
+    // den Schritt gibt: Bei einer I-Pose steht eben nichts ab (0,04
+    // Studs an der echten Figur).
+    if (!davor.armsFree && davor.spanTorsoWidth > 0) {
+      final offenVorher = checkMarketplaceFigure(davor, scale: scale)
+          .where((f) => f.level != MarketplaceLevel.ok)
+          .length;
+      final urzustand = Float32List.fromList(pos);
+      // Zwei Drehpunkte, gemessen statt geraten.
+      //
+      // Wo die Achsel liegt, ist bei einer I-Pose gerade nicht zu
+      // messen: Arm und Rumpf bilden eine einzige Insel, und die
+      // „Rumpfbreite im breitesten Band" ist deshalb die ganze
+      // Silhouette. Der eine Kandidat schätzt die Achsel über die
+      // Kopfbreite (wie beim Senken einer T-Pose), der andere nimmt
+      // die halbe gemessene Rumpfbreite. Welcher passt, entscheidet
+      // die Nachmessung.
+      Float32List? bestes;
+      var besteReichweite = steht;
+      var besteAchsel = 0.0;
+      var besteOffen = offenVorher;
+      for (final achsel in <double>{
+        zonen.headWidth * 0.9,
+        davor.spanTorsoWidth / 2,
+      }) {
+        pos.setAll(0, urzustand);
+        _armeSenken(pos, zonen.shoulderY, achsel, -repairArmSpread,
+            zonen.height * 0.03);
+        if (countFlippedTriangles(urzustand, pos, idx) > flipGrenze()) {
+          continue;
+        }
+        final n = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+        final reichweite = n.width - n.spanTorsoWidth;
+        final offen = checkMarketplaceFigure(n, scale: scale)
+            .where((f) => f.level != MarketplaceLevel.ok)
+            .length;
+        // Eine Warnung weniger ist keinen neuen Fehler wert: Das
+        // Abspreizen hebt die Arme, und damit wandert das breiteste
+        // Band nach oben - an Testfiguren aus Quadern wurde daraus
+        // eine T-Pose.
+        if (offen > offenVorher || reichweite <= besteReichweite) continue;
+        besteReichweite = reichweite;
+        besteAchsel = achsel;
+        besteOffen = offen;
+        bestes = Float32List.fromList(pos);
+      }
+      if (bestes == null) {
+        pos.setAll(0, urzustand);
+        notiere(
+            repairStepArmsApart,
+            '${steht.toStringAsFixed(2)} Studs',
+            'verworfen',
+            RepairOrigin.prompt,
+            'Kein Drehpunkt bringt die Arme weiter vom Rumpf weg, ohne '
+                'anderswo etwas zu brechen. Was hier als Arm gedreht '
+                'würde, ist keiner - oder er ist zu kurz, um sich '
+                'freizustellen. Die A-Pose bestellt der '
+                'Marktplatz-Lauf ohnehin zweimal; hilft das nicht, '
+                'hilft nur ein neuer Lauf.');
+      } else {
+        pos.setAll(0, bestes);
+        final noetig = 2 * specMinArmLength / math.sqrt2;
+        notiere(
+            repairStepArmsApart,
+            '${steht.toStringAsFixed(2)} Studs',
+            '${besteReichweite.toStringAsFixed(2)} Studs',
+            RepairOrigin.app,
+            'Um ${repairArmSpread.round()}° um die Achsel bei '
+                '${besteAchsel.toStringAsFixed(2)} Studs nach außen '
+                'gedreht, weicher Anlauf zum Rumpf; offene Vorgaben '
+                '$offenVorher → $besteOffen. '
+                '${besteReichweite >= noetig ? 'Damit steht der geforderte '
+                    'Abstand von ${noetig.toStringAsFixed(2)} Studs.' : 'Nötig '
+                    'wären ${noetig.toStringAsFixed(2)} Studs. Weiter geht '
+                    'es nicht: Der Abstand ist die Armlänge mal cos 45°, '
+                    'und diese Arme sind dafür zu kurz. Das ist keine '
+                    'Frage der Pose mehr, sondern der Figur - im Bild '
+                    'müssen die Arme länger werden.'}',
+            fixed: besteReichweite >= noetig);
+      }
+    }
+  }
+
   // Zurückbauen und die Geometrie in Ordnung bringen: Der Schnitt hat
   // Löcher hinterlassen, und die Wicklung muss stimmen.
   arbeit = _bau(pos, uvs, idx, textur);
@@ -1057,9 +1172,8 @@ Future<RepairResult> repairForMarketplace(
                   'Kugeln sitzen auf der Gesichtsfläche, versenkt und '
                   'sichtbar, aber ohne Vertiefung dahinter. Für die '
                   'FACS-Posen fehlt sie. '
-                  '${marketplaceClauseAdvice('two eye sockets each '
-                      'holding a half-sphere eye, an open mouth '
-                      'cavity', negative: 'bulging eyes')}'}'
+                  '${marketplaceClauseAdvice(marketplaceFaceClause,
+                      negative: 'bulging eyes')}'}'
               '${gesicht.report.notes.isEmpty ? '' : ' '
                   '${gesicht.report.notes.join(' ')}'}');
     } on Exception catch (e) {

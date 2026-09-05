@@ -55,6 +55,8 @@ import 'dart:typed_data';
 
 import 'glb_preview.dart' show joinGlb, parseGlbForPreview, splitGlb;
 import 'local_3d.dart';
+import 'roblox_marketplace.dart'
+    show marketplaceClauseAdvice, marketplaceFaceClause;
 import 'mesh_budget.dart' show firstGlbTexturePng;
 import 'roblox_face_parts.dart'
     show FaceProportions, faceFrontHitZ, faceMeshNames, headBottomY;
@@ -345,10 +347,9 @@ Future<FaceSculptResult> sculptFaceIntoHead(
                   'Höhlen: '
                   '${vorher.leftEyeDepth < 0 ? 'Die Augen stehen als '
                       'Kugeln vor der Fläche. ' : ''}Hineinzugraben '
-                  'macht daraus Matsch, nicht eine Höhle – das gehört '
-                  'in den Prompt („two eye sockets each holding a '
-                  'half-sphere eye", Negativ '
-                  '„bulging eyes").',
+                  'macht daraus Matsch, nicht eine Höhle. '
+                  '${marketplaceClauseAdvice(marketplaceFaceClause,
+                      negative: 'bulging eyes')}',
         ],
       ),
     );
@@ -365,9 +366,9 @@ Future<FaceSculptResult> sculptFaceIntoHead(
         '(${(-vorher.leftEyeDepth).toStringAsFixed(2)} / '
         '${(-vorher.rightEyeDepth).toStringAsFixed(2)} Studs vor der '
         'Gesichtsfläche): In einen Buckel lässt sich keine Höhle '
-        'schneiden, die Verschiebung macht ihn nur flacher. Ins Motiv '
-        '„two eye sockets each holding a half-sphere eye", ins '
-        'Negativ „bulging eyes".');
+        'schneiden, die Verschiebung macht ihn nur flacher. '
+        '${marketplaceClauseAdvice(marketplaceFaceClause,
+            negative: 'bulging eyes')}');
   }
 
   // 1. Verfeinern.

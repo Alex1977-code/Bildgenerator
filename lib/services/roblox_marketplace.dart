@@ -428,6 +428,7 @@ const String repairStepLegsApart = 'Beine getrennt';
 const String repairStepHem = 'Saum';
 const String repairStepLegWidth = 'Beinbreite';
 const String repairStepPose = 'Pose';
+const String repairStepArmsApart = 'Arme abspreizen';
 const String repairStepHoles = 'Löcher';
 const String repairStepDecimate = 'Dreiecke';
 const String repairStepFaceSculpt = 'Gesicht im Kopfnetz';
@@ -532,6 +533,26 @@ class MarketplaceRule {
 /// Reihenfolge: Auto Setup „Mesh requirements" 1–13, dann die
 /// Marketplace-Policy, dann die Maßtabellen der Character body
 /// specifications.
+/// Der Satz, der die Augen- und Mundhöhlen bestellt.
+///
+/// Zweimal geschärft, weil das Bildmodell zweimal Kugeln **vor** die
+/// Gesichtsfläche gesetzt hat statt Augen **in** eine Höhle: Ohne
+/// „carved into the head" und „set back inside" liest ein Bildmodell
+/// „socket" als Ring um ein aufgesetztes Auge.
+const String marketplaceFaceClause =
+    'two eye sockets carved into the head, each holding a half-sphere '
+    'eye set back inside, an open mouth cavity';
+
+/// Der Satz, der die Arme vom Rumpf wegstellt.
+///
+/// „clear of the torso" allein hat an einer echten Figur 1,03 statt
+/// der nötigen 2,12 Studs Abstand ergeben – ein Bildmodell liest
+/// „clear" als „nicht überlappend", nicht als Abstand. Der Zusatz
+/// benennt, woran man es im Bild sieht.
+const String marketplaceArmsClause =
+    'arms angled down and away from the body, a visible gap between '
+    'each arm and the torso';
+
 const List<MarketplaceRule> marketplaceRules = [
   MarketplaceRule(
       demand: 'Ein einziges Körpernetz',
@@ -543,8 +564,7 @@ const List<MarketplaceRule> marketplaceRules = [
   MarketplaceRule(
       demand: 'Zwei Augensäcke mit Halbkugel-Augen und ein Mundsack mit '
           'Ober-, Unterzähnen und Zunge',
-      clause: 'two eye sockets each holding a half-sphere eye, an open '
-          'mouth cavity',
+      clause: marketplaceFaceClause,
       repairStep: repairStepFaceSculpt,
       source: 'Auto Setup 2',
       note: 'Der Prompt liefert die Höhlen, die App setzt die fünf '
@@ -578,7 +598,8 @@ const List<MarketplaceRule> marketplaceRules = [
   MarketplaceRule(
       id: 'arme_frei',
       demand: 'Von vorn verdeckt keine Gliedmaße eine andere',
-      clause: 'arms angled down and clear of the torso',
+      clause: marketplaceArmsClause,
+      repairStep: repairStepArmsApart,
       source: 'Auto Setup 6'),
   MarketplaceRule(
       demand: 'Die Vorderseite zeigt auf die negative Z-Achse',

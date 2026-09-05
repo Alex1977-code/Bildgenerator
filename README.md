@@ -2849,12 +2849,10 @@ eine Figur über der Grenze lehnt Roblox ab, eine mit verschmierter
 Textur nimmt es an. Also: erst mit Sperre, und nur wenn das Ziel reißt,
 noch einmal ohne.
 
-**Ein zweiter Fund daneben, noch offen.** `parseGlbForPreview` wirft
-alle UVs weg, sobald **ein** Teilnetz keine hat — und die fünf
-Gesichtsteile haben keine. Wer eine fertige Figur über den
-Reduzieren-Knopf im Viewer schickt, verliert damit die ganze Textur. In
-der Reparatur bricht das nicht durch: Dort wird vor den Gesichtsteilen
-dezimiert.
+**Ein zweiter Fund daneben** — inzwischen behoben, siehe „Fünf Netze
+ohne UVs kosteten die ganze Textur": `parseGlbForPreview` warf alle UVs
+weg, sobald **ein** Teilnetz keine hatte — und die fünf Gesichtsteile
+haben keine.
 
 ### Drei Berichte über dieselbe Datei, drei Antworten
 
@@ -2936,6 +2934,129 @@ I-Pose: 1,03 statt der nötigen 2,12 Studs. Die hat der Prompt zweimal
 bestellt, und das Bildmodell hat sie zweimal nicht geliefert. Roblox
 nimmt die Figur trotzdem an — „Character bodies with I-pose may yield
 lower quality results" ist eine Warnung, keine Grenze.
+
+### Fünf Netze ohne UVs kosteten die ganze Textur
+
+„Die GLB sieht von der Textur her im 3D-Viewer anders aus als in der
+Galerie." Sie tat es, und der Grund stand als offener Punkt schon in
+diesem README:
+
+```dart
+if (uvAccessorIndex != null) { … } else { textureUsable = false; }
+```
+
+Eine fertige Marktplatz-Figur besteht aus dem Körpernetz **plus** fünf
+Gesichtsteilen — Augen, Ober- und Unterzähne, Zunge. Die haben weder
+UVs noch Material, denn sie sind einfarbige Körper. Dieses `else`
+machte damit die Textur des **ganzen** Netzes unbrauchbar. Sichtbar
+wurde das doppelt: Der Viewer zeigte statt der Textur nur die
+Vertex-Farben, und wer dort auf „Reduzieren" drückte, bekam eine GLB
+ganz ohne Textur zurück.
+
+Ein Teilnetz ohne eigene Textur sagt nichts über die anderen. Es
+bekommt jetzt die UV des **hellsten Texels** der vorhandenen Textur:
+Der Maler zeichnet mit `BlendMode.modulate`, also Texel × Helligkeit —
+ein (nahezu) weißer Texel liefert genau das Grau, das ein Netz ohne
+Textur vorher hatte. Augen und Zähne bleiben hell, statt die Farbe der
+Atlas-Ecke zu erben, und es kommt **kein zweites Bild** in die Datei.
+
+An der Figur des Nutzers geprüft: vorher `uvs = null`, nachher 11.546
+UV-Paare und die 1024×1024-Textur; die Gesichtsteile landen auf
+(0,491 / 0,708).
+
+**Was die App nicht behebt: die doppelten Kacheln im Atlas.** Der
+Atlas ist ein 3×3-Raster aus Projektionen, und die Zuordnung
+Kachel → mittlere Flächennormale sieht so aus:
+
+| Kachel | Fläche | mittlere Normale | Richtung |
+| --- | --- | --- | --- |
+| unten links | 23,6 % | (0,01 / −0,03 / **−0,88**) | vorn |
+| unten mitte | 25,4 % | (0,00 / 0,11 / **+0,84**) | hinten |
+| unten rechts | 12,1 % | (**+0,87** / 0,03 / −0,02) | rechts |
+| mitte links | 12,1 % | (**−0,88** / 0,01 / −0,03) | links |
+| mitte mitte | 4,5 % | (0,00 / **−0,88** / 0,04) | unten |
+| mitte rechts | 5,3 % | (−0,01 / **+0,84** / −0,03) | oben |
+| oben links | 6,9 % | (**−0,80** / −0,13 / 0,05) | links (nochmal) |
+| oben mitte | 7,4 % | (**+0,74** / −0,09 / 0,01) | rechts (nochmal) |
+| oben rechts | 2,8 % | (0,07 / −0,22 / −0,08) | Reste |
+
+Links und rechts stehen also **je zweimal** im Atlas — das ist die
+Verdopplung, die in der Galerie auffällt. Falsch dargestellt wird
+deswegen nichts: Nur 0,1 % der Dreiecke reichen über eine Kachelgrenze,
+jedes Dreieck holt seine Farbe aus genau einer Kachel. Es kostet
+Auflösung, weil ein Fünftel des 1024er-Budgets doppelt belegt ist.
+
+Das Raster stammt aus dem UV-Aufbau des 3D-Servers, nicht aus der App —
+die App skaliert den Atlas nur auf die 1024 des Marktplatz-Presets. Es
+zu beheben hieße, die Figur neu auszulegen und die Textur neu zu
+backen; das ist eine eigene Aufgabe und steht hier als offener Punkt.
+
+### Zwei Sätze, die zweimal nicht ankamen
+
+Der Bericht riet, zwei Sätze in den Prompt zu schreiben, die jeder
+Marktplatz-Lauf selbst verschickt — das ist im Abschnitt davor
+behoben. Damit blieb die eigentliche Frage: Warum setzt das
+Bildmodell sie nicht um?
+
+Beide Sätze sind zu schwach für ein Bildmodell:
+
+| vorher | jetzt |
+| --- | --- |
+| `two eye sockets each holding a half-sphere eye, an open mouth cavity` | `two eye sockets carved into the head, each holding a half-sphere eye set back inside, an open mouth cavity` |
+| `arms angled down and clear of the torso` | `arms angled down and away from the body, a visible gap between each arm and the torso` |
+
+„socket" allein liest ein Bildmodell als Ring um ein **aufgesetztes**
+Auge — gemessen an drei Figuren standen die Augäpfel 0,62 Studs
+**vor** der Gesichtsfläche. „clear of the torso" liest es als „nicht
+überlappend", nicht als Abstand; herausgekommen sind 1,03 statt der
+nötigen 2,12 Studs. Die neuen Sätze benennen, woran man es im Bild
+**sieht**.
+
+Der Text→3D-Schwanz trägt dieselben Sätze — dafür gibt es einen Test,
+der jeden Satz der Regeltabelle wörtlich im Schwanz sucht und
+umgekehrt nichts im Schwanz duldet, das keine Regel beansprucht. Er
+wächst dadurch von 629 auf 713 Zeichen; dem Motiv bleiben bei Tripo
+309 statt 393. Das ist der Preis, und er ist bezahlt: An den zwei
+Sätzen sind drei Figuren gescheitert.
+
+**Die NEGATIV-Zeile bleibt, wie sie ist.** Sie liegt mit 253 von 255
+Zeichen an Tripos Grenze; jeder Begriff darin steht für einen
+gemessenen Fehlschlag. Was zu sagen ist, sagt der Prompt positiv.
+
+### Die I-Pose war nicht nur eine Prompt-Frage
+
+Schritt 6 der Reparatur kannte bis hierher nur die T-Pose: Arme
+waagerecht → um 45° senken. Die **I-Pose** — Arme am Körper — ließ er
+stehen, obwohl Auto Setup gerade sie ausdrücklich schlechter nennt
+(„Character bodies with I-pose may yield lower quality results"). Der
+Bericht verwies stattdessen auf den Prompt, der die A-Pose längst
+zweimal bestellt.
+
+Schritt 6b dreht sie jetzt nach außen: dieselbe Rechnung wie beim
+Senken, nur mit negativem Winkel, Drehpunkt ist die Achsel. Drei
+Dinge, die dabei nötig waren:
+
+**Gemessen wird neu, nicht aus `mass`.** Die Schritte davor haben die
+Figur verändert; wer nach alten Zahlen dreht, dreht am falschen Ort.
+
+**Zwei Drehpunkte, und die Messung entscheidet.** Wo die Achsel liegt,
+ist bei einer I-Pose gerade nicht zu messen: Arm und Rumpf bilden eine
+einzige Insel, und „Rumpfbreite im breitesten Band" ist deshalb die
+ganze Silhouette. Der eine Kandidat schätzt die Achsel über die
+Kopfbreite, der andere nimmt die halbe gemessene Rumpfbreite; genommen
+wird der, der nachher weiter kommt.
+
+**Wird etwas anderes schlechter, gilt der Schritt als misslungen.**
+Das Abspreizen hebt die Arme, und damit wandert das breiteste Band
+nach oben — an Testfiguren aus Quadern wurde aus einer Warnung
+(„I-Pose") ein Fehler („T-Pose"). Dann wird zurückgenommen. Eine
+Warnung weniger ist keinen neuen Fehler wert.
+
+An der echten Figur: **0,04 → 1,29 Studs** Abstand, keine Vorgabe
+verschlechtert. Die geforderten 2,12 erreicht sie trotzdem nicht — und
+das sagt der Bericht jetzt auch: Der Abstand ist die Armlänge mal
+cos 45°, diese Arme sind dafür schlicht zu kurz. Das ist keine Frage
+der Pose mehr, sondern der Figur.
 
 ### Aus dem Text eine Marktplatz-Figur
 
