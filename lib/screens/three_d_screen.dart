@@ -2780,6 +2780,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           settings: settings,
           description: marktBild?.text ?? prompt,
           pose: pose,
+          // Die NEGATIV-Zeile gehört auch an das Bildmodell. Bei
+          // Gemini und GPT-Image geht sie als Satz in den Prompt –
+          // ein Negativ-Feld haben sie nicht. Darin steht „bulging
+          // eyes": Ohne das kamen die Augen Lauf für Lauf als Kugeln
+          // zurück, und in eine Kugel lässt sich keine Höhle
+          // schneiden.
+          extraNegative: _marketplaceText ? robloxMarketplaceNegative : '',
           onProgress: progress,
           isCancelled: cancelled,
           // Stability, fal.ai, Replicate und der eigene Server brauchen

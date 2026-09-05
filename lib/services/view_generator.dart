@@ -233,6 +233,7 @@ Future<GeneratedViews> generateViewsFromText({
   bool threeQuarterFront = false,
   Map<String, ReferenceImage> existing = const {},
   List<ReferenceImage> styleReferences = const [],
+  String extraNegative = '',
 }) async {
   final neededKeys =
       frontOnly ? const ['front'] : const ['front', 'left', 'right', 'back'];
@@ -321,18 +322,40 @@ Future<GeneratedViews> generateViewsFromText({
   final profile =
       promptProfileFor(provider, settings.modelFor(provider));
   final dreiviertel = threeQuarterFront && frontOnly;
+  // Das Negativ, wie das gewählte Modell es entgegennimmt.
+  //
+  // Vorher ging es **nur** an Modelle mit eigenem Negativ-Feld
+  // (Stability, eigene GPU). Gemini und GPT-Image haben keines, und
+  // damit ging bei ihnen gar keines mit – obwohl [promptProfileFor]
+  // für genau diese Modelle sagt, Unerwünschtes gehöre als Satz in den
+  // Prompt, weil sie Verneinungen dort verstehen. Beim Marktplatz-Ziel
+  // steht in dieser Zeile unter anderem „bulging eyes" – der Grund,
+  // warum die Höhlen im Kopfnetz Lauf für Lauf fehlten: Die Augen
+  // kamen als Kugeln zurück, und niemand hatte je dagegen gesprochen.
+  final negativBegriffe = [
+    viewNegativePrompt(threeQuarter: dreiviertel),
+    if (extraNegative.trim().isNotEmpty) extraNegative.trim(),
+  ].join(', ');
+  final negativFeld =
+      profile.negativeHandling == NegativeHandling.separateField
+          ? negativBegriffe
+          : '';
+  // Bei „ignored" (Turbo, FLUX schnell) bleibt beides leer: Der Satz
+  // im Prompt kostete dort nur Wörter aus einem knappen Budget.
+  final negativSatz =
+      profile.negativeHandling == NegativeHandling.inPrompt
+          ? ' Do not include in the image: $negativBegriffe.'
+          : '';
   final front = existing['front'] ??
       await generateOne(
         'Vorn',
-        profile.style == PromptStyle.keywords
-            ? viewFrontKeywords(description, pose,
-                threeQuarter: dreiviertel, background: background)
-            : _frontPrompt(description, pose,
-                threeQuarter: dreiviertel, background: background),
-        negative: profile.negativeHandling ==
-                NegativeHandling.separateField
-            ? viewNegativePrompt(threeQuarter: dreiviertel)
-            : '',
+        (profile.style == PromptStyle.keywords
+                ? viewFrontKeywords(description, pose,
+                    threeQuarter: dreiviertel, background: background)
+                : _frontPrompt(description, pose,
+                    threeQuarter: dreiviertel, background: background)) +
+            negativSatz,
+        negative: negativFeld,
         // Vorlage für den Stil: Bei den Gegenständen zu einer Figur
         // ist das ein gerendertes Bild der Figur. Farben und
         // Formensprache trifft das Modell damit deutlich genauer als

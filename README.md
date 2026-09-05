@@ -2676,6 +2676,37 @@ Für das Frankenstein-Motiv heißt das: 12 Vorgabe-Sätze gehen mit, der
 Bild-Prompt kommt auf rund 150 Wörter, und Gemini hat dafür keine
 Grenze.
 
+### Auch die NEGATIV-Zeile kam nie an — und der Hals-Schritt log
+
+Zwei Nachträge zum Befund darüber, beide aus demselben Muster: Was
+nicht ankommt, kann nichts bewirken.
+
+**Die NEGATIV-Zeile ging nur an Modelle mit Negativ-Feld.** Stability
+und die eigene GPU haben eines, Gemini und GPT-Image nicht — und für
+die ging deshalb **gar keines** mit. Dabei sagt `promptProfileFor` für
+genau diese Modelle: Unerwünschtes gehört als Satz in den Prompt, dort
+verstehen sie Verneinungen. In der Marktplatz-Zeile steht unter anderem
+`bulging eyes`. Das ist der Grund, warum die Höhlen im Kopfnetz Lauf
+für Lauf fehlten: Die Augen kamen als Kugeln vor der Gesichtsfläche
+zurück, in die sich keine Höhle schneiden lässt — und niemand hatte je
+dagegen gesprochen. Jetzt hängt die Zeile bei diesen Modellen als
+`Do not include in the image: …` am Prompt. Bei Modellen, die ein
+Negativ ohnehin ignorieren (Turbo, FLUX schnell), bleibt es aus: Dort
+kostete der Satz nur Wörter aus einem knappen Budget.
+
+**Der Hals-Schritt meldete sein Ziel, nicht sein Ergebnis.** An einer
+echten Figur stand im Bericht „70 % → 45 %", gemessen waren es
+hinterher 50 % — exakt die Grenze, ab der die Prüfung „kein Hals" sagt,
+und nur durch Zufall auf der richtigen Seite. Die Einschnürung ist eine
+Glocke um die Halshöhe; das Band, an dem die Messung den Hals abliest,
+liegt nicht zwangsläufig in ihrer Mitte. Jetzt misst der Schritt nach
+und zieht mit dem Rest nach, bis das **Ziel** erreicht ist statt der
+Grenze — an derselben Figur 70 % → 40 %. Im Bericht steht seitdem der
+gemessene Wert.
+
+Beides fiel erst auf, weil eine echte Figur durch die Reparatur
+gelaufen ist und nicht nur eine Testvorlage.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

@@ -608,13 +608,56 @@ Future<RepairResult> repairForMarketplace(
                 'eine Kapuze, kein Hals. Ins Motiv: „narrow visible '
                 'neck not merged with the shoulders".');
       } else {
+        // Nachmessen statt behaupten.
+        //
+        // Der Schritt meldete bisher sein **Ziel** (45 %), nicht sein
+        // Ergebnis. An einer echten Figur waren es 50 % – exakt die
+        // Grenze, ab der die Prüfung „kein Hals" sagt, und das nur
+        // durch Zufall auf der richtigen Seite. Die Glocke schnürt um
+        // halsY; das Band, an dem die Messung den Hals abliest, liegt
+        // nicht zwangsläufig in ihrer Mitte. Also: messen, und mit dem
+        // Rest nachziehen, höchstens zweimal.
+        var erreicht =
+            measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+        var runden = 1;
+        // Bis zum **Ziel** nachziehen, nicht bis zur Grenze: Genau
+        // auf 50 % zu landen hieße, dass jede Messtoleranz von Roblox
+        // die Figur kippt. Der Aufschlag ist derselbe Gedanke wie bei
+        // [marketplaceScaleMargin].
+        for (var i = 0;
+            i < 2 && erreicht.neckRatio > repairNeckGoal + 0.01;
+            i++) {
+          final bezug2 =
+              math.min(erreicht.headWidth, erreicht.shoulderWidth);
+          if (bezug2 <= 0 || erreicht.neckWidth <= 0) break;
+          final faktor2 =
+              (bezug2 * repairNeckGoal / erreicht.neckWidth).clamp(0.2, 1.0);
+          if (faktor2 >= 0.999) break;
+          final kopie2 = Float32List.fromList(pos);
+          _halsEinschnueren(pos, zonen.neckY, zonen.height * 0.06,
+              faktor2, mitteX, mitteZ);
+          if (countFlippedTriangles(kopie2, pos, idx) > flipGrenze()) {
+            pos.setAll(0, kopie2);
+            break;
+          }
+          runden++;
+          erreicht = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+        }
         notiere(
             repairStepNeck,
             '${(mass.neckRatio * 100).round()} %',
-            '${(repairNeckGoal * 100).round()} %',
-            RepairOrigin.app,
+            '${(erreicht.neckRatio * 100).round()} %',
+            erreicht.hasNeck ? RepairOrigin.app : RepairOrigin.prompt,
             'Radial eingeschnürt, Glockenkurve über ± 6 % der Höhe – '
-                'ohne weichen Übergang entsteht eine sichtbare Kante.');
+                'ohne weichen Übergang entsteht eine sichtbare Kante. '
+                '$runden Durchgang(e), danach gemessen; Ziel sind '
+                '${(repairNeckGoal * 100).round()} %, die Grenze liegt '
+                'bei ${(marketplaceNeckRatio * 100).round()} %.'
+                '${erreicht.hasNeck ? '' : ' Weiter einzuschnüren würde '
+                    'den Kopf mitziehen – hier sitzt ein Kragen, kein '
+                    'Hals. Ins Motiv: „collarless top", und der feste '
+                    'Satz „distinct narrow neck not merged with the '
+                    'shoulders" muss beim Bildmodell ankommen.'}');
       }
     } else {
       notiere(repairStepNeck, '${(mass.neckRatio * 100).round()} %', '–',
