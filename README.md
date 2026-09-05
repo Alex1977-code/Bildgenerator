@@ -2747,10 +2747,19 @@ zweiter, der festhält, dass die alte Formulierung durchgefallen wäre.
 Der Maßstab-Schritt trifft die absoluten Mindestmaße, ohne ein
 Verhältnis zu ändern. Stimmen die Verhältnisse selbst nicht — ein Kopf
 von einem Drittel, Beine, die bei einem Viertel enden —, hilft das
-nicht. Der neue Schalter **„Auf Normmaße umbauen"** rechnet dann die
-Höhe stückweise linear um: Boden und Scheitel bleiben, der Schritt
-wandert auf zwei Fünftel, die Halslinie auf drei Viertel. Breite und
-Tiefe bleiben unangetastet.
+nicht. Der Schalter **„Auf Normmaße umbauen"** rechnet dann die Höhe
+stückweise linear um: Boden und Scheitel bleiben, Schritt und
+Halslinie wandern, Breite und Tiefe bleiben unangetastet.
+
+**Und zwar nur so weit, wie die Mindestmaße es verlangen** — nicht bis
+auf die Norm-Anteile. Das war der erste Anlauf, und er verformte zu
+viel: An einer echten Figur wurden die Beine um das 1,82-fache
+gestreckt und der Rumpf auf 0,58 gestaucht, damit Schritt und Halslinie
+exakt auf 40 % und 75 % lagen. Die Textur zog sichtbar mit. Nötig waren
+1,27 und 0,90 — und der Kopf blieb dabei ganz unberührt. Die Regel gilt
+eingehalten oder nicht; darüber hinaus zu verformen bringt nichts und
+kostet das Aussehen. Stimmen die Verhältnisse schon, unterbleibt der
+Schritt ganz und sagt das auch.
 
 Die Abbildung ist monoton und stetig — kein Dreieck stülpt sich um,
 keine Fläche reißt auf, die Dreieckszahl bleibt gleich (ein Test hält

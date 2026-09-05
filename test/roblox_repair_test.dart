@@ -357,9 +357,11 @@ void main() {
       return buildGlb(m);
     }
 
-    test('der Umbau bringt Schritt und Halslinie auf die Norm-Anteile',
-        () async {
+    test('der Umbau verschiebt nur so weit, wie die Mindestmaße es '
+        'verlangen', () async {
       final vorher = await miss(schief());
+      expect(vorher.legHeight, lessThan(specMinLegHeight),
+          reason: 'die Vorlage muss den Fehler wirklich haben');
       final r = await repairForMarketplace(schief(),
           addFace: false,
           sculptFace: false,
@@ -369,15 +371,35 @@ void main() {
           .firstWhere((s) => s.rule == repairStepProportions);
       expect(schritt.origin, RepairOrigin.app);
 
-      // Auf dieselbe Höhe normiert gemessen liegen Schritt und
-      // Halslinie danach auf den Norm-Anteilen.
-      final nachher = await miss(r.glb);
+      final nachher = await miss(r.glb, studs: r.studs);
+      // Die Mindestmaße stimmen …
+      expect(nachher.legHeight, greaterThanOrEqualTo(specMinLegHeight));
+      expect(nachher.torsoHeight, greaterThanOrEqualTo(specMinTorsoHeight));
+      // … aber die Beine sind **nicht** bis auf den Norm-Anteil
+      // gestreckt. Auf 40 % zu zwingen verformt mehr, ohne mehr zu
+      // lösen: An einer echten Figur wurden daraus 1,82-fach gestreckte
+      // Beine statt 1,27-fach, und die Textur zog sichtbar mit.
       expect(nachher.legHeight / nachher.height,
-          closeTo(marketplaceNormHip, 0.04));
-      expect(1 - nachher.headHeight / nachher.height,
-          closeTo(marketplaceNormNeck, 0.04));
-      // Und die Beine sind länger geworden, nicht kürzer.
+          lessThan(marketplaceNormHip - 0.02));
       expect(nachher.legHeight, greaterThan(vorher.legHeight));
+    });
+
+    test('stimmen die Verhältnisse schon, wird nichts verformt',
+        () async {
+      // Die Vorlage aus [figur] hält die Mindestmaße ein; der Schritt
+      // meldet sich, rührt aber nichts an.
+      final vorher = await miss(figur());
+      final r = await repairForMarketplace(figur(),
+          addFace: false,
+          sculptFace: false,
+          decimate: false,
+          normProportions: true);
+      final schritt = r.report.steps
+          .firstWhere((s) => s.rule == repairStepProportions);
+      expect(schritt.after, 'nichts zu tun');
+      final nachher = await miss(r.glb, studs: r.studs);
+      expect(nachher.legHeight, closeTo(vorher.legHeight, 0.06));
+      expect(nachher.torsoHeight, closeTo(vorher.torsoHeight, 0.06));
     });
 
     test('ohne den Schalter bleiben die Verhältnisse, wie sie sind',

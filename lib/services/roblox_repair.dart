@@ -340,11 +340,20 @@ void _halsEinschnueren(
 /// **Was das ist.** Der Maßstab-Schritt macht die Figur als Ganzes
 /// größer und trifft damit die absoluten Mindestmaße, ohne ein
 /// Verhältnis zu ändern. Stimmen die Verhältnisse selbst nicht – ein
-/// Kopf, der ein Drittel der Höhe einnimmt, Beine, die bei 26 % enden
-/// –, hilft das nicht. Dann bleibt nur, die Höhe umzurechnen: Der
-/// Schritt wandert auf die halbe Höhe, die Halslinie auf drei Viertel,
-/// Boden und Scheitel bleiben, wo sie sind. Dazwischen wird linear
-/// gestreckt oder gestaucht.
+/// Kopf, der ein Drittel der Höhe einnimmt, Beine, die bei 22 % enden
+/// –, hilft das nicht. Dann bleibt nur, die Höhe umzurechnen: Schritt
+/// und Halslinie wandern, Boden und Scheitel bleiben, wo sie sind,
+/// dazwischen wird linear gestreckt oder gestaucht.
+///
+/// **Wohin sie wandern, entscheidet die aufrufende Stelle** – und
+/// zwar auf das **kleinste** Maß, mit dem die Mindestmaße stimmen,
+/// nicht auf die Norm-Anteile. Der Unterschied ist an einer echten
+/// Figur gemessen: Auf 40 % / 75 % gezwungen wurden die Beine um das
+/// 1,82-fache gestreckt und der Rumpf auf 0,58 gestaucht – die Textur
+/// zog sichtbar mit. Nur so weit wie nötig sind es 1,28 und 0,90, und
+/// der Kopf bleibt ganz unberührt. Die Regel gilt eingehalten oder
+/// nicht; darüber hinaus zu verformen bringt nichts und kostet das
+/// Aussehen.
 ///
 /// **Was das kostet.** Es ist eine echte Verformung: Wo gestreckt
 /// wird, wird die Textur mitgezogen, und ein gestauchter Kopf ist ein
@@ -355,14 +364,14 @@ void _halsEinschnueren(
 /// die Hülle bleibt so dicht, wie sie war. X und Z bleiben
 /// unangetastet – Breite und Tiefe ändern sich nicht.
 void _proportionenNormen(Float32List pos, double minY, double hoehe,
-    double ySchritt, double yHals) {
+    double ySchritt, double yHals, double zielSchritt, double zielHals) {
   if (hoehe <= 0) return;
   // Stützstellen: Boden, Schritt, Halslinie, Scheitel.
   final von = [minY, ySchritt, yHals, minY + hoehe];
   final nach = [
     minY,
-    minY + hoehe * marketplaceNormHip,
-    minY + hoehe * marketplaceNormNeck,
+    minY + hoehe * zielSchritt,
+    minY + hoehe * zielHals,
     minY + hoehe,
   ];
   // Ohne strenge Ordnung wäre die Abbildung nicht mehr monoton – dann
@@ -596,29 +605,77 @@ Future<RepairResult> repairForMarketplace(
         mass.height <= 0 ? 0.0 : 1 - mass.headHeight / mass.height;
     if (hoeheMesh > 0 && schrittAnteil > 0.05 && halsAnteil < 0.98) {
       final vorher = mass;
-      _proportionenNormen(pos, minYp, hoeheMesh,
-          minYp + hoeheMesh * schrittAnteil, minYp + hoeheMesh * halsAnteil);
-      mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
-      zonen = _messeZonen(pos, idx);
-      notiere(
-          repairStepProportions,
-          'Schritt bei ${(schrittAnteil * 100).round()} %, Halslinie '
-              'bei ${(halsAnteil * 100).round()} %',
-          'Schritt bei ${(marketplaceNormHip * 100).round()} %, '
-              'Halslinie bei ${(marketplaceNormNeck * 100).round()} %',
-          RepairOrigin.app,
-          'Die Höhe stückweise linear umgerechnet: Boden und Scheitel '
-              'bleiben, der Schritt wandert auf die halbe Höhe, die '
-              'Halslinie auf drei Viertel. Breite und Tiefe bleiben '
-              'unangetastet. Beine '
-              '${vorher.legHeight.toStringAsFixed(2)} → '
-              '${mass.legHeight.toStringAsFixed(2)}, Rumpf '
-              '${vorher.torsoHeight.toStringAsFixed(2)} → '
-              '${mass.torsoHeight.toStringAsFixed(2)}, Kopf '
-              '${vorher.headHeight.toStringAsFixed(2)} → '
-              '${mass.headHeight.toStringAsFixed(2)} Studs. Das ist '
-              'eine echte Verformung – wo gestreckt wird, zieht die '
-              'Textur mit.');
+      // Die kleinste Verschiebung, mit der die Mindestmaße stimmen –
+      // nicht die Norm-Anteile. Gerechnet in Studs bei der aktuellen
+      // Höhe, dann zurück in Anteile.
+      const m = marketplaceScaleMargin;
+      var zielSchrittStuds =
+          math.max(mass.legHeight, specMinLegHeight * m);
+      var zielHalsStuds = math.max(
+          hoehe - mass.headHeight, zielSchrittStuds + specMinTorsoHeight * m);
+      // Der Kopf darf dabei nicht unter sein Mindestmaß rutschen; wenn
+      // doch, muss der Schritt weiter herunter statt der Hals hinauf.
+      final kopfGrenze = hoehe - specMinHeadSize * m;
+      if (zielHalsStuds > kopfGrenze) {
+        zielHalsStuds = kopfGrenze;
+        zielSchrittStuds = math.min(
+            zielSchrittStuds, zielHalsStuds - specMinTorsoHeight * m);
+      }
+      final zielSchritt = (zielSchrittStuds / hoehe).clamp(0.02, 0.96);
+      final zielHals = (zielHalsStuds / hoehe).clamp(zielSchritt + 0.02, 0.98);
+      // Stimmt schon alles, wird nicht angefasst: Jede Verformung
+      // kostet Textur, und für nichts ist sie nicht zu haben.
+      final bewegt = (zielSchritt - schrittAnteil).abs() > 0.005 ||
+          (zielHals - halsAnteil).abs() > 0.005;
+      if (!bewegt) {
+        notiere(repairStepProportions,
+            'Schritt bei ${(schrittAnteil * 100).round()} %, Halslinie '
+                'bei ${(halsAnteil * 100).round()} %',
+            'nichts zu tun', RepairOrigin.app,
+            'Die Verhältnisse halten die Mindestmaße schon ein. Eine '
+                'Verformung, die nichts löst, unterbleibt – sie würde '
+                'nur die Textur ziehen.');
+      } else {
+        _proportionenNormen(
+            pos,
+            minYp,
+            hoeheMesh,
+            minYp + hoeheMesh * schrittAnteil,
+            minYp + hoeheMesh * halsAnteil,
+            zielSchritt,
+            zielHals);
+        mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+        zonen = _messeZonen(pos, idx);
+        double faktor(double vor, double nach) =>
+            vor <= 0 ? 1 : nach / vor;
+        notiere(
+            repairStepProportions,
+            'Schritt bei ${(schrittAnteil * 100).round()} %, Halslinie '
+                'bei ${(halsAnteil * 100).round()} %',
+            'Schritt bei ${(zielSchritt * 100).round()} %, Halslinie '
+                'bei ${(zielHals * 100).round()} %',
+            RepairOrigin.app,
+            'Die Höhe stückweise linear umgerechnet, Boden und Scheitel '
+                'bleiben; Breite und Tiefe bleiben unangetastet. '
+                'Verschoben wird nur so weit, wie die Mindestmaße es '
+                'verlangen – auf die Norm-Anteile '
+                '(${(marketplaceNormHip * 100).round()} / '
+                '${(marketplaceNormNeck * 100).round()} %) zu zwingen, '
+                'verformt mehr, ohne mehr zu lösen. Beine '
+                '${vorher.legHeight.toStringAsFixed(2)} → '
+                '${mass.legHeight.toStringAsFixed(2)} '
+                '(x${faktor(vorher.legHeight, mass.legHeight)
+                    .toStringAsFixed(2)}), Rumpf '
+                '${vorher.torsoHeight.toStringAsFixed(2)} → '
+                '${mass.torsoHeight.toStringAsFixed(2)} '
+                '(x${faktor(vorher.torsoHeight, mass.torsoHeight)
+                    .toStringAsFixed(2)}), Kopf '
+                '${vorher.headHeight.toStringAsFixed(2)} → '
+                '${mass.headHeight.toStringAsFixed(2)} '
+                '(x${faktor(vorher.headHeight, mass.headHeight)
+                    .toStringAsFixed(2)}). Wo gestreckt wird, zieht die '
+                'Textur mit.');
+      }
     } else {
       notiere(repairStepProportions, '–', 'nicht möglich',
           RepairOrigin.prompt,
