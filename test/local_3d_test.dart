@@ -567,6 +567,74 @@ void main() {
     expect(small.colors.length, small.positions.length);
   });
 
+  test('Dezimierung legt keine Punkte über Atlas-Nähte hinweg zusammen',
+      () {
+    // Der Fall aus einer echten Figur: 16.811 auf 5.176 Dreiecke, und
+    // die längste UV-Kante je Dreieck stieg im Median von 0,0086 auf
+    // 0,1478 – zwei Drittel der Oberfläche zogen danach Textur aus
+    // fremden Atlas-Inseln. Ursache war das Mitteln der
+    // Texturkoordinaten im Rasterfeld: An einer Naht liegen zwei
+    // Punkte am selben Ort, aber weit auseinander im Atlas.
+    //
+    // Die Vorlage stellt genau das nach: zwei Gitter, die im Raum
+    // ineinanderliegen, im Atlas aber in entgegengesetzten Ecken.
+    final mesh = LocalMesh();
+    void platte(double uMin, double vMin, double versatz) {
+      const n = 12;
+      final basis = mesh.positions.length ~/ 3;
+      for (var y = 0; y <= n; y++) {
+        for (var x = 0; x <= n; x++) {
+          mesh.addVertex(x / n, y / n, versatz, uMin + x / n * 0.35,
+              vMin + y / n * 0.35);
+        }
+      }
+      for (var y = 0; y < n; y++) {
+        for (var x = 0; x < n; x++) {
+          final a = basis + y * (n + 1) + x;
+          mesh.addTriangle(a, a + 1, a + n + 2);
+          mesh.addTriangle(a, a + n + 2, a + n + 1);
+        }
+      }
+    }
+
+    // Beide Platten liegen im Raum 0,001 auseinander – dasselbe
+    // Rasterfeld –, im Atlas aber unten links und oben rechts.
+    platte(0.05, 0.05, 0.0);
+    platte(0.60, 0.60, 0.001);
+
+    double laengsteUvKante(LocalMesh m) {
+      var max = 0.0;
+      for (var t = 0; t + 2 < m.indices.length; t += 3) {
+        for (var e = 0; e < 3; e++) {
+          final a = m.indices[t + e], b = m.indices[t + (e + 1) % 3];
+          final du = m.uvs[a * 2] - m.uvs[b * 2];
+          final dv = m.uvs[a * 2 + 1] - m.uvs[b * 2 + 1];
+          final l = math.sqrt(du * du + dv * dv);
+          if (l > max) max = l;
+        }
+      }
+      return max;
+    }
+
+    final vorher = laengsteUvKante(mesh);
+    expect(vorher, lessThan(0.06),
+        reason: 'die Vorlage selbst darf keine Naht überspannen');
+
+    // Ein Ziel, das die Naht-Sperre noch einhalten kann: Bei zwei
+    // ineinanderliegenden Platten muss jede für sich reduzieren, also
+    // geht nicht beliebig viel. Reicht es nicht, fällt die Reduktion
+    // bewusst auf das alte Verhalten zurück – das Dreiecksbudget geht
+    // vor, siehe decimateLocalMesh.
+    final ziel = mesh.indices.length ~/ 3 ~/ 2;
+    final klein = decimateLocalMesh(mesh, ziel);
+    expect(klein.indices.length ~/ 3, lessThanOrEqualTo(ziel));
+    // Entscheidend: Auch nach der Reduktion überspannt kein Dreieck
+    // den Abstand zwischen den beiden Inseln (0,55 im Atlas).
+    expect(laengsteUvKante(klein), lessThan(0.2),
+        reason: 'ein Dreieck reicht von einer Atlas-Insel in die '
+            'andere – dort holt es Textur, die nicht dorthin gehört');
+  });
+
   test('Bilineare Farbabtastung mischt Pixel und meldet Transparenz', () {
     // 2×1: links rot, rechts grün.
     final img = RgbaImage(

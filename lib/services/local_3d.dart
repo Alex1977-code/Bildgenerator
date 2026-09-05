@@ -949,6 +949,16 @@ class HullColorSampler {
 /// (Position und Farbe gemittelt), degenerierte und doppelte Dreiecke
 /// entfallen. Die Rastergröße wird binär gesucht, bis die Zielzahl
 /// erreicht ist – praktisch für schlanke Modelle (Spiele, AR, Web).
+/// In wie viele Felder je Achse der Textur-Atlas beim Reduzieren
+/// zerlegt wird.
+///
+/// 16 Felder heißt: Punkte, deren Texturkoordinaten weiter als rund
+/// 1/16 des Atlas auseinanderliegen, werden nie zusammengelegt. Die
+/// mittlere UV-Kante eines Dreiecks liegt bei einem sauberen Modell
+/// um 0,009 – Nachbarn bleiben also zusammen, verschiedene Inseln
+/// nicht.
+const int decimateUvCells = 16;
+
 LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
   final triCount = mesh.indices.length ~/ 3;
   if (targetTriangles <= 0 || triCount <= targetTriangles) return mesh;
@@ -973,11 +983,25 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
   // Texturkoordinaten mitteln wie Position und Farbe. Ohne sie
   // verlöre ein texturiertes Modell beim Reduzieren seine Textur –
   // die erste Fassung warf die UVs weg und lieferte ein graues Netz.
-  // An Nähten ist das Mitteln falsch, aber sichtbar erst bei starker
-  // Reduktion; verworfene UVs sind immer falsch.
+  //
+  // **Aber nicht über Atlas-Nähte hinweg.** Hier stand einmal, das
+  // Mitteln sei an Nähten zwar falsch, aber „erst bei starker
+  // Reduktion sichtbar". Gemessen an einer echten Figur, 16.811 auf
+  // 5.176 Dreiecke: Die längste UV-Kante je Dreieck stieg im Median
+  // von 0,0086 auf 0,1478, im Maximum auf 0,9130 – ein einzelnes
+  // Dreieck spannte über 91 % des Atlas. An einer Naht liegen zwei
+  // Punkte am selben Ort im Raum, aber an ganz verschiedenen Stellen
+  // der Textur; ihr Mittelwert landet auf fremdem Inhalt, und die
+  // Figur bekommt das gefleckte Muster, an dem man es sieht.
+  //
+  // Deshalb geht die Texturkoordinate in den Rasterschlüssel ein:
+  // Punkte im selben Raumfeld, aber in verschiedenen Atlas-Inseln,
+  // werden nicht mehr zusammengelegt. Das kostet ein paar Punkte
+  // mehr, und die Suche nach der Rastergröße gleicht das von selbst
+  // aus.
   final hasUvs = mesh.uvs.length == vCount * 2;
 
-  (int, LocalMesh) attempt(int grid) {
+  (int, LocalMesh) attempt(int grid, {required bool nahtSperre}) {
     final cell = maxExtent / grid;
     final cellIndex = <int, int>{};
     final vertexMap = Int32List(vCount);
@@ -986,7 +1010,20 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
       final gx = ((pos[v * 3] - minX) / cell).floor();
       final gy = ((pos[v * 3 + 1] - minY) / cell).floor();
       final gz = ((pos[v * 3 + 2] - minZ) / cell).floor();
-      final key = (gx * 1024 + gy) * 1024 + gz;
+      // Die Atlas-Insel gehört in den Schlüssel – siehe [hasUvs].
+      // Ohne UVs ist beides 0, und die Aufteilung ist die alte.
+      final uc = hasUvs && nahtSperre
+          ? (mesh.uvs[v * 2] * decimateUvCells).floor().clamp(0, decimateUvCells)
+          : 0;
+      final vc = hasUvs && nahtSperre
+          ? (mesh.uvs[v * 2 + 1] * decimateUvCells)
+              .floor()
+              .clamp(0, decimateUvCells)
+          : 0;
+      final key = (((gx * 1024 + gy) * 1024 + gz) * (decimateUvCells + 1) +
+              uc) *
+          (decimateUvCells + 1) +
+          vc;
       var idx = cellIndex[key];
       if (idx == null) {
         idx = cellIndex.length;
@@ -1033,19 +1070,37 @@ LocalMesh decimateLocalMesh(LocalMesh mesh, int targetTriangles) {
   }
 
   // Größtes Raster suchen, dessen Ergebnis die Zielzahl einhält.
-  var lo = 8, hi = 512;
-  LocalMesh best = attempt(lo).$2;
-  while (lo <= hi) {
-    final mid = (lo + hi) ~/ 2;
-    final (count, result) = attempt(mid);
-    if (count <= targetTriangles) {
-      best = result;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
+  LocalMesh suche({required bool nahtSperre}) {
+    var lo = 8, hi = 512;
+    var best = attempt(lo, nahtSperre: nahtSperre).$2;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      final (count, result) = attempt(mid, nahtSperre: nahtSperre);
+      if (count <= targetTriangles) {
+        best = result;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
     }
+    return best;
   }
-  return best;
+
+  final mitSperre = suche(nahtSperre: true);
+  if (!hasUvs || mitSperre.indices.length ~/ 3 <= targetTriangles) {
+    return mitSperre;
+  }
+  // Die Naht-Sperre kostet Reduktion: Punkte aus verschiedenen
+  // Atlas-Inseln bleiben getrennt, auch wenn sie im selben Rasterfeld
+  // liegen. Bei einem Netz mit sehr vielen kleinen Inseln reicht das
+  // Ziel dann nicht mehr. Dann geht das Dreiecksbudget vor: Eine
+  // Figur über der Grenze lehnt Roblox ab, eine mit verschmierter
+  // Textur nimmt es an. Also noch einmal ohne Sperre – und der
+  // Rückfall ist am Ergebnis messbar (die längsten UV-Kanten).
+  final ohneSperre = suche(nahtSperre: false);
+  return ohneSperre.indices.length ~/ 3 < mitSperre.indices.length ~/ 3
+      ? ohneSperre
+      : mitSperre;
 }
 
 /// Backt die Ansichtsfarben in einen hochauflösenden Textur-Atlas:

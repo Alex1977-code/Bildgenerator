@@ -2817,6 +2817,45 @@ Einschnürung sitzt auf der gemessenen Halslinie. Liegt die nach dem
 Umbau dort, wo die Norm sie erwartet, trifft die Glocke das richtige
 Band.
 
+### Die Dezimierung zerriss die Textur an den Atlas-Nähten
+
+„Texturen passen nicht" hatte noch einen zweiten Grund, und der war
+schlimmer als der erste. Der Kommentar im Code sagte ihn selbst voraus:
+
+> Texturkoordinaten mitteln wie Position und Farbe. **An Nähten ist das
+> Mitteln falsch, aber sichtbar erst bei starker Reduktion.**
+
+16.811 auf 5.176 Dreiecke ist starke Reduktion. Gemessen an einer
+echten Figur, längste UV-Kante je Dreieck:
+
+| | Original | nach der Reparatur | jetzt |
+| --- | --- | --- | --- |
+| Median | 0,0086 | 0,1478 | **0,0154** |
+| Dreiecke mit Kante > 0,05 | 0 | 3.321 (**66,0 % der Oberfläche**) | 10 (**0,13 %**) |
+| Maximum | 0,0297 | 0,9130 | 0,9430 (2 Dreiecke) |
+
+Die Reduktion legt Punkte im selben Rasterfeld zusammen und mittelt
+dabei ihre Texturkoordinaten. An einer Atlas-Naht liegen zwei Punkte am
+selben Ort im Raum, aber an ganz verschiedenen Stellen im Atlas; ihr
+Mittelwert landet auf fremdem Inhalt. Zwei Drittel der Oberfläche zogen
+danach Textur aus der falschen Insel — das gefleckte Muster.
+
+Die Texturkoordinate geht jetzt in den Rasterschlüssel ein: Punkte aus
+verschiedenen Atlas-Inseln werden nicht mehr zusammengelegt. **Mit
+einem Rückfall**, der beim Bauen aufgefallen ist: Die Sperre kostet
+Reduktion, und an einer Vorlage mit zwei ineinanderliegenden Platten
+wurde das Dreiecksziel nicht mehr erreicht. Dann geht das Budget vor —
+eine Figur über der Grenze lehnt Roblox ab, eine mit verschmierter
+Textur nimmt es an. Also: erst mit Sperre, und nur wenn das Ziel reißt,
+noch einmal ohne.
+
+**Ein zweiter Fund daneben, noch offen.** `parseGlbForPreview` wirft
+alle UVs weg, sobald **ein** Teilnetz keine hat — und die fünf
+Gesichtsteile haben keine. Wer eine fertige Figur über den
+Reduzieren-Knopf im Viewer schickt, verliert damit die ganze Textur. In
+der Reparatur bricht das nicht durch: Dort wird vor den Gesichtsteilen
+dezimiert.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
