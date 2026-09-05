@@ -176,12 +176,27 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
 
   /// Die Figur auf die Norm-Anteile umrechnen.
   ///
-  /// Aus, weil es verformt: Der Maßstab-Schritt trifft die
-  /// Mindestmaße ohne jede Verzerrung und reicht meistens. Nur wenn
-  /// schon die **Verhältnisse** falsch sind – ein Kopf von einem
-  /// Drittel, Beine, die bei einem Viertel enden –, hilft kein
-  /// Maßstab, und dann ist das hier der einzige Weg ohne neuen Lauf.
-  bool _normProportions = false;
+  /// **An beim Marktplatz-Ziel**, und das ist an einer echten Figur
+  /// gemessen: Dieselbe Datei kam ohne Umbau mit einem Fehler und auf
+  /// 7,03 Studs aufgeblasen zurück (Hals 56 %, Beine zu 86 %
+  /// getrennt), mit Umbau fehlerfrei und bei 5,00 Studs (Hals 44 %,
+  /// Beine zu 100 % getrennt, dazu die Augen- und Mundhöhlen, die
+  /// vorher nicht zu bauen waren). Der Grund: Die Hals-Einschnürung
+  /// sitzt auf der gemessenen Halslinie, und die liegt nach dem Umbau
+  /// dort, wo die Norm sie erwartet.
+  ///
+  /// Es bleibt eine Verformung – wo gestreckt wird, zieht die Textur
+  /// mit –, deshalb steht der Schalter sichtbar in der
+  /// Marktplatz-Karte und lässt sich ausschalten.
+  ///
+  /// Nur beim Marktplatz-Ziel: [_normProportionsActive]. Die
+  /// Reparatur lässt sich auch aus dem Export-Menü einer Figur fürs
+  /// eigene Erlebnis aufrufen, und dort gelten die Norm-Anteile nicht.
+  bool _normProportions = true;
+
+  /// Ob der Norm-Umbau bei diesem Lauf wirklich greift.
+  bool get _normProportionsActive =>
+      _robloxTarget == RobloxTarget.marketplaceAvatar && _normProportions;
 
   /// Die Körper-Skala des Marktplatzes. Normal (Rthro), weil nur dort
   /// ein Kopf bis 3 Studs Breite und 2,25 Studs Tiefe erlaubt sind –
@@ -584,7 +599,10 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'studs': _studsCtrl.text,
         'addFaceParts': _addFaceParts,
         'sculptFace': _sculptFace,
-        'normProportions': _normProportions,
+        // Neuer Schlüssel: Der alte hielt bei jedem, der die
+        // Vorversion geöffnet hatte, das damalige „aus" fest und
+        // hätte den neuen Standard überstimmt.
+        'normProportionsV2': _normProportions,
         'bodyScale': _bodyScale.name,
         'exportTextureSize': _exportTextureSize,
         'artStyle': _artStyle,
@@ -651,7 +669,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _studsCtrl.text = pick('studs', _studsCtrl.text);
       _addFaceParts = pick('addFaceParts', _addFaceParts);
       _sculptFace = pick('sculptFace', _sculptFace);
-      _normProportions = pick('normProportions', _normProportions);
+      _normProportions = pick('normProportionsV2', _normProportions);
       _bodyScale = RobloxBodyScale.values
               .where((v) => v.name == pick('bodyScale', _bodyScale.name))
               .firstOrNull ??
@@ -2439,7 +2457,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           targetStuds: _studsValue ?? robloxCharacterStuds,
           addFace: _addFaceParts,
           sculptFace: _sculptFace,
-          normProportions: _normProportions,
+          normProportions: _normProportionsActive,
           scale: _bodyScale);
     } catch (e) {
       if (mounted) {
@@ -4661,9 +4679,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       : 'Aus. Die Reparatur trifft die Mindestmaße dann '
                           'nur über den Maßstab – sie macht die Figur '
                           'als Ganzes größer, ohne ein Verhältnis zu '
-                          'ändern. Reicht das nicht, weil schon die '
-                          'Verhältnisse falsch sind, hilft nur dieser '
-                          'Schalter oder ein neuer Lauf.'),
+                          'ändern. An einer echten Figur hieß das: ein '
+                          'Fehler mehr und 7,03 statt 5,00 Studs.'),
                   value: _normProportions,
                   onChanged: _running
                       ? null

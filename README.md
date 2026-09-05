@@ -2755,8 +2755,18 @@ Tiefe bleiben unangetastet.
 Die Abbildung ist monoton und stetig — kein Dreieck stülpt sich um,
 keine Fläche reißt auf, die Dreieckszahl bleibt gleich (ein Test hält
 das fest). Es ist trotzdem eine echte Verformung: Wo gestreckt wird,
-zieht die Textur mit. Deshalb ist der Schalter **aus**, bis man ihn
-einschaltet.
+zieht die Textur mit.
+
+**Beim Marktplatz-Ziel ist der Schalter an**, und das ist an einer
+echten Figur gemessen (die Tabelle darüber): ohne Umbau ein Fehler mehr
+und 7,03 statt 5,00 Studs. Bei jedem anderen Ziel greift er nicht — die
+Reparatur lässt sich auch aus dem Export-Menü einer Figur fürs eigene
+Erlebnis aufrufen, und dort gelten die Norm-Anteile nicht. Ausschalten
+geht jederzeit; der Schalter steht sichtbar in der Marktplatz-Karte.
+
+Der gespeicherte Wert liegt unter einem neuen Schlüssel: Der alte hätte
+bei jedem, der die Vorversion geöffnet hatte, das damalige „aus"
+festgehalten und den neuen Standard überstimmt.
 
 Dazu im Reparatur-Dialog **„Beide herunterladen"**: das Original, wie
 der Anbieter es geliefert hat, und das reparierte, mit der erreichten
