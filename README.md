@@ -2856,6 +2856,42 @@ Reduzieren-Knopf im Viewer schickt, verliert damit die ganze Textur. In
 der Reparatur bricht das nicht durch: Dort wird vor den Gesichtsteilen
 dezimiert.
 
+### Drei Berichte über dieselbe Datei, drei Antworten
+
+„Jeder Bericht im Tool sagt etwas anderes." Stimmte, und es waren drei
+Fehler auf einmal — alle im Preflight des Modellviewers, der die
+Marktplatz-Messung so aufrief:
+
+```dart
+checkMarketplaceFigure(measureMarketplaceFigure(mesh.positions, mesh.indices))
+```
+
+**Ohne Höhe.** [measureMarketplaceFigure] rechnet dann auf seine
+Vorgabe von 5,00 Studs um. Eine 5,02 Studs hohe Figur bekam im
+Modellviewer also andere Zahlen als im 3D-Tab, wo die eingestellte Höhe
+mitging. Bei einer 7-Studs-Figur wäre der Unterschied groß gewesen.
+
+**Ohne die erfüllten Regeln.** `if (f.level == ok) continue;` — der
+Modellviewer zeigte nur, was fehlt, während die Prüfung im 3D-Tab jede
+Vorgabe bestätigt. Dieselbe Datei, zwei Listen verschiedener Länge.
+
+**Mit einer falschen Herkunft.** An **jeden** Marktplatz-Befund hängte
+er den Satz „Gemessen am Marktplatz-Validator; in Roblox'
+Dokumentation steht diese Grenze nicht." Das stimmt für genau eine
+Regel — die Beinbreite. Alle anderen sind belegt, und die Regeltabelle
+nennt die Stelle. Der Bericht behauptete das Gegenteil.
+
+Jetzt gilt an beiden Stellen **eine Regel: die Datei messen, wie sie
+ist.** Der Importer nimmt eine glTF-Einheit als einen Stud, also
+entscheidet die Dateigröße, was der Validator sieht — nicht ein Wert
+aus einem Eingabefeld. Beide Berichte nennen die Höhe, bei der sie
+gemessen haben, zeigen erfüllte und offene Vorgaben, und beziehen ihre
+Herkunft aus derselben Tabelle.
+
+Drei Tests halten das fest: dass der Preflight bei 6,40 Studs auch bei
+6,40 misst, dass die OK-Zeilen ankommen, und dass beim Hals „Auto Setup
+11" steht statt der pauschalen Behauptung.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

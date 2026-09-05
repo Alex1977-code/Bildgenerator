@@ -8,6 +8,8 @@ import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/roblox_face_parts.dart'
     show headBottomBand;
 import 'package:bildgenerator/services/roblox_marketplace.dart';
+import 'package:bildgenerator/services/roblox_preflight.dart';
+import 'package:bildgenerator/services/roblox_specs_config.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
     show robloxHipFraction, robloxHipWords, robloxMarketplaceTail;
 import 'package:flutter_test/flutter_test.dart';
@@ -986,6 +988,130 @@ void main() {
           reason: 'die Vorderseite auf −Z macht die Vorbereitung');
       expect(zeilen.join(' '), contains('Auto Setup 12'),
           reason: 'die Textur legt der Export bei');
+    });
+  });
+
+  group('Beide Berichte sagen dasselbe', () {
+    // Der Nutzer-Befund: „jeder Bericht im Tool sagt etwas anderes".
+    // Drei Stellen prüfen dieselbe Datei – die Roblox-Prüfung im
+    // 3D-Tab, das Herrichten vor dem Export und der Preflight im
+    // Modellviewer. Der Preflight rief die Marktplatz-Messung ohne
+    // Höhenangabe auf und rechnete deshalb jede Datei auf 5,00 Studs
+    // um, während die anderen mit der wirklichen Höhe rechneten.
+
+    /// Eine Figur, die nicht 5,00 Studs hoch ist – nur dann fällt der
+    /// Unterschied überhaupt auf.
+    Uint8List figurMit(double hoehe) {
+      final m = LocalMesh();
+      void quader(double x0, double y0, double z0, double x1, double y1,
+          double z1) {
+        final b = m.positions.length ~/ 3;
+        for (final (x, y, z) in [
+          (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+          (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1),
+        ]) {
+          m.addVertex(x, y, z, 0, 0);
+        }
+        for (final f in const [
+          [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+          [0, 5, 1], [0, 4, 5], [2, 6, 7], [2, 7, 3],
+          [1, 5, 6], [1, 6, 2], [0, 3, 7], [0, 7, 4],
+        ]) {
+          m.addTriangle(b + f[0], b + f[1], b + f[2]);
+        }
+      }
+      final k = hoehe / 5.0;
+      quader(-0.6 * k, 0, -0.3 * k, -0.1 * k, 2.0 * k, 0.3 * k);
+      quader(0.1 * k, 0, -0.3 * k, 0.6 * k, 2.0 * k, 0.3 * k);
+      quader(-0.9 * k, 2.0 * k, -0.5 * k, 0.9 * k, 3.75 * k, 0.5 * k);
+      quader(-0.25 * k, 3.75 * k, -0.2 * k, 0.25 * k, 3.95 * k, 0.2 * k);
+      quader(-0.7 * k, 3.95 * k, -0.55 * k, 0.7 * k, 5.0 * k, 0.55 * k);
+      quader(-1.9 * k, 2.6 * k, -0.2 * k, -0.9 * k, 3.6 * k, 0.2 * k);
+      quader(0.9 * k, 2.6 * k, -0.2 * k, 1.9 * k, 3.6 * k, 0.2 * k);
+      return buildGlb(m);
+    }
+
+    test('der Preflight misst die Datei, wie sie ist – nicht auf 5,00 '
+        'umgerechnet', () async {
+      const hoehe = 6.4;
+      final glb = figurMit(hoehe);
+      final bericht = await preflightGlb(glb,
+          spec: const AssetSpec(
+              id: 'test',
+              label: 'Marktplatz-Körper',
+              triangles: 10742,
+              texture: TextureBudget(
+                  target: 1024, hardCap: 2048, nonAlbedo: 1024),
+              marketplace: true));
+      // Die Höhe steht im Bericht, und zwar die echte.
+      final hoehenzeile =
+          bericht.issues.firstWhere((i) => i.id == 'markt_hoehe');
+      expect(hoehenzeile.title, contains(hoehe.toStringAsFixed(2)));
+
+      // Und die Zahlen entsprechen einer Messung bei dieser Höhe,
+      // nicht bei 5,00.
+      final mesh = await parseGlbForPreview(glb);
+      final beiEigener = checkMarketplaceFigure(measureMarketplaceFigure(
+          mesh.positions, mesh.indices,
+          targetStuds: hoehe));
+      final beiFuenf = checkMarketplaceFigure(
+          measureMarketplaceFigure(mesh.positions, mesh.indices));
+      mesh.dispose();
+      String titel(List<MarketplaceFinding> f, String id) =>
+          f.firstWhere((x) => x.id == id).title;
+      expect(titel(beiEigener, 'bein_hoehe'),
+          isNot(titel(beiFuenf, 'bein_hoehe')),
+          reason: 'die Vorlage muss den Unterschied wirklich zeigen');
+      for (final f in beiEigener) {
+        final zeile = bericht.issues
+            .where((i) => i.id == 'markt_${f.id}')
+            .toList();
+        expect(zeile, hasLength(1), reason: f.id);
+        expect(zeile.single.title, contains(f.title), reason: f.id);
+      }
+    });
+
+    test('der Preflight zeigt auch die erfüllten Vorgaben', () async {
+      final bericht = await preflightGlb(figurMit(5.0),
+          spec: const AssetSpec(
+              id: 'test',
+              label: 'Marktplatz-Körper',
+              triangles: 10742,
+              texture: TextureBudget(
+                  target: 1024, hardCap: 2048, nonAlbedo: 1024),
+              marketplace: true));
+      final markt =
+          bericht.issues.where((i) => i.id.startsWith('markt_')).toList();
+      expect(markt.where((i) => i.severity == PreflightSeverity.ok),
+          isNotEmpty,
+          reason: 'wer eine Regel bestanden hat, soll das auch hier '
+              'sehen – vorher fielen die OK-Zeilen heraus');
+    });
+
+    test('die Herkunft kommt aus der Regel, nicht aus einem pauschalen '
+        'Satz', () async {
+      final bericht = await preflightGlb(figurMit(5.0),
+          spec: const AssetSpec(
+              id: 'test',
+              label: 'Marktplatz-Körper',
+              triangles: 10742,
+              texture: TextureBudget(
+                  target: 1024, hardCap: 2048, nonAlbedo: 1024),
+              marketplace: true));
+      final hals = bericht.issues.firstWhere((i) => i.id == 'markt_hals');
+      // Belegt in der Doku – der alte Text behauptete das Gegenteil.
+      expect(hals.reason, contains('Auto Setup 11'));
+      expect(hals.reason,
+          isNot(contains('in Roblox\' Dokumentation steht diese Grenze '
+              'nicht')));
+      // Die Beinbreite ist die eine Regel, die wirklich nur gemessen
+      // ist – dort steht der Validator-Lauf. (Sie meldet sich nur,
+      // wenn die Beinbreite überhaupt messbar war, deshalb hier an der
+      // Tabelle geprüft und nicht am Bericht dieser Vorlage.)
+      expect(marketplaceRuleFor('bein_breite')!.source,
+          contains('Validator-Lauf'));
+      // Die Höhe, bei der gemessen wurde, steht als eigene Zeile da.
+      expect(bericht.issues.map((i) => i.id), contains('markt_hoehe'));
     });
   });
 

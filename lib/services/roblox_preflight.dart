@@ -225,10 +225,26 @@ bool _hasTransform(Map<String, dynamic> node) {
 /// [spec] ist der gewählte Asset-Typ aus `roblox_specs.json`; daran
 /// hängen Budget, Texturgrenze und die Frage, ob ein einziges Mesh
 /// verlangt ist.
+/// Prüft eine GLB gegen die Vorgaben ihres Asset-Typs.
+///
+/// [studs] ist die Höhe, in der gemessen wird. **Ohne Angabe die Höhe
+/// der Datei selbst** – und das ist der ehrliche Wert: Der Importer
+/// nimmt eine glTF-Einheit als einen Stud, also misst Roblox die Datei
+/// so, wie sie ist. Hier stand vorher gar nichts, und
+/// [measureMarketplaceFigure] rechnete deshalb jede Datei auf ihre
+/// Vorgabe von 5,00 Studs um. Eine 5,02 Studs hohe Figur bekam so im
+/// Modellviewer andere Zahlen als im 3D-Tab, wo die eingestellte Höhe
+/// mitgeht – zwei Berichte über dieselbe Datei, die sich widersprachen.
+///
+/// Wer die Zielhöhe kennt (der 3D-Tab weiß, worauf der Export skaliert),
+/// gibt sie mit; wer nur eine Datei hat (der Modellviewer), lässt sie
+/// weg.
 Future<PreflightReport> preflightGlb(
   Uint8List glb, {
   required AssetSpec spec,
   RobloxSpecs? specs,
+  double? studs,
+  RobloxBodyScale scale = RobloxBodyScale.normal,
 }) async {
   final facts = await readRobloxFacts(glb);
   final names = readGlbNodeNames(glb);
@@ -237,12 +253,22 @@ Future<PreflightReport> preflightGlb(
   // Kennzahlen – Tiefe, Hals und getrennte Beine liest man nur am
   // Querschnitt ab.
   var marktplatz = const <MarketplaceFinding>[];
+  var gemessenBei = studs ?? 0.0;
   if (spec.marketplace) {
     try {
       final mesh = await parseGlbForPreview(glb);
       try {
+        var lo = double.infinity, hi = double.negativeInfinity;
+        for (var i = 1; i < mesh.positions.length; i += 3) {
+          if (mesh.positions[i] < lo) lo = mesh.positions[i];
+          if (mesh.positions[i] > hi) hi = mesh.positions[i];
+        }
+        final eigene = hi - lo;
+        gemessenBei = studs ?? (eigene > 0 ? eigene : marketplaceFigureStuds);
         marktplatz = checkMarketplaceFigure(
-            measureMarketplaceFigure(mesh.positions, mesh.indices));
+            measureMarketplaceFigure(mesh.positions, mesh.indices,
+                targetStuds: gemessenBei),
+            scale: scale);
       } finally {
         mesh.dispose();
       }
@@ -258,6 +284,7 @@ Future<PreflightReport> preflightGlb(
     spec: spec,
     specs: specs ?? robloxSpecs,
     marketplace: marktplatz,
+    marketplaceStuds: gemessenBei,
   );
 }
 
@@ -269,6 +296,7 @@ PreflightReport buildPreflightReport({
   required AssetSpec spec,
   required RobloxSpecs specs,
   List<MarketplaceFinding> marketplace = const [],
+  double marketplaceStuds = 0,
 }) {
   final issues = <PreflightIssue>[];
 
@@ -290,18 +318,44 @@ PreflightReport buildPreflightReport({
   // alles andere lässt sich das hier **nicht reparieren** – es
   // entsteht beim Prompt.
   for (final f in marketplace) {
-    if (f.level == MarketplaceLevel.ok) continue;
+    // **Auch die erfüllten.** Vorher fielen sie hier heraus, und der
+    // Modellviewer zeigte nur, was fehlt, während die Prüfung im
+    // 3D-Tab jede Vorgabe bestätigt – dieselbe Datei, zwei Listen
+    // verschiedener Länge. Wer eine Regel bestanden hat, soll das an
+    // beiden Stellen sehen.
+    //
+    // Und die Herkunft kommt aus der Regel selbst, nicht mehr aus
+    // einem pauschalen Satz: Hier stand an **jedem** Marktplatz-Befund
+    // „in Roblox' Dokumentation steht diese Grenze nicht". Das stimmt
+    // für genau eine Regel (die Beinbreite, aus einem Validator-Lauf);
+    // alle anderen sind belegt, und die Tabelle nennt die Stelle.
+    final regel = f.rule;
+    final herkunft = regel == null
+        ? 'Gemessen am Marktplatz-Validator ($marketplaceMeasuredOn).'
+        : '${regel.ownerText} · ${regel.source}'
+            '${regel.note.isEmpty ? '' : '\n${regel.note}'}';
     add(
       'markt_${f.id}',
-      f.level == MarketplaceLevel.fehler
-          ? PreflightSeverity.fehler
-          : PreflightSeverity.warnung,
-      f.title,
-      '${f.reason}\n\nGemessen am Marktplatz-Validator '
-          '($marketplaceMeasuredOn); in Roblox\' Dokumentation steht '
-          'diese Grenze nicht.',
+      switch (f.level) {
+        MarketplaceLevel.fehler => PreflightSeverity.fehler,
+        MarketplaceLevel.warnung => PreflightSeverity.warnung,
+        MarketplaceLevel.ok => PreflightSeverity.ok,
+      },
+      regel == null ? f.title : '${regel.demand}: ${f.title}',
+      f.reason.isEmpty ? herkunft : '${f.reason}\n\n$herkunft',
       -1,
     );
+  }
+  if (marketplace.isNotEmpty && marketplaceStuds > 0) {
+    add(
+        'markt_hoehe',
+        PreflightSeverity.hinweis,
+        'Gemessen bei ${marketplaceStuds.toStringAsFixed(2)} Studs',
+        'Der Importer nimmt eine glTF-Einheit als einen Stud, also '
+            'entscheidet die Größe der Datei, welche Maße der Validator '
+            'sieht. Alle Marktplatz-Zeilen darüber beziehen sich auf '
+            'diese Höhe.',
+        -1);
   }
 
   // --- 0. Attachments -------------------------------------------

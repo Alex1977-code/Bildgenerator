@@ -5382,12 +5382,28 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Der Prompt bestellt jede dieser Vorgaben, also soll die Prüfung
     // jede einzeln bestätigen.
     var marktBefunde = const <MarketplaceFinding>[];
+    var marktStuds = 0.0;
     if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
       try {
         final mesh = await parseGlbForPreview(result.glbBytes);
+        // Gemessen wird die **Datei, wie sie ist** – nicht die Höhe
+        // aus dem Eingabefeld. Der Importer nimmt eine glTF-Einheit
+        // als einen Stud, also entscheidet die Dateigröße, was der
+        // Validator sieht. Dieselbe Regel gilt jetzt im Preflight des
+        // Modellviewers; vorher rechnete der auf 5,00 um und der
+        // 3D-Tab auf den Feldwert, und zwei Berichte über dieselbe
+        // Datei widersprachen sich.
+        var lo = double.infinity, hi = double.negativeInfinity;
+        for (var i = 1; i < mesh.positions.length; i += 3) {
+          if (mesh.positions[i] < lo) lo = mesh.positions[i];
+          if (mesh.positions[i] > hi) hi = mesh.positions[i];
+        }
+        marktStuds = hi - lo > 0
+            ? hi - lo
+            : (_studsValue ?? robloxCharacterStuds);
         marktBefunde = checkMarketplaceFigure(
             measureMarketplaceFigure(mesh.positions, mesh.indices,
-                targetStuds: _studsValue ?? robloxCharacterStuds),
+                targetStuds: marktStuds),
             scale: _bodyScale);
         mesh.dispose();
       } catch (_) {
@@ -5483,7 +5499,9 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         'Jede Zeile ist eine Vorgabe von Roblox, und '
                         'daneben steht, wer sie erfüllt – welcher Satz '
                         'im Prompt oder welcher Schritt der Reparatur. '
-                        'Gemessen an der Datei, wie sie jetzt ist.',
+                        'Gemessen an der Datei, wie sie jetzt ist: '
+                        '${marktStuds.toStringAsFixed(2)} Studs hoch. '
+                        'Der Modellviewer misst dieselbe Datei genauso.',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: theme.colorScheme.outline)),
                     const SizedBox(height: 8),
