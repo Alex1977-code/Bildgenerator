@@ -835,7 +835,20 @@ MarketplaceScaleFit fitMarketplaceScale(
   hoechstens(m.headWidth, scale.maxHeadWidth, 'Kopfbreite');
   hoechstens(m.headHeight, scale.maxHeadHeight, 'Kopfhöhe');
   hoechstens(m.legWidth, marketplaceMaxLegWidth, 'Beinbreite');
-  hoechstens(m.spanTorsoWidth, scale.maxTorsoWidth, 'Rumpfbreite');
+  // Die Rumpfbreite nur, wenn die Arme frei stehen.
+  //
+  // Hängen sie am Körper, steckt der Arm in derselben Insel wie der
+  // Rumpf, und [spanTorsoWidth] misst die ganze Silhouette – bei einer
+  // echten Figur 3,42 statt eines Rumpfes. Daran gedeckelt ließ der
+  // Maßstab nur den Faktor 1,346 zu, während die Beine 1,407
+  // brauchten, und der Schritt lehnte ab: „Beine 1,00 von mindestens
+  // 1,4" blieb stehen, obwohl 7,03 Studs weit innerhalb der erlaubten
+  // 9,5 liegen. Was sich nicht messen lässt, darf auch nicht
+  // begrenzen – dieselbe Regel wie bei der Armlänge. Die Gesamtbreite
+  // deckelt weiterhin.
+  if (m.armsFree) {
+    hoechstens(m.spanTorsoWidth, scale.maxTorsoWidth, 'Rumpfbreite');
+  }
   hoechstens(m.width, scale.maxTotalWidth, 'Gesamtbreite');
 
   return MarketplaceScaleFit(

@@ -1102,6 +1102,61 @@ void main() {
       expect(nachStauchen.allowed, closeTo(2.25 / 1.95, 0.001));
     });
 
+    test('hängende Arme deckeln den Maßstab nicht an einer '
+        'Rumpfbreite, die keine ist', () {
+      // An einer echten Figur: Beine 1,00 (nötig 1,4, Faktor 1,407),
+      // Arme am Körper. Dann misst spanTorsoWidth die ganze Silhouette
+      // (3,42), nicht den Rumpf – daran gedeckelt ließ der Maßstab nur
+      // 1,346 zu und lehnte ab, obwohl 7,03 Studs weit innerhalb der
+      // erlaubten 9,5 liegen.
+      const haengend = MarketplaceMeasurement(
+        height: 5,
+        width: 3.42,
+        depth: 1.52,
+        widthAxis: 0,
+        headWidth: 1.18,
+        neckWidth: 1.18,
+        shoulderWidth: 1.82,
+        legSeparation: 0.86,
+        legWidth: 0.85,
+        scale: 1,
+        headHeight: 1.0,
+        torsoHeight: 3.0,
+        legHeight: 1.0,
+        spanTorsoWidth: 3.42,
+      );
+      expect(haengend.armsFree, isFalse,
+          reason: 'die Vorlage muss den Fall wirklich treffen');
+      final fit = fitMarketplaceScale(haengend);
+      expect(fit.needsScaling, isTrue);
+      expect(fit.forcedBy, 'Beinhöhe');
+      expect(fit.possible, isTrue,
+          reason: 'gedeckelt hat vorher die „Rumpfbreite" mit 1.346');
+      expect(fit.limitedBy, isNot('Rumpfbreite'));
+      expect(fit.height, lessThanOrEqualTo(
+          RobloxBodyScale.normal.maxTotalHeight));
+
+      // Stehen die Arme frei, deckelt die Rumpfbreite weiter.
+      final frei = MarketplaceMeasurement(
+        height: haengend.height,
+        width: 6.0,
+        depth: haengend.depth,
+        widthAxis: 0,
+        headWidth: haengend.headWidth,
+        neckWidth: 0.5,
+        shoulderWidth: haengend.shoulderWidth,
+        legSeparation: 1,
+        legWidth: haengend.legWidth,
+        scale: 1,
+        headHeight: haengend.headHeight,
+        torsoHeight: haengend.torsoHeight,
+        legHeight: haengend.legHeight,
+        spanTorsoWidth: 3.42,
+      );
+      expect(frei.armsFree, isTrue);
+      expect(fitMarketplaceScale(frei).limitedBy, 'Rumpfbreite');
+    });
+
     test('falsche Verhältnisse rettet kein Maßstab', () {
       // Ein Kopf, der schon 2,0 Studs hoch ist, darf nicht größer
       // werden – gleichzeitig bräuchten die Beine mehr.

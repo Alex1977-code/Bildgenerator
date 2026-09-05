@@ -2763,6 +2763,41 @@ der Anbieter es geliefert hat, und das reparierte, mit der erreichten
 Höhe im Dateinamen. Ein Dialog für beide Dateien; nebeneinander im
 Viewer sieht man in Sekunden, was die Reparatur getan hat.
 
+### Der Maßstab deckelte an einer Rumpfbreite, die keine war
+
+Erste Figur, die durch den neuen Download-Knopf im Original **und**
+repariert vorlag — und der Vergleich zeigte sofort etwas, das kein Test
+gefunden hatte: Der Dateiname sagte `5.00studs`, obwohl die Beine mit
+1,00 Studs unter dem Mindestmaß von 1,4 lagen. Der Maßstab-Schritt
+hätte eingreifen müssen und tat es nicht.
+
+Nachgerechnet: nötiger Faktor **1,407** (Beinhöhe), erlaubter Faktor
+**1,346** — gedeckelt von der „Rumpfbreite". Nur hingen bei dieser Figur
+die Arme am Körper, und dann misst `spanTorsoWidth` nicht den Rumpf,
+sondern die ganze Silhouette: 3,42 Studs. Daran gedeckelt lehnte der
+Schritt ab, obwohl die nötigen 7,03 Studs weit innerhalb der erlaubten
+9,5 liegen.
+
+Es ist derselbe Grundsatz, der bei der Armlänge längst gilt: **Was sich
+nicht messen lässt, darf auch nicht begrenzen.** Die Rumpfbreite deckelt
+den Maßstab jetzt nur noch, wenn die Arme frei stehen; die Gesamtbreite
+deckelt weiterhin. Ein Test hält beide Fälle an den echten Zahlen fest.
+
+Und der Vergleich an derselben Figur, warum der Norm-Umbau existiert:
+
+| | ohne Normmaße | mit Normmaßen |
+| --- | --- | --- |
+| Höhe | 7,03 Studs | 5,00 |
+| Hals | 100 % → 56 % (offen) | 100 % → **44 %** |
+| Augen- und Mundhöhlen | nicht möglich | **gebaut** |
+| Beine getrennt | 86 % (Fehler) | **100 %** |
+| offen | 1 Fehler + I-Pose | nur die I-Pose |
+
+Der Grund, warum der Hals **mit** Umbau gelingt und ohne nicht: Die
+Einschnürung sitzt auf der gemessenen Halslinie. Liegt die nach dem
+Umbau dort, wo die Norm sie erwartet, trifft die Glocke das richtige
+Band.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
