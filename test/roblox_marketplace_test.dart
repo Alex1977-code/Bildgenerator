@@ -8,6 +8,8 @@ import 'package:bildgenerator/services/local_3d.dart';
 import 'package:bildgenerator/services/roblox_face_parts.dart'
     show headBottomBand;
 import 'package:bildgenerator/services/roblox_marketplace.dart';
+import 'package:bildgenerator/services/roblox_prompt.dart'
+    show robloxMarketplaceTail;
 import 'package:flutter_test/flutter_test.dart';
 
 /// Baut eine Figur aus Quadern und liefert Punkte samt Indizes.
@@ -168,7 +170,9 @@ void main() {
       expect(f.single.origin, MarketplaceOrigin.prompt);
       expect(f.single.reason, contains('cinched waist'));
 
-      // Ohne Bund keine Meldung.
+      // Ohne Bund eine Bestätigung statt eines Fehlers: Jede
+      // messbare Vorgabe meldet sich, damit man sieht, dass sie
+      // geprüft wurde.
       expect(
           checkMarketplaceFigure(const MarketplaceMeasurement(
             height: 5,
@@ -182,8 +186,8 @@ void main() {
             legWidth: 0.5,
             scale: 1,
             waistWidth: 1.4,
-          )).where((f) => f.id == 'taille'),
-          isEmpty);
+          )).where((f) => f.id == 'taille').single.level,
+          MarketplaceLevel.ok);
     });
 
     test('T-Pose wird am Ergebnis erkannt, nicht am Prompt', () {
@@ -291,7 +295,7 @@ void main() {
       expect(mass.armLength, greaterThanOrEqualTo(specMinArmLength));
       expect(mass.headHeight, lessThan(RobloxBodyScale.normal.maxHeadHeight));
       for (final id in ['rumpf_hoehe', 'bein_hoehe', 'hoehenrechnung']) {
-        expect(befunde.where((f) => f.id == id), isEmpty, reason: id);
+        expect(_finde(befunde, id).level, MarketplaceLevel.ok, reason: id);
       }
       expect(_finde(befunde, 'kopf_breite').level, MarketplaceLevel.ok);
       expect(_finde(befunde, 'arme_frei').level, MarketplaceLevel.ok);
@@ -427,7 +431,7 @@ void main() {
       expect(mass.widestBandHeight,
           lessThan(marketplaceTPoseHeight));
       expect(mass.looksLikeTPose, isFalse);
-      expect(befunde.where((f) => f.id == 'pose'), isEmpty);
+      expect(_finde(befunde, 'pose').level, MarketplaceLevel.ok);
     });
   });
 
@@ -721,6 +725,148 @@ void main() {
       expect(bericht.didSomething, isFalse);
       expect(bericht.bones, 0);
       expect((json['nodes'] as List).length, vorher);
+    });
+  });
+
+  group('Jede Vorgabe hat einen Zuständigen, und die Prüfung nennt ihn',
+      () {
+    // Der Anspruch: Der Nutzer beschreibt nur die Figur, alles Übrige
+    // steht fest, und die Prüfung bestätigt es Punkt für Punkt. Diese
+    // Tests halten beide Richtungen fest.
+
+    test('jeder Satz der Tabelle steht wörtlich im Schwanz', () {
+      for (final r in marketplaceRules) {
+        if (r.clause.isEmpty) continue;
+        expect(robloxMarketplaceTail, contains(r.clause),
+            reason: 'Die Vorgabe „${r.demand}" beruft sich auf einen '
+                'Satz, der nicht (mehr) im Marktplatz-Schwanz steht: '
+                '„${r.clause}"');
+      }
+    });
+
+    test('im Schwanz steht nichts, was zu keiner Vorgabe gehört', () {
+      // Die Gegenrichtung zum Test darüber – und die eigentliche
+      // Zusage: Der Prompt beschreibt genau das, was Roblox
+      // vorschreibt, nichts weniger und nichts mehr. Geprüft wird am
+      // Standard-Schwanz (Normal, 5 Studs); bei anderen Skalen wechselt
+      // nur das Tiefenwort, siehe robloxDepthWords.
+      var rest = robloxMarketplaceTail;
+      // Längste zuerst, damit ein kurzer Satz keinen längeren
+      // zerreißt.
+      final saetze = marketplacePromptClauses()
+        ..sort((a, b) => b.length.compareTo(a.length));
+      for (final satz in saetze) {
+        expect(rest, contains(satz),
+            reason: 'Der Satz „$satz“ steht nicht (mehr) im Schwanz.');
+        rest = rest.replaceFirst(satz, '');
+      }
+      final uebrig = rest.replaceAll(RegExp(r'[,\s]+'), '');
+      expect(uebrig, isEmpty,
+          reason: 'Im Marktplatz-Schwanz steht „$uebrig“ – ein Satz, '
+              'den keine Vorgabe in marketplaceRules beansprucht. '
+              'Entweder gehört er dort eingetragen (mit Belegstelle), '
+              'oder er hat im Prompt nichts zu suchen.');
+    });
+
+    test('jede Regel, die die Prüfung melden kann, steht in der Tabelle',
+        () {
+      // Einmal an einer guten und einmal an einer mangelhaften Figur,
+      // damit beide Zweige jeder Regel vorkommen.
+      final b = _guteFigur();
+      final gut = measureMarketplaceFigure(b.positions, b.i);
+      const schlecht = MarketplaceMeasurement(
+        height: 5,
+        width: 4.8,
+        depth: 2.6,
+        widthAxis: 0,
+        headWidth: 3.4,
+        neckWidth: 3.2,
+        shoulderWidth: 3.3,
+        legSeparation: 0.2,
+        legWidth: 1.9,
+        scale: 1,
+        waistWidth: 1.0,
+        headHeight: 2.4,
+        torsoHeight: 1.1,
+        legHeight: 0.9,
+        armLength: 0.4,
+        spanTorsoWidth: 2.0,
+        widestBandHeight: 0.8,
+      );
+      final ids = <String>{
+        for (final f in checkMarketplaceFigure(gut)) f.id,
+        for (final f in checkMarketplaceFigure(schlecht)) f.id,
+        for (final f in checkMarketplaceFigure(
+            const MarketplaceMeasurement(
+                height: 0,
+                width: 0,
+                depth: 0,
+                widthAxis: 0,
+                headWidth: 0,
+                neckWidth: 0,
+                shoulderWidth: 0,
+                legSeparation: 0,
+                legWidth: 0,
+                scale: 1)))
+          f.id,
+      };
+      for (final id in ids) {
+        expect(marketplaceRuleFor(id), isNotNull,
+            reason: 'Die Prüfung meldet „$id", aber in '
+                'marketplaceRules steht dazu nichts – dann kann die '
+                'Anzeige auch nicht sagen, wer dafür sorgt.');
+      }
+      // Und jede Zeile der Prüfung trägt ihre Regel mit.
+      for (final f in checkMarketplaceFigure(gut)) {
+        expect(f.rule, isNotNull);
+      }
+    });
+
+    test('an der guten Figur bestätigt die Prüfung jede messbare '
+        'Vorgabe', () {
+      final b = _guteFigur();
+      final befunde = checkMarketplaceFigure(
+          measureMarketplaceFigure(b.positions, b.i));
+      final gemeldet = {for (final f in befunde) f.id};
+      for (final r in marketplaceRules) {
+        if (r.id.isEmpty || r.id == 'keine_geometrie') continue;
+        expect(gemeldet, contains(r.id),
+            reason: 'Die Vorgabe „${r.demand}" wird an einer '
+                'einwandfreien Figur gar nicht erwähnt – dann sieht '
+                'niemand, dass sie geprüft wurde.');
+      }
+      // Und zwar bestätigend, nicht bemängelnd.
+      expect(befunde.where((f) => f.level == MarketplaceLevel.fehler),
+          isEmpty);
+    });
+
+    test('keine Vorgabe ohne Zuständigen', () {
+      for (final r in marketplaceRules) {
+        if (r.owner != MarketplaceRuleOwner.nobody) continue;
+        // Genau zwei Ausnahmen, beide mit Begründung im Feld note.
+        expect(r.note, isNotEmpty,
+            reason: 'Für „${r.demand}" sorgt niemand, und es steht '
+                'nicht dabei, warum.');
+      }
+      // Was die Prüfung messen kann, muss auch jemand herstellen
+      // können – Prompt oder Reparatur.
+      for (final r in marketplaceRules) {
+        if (r.id.isEmpty || r.id == 'keine_geometrie') continue;
+        expect(r.clause.isNotEmpty || r.repairStep.isNotEmpty, isTrue,
+            reason: 'Die Regel „${r.id}" wird gemessen, aber weder der '
+                'Prompt noch die Reparatur stellen sie her.');
+      }
+    });
+
+    test('die Liste „anderswo erledigt" nennt genau die Vorgaben ohne '
+        'Messung', () {
+      final zeilen = marketplaceHandledElsewhere();
+      expect(zeilen.length,
+          marketplaceRules.where((r) => r.id.isEmpty).length);
+      expect(zeilen.join(' '), contains('Auto Setup 7'),
+          reason: 'die Vorderseite auf −Z macht die Vorbereitung');
+      expect(zeilen.join(' '), contains('Auto Setup 12'),
+          reason: 'die Textur legt der Export bei');
     });
   });
 

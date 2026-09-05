@@ -236,11 +236,20 @@ class MarketplaceFinding {
     required this.title,
     required this.reason,
     this.origin = MarketplaceOrigin.prompt,
+    this.rule,
   });
 
   final String id;
   final MarketplaceLevel level;
   final String title;
+
+  /// Die Vorgabe, um die es geht – und wer sie erfüllt.
+  ///
+  /// Damit steht in jeder Zeile der Prüfung, welcher Satz im Prompt
+  /// (oder welcher Schritt der Reparatur) dafür zuständig ist. Der
+  /// Befund bestätigt dann nicht nur eine Zahl, sondern eine
+  /// benannte Vorgabe.
+  final MarketplaceRule? rule;
 
   /// Wo der Befund entsteht – und damit, wer ihn beheben kann.
   final MarketplaceOrigin origin;
@@ -406,6 +415,267 @@ class MarketplaceMeasurement {
         2 * specMinArmLength * (looksLikeTPose ? 1.0 : 1 / math.sqrt2);
     return width - spanTorsoWidth >= noetig;
   }
+}
+
+/// Die Namen der Reparaturschritte – hier, damit die Zuordnung unten
+/// sie nennen kann, ohne dass dieser Dienst von der Reparatur abhängt
+/// (umgekehrt hängt die Reparatur schon von hier ab).
+const String repairStepDepth = 'Tiefe';
+const String repairStepScale = 'Maßstab';
+const String repairStepNeck = 'Hals';
+const String repairStepLegsApart = 'Beine getrennt';
+const String repairStepHem = 'Saum';
+const String repairStepLegWidth = 'Beinbreite';
+const String repairStepPose = 'Pose';
+const String repairStepHoles = 'Löcher';
+const String repairStepDecimate = 'Dreiecke';
+const String repairStepFaceSculpt = 'Gesicht im Kopfnetz';
+const String repairStepFaceParts = 'Gesichtsteile';
+
+/// Wer eine Vorgabe erfüllt.
+enum MarketplaceRuleOwner {
+  /// Der Prompt – mit einem wörtlichen Satz im Marktplatz-Schwanz.
+  prompt,
+
+  /// Die Reparatur – mit einem Schritt, den sie an der Geometrie tut.
+  repair,
+
+  /// Der Export oder eine Einstellung der App, ohne Zutun des Nutzers.
+  app,
+
+  /// Niemand: Was dabei zählt, sagt keine Geometrie.
+  nobody,
+}
+
+/// Eine Roblox-Vorgabe und wer sie erfüllt.
+///
+/// **Warum es diese Tabelle gibt.** Der Marktplatz-Schwanz ist gegen
+/// die Doku geprüft: Jede Angabe darin ist belegt. Die Gegenrichtung
+/// war offen – ob zu **jeder** Vorgabe auch ein Satz im Prompt (oder
+/// ein Schritt der Reparatur) gehört. Genau das ist der Anspruch: Der
+/// Nutzer beschreibt nur noch die Figur, alles Übrige steht fest, und
+/// die Prüfung danach bestätigt es Punkt für Punkt.
+///
+/// Die Tabelle macht das nachprüfbar. Zwei Tests halten sie fest:
+/// Jeder [clause] steht wörtlich im Schwanz, und jede Regel-Id, die
+/// [checkMarketplaceFigure] melden kann, kommt hier vor.
+class MarketplaceRule {
+  const MarketplaceRule({
+    required this.demand,
+    required this.source,
+    this.id = '',
+    this.clause = '',
+    this.repairStep = '',
+    this.byApp = '',
+    this.note = '',
+  });
+
+  /// Die Regel-Id der Prüfung, wenn die Geometrie das messen kann.
+  final String id;
+
+  /// Was Roblox verlangt, in einem Satz.
+  final String demand;
+
+  /// Der Satz im Marktplatz-Schwanz, der es bestellt – wörtlich.
+  final String clause;
+
+  /// Der Reparaturschritt, der es herstellt.
+  final String repairStep;
+
+  /// Was der Export oder eine Einstellung der App erledigt.
+  final String byApp;
+
+  /// Die Belegstelle in Roblox' Doku.
+  final String source;
+
+  /// Wo die Zuordnung nur mittelbar ist – ausgeschrieben statt
+  /// verschwiegen.
+  final String note;
+
+  MarketplaceRuleOwner get owner => clause.isNotEmpty
+      ? MarketplaceRuleOwner.prompt
+      : repairStep.isNotEmpty
+          ? MarketplaceRuleOwner.repair
+          : byApp.isNotEmpty
+              ? MarketplaceRuleOwner.app
+              : MarketplaceRuleOwner.nobody;
+
+  /// Eine Zeile für den Bericht: wer dafür sorgt und wie.
+  String get ownerText => switch (owner) {
+        MarketplaceRuleOwner.prompt => repairStep.isEmpty
+            ? 'Prompt: „$clause"'
+            : 'Prompt: „$clause"; Reparatur: Schritt „$repairStep"',
+        MarketplaceRuleOwner.repair => 'Reparatur: Schritt „$repairStep"',
+        MarketplaceRuleOwner.app => byApp,
+        MarketplaceRuleOwner.nobody => 'Das entscheidet die Moderation.',
+      };
+}
+
+/// Jede Vorgabe von Roblox und wer sie erfüllt.
+///
+/// Reihenfolge: Auto Setup „Mesh requirements" 1–13, dann die
+/// Marketplace-Policy, dann die Maßtabellen der Character body
+/// specifications.
+const List<MarketplaceRule> marketplaceRules = [
+  MarketplaceRule(
+      demand: 'Ein einziges Körpernetz',
+      clause: 'one single body mesh',
+      source: 'Auto Setup 1'),
+  MarketplaceRule(
+      demand: 'Zwei Augensäcke mit Halbkugel-Augen und ein Mundsack mit '
+          'Ober-, Unterzähnen und Zunge',
+      clause: 'two eye sockets each holding a half-sphere eye, an open '
+          'mouth cavity',
+      repairStep: repairStepFaceSculpt,
+      source: 'Auto Setup 2',
+      note: 'Der Prompt liefert die Höhlen, die App setzt die fünf '
+          'Teile hinein. Steht im Kopfnetz schon ein modelliertes '
+          'Gesicht, gräbt die App nicht nach.'),
+  MarketplaceRule(
+      demand: 'Augen, Zähne und Zunge teilen keine Punkte mit dem Kopf',
+      repairStep: repairStepFaceParts,
+      source: 'Auto Setup 3'),
+  MarketplaceRule(
+      demand: 'Höchstens 10.742 Dreiecke, je Gruppe begrenzt',
+      repairStep: repairStepDecimate,
+      byApp: 'Die App stellt das Budget am Anbieter ein und reduziert '
+          'notfalls nach.',
+      source: 'Auto Setup 4'),
+  MarketplaceRule(
+      demand: 'Humanoide Form: ein Kopf, ein Rumpf, zwei Arme, zwei Beine',
+      clause: 'humanoid with one head, one torso, two arms with hands, '
+          'two legs with feet',
+      source: 'Auto Setup 5; Policy „Avatar body guidelines"'),
+  MarketplaceRule(
+      id: 'pose',
+      demand: 'Aufrechte A- oder T-Pose',
+      clause: 'upright A-pose',
+      repairStep: repairStepPose,
+      source: 'Auto Setup 6'),
+  MarketplaceRule(
+      id: 'arme_frei',
+      demand: 'Von vorn verdeckt keine Gliedmaße eine andere',
+      clause: 'arms angled down and clear of the torso',
+      source: 'Auto Setup 6'),
+  MarketplaceRule(
+      demand: 'Die Vorderseite zeigt auf die negative Z-Achse',
+      byApp: 'Die Vorbereitung dreht die Figur, bevor gemessen wird.',
+      source: 'Auto Setup 7'),
+  MarketplaceRule(
+      demand: 'Symmetrisch',
+      clause: 'symmetrical',
+      source: 'Auto Setup 8'),
+  MarketplaceRule(
+      demand: 'Wasserdicht in allen Bereichen außer Augen und Mund',
+      clause: 'watertight closed surface apart from the eye and mouth '
+          'openings',
+      repairStep: repairStepHoles,
+      source: 'Auto Setup 9'),
+  MarketplaceRule(
+      demand: 'Keine Accessoires im Netz – kein Haar, keine Brauen, kein '
+          'Bart, keine Wimpern',
+      clause: 'face uncovered',
+      source: 'Auto Setup 10',
+      note: 'Die Namen stehen zusätzlich in der NEGATIV-Zeile; ein '
+          'Prompt darf sie nicht positiv nennen.'),
+  MarketplaceRule(
+      id: 'hals',
+      demand: 'Ein deutlicher Hals, nicht mit Schultern oder Oberkörper '
+          'verschmolzen',
+      clause: 'distinct narrow neck not merged with the shoulders',
+      repairStep: repairStepNeck,
+      source: 'Auto Setup 11'),
+  MarketplaceRule(
+      demand: 'Mindestens eine Textur',
+      byApp: 'Der Export legt eine einzelne Textur bei.',
+      source: 'Auto Setup 12'),
+  MarketplaceRule(
+      demand: 'Community Standards und Marketplace-Policy',
+      source: 'Auto Setup 13',
+      note: 'Dazu sagt keine Geometrie etwas.'),
+  MarketplaceRule(
+      demand: 'Eine Schicht Kleidung über Ober- und Unterkörper',
+      clause: 'opaque clothing covering upper and lower torso',
+      source: 'Policy „Modesty layers"'),
+  MarketplaceRule(
+      demand: 'Jedes Körperteil füllt seinen Hüllkörper zu mindestens '
+          '50 %, von vorn, von der Seite und von hinten',
+      clause: 'arms and legs thick enough to fill their outlines',
+      source: 'Character body specifications, „Visibility"',
+      note: 'Gemessen wird das erst nach der Zerlegung in 15 Teile – '
+          'je Teil, nicht am ganzen Körper. Deshalb keine Zeile in '
+          'dieser Liste, sondern ein eigener Befund im Preflight.'),
+  MarketplaceRule(
+      id: 'tiefe',
+      demand: 'Die Tiefe bleibt unter der Grenze der Skala',
+      clause: 'body depth less than two fifths of body height',
+      repairStep: repairStepDepth,
+      source: 'Character body specifications, „Body scale"'),
+  MarketplaceRule(
+      id: 'kopf_breite',
+      demand: 'Der Kopf bleibt unter der Breite der Skala',
+      clause: 'head about one quarter of body height',
+      source: 'Character body specifications, „Body scale"',
+      note: 'Der Satz bestellt die Kopf**höhe**. Bei einem rundlichen '
+          'Kopf begrenzt das die Breite mit; einen eigenen Satz für die '
+          'Breite gibt Roblox nicht vor, und was nicht vorgegeben ist, '
+          'steht nicht im Schwanz.'),
+  MarketplaceRule(
+      id: 'rumpf_hoehe',
+      demand: 'Der Rumpf ist mindestens 1,7 Studs hoch',
+      clause: 'hips at mid body height',
+      repairStep: repairStepScale,
+      source: 'Character body specifications, „Minimum"'),
+  MarketplaceRule(
+      id: 'bein_hoehe',
+      demand: 'Jedes Bein ist mindestens 1,4 Studs hoch',
+      clause: 'hips at mid body height',
+      repairStep: repairStepScale,
+      source: 'Character body specifications, „Minimum"'),
+  MarketplaceRule(
+      id: 'hoehenrechnung',
+      demand: 'Unter dem Kopf bleibt Platz für Rumpf und Beine',
+      clause: 'head about one quarter of body height',
+      repairStep: repairStepScale,
+      source: 'Character body specifications, „Minimum"'),
+  MarketplaceRule(
+      id: 'bein_breite',
+      demand: 'Jedes Bein bleibt unter 1,5 Studs Breite',
+      repairStep: repairStepLegWidth,
+      source: 'Validator-Lauf vom 31.08.2026',
+      note: 'Kein Satz im Prompt: „dünne Beine" bestellt genau den '
+          'Fehler daneben (unter 50 % Deckung des Hüllkörpers). Die '
+          'Reparatur schmälert stattdessen.'),
+  MarketplaceRule(
+      id: 'beine_getrennt',
+      demand: 'Zwei Beine mit einer Lücke dazwischen',
+      clause: 'two separate legs with a gap between the thighs',
+      repairStep: repairStepLegsApart,
+      source: 'Auto Setup 6'),
+  MarketplaceRule(
+      id: 'taille',
+      demand: 'Die schmalste Stelle zwischen Kopf und Rumpf ist der Hals',
+      clause: 'distinct narrow neck not merged with the shoulders',
+      source: 'Auto Setup 11',
+      note: 'Nur mittelbar: Ist die Taille schmaler als der Hals, setzt '
+          'Auto Setup die Kopf-Rumpf-Grenze dort. Einen eigenen Satz '
+          'dagegen gibt Roblox nicht vor – „ohne eingezogene Taille" '
+          'wäre eine Verneinung, und die liest ein Text→3D-Modell nicht '
+          'als Ausschluss.'),
+  MarketplaceRule(
+      id: 'keine_geometrie',
+      demand: 'Es muss überhaupt eine Geometrie geben',
+      source: 'Voraussetzung jeder Messung',
+      note: 'Kein Roblox-Punkt, sondern die Bedingung dafür, dass die '
+          'anderen etwas messen können.'),
+];
+
+/// Die Zuordnung zu einer Regel-Id der Prüfung, oder `null`.
+MarketplaceRule? marketplaceRuleFor(String id) {
+  for (final r in marketplaceRules) {
+    if (r.id == id) return r;
+  }
+  return null;
 }
 
 /// Der Aufschlag auf den nötigen Maßstab: ein halbes Prozent.
@@ -1039,6 +1309,9 @@ List<MarketplaceFinding> checkCoverage(
 List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
     {RobloxBodyScale scale = RobloxBodyScale.normal}) {
   final out = <MarketplaceFinding>[];
+  // Die Zuordnung kommt aus [marketplaceRules], nicht aus der
+  // Aufrufstelle: So kann sie nicht auseinanderlaufen, und ein Test
+  // hält fest, dass jede Id dort vorkommt.
   void add(String id, MarketplaceLevel level, String title, String reason,
       {MarketplaceOrigin origin = MarketplaceOrigin.prompt}) {
     out.add(MarketplaceFinding(
@@ -1046,7 +1319,8 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
         level: level,
         title: title,
         reason: reason,
-        origin: origin));
+        origin: origin,
+        rule: marketplaceRuleFor(id)));
   }
 
   if (m.height <= 0) {
@@ -1120,6 +1394,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'darauf geprüft. Entweder der Kopf wird kleiner (etwa ein '
             'Viertel der Höhe), oder die Figur bekommt mehr Studs – bei '
             '6 statt 5 reicht es auch mit großem Kopf.');
+  } else if (m.torsoHeight > 0) {
+    add(
+        'rumpf_hoehe',
+        MarketplaceLevel.ok,
+        'Rumpf ${m.torsoHeight.toStringAsFixed(2)} hoch (mindestens '
+            '$specMinTorsoHeight)',
+        '');
   }
   if (m.legHeight > 0 && m.legHeight < specMinLegHeight) {
     add(
@@ -1136,6 +1417,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'height" gab 1,0), eine Linie schon. Ins Motiv „hips at '
             'mid body height, two separate legs with a clear gap '
             'between the thighs", ins Negativ „short legs".');
+  } else if (m.legHeight > 0) {
+    add(
+        'bein_hoehe',
+        MarketplaceLevel.ok,
+        'Beine ${m.legHeight.toStringAsFixed(2)} hoch (mindestens '
+            '$specMinLegHeight)',
+        '');
   }
   if (m.headHeight > 0 && m.torsoHeight > 0) {
     final rest = m.height - m.headHeight;
@@ -1151,6 +1439,14 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
               'Kopf auf rund ein Viertel der Höhe, oder Gesamthöhe auf '
               '${(m.headHeight + noetig + 0.3).ceil()} Studs – dann '
               'bleibt unter dem Kopf genug, den Hals eingerechnet.');
+    } else {
+      add(
+          'hoehenrechnung',
+          MarketplaceLevel.ok,
+          'Kopf ${m.headHeight.toStringAsFixed(2)} hoch: unter ihm '
+              'bleiben ${rest.toStringAsFixed(2)} Studs, gebraucht '
+              'werden ${noetig.toStringAsFixed(1)}',
+          '');
     }
   }
   // Die Arme: **ein** Befund, nicht zwei. Vorher standen hier eine
@@ -1243,6 +1539,14 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'Bund kommt meist von „hoodie ending at the hip bone". In '
             'den Prompt: „straight boxy hoodie without a cinched '
             'waist".');
+  } else if (m.waistWidth > 0 && m.neckWidth > 0) {
+    add(
+        'taille',
+        MarketplaceLevel.ok,
+        'Der Hals ist die schmalste Stelle (Taille '
+            '${m.waistWidth.toStringAsFixed(2)} gegen Hals '
+            '${m.neckWidth.toStringAsFixed(2)})',
+        '');
   }
 
   // Pose am Ergebnis, nicht am Prompt. Zweimal ist der A-Pose-Text im
@@ -1260,6 +1564,14 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'wurden. Der Prompt allein hat das nicht verhindert – der '
             'A-Pose-Text stand drin, Tripo hat ihn übergangen. Neu '
             'erzeugen oder die Arme im Reparatur-Modus um 45° drehen.');
+  } else {
+    add(
+        'pose',
+        MarketplaceLevel.ok,
+        'Keine T-Pose (breiteste Stelle auf '
+            '${(m.widestBandHeight * 100).round()} % der Höhe, '
+            'Armspanne ${m.width.toStringAsFixed(2)})',
+        '');
   }
 
   if (m.legWidth > 0) {
@@ -1342,6 +1654,26 @@ String marketplaceAsText(List<MarketplaceFinding> findings) {
 /// Modesty-Layer ist eine Frage an das Aussehen, nicht an die Form,
 /// und die Policy knüpft ihn ausdrücklich an „smooth and flat
 /// skin-like surface texture in the groin and chest area".
+/// Die verschiedenen Sätze, mit denen der Schwanz Vorgaben bestellt.
+///
+/// Verschieden, weil mehrere Vorgaben denselben Satz benutzen:
+/// „hips at mid body height" trägt die Rumpf- **und** die Beinhöhe.
+List<String> marketplacePromptClauses() => <String>{
+      for (final r in marketplaceRules)
+        if (r.clause.isNotEmpty) r.clause,
+    }.toList();
+
+/// Die Vorgaben, für die es keine eigene Messung gibt – und wer sie
+/// stattdessen erfüllt.
+///
+/// Aus [marketplaceRules] erzeugt, damit die Liste nicht neben der
+/// Tabelle herläuft. Sie gehört unter die Prüfung: Was dort keine
+/// Zeile bekommt, ist nicht vergessen, sondern anderswo erledigt.
+List<String> marketplaceHandledElsewhere() => [
+      for (final r in marketplaceRules)
+        if (r.id.isEmpty) '${r.demand} (${r.source}) – ${r.ownerText}',
+    ];
+
 const String marketplaceUncheckable =
     'Nicht messbar und deshalb ungeprüft: ob die Figur einem Menschen '
     'ähnelt und damit eine Schicht Kleidung über Ober- und '

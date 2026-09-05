@@ -1304,13 +1304,30 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         const SizedBox(height: 4),
         Text(
             _robloxMode
-                ? '$hint ${_robloxTarget == RobloxTarget.accessory
-                    ? 'Die Roblox-Regeln für Accessoires (nur das Teil '
-                        'allein, keine Figur, unter 4.000 Dreiecke, '
-                        'massive Formen) hängen automatisch mit dran.'
-                    : 'Die Roblox-Regeln (eine Figur, T-Pose, massive '
-                        'Formen, wenige Farbflächen, keine Schrift) '
-                        'hängen automatisch mit dran.'}'
+                ? '$hint ${switch (_robloxTarget) {
+                    RobloxTarget.accessory =>
+                      'Die Roblox-Regeln für Accessoires (nur das Teil '
+                          'allein, keine Figur, unter 4.000 Dreiecke, '
+                          'massive Formen) hängen automatisch mit dran.',
+                    // Beim Marktplatz-Ziel steht hier, was wirklich
+                    // angehängt wird. „T-Pose, massive Formen, wenige
+                    // Farbflächen" stand hier noch aus der Zeit vor der
+                    // Doku-Prüfung – der Marktplatz-Schwanz bestellt
+                    // die A-Pose, und die Stil-Angaben sind raus, weil
+                    // Roblox sie nirgends verlangt.
+                    RobloxTarget.marketplaceAvatar =>
+                      'Du beschreibst nur die Figur. Die '
+                          '${marketplacePromptClauses().length} Vorgaben, '
+                          'die Roblox an ein Körpernetz stellt, hängt '
+                          'die App wörtlich an (A-Pose, freie Arme, '
+                          'Hals, Proportionen, Kleidung, Augen- und '
+                          'Mundhöhlen, wasserdicht, ein Netz), dazu die '
+                          'NEGATIV-Zeile. Die Prüfung nach dem Lauf '
+                          'bestätigt jede einzeln.',
+                    _ => 'Die Roblox-Regeln (eine Figur, T-Pose, '
+                        'massive Formen, wenige Farbflächen, keine '
+                        'Schrift) hängen automatisch mit dran.',
+                  }}'
                 : hint,
             style: theme.textTheme.bodySmall),
       ],
@@ -5237,6 +5254,26 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       if (mounted) _showSnack('Die Roblox-Prüfung schlug fehl: $e');
       return;
     }
+    // Die Marktplatz-Vorgaben hier neu messen statt die Notiz vom Lauf
+    // zu zeigen: Nach einer Reparatur – und erst recht nach einer
+    // angepassten Höhe – ist die Notiz veraltet, die Datei aber nicht.
+    // Und sie kommen als **Liste** mit Haken, nicht als eine Zeile:
+    // Der Prompt bestellt jede dieser Vorgaben, also soll die Prüfung
+    // jede einzeln bestätigen.
+    var marktBefunde = const <MarketplaceFinding>[];
+    if (_robloxTarget == RobloxTarget.marketplaceAvatar) {
+      try {
+        final mesh = await parseGlbForPreview(result.glbBytes);
+        marktBefunde = checkMarketplaceFigure(
+            measureMarketplaceFigure(mesh.positions, mesh.indices,
+                targetStuds: _studsValue ?? robloxCharacterStuds),
+            scale: _bodyScale);
+        mesh.dispose();
+      } catch (_) {
+        // Eine Datei, die sich nicht zeichnen lässt, scheitert schon
+        // an den Regeln davor – dort steht dann auch, woran.
+      }
+    }
     if (!mounted) return;
     final blockers =
         findings.where((f) => f.level == RobloxLevel.blocker).length;
@@ -5274,7 +5311,33 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         'zustande: ${result.rigNote}',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: Colors.orange.shade800)),
-                  if (result.robloxNote.isNotEmpty)
+                  if (marktBefunde.isNotEmpty)
+                    // Frisch gemessen, nicht die Notiz vom Lauf: Sonst
+                    // stünde hier „2 Fehler" über einer Liste, in der
+                    // keiner mehr steht.
+                    Builder(builder: (context) {
+                      final fehler = marktBefunde
+                          .where((f) => f.blocks)
+                          .length;
+                      final warnungen = marktBefunde
+                          .where((f) =>
+                              f.level == MarketplaceLevel.warnung)
+                          .length;
+                      return Text(
+                          fehler > 0
+                              ? 'Marktplatz: $fehler Vorgabe(n) nicht '
+                                  'erfüllt.'
+                              : warnungen > 0
+                                  ? 'Marktplatz: alle Vorgaben erfüllt, '
+                                      '$warnungen Hinweis(e).'
+                                  : 'Marktplatz: alle messbaren '
+                                      'Vorgaben erfüllt.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: fehler > 0
+                                  ? theme.colorScheme.error
+                                  : Colors.green.shade700));
+                    })
+                  else if (result.robloxNote.isNotEmpty)
                     // Der Stand des Marktplatz-Wegs: hergerichtet,
                     // vermessen, und was die Messung ergab.
                     Text(result.robloxNote,
@@ -5292,6 +5355,91 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.outline)),
                   const SizedBox(height: 12),
+                  if (marktBefunde.isNotEmpty) ...[
+                    Text('Marktplatz-Vorgaben',
+                        style: theme.textTheme.titleSmall),
+                    Text(
+                        'Jede Zeile ist eine Vorgabe von Roblox, und '
+                        'daneben steht, wer sie erfüllt – welcher Satz '
+                        'im Prompt oder welcher Schritt der Reparatur. '
+                        'Gemessen an der Datei, wie sie jetzt ist.',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.outline)),
+                    const SizedBox(height: 8),
+                    for (final f in marktBefunde) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            switch (f.level) {
+                              MarketplaceLevel.fehler => Icons.cancel_outlined,
+                              MarketplaceLevel.warnung =>
+                                Icons.warning_amber_outlined,
+                              MarketplaceLevel.ok => Icons.check_circle_outline,
+                            },
+                            size: 18,
+                            color: switch (f.level) {
+                              MarketplaceLevel.fehler =>
+                                theme.colorScheme.error,
+                              MarketplaceLevel.warnung => Colors.orange.shade800,
+                              MarketplaceLevel.ok => Colors.green.shade700,
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    f.rule == null
+                                        ? f.title
+                                        : '${f.rule!.demand}: ${f.title}',
+                                    style: theme.textTheme.bodyMedium
+                                        ?.copyWith(
+                                            fontWeight: FontWeight.w600)),
+                                if (f.rule != null)
+                                  Text(
+                                      '${f.rule!.ownerText} · '
+                                      '${f.rule!.source}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                              color: theme
+                                                  .colorScheme.outline)),
+                                if (f.reason.isNotEmpty)
+                                  Text(f.reason,
+                                      style: theme.textTheme.bodySmall),
+                                if (f.rule?.note.isNotEmpty ?? false)
+                                  Text(f.rule!.note,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: theme
+                                                  .colorScheme.outline)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Text(
+                        'Ohne eigene Messung, weil anderswo erledigt:',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.outline)),
+                    for (final zeile in marketplaceHandledElsewhere())
+                      Text('• $zeile',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.outline)),
+                    const SizedBox(height: 8),
+                    Text(marketplaceUncheckable,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.outline)),
+                    const Divider(height: 24),
+                    Text('Datei und Geometrie',
+                        style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                  ],
                   for (final finding in findings) ...[
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,

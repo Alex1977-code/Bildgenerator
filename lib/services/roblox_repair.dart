@@ -508,7 +508,7 @@ Future<RepairResult> repairForMarketplace(
     if (mass.depth <= tiefeGrenze.repairableTo) {
       _tiefeStauchen(pos, tiefeGrenze.goal / mass.depth, mitteZ);
       notiere(
-          'Tiefe',
+          repairStepDepth,
           mass.depth.toStringAsFixed(2),
           tiefeGrenze.goal.toStringAsFixed(2),
           RepairOrigin.app,
@@ -516,7 +516,7 @@ Future<RepairResult> repairForMarketplace(
               'die UVs bleiben.');
     } else {
       notiere(
-          'Tiefe',
+          repairStepDepth,
           mass.depth.toStringAsFixed(2),
           mass.depth.toStringAsFixed(2),
           RepairOrigin.prompt,
@@ -556,7 +556,7 @@ Future<RepairResult> repairForMarketplace(
       mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
       zonen = _messeZonen(pos, idx);
       notiere(
-          'Maßstab',
+          repairStepScale,
           '${fit.fromHeight.toStringAsFixed(2)} Studs',
           '${hoehe.toStringAsFixed(2)} Studs',
           RepairOrigin.app,
@@ -571,7 +571,7 @@ Future<RepairResult> repairForMarketplace(
               'Importer nimmt eine glTF-Einheit als einen Stud.');
     } else if (fit.needsScaling) {
       notiere(
-          'Maßstab',
+          repairStepScale,
           '${fit.fromHeight.toStringAsFixed(2)} Studs',
           'nicht möglich',
           RepairOrigin.prompt,
@@ -599,7 +599,7 @@ Future<RepairResult> repairForMarketplace(
       if (flips > flipGrenze()) {
         pos.setAll(0, kopie);
         notiere(
-            'Hals',
+            repairStepNeck,
             '${(mass.neckRatio * 100).round()} %',
             'verworfen',
             RepairOrigin.prompt,
@@ -609,7 +609,7 @@ Future<RepairResult> repairForMarketplace(
                 'neck not merged with the shoulders".');
       } else {
         notiere(
-            'Hals',
+            repairStepNeck,
             '${(mass.neckRatio * 100).round()} %',
             '${(repairNeckGoal * 100).round()} %',
             RepairOrigin.app,
@@ -617,7 +617,7 @@ Future<RepairResult> repairForMarketplace(
                 'ohne weichen Übergang entsteht eine sichtbare Kante.');
       }
     } else {
-      notiere('Hals', '${(mass.neckRatio * 100).round()} %', '–',
+      notiere(repairStepNeck, '${(mass.neckRatio * 100).round()} %', '–',
           RepairOrigin.prompt,
           'Kein Kopf-Maximum über der Schulter: Was eingeschnürt '
               'werden soll, ist nicht auffindbar.');
@@ -663,7 +663,7 @@ Future<RepairResult> repairForMarketplace(
         idx = idxVor;
         final kurz = mass.legHeight < specMinLegHeight;
         notiere(
-            'Beine getrennt',
+            repairStepLegsApart,
             '${(mass.legSeparation * 100).round()} %',
             'verworfen',
             RepairOrigin.prompt,
@@ -687,7 +687,7 @@ Future<RepairResult> repairForMarketplace(
                     'thighs".'}');
       } else {
         notiere(
-            'Beine getrennt',
+            repairStepLegsApart,
             '${(mass.legSeparation * 100).round()} %',
             'freigeschnitten',
             RepairOrigin.app,
@@ -697,12 +697,12 @@ Future<RepairResult> repairForMarketplace(
                 '${(probeMass.legSeparation * 100).round()} %, Schritt '
                 '${probeMass.legHeight.toStringAsFixed(2)} Studs.');
         if (klemmeVerworfen) {
-          notiere('Saum', 'Trichter', 'nicht geklemmt', RepairOrigin.prompt,
+          notiere(repairStepHem, 'Trichter', 'nicht geklemmt', RepairOrigin.prompt,
               '$klemmFlips Dreiecke hätten sich umgedreht – unter der '
                   'Hüfte sitzt hier Bauch oder Hose, kein Saum; die '
                   'Klemme ist zurückgenommen.');
         } else {
-          notiere('Saum', 'Trichter', 'geklemmt', RepairOrigin.app,
+          notiere(repairStepHem, 'Trichter', 'geklemmt', RepairOrigin.app,
               'Unter der Hüfte auf höchstens '
                   '${repairLegClampRadius.toStringAsFixed(2)} Studs '
                   'Abstand zur Beinmitte gezogen – ohne eine Fläche zu '
@@ -710,7 +710,7 @@ Future<RepairResult> repairForMarketplace(
         }
       }
     } else {
-      notiere('Beine getrennt',
+      notiere(repairStepLegsApart,
           '${(mass.legSeparation * 100).round()} %', '–',
           RepairOrigin.prompt,
           'Unter der Hüfte sind nirgends zwei Inseln zu finden – das '
@@ -728,21 +728,21 @@ Future<RepairResult> repairForMarketplace(
       final flips = countFlippedTriangles(kopie, pos, idx);
       if (flips > flipGrenze()) {
         pos.setAll(0, kopie);
-        notiere('Beinbreite', mass.legWidth.toStringAsFixed(2),
+        notiere(repairStepLegWidth, mass.legWidth.toStringAsFixed(2),
             'verworfen', RepairOrigin.prompt,
             '$flips Dreiecke hätten sich beim Schmälern umgedreht – '
                 'die Beine sind hier nicht zwei Röhren um je eine '
                 'Mitte. Ins Motiv: „two separate legs".');
       } else {
         notiere(
-            'Beinbreite',
+            repairStepLegWidth,
             mass.legWidth.toStringAsFixed(2),
             repairLegWidth.goal.toStringAsFixed(2),
             RepairOrigin.app,
             'Jedes Bein um seine eigene Mitte geschmälert.');
       }
     } else {
-      notiere('Beinbreite', mass.legWidth.toStringAsFixed(2), '–',
+      notiere(repairStepLegWidth, mass.legWidth.toStringAsFixed(2), '–',
           RepairOrigin.prompt,
           'Über ${repairLegWidth.repairableTo.toStringAsFixed(2)} '
               'bleibt vom Bein nichts übrig, was noch wie eines '
@@ -759,7 +759,7 @@ Future<RepairResult> repairForMarketplace(
     if (flips > flipGrenze()) {
       pos.setAll(0, kopie);
       notiere(
-          'Pose',
+          repairStepPose,
           'T (breiteste Stelle auf '
               '${(mass.widestBandHeight * 100).round()} % der Höhe)',
           'verworfen',
@@ -769,7 +769,7 @@ Future<RepairResult> repairForMarketplace(
               'Die A-Pose gehört in den Prompt.');
     } else {
       notiere(
-          'Pose',
+          repairStepPose,
           'T (breiteste Stelle auf '
               '${(mass.widestBandHeight * 100).round()} % der Höhe)',
           'A (${repairArmDrop.round()}°)',
@@ -786,7 +786,7 @@ Future<RepairResult> repairForMarketplace(
   final geheilt = fixGlbForRoblox(arbeit, closeHoles: true, fixWinding: true);
   arbeit = geheilt.glb;
   if (geheilt.report.filledHoles > 0) {
-    notiere('Löcher', '${geheilt.report.filledHoles}', '0',
+    notiere(repairStepHoles, '${geheilt.report.filledHoles}', '0',
         RepairOrigin.app,
         '${geheilt.report.addedTriangles} Dreiecke ergänzt, keine neuen '
             'Punkte.');
@@ -803,7 +803,7 @@ Future<RepairResult> repairForMarketplace(
     if (vorher > ziel) {
       arbeit = await decimateGlb(arbeit, ziel);
       final nachher = await glbTriangleCount(arbeit);
-      notiere('Dreiecke', '$vorher', '$nachher', RepairOrigin.app,
+      notiere(repairStepDecimate, '$vorher', '$nachher', RepairOrigin.app,
           'Auto Setup reduziert selbst nicht; bei 9.627 bekam jede '
               'Gliedmaße 2.304 bei einem Budget von 1.248.'
               '${sculptFace ? ' Ziel $ziel statt $repairTriangleGoal, '
@@ -827,7 +827,7 @@ Future<RepairResult> repairForMarketplace(
       final r = gesicht.report;
       hoehlenDa = r.after.hasFace;
       notiere(
-          'Gesicht im Kopfnetz',
+          repairStepFaceSculpt,
           r.before.hasFace ? 'Höhlen da' : 'keine Höhlen',
           r.after.hasFace
               ? 'Höhlen ${r.after.leftEyeDepth.toStringAsFixed(2)} / '
@@ -837,7 +837,7 @@ Future<RepairResult> repairForMarketplace(
           '+${r.addedTriangles} Dreiecke in ${r.passes} Durchgängen. '
               '${r.notes.join(' ')}');
     } on Exception catch (e) {
-      notiere('Gesicht im Kopfnetz', '–', '–', RepairOrigin.prompt, '$e');
+      notiere(repairStepFaceSculpt, '–', '–', RepairOrigin.prompt, '$e');
     }
   }
 
@@ -846,7 +846,7 @@ Future<RepairResult> repairForMarketplace(
     try {
       final gesicht = addFaceParts(arbeit);
       arbeit = gesicht.glb;
-      notiere('Gesichtsteile', '0', '${gesicht.report.parts.length}',
+      notiere(repairStepFaceParts, '0', '${gesicht.report.parts.length}',
           RepairOrigin.app,
           '${gesicht.report.triangles} Dreiecke. '
               '${hoehlenDa ? 'Die Augen sitzen in den Höhlen hinter dem '
@@ -859,7 +859,7 @@ Future<RepairResult> repairForMarketplace(
               '${gesicht.report.notes.isEmpty ? '' : ' '
                   '${gesicht.report.notes.join(' ')}'}');
     } on Exception catch (e) {
-      notiere('Gesichtsteile', '0', '0', RepairOrigin.prompt, '$e');
+      notiere(repairStepFaceParts, '0', '0', RepairOrigin.prompt, '$e');
     }
   }
 

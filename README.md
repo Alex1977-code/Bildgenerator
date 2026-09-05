@@ -2557,6 +2557,75 @@ wurde das immer, nur eben als Zeile in der Nachmessung, die niemand
 für einen Mangel der Vorlage hielt. Der Maßstab-Schritt fing an, ihn
 zu beheben, und damit fiel er auf.
 
+### Jede Vorgabe hat einen Zuständigen, und die Prüfung nennt ihn
+
+Der Anspruch ist einfach: **Der Nutzer beschreibt nur die Figur.** Alles,
+was Roblox an ein Körpernetz stellt, steht fest, hängt automatisch an,
+und die Prüfung danach bestätigt es Punkt für Punkt.
+
+Geprüft war bisher nur eine Richtung — dass jede Angabe im Schwanz
+belegt ist. Die Gegenrichtung war offen: ob zu **jeder** Vorgabe auch
+ein Satz gehört, und wer sie erfüllt, wenn kein Satz sie erfüllen kann.
+Das steht jetzt als Tabelle im Code (`marketplaceRules`), 25 Zeilen,
+jede mit Belegstelle:
+
+| Woher | Wer erfüllt es |
+| --- | --- |
+| Auto Setup „Mesh requirements" 1–13 | 15 verschiedene Sätze im Schwanz, 6 Reparaturschritte, 3 Dinge, die der Export erledigt |
+| Marketplace-Policy | Kleidung über Ober- und Unterkörper |
+| Character body specifications | Tiefe, Kopf, Rumpf, Beine, Deckung |
+
+Zwei Tests halten die Tabelle fest, und zwar in **beide** Richtungen:
+
+- **Jeder Satz der Tabelle steht wörtlich im Schwanz.** Verschwindet
+  einer, fällt der Test.
+- **Im Schwanz steht nichts, was zu keiner Vorgabe gehört.** Der Test
+  entfernt jeden beanspruchten Satz aus dem Schwanz; was übrig bleibt,
+  muss leer sein. Ein probeweise eingefügtes „glossy cinematic finish"
+  fällt mit genau diesem Namen auf.
+
+Dazu die dritte Richtung: **Jede Regel, die die Prüfung melden kann,
+kommt in der Tabelle vor** — sonst könnte die Anzeige nicht sagen, wer
+dafür sorgt.
+
+**Die Prüfung bestätigt jetzt, statt nur zu klagen.** Fünf Regeln
+(Rumpfhöhe, Beinhöhe, Höhenrechnung, Taille, Pose) meldeten sich
+bisher nur im Fehlerfall — wer sie bestanden hatte, sah gar nichts und
+konnte nicht wissen, ob sie überhaupt geprüft wurden. Jetzt meldet jede
+messbare Vorgabe eine Zeile, grün oder rot, und ein Test hält fest,
+dass an einer einwandfreien Figur **alle zwölf** erscheinen.
+
+In der Roblox-Prüfung stehen sie als eigener Abschnitt, jede Zeile mit
+der Vorgabe, dem gemessenen Wert und darunter, wer dafür sorgt:
+
+> ✓ Ein deutlicher Hals, nicht mit Schultern oder Oberkörper
+> verschmolzen: Hals erkennbar (42 % der Kopfbreite)
+> *Prompt: „distinct narrow neck not merged with the shoulders";
+> Reparatur: Schritt „Hals" · Auto Setup 11*
+
+Darunter die 13 Vorgaben ohne eigene Messung, mit dem, was sie
+stattdessen erfüllt — die Vorderseite auf −Z macht die Vorbereitung,
+die Textur legt der Export bei —, und zuletzt das, was Geometrie
+grundsätzlich nicht sagen kann.
+
+Gemessen wird dabei **die Datei, wie sie jetzt ist**, nicht die Notiz
+vom Lauf. Vorher stand über der Liste noch „2 Fehler", während in der
+Liste keiner mehr stand: Die Notiz entstand beim Erzeugen und überlebte
+die Reparatur.
+
+**Zwei Funde beim Gegenlesen.** Der Hinweis unter dem Prompt-Feld nannte
+für den Marktplatz-Weg „T-Pose, massive Formen, wenige Farbflächen" —
+Text aus der Zeit vor der Doku-Prüfung. Der Marktplatz-Schwanz bestellt
+die A-Pose, und die Stil-Angaben sind längst raus, weil Roblox sie
+nirgends verlangt. Und ein Satz im Schwanz (`arms and legs thick enough
+to fill their outlines`) hatte noch keine Zeile in der Tabelle; er
+gehört zur Visibility-Regel, die erst nach der Zerlegung in 15 Teile
+gemessen wird.
+
+Die Namen der Reparaturschritte sind jetzt Konstanten, die sich Tabelle
+und Reparatur teilen — sonst hätte die Tabelle auf Schritte verweisen
+können, die es nicht gibt.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
