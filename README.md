@@ -2892,6 +2892,51 @@ Drei Tests halten das fest: dass der Preflight bei 6,40 Studs auch bei
 6,40 misst, dass die OK-Zeilen ankommen, und dass beim Hals „Auto Setup
 11" steht statt der pauschalen Behauptung.
 
+### Kein Rat zu einem Satz, den der Lauf selbst verschickt
+
+Der Reparaturbericht einer echten Figur nannte zwei offene Punkte und
+gab zu beiden denselben Rat:
+
+> … das gehört in den Prompt („two eye sockets each holding a
+> half-sphere eye"), Negativ „bulging eyes".
+
+> … ins Motiv gehört die Pose: „upright A-pose, arms angled down and
+> clear of the torso".
+
+Beide Sätze **standen längst im Prompt**. Der erste ist der erste Satz
+aus `marketplaceImageClauses()`, der zweite der sechste; „bulging
+eyes" steht im festen Negativ, und die Ansichten bekommen zusätzlich
+„arms straight and angled 45 degrees down" als Posen-Zusatz. Alles
+davon geht bei jedem Marktplatz-Lauf mit.
+
+Der Rat las sich damit wie eine Aufgabe, die der Nutzer vergessen
+hatte — und wer sie nachträgt, ändert nichts. Dabei entscheidet genau
+dieser Unterschied, was hilft: Fehlt der Satz, hilft eine Ergänzung im
+Motiv. Ging er mit und steht trotzdem nicht im Netz, hat das
+Bildmodell ihn nicht umgesetzt, und dann hilft nur ein neuer Lauf.
+
+Alle drei Stellen sagen das jetzt aus einer Hand.
+`marketplaceClauseAdvice(clause)` schlägt den Satz in der Regeltabelle
+nach: Steht er dort und geht er ins Bild, nennt der Rat die
+Belegstelle („Auto Setup 2") statt einer Aufgabe. Nur ein Satz, den
+der Lauf nicht verschickt, bleibt eine.
+
+An der Figur gemessen, die den Anlass gab — dieselbe Datei vor und
+nach der Reparatur:
+
+| | Original | repariert |
+| --- | --- | --- |
+| Hals | 100 % (kein Hals) | 48 % ✓ |
+| Rumpf / Beine | 2,50 / 1,70 ✓ | 2,50 / 1,70 ✓ |
+| Dreiecke | 16.066 | 5.396 |
+| Arme stehen ab | 0,04 Studs | 1,03 Studs |
+
+Die Reparatur räumt den einzigen Fehler ab. Was bleibt, ist die
+I-Pose: 1,03 statt der nötigen 2,12 Studs. Die hat der Prompt zweimal
+bestellt, und das Bildmodell hat sie zweimal nicht geliefert. Roblox
+nimmt die Figur trotzdem an — „Character bodies with I-pose may yield
+lower quality results" ist eine Warnung, keine Grenze.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

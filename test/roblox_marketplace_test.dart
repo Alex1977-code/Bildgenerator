@@ -11,7 +11,11 @@ import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:bildgenerator/services/roblox_preflight.dart';
 import 'package:bildgenerator/services/roblox_specs_config.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
-    show robloxHipFraction, robloxHipWords, robloxMarketplaceTail;
+    show
+        robloxHipFraction,
+        robloxHipWords,
+        robloxMarketplaceNegative,
+        robloxMarketplaceTail;
 import 'package:flutter_test/flutter_test.dart';
 
 /// Baut eine Figur aus Quadern und liefert Punkte samt Indizes.
@@ -1300,6 +1304,64 @@ void main() {
       expect(classic.possible, isFalse);
       final normal = fitMarketplaceScale(mass(headWidth: 1.45));
       expect(normal.possible, isTrue);
+    });
+  });
+
+  group('Kein Rat zu einem Satz, den der Lauf selbst verschickt', () {
+    // Drei Berichte rieten „das gehört in den Prompt" und zitierten
+    // dabei wörtlich Sätze aus dem Schwanz, der bei jedem
+    // Marktplatz-Lauf mitgeht. Der Nutzer las das als eigene Aufgabe
+    // und trug sie nach – ohne Wirkung, denn der Satz war längst
+    // draußen.
+    const augenSatz = 'two eye sockets each holding a half-sphere eye, '
+        'an open mouth cavity';
+    const armSatz = 'arms angled down and clear of the torso';
+
+    test('beide Sätze stehen wirklich im Bild-Prompt', () {
+      expect(marketplaceImageClauses(), contains(augenSatz));
+      expect(marketplaceImageClauses(), contains(armSatz));
+      expect(robloxMarketplaceNegative, contains('bulging eyes'));
+    });
+
+    test('der Rat nennt die Quelle statt einer Aufgabe', () {
+      final rat = marketplaceClauseAdvice(augenSatz, negative: 'bulging eyes');
+      expect(rat, isNot(contains('gehört in den Prompt')));
+      expect(rat, contains('geht bei jedem Marktplatz-Lauf mit'));
+      expect(rat, contains('Auto Setup 2'));
+      expect(rat, contains('bulging eyes'));
+    });
+
+    test('ein fremder Satz bleibt eine Aufgabe', () {
+      // Nur was der Lauf selbst verschickt, ist keine Aufgabe mehr.
+      expect(marketplaceClauseAdvice('wearing a top hat'),
+          contains('gehört in den Prompt'));
+    });
+
+    test('die I-Pose-Meldung schickt niemanden zum Motiv', () {
+      // Die Maße der echten Figur: Spanne 2,35, Rumpf daneben 1,32 –
+      // die Arme stehen 1,03 statt der nötigen 2,12 Studs ab.
+      const haengend = MarketplaceMeasurement(
+        height: 5.0,
+        width: 2.35,
+        widthAxis: 0,
+        depth: 1.24,
+        headWidth: 0.77,
+        neckWidth: 0.37,
+        shoulderWidth: 1.32,
+        legSeparation: 1.0,
+        headHeight: 0.8,
+        torsoHeight: 2.5,
+        legHeight: 1.7,
+        legWidth: 0.55,
+        spanTorsoWidth: 1.32,
+        scale: 1.0,
+      );
+      expect(haengend.armsFree, isFalse);
+      final arme = checkMarketplaceFigure(haengend)
+          .firstWhere((f) => f.id == 'arme_frei');
+      expect(arme.reason, isNot(contains('Ins Motiv gehört die Pose')));
+      expect(arme.reason, contains('Posen-Zusatz'));
+      expect(arme.reason, contains('Auto Setup 6'));
     });
   });
 }

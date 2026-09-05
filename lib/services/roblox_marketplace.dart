@@ -705,6 +705,38 @@ MarketplaceRule? marketplaceRuleFor(String id) {
   return null;
 }
 
+/// Die Zuordnung zu einem Satz des Schwanzes, oder `null`.
+MarketplaceRule? marketplaceRuleForClause(String clause) {
+  for (final r in marketplaceRules) {
+    if (r.clause == clause) return r;
+  }
+  return null;
+}
+
+/// Was zu einer Vorgabe zu sagen ist, die im fertigen Netz fehlt.
+///
+/// Drei Berichte rieten „das gehört in den Prompt" und nannten dabei
+/// wörtlich einen Satz, den jeder Marktplatz-Lauf selbst verschickt:
+/// „two eye sockets each holding a half-sphere eye" steht als erster
+/// in [marketplaceImageClauses], „arms angled down and clear of the
+/// torso" als sechster. Für den Nutzer las sich das wie eine Aufgabe,
+/// die er vergessen hatte – dabei war der Satz längst draußen und das
+/// Bildmodell hatte ihn nicht umgesetzt. Der Unterschied entscheidet,
+/// was hilft: eine Ergänzung im Motiv oder ein neuer Lauf.
+String marketplaceClauseAdvice(String clause, {String negative = ''}) {
+  final regel = marketplaceRuleForClause(clause);
+  final neg = negative.isEmpty ? '' : ' Im Negativ steht „$negative".';
+  if (regel == null || !regel.inImagePrompt) {
+    return 'Das gehört in den Prompt: „$clause".$neg';
+  }
+  return 'Der Satz „$clause" geht bei jedem Marktplatz-Lauf mit '
+      '(${regel.source}).$neg Fehlt es trotzdem im Netz, hat das '
+      'Bildmodell die Anweisung nicht umgesetzt – dann hilft kein '
+      'Zusatz im Motiv, sondern ein neuer Lauf. Nur wenn die Datei '
+      'nicht aus einem Marktplatz-Lauf dieser App stammt, ist der Satz '
+      'nie verschickt worden.';
+}
+
 /// Wohin der Norm-Umbau den Schritt legt.
 ///
 /// Derselbe Anteil, den der Prompt bestellt – siehe robloxHipWords.
@@ -1530,8 +1562,13 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             'andere verdeckt. Wie lang die Arme wirklich sind, lässt '
             'sich an einer solchen Silhouette **nicht** messen; die '
             'Mindestlänge von $specMinArmLength Studs bleibt damit '
-            'ungeprüft. Ins Motiv gehört die Pose: „upright A-pose, '
-            'arms angled down and clear of the torso".',
+            'ungeprüft. Beides bestellt jeder Marktplatz-Lauf '
+            'selbst: Die Ansichten bekommen „arms straight and angled '
+            '45 degrees down" als Posen-Zusatz, der Prompt dazu „arms '
+            'angled down and clear of the torso" (Auto Setup 6). Eine '
+            'I-Pose heißt deshalb, dass das Bildmodell die Pose nicht '
+            'umgesetzt hat – dagegen hilft ein neuer Lauf, kein Zusatz '
+            'im Motiv.',
         origin: MarketplaceOrigin.prompt);
   } else if (m.armLength > 0 && m.armLength < specMinArmLength) {
     add(

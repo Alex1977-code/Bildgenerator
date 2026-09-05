@@ -963,7 +963,12 @@ Future<RepairResult> repairForMarketplace(
           RepairOrigin.prompt,
           '$flips Dreiecke hätten sich beim Senken der Arme umgedreht '
               '– die Schulter lässt sich hier nicht als Gelenk fassen. '
-              'Die A-Pose gehört in den Prompt.');
+              'Die A-Pose bestellt jeder Marktplatz-Lauf selbst (Auto '
+              'Setup 6): die Ansichten als eigenen Zusatz, der '
+              'Text→3D-Weg als Satz „upright A-pose". Steht hier '
+              'trotzdem eine T-Pose, hat das Bildmodell sie nicht '
+              'umgesetzt – das ändert kein Zusatz im Motiv, nur ein '
+              'neuer Lauf.');
     } else {
       notiere(
           repairStepPose,
@@ -1051,8 +1056,10 @@ Future<RepairResult> repairForMarketplace(
                   'der Lauf.' : 'Es gibt keine Höhlen im Kopfnetz: Die '
                   'Kugeln sitzen auf der Gesichtsfläche, versenkt und '
                   'sichtbar, aber ohne Vertiefung dahinter. Für die '
-                  'FACS-Posen fehlt sie; sie gehört in den Prompt '
-                  '(„two eye sockets each holding a half-sphere eye").'}'
+                  'FACS-Posen fehlt sie. '
+                  '${marketplaceClauseAdvice('two eye sockets each '
+                      'holding a half-sphere eye, an open mouth '
+                      'cavity', negative: 'bulging eyes')}'}'
               '${gesicht.report.notes.isEmpty ? '' : ' '
                   '${gesicht.report.notes.join(' ')}'}');
     } on Exception catch (e) {
