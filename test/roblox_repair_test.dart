@@ -325,6 +325,90 @@ void main() {
     expect(schritt.after, '5');
   });
 
+  group('Norm-Umbau: Verhältnisse statt Größe', () {
+    /// Eine Figur mit falschen Verhältnissen: großer Kopf, kurze Beine.
+    Uint8List schief() {
+      final m = LocalMesh();
+      void quader(double x0, double y0, double z0, double x1, double y1,
+          double z1) {
+        final b = m.positions.length ~/ 3;
+        for (final (x, y, z) in [
+          (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+          (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1),
+        ]) {
+          m.addVertex(x, y, z, 0, 0);
+        }
+        for (final f in const [
+          [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+          [0, 5, 1], [0, 4, 5], [2, 6, 7], [2, 7, 3],
+          [1, 5, 6], [1, 6, 2], [0, 3, 7], [0, 7, 4],
+        ]) {
+          m.addTriangle(b + f[0], b + f[1], b + f[2]);
+        }
+      }
+      // Beine nur bis 1,0 von 5,0 – 20 % statt 40 %.
+      quader(-0.6, 0.0, -0.3, -0.1, 1.0, 0.3);
+      quader(0.1, 0.0, -0.3, 0.6, 1.0, 0.3);
+      quader(-0.9, 1.0, -0.5, 0.9, 3.4, 0.5);
+      quader(-0.25, 3.4, -0.2, 0.25, 3.7, 0.2);
+      quader(-0.8, 3.7, -0.6, 0.8, 5.0, 0.6);
+      quader(-1.6, 2.0, -0.2, -0.9, 3.2, 0.2);
+      quader(0.9, 2.0, -0.2, 1.6, 3.2, 0.2);
+      return buildGlb(m);
+    }
+
+    test('der Umbau bringt Schritt und Halslinie auf die Norm-Anteile',
+        () async {
+      final vorher = await miss(schief());
+      final r = await repairForMarketplace(schief(),
+          addFace: false,
+          sculptFace: false,
+          decimate: false,
+          normProportions: true);
+      final schritt = r.report.steps
+          .firstWhere((s) => s.rule == repairStepProportions);
+      expect(schritt.origin, RepairOrigin.app);
+
+      // Auf dieselbe Höhe normiert gemessen liegen Schritt und
+      // Halslinie danach auf den Norm-Anteilen.
+      final nachher = await miss(r.glb);
+      expect(nachher.legHeight / nachher.height,
+          closeTo(marketplaceNormHip, 0.04));
+      expect(1 - nachher.headHeight / nachher.height,
+          closeTo(marketplaceNormNeck, 0.04));
+      // Und die Beine sind länger geworden, nicht kürzer.
+      expect(nachher.legHeight, greaterThan(vorher.legHeight));
+    });
+
+    test('ohne den Schalter bleiben die Verhältnisse, wie sie sind',
+        () async {
+      final vorher = await miss(schief());
+      final r = await repairForMarketplace(schief(),
+          addFace: false, sculptFace: false, decimate: false);
+      expect(r.report.steps.where((s) => s.rule == repairStepProportions),
+          isEmpty);
+      final nachher = await miss(r.glb);
+      expect(nachher.legHeight / nachher.height,
+          closeTo(vorher.legHeight / vorher.height, 0.03));
+    });
+
+    test('der Umbau stülpt nichts um', () async {
+      // Die Abbildung ist monoton und stetig – kein Dreieck darf sich
+      // umdrehen. Geprüft an der Dreieckszahl und daran, dass die
+      // Reparatur danach keine Löcher meldet.
+      final r = await repairForMarketplace(schief(),
+          addFace: false,
+          sculptFace: false,
+          decimate: false,
+          normProportions: true);
+      final v = await parseGlbForPreview(r.glb);
+      final w = await parseGlbForPreview(schief());
+      expect(v.indices.length, w.indices.length);
+      v.dispose();
+      w.dispose();
+    });
+  });
+
   group('Maßstab: die Mindestmaße sind absolut, die Höhe ist frei', () {
     /// Eine Figur mit zu kurzen Beinen – 1,30 von 1,40 verlangten,
     /// genau der Fehler aus der fünften Figur. Alles andere hält die

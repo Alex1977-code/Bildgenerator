@@ -2707,6 +2707,62 @@ gemessene Wert.
 Beides fiel erst auf, weil eine echte Figur durch die Reparatur
 gelaufen ist und nicht nur eine Testvorlage.
 
+### Der Prompt bestellte eine Figur, die nicht bestehen kann
+
+Der schwerste Fund dieser Runde, und er lag die ganze Zeit offen da.
+Zwei Sätze im Schwanz:
+
+- „head about one quarter of body height"
+- „hips at mid body height"
+
+Zusammen ergeben sie bei 5 Studs: Kopf 1,25, Beine 2,50 — und für den
+Rumpf bleiben **1,25 Studs**. Die Doku verlangt mindestens **1,70**.
+Wer dem Prompt genau folgte, fiel also durch, an einer Regel, die
+derselbe Prompt an anderer Stelle einhalten wollte.
+
+Aufgefallen ist es erst, als der Norm-Umbau eine echte Figur wirklich
+auf diese Anteile brachte: Danach musste der Maßstab-Schritt sie auf
+6,57 Studs aufblasen, nur damit der Rumpf sein Mindestmaß erreichte.
+
+Die Hüftlinie wird jetzt **gerechnet** statt geschrieben
+(`robloxHipWords`), wie schon das Tiefenwort. Bei einem Kopf von einem
+Viertel liegt das Fenster:
+
+- nach unten bei `1,4 / Höhe` (das Bein braucht seine 1,4 Studs),
+- nach oben bei `0,75 − 1,7 / Höhe` (der Rumpf braucht seine 1,7).
+
+Bei 5 Studs sind das 28 % bis 41 %, bei 6 Studs 23 % bis 47 %.
+Genommen wird das größte Wort, das noch hineinpasst — lange Beine sind
+der Fehlschlag, der sich am häufigsten wiederholt hat. Bei 5 Studs also
+**„hips at about two fifths of body height"**: Kopf 1,25, Rumpf 1,75,
+Beine 2,00. Beide Mindestmaße eingehalten.
+
+Der Test, der gefehlt hat, steht jetzt da: **Eine Figur, die den Prompt
+genau befolgt, besteht auch.** Er baut die bestellten Anteile bei 5, 6
+und 7 Studs nach und lässt die Prüfung darüberlaufen; daneben ein
+zweiter, der festhält, dass die alte Formulierung durchgefallen wäre.
+
+### Normmaße: Verhältnisse umrechnen, nicht nur vergrößern
+
+Der Maßstab-Schritt trifft die absoluten Mindestmaße, ohne ein
+Verhältnis zu ändern. Stimmen die Verhältnisse selbst nicht — ein Kopf
+von einem Drittel, Beine, die bei einem Viertel enden —, hilft das
+nicht. Der neue Schalter **„Auf Normmaße umbauen"** rechnet dann die
+Höhe stückweise linear um: Boden und Scheitel bleiben, der Schritt
+wandert auf zwei Fünftel, die Halslinie auf drei Viertel. Breite und
+Tiefe bleiben unangetastet.
+
+Die Abbildung ist monoton und stetig — kein Dreieck stülpt sich um,
+keine Fläche reißt auf, die Dreieckszahl bleibt gleich (ein Test hält
+das fest). Es ist trotzdem eine echte Verformung: Wo gestreckt wird,
+zieht die Textur mit. Deshalb ist der Schalter **aus**, bis man ihn
+einschaltet.
+
+Dazu im Reparatur-Dialog **„Beide herunterladen"**: das Original, wie
+der Anbieter es geliefert hat, und das reparierte, mit der erreichten
+Höhe im Dateinamen. Ein Dialog für beide Dateien; nebeneinander im
+Viewer sieht man in Sekunden, was die Reparatur getan hat.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

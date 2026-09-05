@@ -9,7 +9,7 @@ import 'package:bildgenerator/services/roblox_face_parts.dart'
     show headBottomBand;
 import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
-    show robloxMarketplaceTail;
+    show robloxHipFraction, robloxHipWords, robloxMarketplaceTail;
 import 'package:flutter_test/flutter_test.dart';
 
 /// Baut eine Figur aus Quadern und liefert Punkte samt Indizes.
@@ -856,6 +856,58 @@ void main() {
             reason: 'Die Regel „${r.id}" wird gemessen, aber weder der '
                 'Prompt noch die Reparatur stellen sie her.');
       }
+    });
+
+    test('eine Figur, die den Prompt genau befolgt, besteht auch', () {
+      // Der Test, der gefehlt hat. „head about one quarter of body
+      // height" und „hips at mid body height" bestellten zusammen bei
+      // 5 Studs einen Rumpf von 5 − 1,25 − 2,50 = 1,25 Studs — die
+      // Doku verlangt 1,70. Wer dem Prompt genau folgte, fiel durch,
+      // an einer Regel, die derselbe Prompt an anderer Stelle
+      // einhalten wollte.
+      for (final studs in [5.0, 6.0, 7.0]) {
+        final huefte = robloxHipFraction(robloxHipWords(studs));
+        final kopf = 0.25 * studs;
+        final beine = huefte * studs;
+        final rumpf = studs - kopf - beine;
+        final m = MarketplaceMeasurement(
+          height: studs,
+          width: studs * 0.65,
+          depth: studs * 0.3,
+          widthAxis: 0,
+          headWidth: kopf,
+          neckWidth: kopf * 0.4,
+          shoulderWidth: studs * 0.4,
+          legSeparation: 1,
+          legWidth: studs * 0.15,
+          scale: 1,
+          headHeight: kopf,
+          torsoHeight: rumpf,
+          legHeight: beine,
+          armLength: specMinArmLength * 1.2,
+          spanTorsoWidth: studs * 0.4,
+        );
+        expect(rumpf, greaterThanOrEqualTo(specMinTorsoHeight),
+            reason: 'bei $studs Studs bestellt der Prompt einen Rumpf '
+                'von ${rumpf.toStringAsFixed(2)}');
+        expect(beine, greaterThanOrEqualTo(specMinLegHeight),
+            reason: 'bei $studs Studs bestellt der Prompt Beine von '
+                '${beine.toStringAsFixed(2)}');
+        final fehler = checkMarketplaceFigure(m)
+            .where((f) => f.level == MarketplaceLevel.fehler)
+            .map((f) => f.title)
+            .toList();
+        expect(fehler, isEmpty,
+            reason: 'bei $studs Studs: ${fehler.join(' | ')}');
+      }
+    });
+
+    test('die alte Formulierung wäre durchgefallen', () {
+      // Zum Beleg, dass der Test oben etwas prüft: Mit der Hüfte auf
+      // halber Höhe fällt dieselbe Rechnung.
+      const studs = 5.0;
+      final rumpf = studs - 0.25 * studs - 0.50 * studs;
+      expect(rumpf, lessThan(specMinTorsoHeight));
     });
 
     test('die Vorgaben gehen auch an ein Bildmodell – bis auf die '

@@ -335,6 +335,52 @@ void _halsEinschnueren(
   }
 }
 
+/// Bildet die Höhe stückweise linear auf die Norm-Anteile ab.
+///
+/// **Was das ist.** Der Maßstab-Schritt macht die Figur als Ganzes
+/// größer und trifft damit die absoluten Mindestmaße, ohne ein
+/// Verhältnis zu ändern. Stimmen die Verhältnisse selbst nicht – ein
+/// Kopf, der ein Drittel der Höhe einnimmt, Beine, die bei 26 % enden
+/// –, hilft das nicht. Dann bleibt nur, die Höhe umzurechnen: Der
+/// Schritt wandert auf die halbe Höhe, die Halslinie auf drei Viertel,
+/// Boden und Scheitel bleiben, wo sie sind. Dazwischen wird linear
+/// gestreckt oder gestaucht.
+///
+/// **Was das kostet.** Es ist eine echte Verformung: Wo gestreckt
+/// wird, wird die Textur mitgezogen, und ein gestauchter Kopf ist ein
+/// flacherer Kopf. Deshalb ist es abschaltbar und standardmäßig aus.
+///
+/// **Was es nicht kaputtmacht.** Die Abbildung ist monoton steigend
+/// und stetig: Kein Dreieck stülpt sich um, keine Fläche reißt auf,
+/// die Hülle bleibt so dicht, wie sie war. X und Z bleiben
+/// unangetastet – Breite und Tiefe ändern sich nicht.
+void _proportionenNormen(Float32List pos, double minY, double hoehe,
+    double ySchritt, double yHals) {
+  if (hoehe <= 0) return;
+  // Stützstellen: Boden, Schritt, Halslinie, Scheitel.
+  final von = [minY, ySchritt, yHals, minY + hoehe];
+  final nach = [
+    minY,
+    minY + hoehe * marketplaceNormHip,
+    minY + hoehe * marketplaceNormNeck,
+    minY + hoehe,
+  ];
+  // Ohne strenge Ordnung wäre die Abbildung nicht mehr monoton – dann
+  // lieber gar nichts tun.
+  for (var i = 1; i < von.length; i++) {
+    if (von[i] <= von[i - 1] || nach[i] <= nach[i - 1]) return;
+  }
+  for (var i = 1; i < pos.length; i += 3) {
+    final y = pos[i];
+    for (var k = 1; k < von.length; k++) {
+      if (y > von[k] && k < von.length - 1) continue;
+      final t = ((y - von[k - 1]) / (von[k] - von[k - 1])).clamp(0.0, 1.0);
+      pos[i] = nach[k - 1] + (nach[k] - nach[k - 1]) * t;
+      break;
+    }
+  }
+}
+
 /// Zieht alles unter der Hüfte auf höchstens [radius] Studs Abstand
 /// zur nächsten Beinmitte – der Trichter am Saum verschwindet, ohne
 /// dass eine Fläche gelöscht wird.
@@ -449,6 +495,7 @@ Future<RepairResult> repairForMarketplace(
   bool sculptFace = true,
   FaceSculptProportions sculptProportions = const FaceSculptProportions(),
   bool decimate = true,
+  bool normProportions = false,
   RobloxBodyScale scale = RobloxBodyScale.normal,
 }) async {
   final tiefeGrenze = repairDepthFor(scale);
@@ -531,6 +578,56 @@ Future<RepairResult> repairForMarketplace(
   // Der Umstülp-Wächter: mehr als ein halbes Prozent der Dreiecke
   // (mindestens 20) umgedreht, und die Verformung wird zurückgenommen.
   int flipGrenze() => math.max(20, idx.length ~/ 600);
+
+  // 1a. Proportionen auf die Norm – nur auf Wunsch.
+  //
+  // Vor dem Maßstab: Stimmen die Verhältnisse erst einmal, braucht es
+  // hinterher weniger oder gar keine Vergrößerung mehr.
+  if (normProportions) {
+    var minYp = double.infinity, maxYp = double.negativeInfinity;
+    for (var i = 1; i < pos.length; i += 3) {
+      minYp = math.min(minYp, pos[i]);
+      maxYp = math.max(maxYp, pos[i]);
+    }
+    final hoeheMesh = maxYp - minYp;
+    final schrittAnteil =
+        mass.height <= 0 ? 0.0 : mass.legHeight / mass.height;
+    final halsAnteil =
+        mass.height <= 0 ? 0.0 : 1 - mass.headHeight / mass.height;
+    if (hoeheMesh > 0 && schrittAnteil > 0.05 && halsAnteil < 0.98) {
+      final vorher = mass;
+      _proportionenNormen(pos, minYp, hoeheMesh,
+          minYp + hoeheMesh * schrittAnteil, minYp + hoeheMesh * halsAnteil);
+      mass = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+      zonen = _messeZonen(pos, idx);
+      notiere(
+          repairStepProportions,
+          'Schritt bei ${(schrittAnteil * 100).round()} %, Halslinie '
+              'bei ${(halsAnteil * 100).round()} %',
+          'Schritt bei ${(marketplaceNormHip * 100).round()} %, '
+              'Halslinie bei ${(marketplaceNormNeck * 100).round()} %',
+          RepairOrigin.app,
+          'Die Höhe stückweise linear umgerechnet: Boden und Scheitel '
+              'bleiben, der Schritt wandert auf die halbe Höhe, die '
+              'Halslinie auf drei Viertel. Breite und Tiefe bleiben '
+              'unangetastet. Beine '
+              '${vorher.legHeight.toStringAsFixed(2)} → '
+              '${mass.legHeight.toStringAsFixed(2)}, Rumpf '
+              '${vorher.torsoHeight.toStringAsFixed(2)} → '
+              '${mass.torsoHeight.toStringAsFixed(2)}, Kopf '
+              '${vorher.headHeight.toStringAsFixed(2)} → '
+              '${mass.headHeight.toStringAsFixed(2)} Studs. Das ist '
+              'eine echte Verformung – wo gestreckt wird, zieht die '
+              'Textur mit.');
+    } else {
+      notiere(repairStepProportions, '–', 'nicht möglich',
+          RepairOrigin.prompt,
+          'Schritt und Halslinie lassen sich an dieser Figur nicht '
+              'auseinanderhalten – ohne zwei getrennte Beine und einen '
+              'Kopf über der Schulter gibt es keine Stützstellen, '
+              'zwischen denen sich umrechnen ließe.');
+    }
+  }
 
   // 1b. Maßstab – der einzige Hebel gegen zu kleine Teile.
   //
@@ -722,7 +819,7 @@ Future<RepairResult> repairForMarketplace(
                     'ist das kein Saum vor zwei Beinen, sondern ein '
                     'Rumpf, der bis kurz über den Boden reicht; ein '
                     'Schnitt macht die Beine nicht länger. Ins Motiv: '
-                    '„hips at mid body height, two separate legs '
+                    '„hips at about two fifths of body height, two separate legs '
                     'with a gap between '
                     'the thighs", ins Negativ „short legs".' : 'Was die '
                     'Beine verbindet, ist kein Saum, den ein '

@@ -3,7 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bildgenerator/services/concept_gate.dart';
 import 'package:bildgenerator/services/pose_prompt.dart';
 import 'package:bildgenerator/services/roblox_export.dart';
-import 'package:bildgenerator/services/roblox_marketplace.dart' show RobloxBodyScale;
+import 'package:bildgenerator/services/roblox_marketplace.dart'
+    show
+        RobloxBodyScale,
+        marketplaceFigureStuds,
+        specMinLegHeight,
+        specMinTorsoHeight;
 import 'package:bildgenerator/services/roblox_prompt.dart';
 import 'package:bildgenerator/services/tripo_service.dart';
 
@@ -126,7 +131,8 @@ void main() {
             'Auto Setup 11',
         'head about one quarter of body height':
             'Body scale: Rumpf 1,7 und Bein 1,4 Studs Minimum',
-        'hips at mid body height': 'dieselbe Tabelle',
+        'hips at about two fifths of body height':
+            'dieselbe Tabelle – robloxHipWords rechnet das Fenster aus',
         'body depth less than two fifths of body height':
             'Body scale: Tiefe 2,00 / 2,25',
         'thick enough to fill their outlines':
@@ -167,6 +173,29 @@ void main() {
         expect(robloxMarketplaceTail, isNot(contains(ungedeckt)),
             reason: ungedeckt);
       }
+    });
+
+    test('das Hüftwort bestellt nie einen zu kurzen Rumpf oder zu '
+        'kurze Beine', () {
+      // Die Gegenprobe zum Tiefenwort: Bei jeder Höhe muss das
+      // gewählte Wort beide absoluten Mindestmaße einhalten – Rumpf
+      // 1,7 und Bein 1,4 – wenn der Kopf ein Viertel ist.
+      for (var zehntel = 68; zehntel <= 95; zehntel++) {
+        final studs = zehntel / 10;
+        final anteil = robloxHipFraction(robloxHipWords(studs));
+        final beine = anteil * studs;
+        final rumpf = studs - 0.25 * studs - beine;
+        expect(beine, greaterThanOrEqualTo(specMinLegHeight - 1e-6),
+            reason: 'bei $studs Studs: ${robloxHipWords(studs)}');
+        expect(rumpf, greaterThanOrEqualTo(specMinTorsoHeight - 1e-6),
+            reason: 'bei $studs Studs: ${robloxHipWords(studs)}');
+      }
+      // Unter 6,8 Studs geht ein Kopf von einem Viertel nicht mehr
+      // zusammen mit beiden Mindestmaßen auf – dort ist das Fenster
+      // leer, und die Prüfung meldet das als eigenen Befund
+      // („hoehenrechnung"). Das Wort bleibt dann das kleinste, das den
+      // Beinen genügt.
+      expect(robloxHipWords(5.0), 'hips at about two fifths of body height');
     });
 
     test('das Tiefenwort bestellt nie mehr, als die Skala erlaubt', () {
@@ -351,7 +380,7 @@ void main() {
       expect(marketplacePrompt(motiv).motifTooLong, isFalse);
       // Und es bestellt die zwei Dinge, die die erste Figur nicht
       // hatte: Beine von einem Drittel und Augen im Kopf.
-      expect(motiv, contains('hips at mid body height'));
+      expect(motiv, contains(robloxHipWords(marketplaceFigureStuds)));
       expect(motiv, contains('eye sockets with half-sphere eyes'));
       expect(motiv, isNot(contains('small stocky')));
     });

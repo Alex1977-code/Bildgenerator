@@ -6,7 +6,12 @@ import 'roblox_check.dart'
         robloxCharacterStuds;
 import 'item_prompt.dart' show mergeTerms;
 import 'pose_prompt.dart' show tPoseSuffix;
-import 'roblox_marketplace.dart' show RobloxBodyScale, marketplaceFigureStuds;
+import 'roblox_marketplace.dart'
+    show
+        RobloxBodyScale,
+        marketplaceFigureStuds,
+        specMinLegHeight,
+        specMinTorsoHeight;
 import 'roblox_spec.dart';
 import 'tripo_service.dart' show TripoService;
 
@@ -63,7 +68,8 @@ const String robloxAccessoryImageTail =
 /// | symmetrical | A 8 „Asymmetrical character bodies may work on a case-to-case basis" |
 /// | humanoid, one head/torso, two arms with hands, two legs with feet | A 5 „Humanoid shape"; B „Each body can only include the following parts" |
 /// | distinct narrow neck not merged with the shoulders | A 11 „Keep the neck distinct and not merged with the shoulders or upper torso" |
-/// | head about one quarter, hips at mid body height | C „Body scale": Rumpf mindestens 1,7 und Bein 1,4 Studs bei 5 Studs Gesamthöhe – in Anteile übersetzt, weil ein Text-zu-3D-Modell keine Studs kennt |
+/// | head about one quarter of body height | C „Body scale": Kopfhöhe höchstens 2,0 Studs bei Normal, in Anteile übersetzt, weil ein Text-zu-3D-Modell keine Studs kennt |
+/// | hips at … of body height | C „Body scale": Rumpf mindestens 1,7 und Bein mindestens 1,4 Studs – [robloxHipWords] rechnet daraus das Fenster für die Hüftlinie und wählt das Wort |
 /// | body depth less than two fifths of body height | C „Body scale": Tiefe höchstens 2,00 (Classic, Slender) oder 2,25 (Normal); [robloxDepthWords] rechnet das Wort aus |
 /// | thick enough to fill their outlines | C „Visibility": „must take up at least 50% of body part's bounding box" |
 /// | two separate legs with a gap | A 6, siehe oben |
@@ -96,7 +102,8 @@ const String _tailNormal5 =
     'upright A-pose, arms angled down and clear of the torso, symmetrical, '
     'humanoid with one head, one torso, two arms with hands, two legs with '
     'feet, distinct narrow neck not merged with the shoulders, head about one '
-    'quarter of body height, hips at mid body height, body depth less than two '
+    'quarter of body height, hips at about two fifths of body height, '
+    'body depth less than two '
     'fifths of body height, arms and legs thick enough to fill their outlines, '
     'two separate legs with a gap between the thighs, opaque clothing covering '
     'upper and lower torso, face uncovered, two eye sockets each holding a '
@@ -133,12 +140,65 @@ double robloxDepthFraction(String words) => switch (words) {
 /// Der Marktplatz-Schwanz für eine Höhe und eine Skala.
 ///
 /// Bei 5 Studs und Normal ist das wörtlich [robloxMarketplaceTail].
+/// Das Wort für die Hüftlinie – gerechnet, nicht geschrieben.
+///
+/// **Hier stand „hips at mid body height", und das war unmöglich.**
+/// Zusammen mit „head about one quarter of body height" bestellt das
+/// bei 5 Studs einen Rumpf von 5 − 1,25 − 2,50 = **1,25 Studs**. Die
+/// Doku verlangt mindestens 1,70. Wer dem Prompt genau folgte, fiel
+/// also durch – an einer Regel, die derselbe Prompt an anderer Stelle
+/// einhalten wollte. Aufgefallen ist es erst, als der Norm-Umbau die
+/// Figur wirklich auf diese Anteile brachte und die Prüfung danach
+/// „Rumpf zu niedrig" meldete.
+///
+/// Das Fenster für die Hüftlinie, bei einem Kopf von einem Viertel:
+///
+/// * nach unten: Das Bein braucht [specMinLegHeight] Studs, also
+///   mindestens `1,4 / Höhe`.
+/// * nach oben: Der Rumpf braucht [specMinTorsoHeight] Studs, also
+///   höchstens `0,75 − 1,7 / Höhe`.
+///
+/// Bei 5 Studs sind das 28 % bis 41 %, bei 6 Studs 23 % bis 47 %.
+/// Genommen wird das **größte** Wort, das noch hineinpasst: Lange
+/// Beine sind der Fehlschlag, der sich am häufigsten wiederholt hat,
+/// und der Rumpf hat nach oben Luft.
+String robloxHipWords(double studs) {
+  if (studs <= 0) return 'hips at about two fifths of body height';
+  final unten = specMinLegHeight / studs;
+  final oben = 0.75 - specMinTorsoHeight / studs;
+  const eps = 1e-9;
+  const worte = [
+    (0.50, 'hips at mid body height'),
+    (0.40, 'hips at about two fifths of body height'),
+    (1 / 3, 'hips at about one third of body height'),
+    (0.25, 'hips at about a quarter of body height'),
+  ];
+  for (final (anteil, wort) in worte) {
+    if (anteil <= oben + eps && anteil >= unten - eps) return wort;
+  }
+  // Kein Wort passt – dann ist die Höhe zu klein für einen Kopf von
+  // einem Viertel, und das meldet die Prüfung als eigenen Befund.
+  return 'hips at about one third of body height';
+}
+
+/// Der Anteil, den [robloxHipWords] bestellt – für die Tests und für
+/// den Norm-Umbau, damit beide dieselbe Zahl benutzen.
+double robloxHipFraction(String words) => switch (words) {
+      'hips at mid body height' => 0.50,
+      'hips at about two fifths of body height' => 0.40,
+      'hips at about a quarter of body height' => 0.25,
+      _ => 1 / 3,
+    };
+
 String robloxMarketplaceTailFor(
     {double studs = marketplaceFigureStuds,
     RobloxBodyScale scale = RobloxBodyScale.normal}) {
   final wort = robloxDepthWords(scale.maxDepth, studs);
-  return _tailNormal5.replaceFirst(
-      'body depth less than two fifths of body height', 'body depth $wort');
+  return _tailNormal5
+      .replaceFirst('body depth less than two fifths of body height',
+          'body depth $wort')
+      .replaceFirst(
+          robloxHipWords(marketplaceFigureStuds), robloxHipWords(studs));
 }
 
 /// Ein Stück des Schwanzes, das in keinem Motiv vorkommt – daran
@@ -266,7 +326,8 @@ const String robloxMarketplaceNegative =
 const String robloxMarketplaceExample =
     'PROMPT: compact humanoid, round head a quarter of body height, two eye '
     'sockets with half-sphere eyes, open mouth cavity, straight torso, fitted '
-    'sweater, tight dark shorts, hips at mid body height, sturdy legs with a '
+    'sweater, tight dark shorts, hips at about two fifths of body '
+    'height, sturdy legs with a '
     'gap between the thighs, matte charcoal fabric, pale grey skin, '
     '$robloxMarketplaceTail'
     '\nNEGATIV: $robloxMarketplaceNegative';
@@ -372,7 +433,7 @@ String robloxPromptRules({
               'verlangt eine humanoide Form mit zwei Armen, zwei '
               'Beinen, einem Rumpf und einem Kopf.\n'
               '  2. Proportionen („round head a quarter of body '
-              'height, hips at mid body height"). Das ist die '
+              'height, hips at about two fifths of body height"). Das ist die '
               'Größentabelle in Anteile übersetzt: Rumpf mindestens '
               '1,7 und Bein mindestens 1,4 Studs, bei 5 Studs '
               'Gesamthöhe. Die Hüftlinie wirkt, eine Beinlänge nicht: '

@@ -174,6 +174,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   /// Mundhöhle mit Lippengrat – vor den Gesichtsteilen.
   bool _sculptFace = true;
 
+  /// Die Figur auf die Norm-Anteile umrechnen.
+  ///
+  /// Aus, weil es verformt: Der Maßstab-Schritt trifft die
+  /// Mindestmaße ohne jede Verzerrung und reicht meistens. Nur wenn
+  /// schon die **Verhältnisse** falsch sind – ein Kopf von einem
+  /// Drittel, Beine, die bei einem Viertel enden –, hilft kein
+  /// Maßstab, und dann ist das hier der einzige Weg ohne neuen Lauf.
+  bool _normProportions = false;
+
   /// Die Körper-Skala des Marktplatzes. Normal (Rthro), weil nur dort
   /// ein Kopf bis 3 Studs Breite und 2,25 Studs Tiefe erlaubt sind –
   /// Classic deckelt den Kopf bei 1,5.
@@ -575,6 +584,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         'studs': _studsCtrl.text,
         'addFaceParts': _addFaceParts,
         'sculptFace': _sculptFace,
+        'normProportions': _normProportions,
         'bodyScale': _bodyScale.name,
         'exportTextureSize': _exportTextureSize,
         'artStyle': _artStyle,
@@ -641,6 +651,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _studsCtrl.text = pick('studs', _studsCtrl.text);
       _addFaceParts = pick('addFaceParts', _addFaceParts);
       _sculptFace = pick('sculptFace', _sculptFace);
+      _normProportions = pick('normProportions', _normProportions);
       _bodyScale = RobloxBodyScale.values
               .where((v) => v.name == pick('bodyScale', _bodyScale.name))
               .firstOrNull ??
@@ -2419,6 +2430,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _stage = 'Figur wird vermessen und angepasst …';
     });
     RepairResult reparatur;
+    // Der Stand vor der Reparatur, zum Vergleichen und Herunterladen.
+    final originalGlb = result.glbBytes;
     try {
       final vorbereitet = prepareForAutoSetup(result.glbBytes,
           targetStuds: _studsValue ?? robloxCharacterStuds);
@@ -2426,6 +2439,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           targetStuds: _studsValue ?? robloxCharacterStuds,
           addFace: _addFaceParts,
           sculptFace: _sculptFace,
+          normProportions: _normProportions,
           scale: _bodyScale);
     } catch (e) {
       if (mounted) {
@@ -2516,6 +2530,34 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           ),
         ),
         actions: [
+          // Beide Stände zum Vergleichen: das Original, wie der
+          // Anbieter es geliefert hat, und das reparierte. Nebeneinander
+          // im Viewer (oder in Blender) sieht man in Sekunden, was die
+          // Reparatur wirklich getan hat – und ob die Verformung
+          // vertretbar ist. Ein Dialog für beide Dateien.
+          TextButton.icon(
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Beide herunterladen'),
+            onPressed: () async {
+              final stamm = DateTime.now().millisecondsSinceEpoch;
+              final ergebnis = await exportManyBytes([
+                (
+                  bytes: originalGlb,
+                  fileName: 'figur_${stamm}_original.glb',
+                  mimeType: 'model/gltf-binary',
+                ),
+                (
+                  bytes: reparatur.glb,
+                  fileName: 'figur_${stamm}_repariert_'
+                      '${reparatur.studs.toStringAsFixed(2)}studs.glb',
+                  mimeType: 'model/gltf-binary',
+                ),
+              ], suggestedFolderName: 'figur_$stamm');
+              if (ergebnis != null && context.mounted) {
+                _showSnack(ergebnis.message);
+              }
+            },
+          ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Verwerfen'),
@@ -2525,6 +2567,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             child: const Text('Übernehmen'),
           ),
         ],
+
       ),
     );
     if (uebernehmen != true || !mounted) return;
@@ -4602,6 +4645,29 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                           // 1.500 weniger für den Lauf.
                           _applyRobloxTarget(_robloxTarget);
                         },
+                ),
+              if (_robloxTarget == RobloxTarget.marketplaceAvatar)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Auf Normmaße umbauen'),
+                  subtitle: Text(_normProportions
+                      ? 'Die Reparatur rechnet die Höhe stückweise um: '
+                          'Der Schritt wandert auf zwei Fünftel der '
+                          'Höhe, die Halslinie auf drei Viertel – '
+                          'genau die Anteile, die der Prompt bestellt. '
+                          'Boden, Scheitel, Breite und Tiefe bleiben. '
+                          'Das ist eine echte Verformung: Wo gestreckt '
+                          'wird, zieht die Textur mit.'
+                      : 'Aus. Die Reparatur trifft die Mindestmaße dann '
+                          'nur über den Maßstab – sie macht die Figur '
+                          'als Ganzes größer, ohne ein Verhältnis zu '
+                          'ändern. Reicht das nicht, weil schon die '
+                          'Verhältnisse falsch sind, hilft nur dieser '
+                          'Schalter oder ein neuer Lauf.'),
+                  value: _normProportions,
+                  onChanged: _running
+                      ? null
+                      : (v) => setState(() => _normProportions = v),
                 ),
               const SizedBox(height: 8),
               Text(_robloxBudgetNote(settings),

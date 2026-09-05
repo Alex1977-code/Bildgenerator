@@ -422,6 +422,7 @@ class MarketplaceMeasurement {
 /// (umgekehrt hängt die Reparatur schon von hier ab).
 const String repairStepDepth = 'Tiefe';
 const String repairStepScale = 'Maßstab';
+const String repairStepProportions = 'Proportionen';
 const String repairStepNeck = 'Hals';
 const String repairStepLegsApart = 'Beine getrennt';
 const String repairStepHem = 'Saum';
@@ -649,13 +650,13 @@ const List<MarketplaceRule> marketplaceRules = [
   MarketplaceRule(
       id: 'rumpf_hoehe',
       demand: 'Der Rumpf ist mindestens 1,7 Studs hoch',
-      clause: 'hips at mid body height',
+      clause: 'hips at about two fifths of body height',
       repairStep: repairStepScale,
       source: 'Character body specifications, „Minimum"'),
   MarketplaceRule(
       id: 'bein_hoehe',
       demand: 'Jedes Bein ist mindestens 1,4 Studs hoch',
-      clause: 'hips at mid body height',
+      clause: 'hips at about two fifths of body height',
       repairStep: repairStepScale,
       source: 'Character body specifications, „Minimum"'),
   MarketplaceRule(
@@ -703,6 +704,20 @@ MarketplaceRule? marketplaceRuleFor(String id) {
   }
   return null;
 }
+
+/// Wohin der Norm-Umbau den Schritt legt.
+///
+/// Derselbe Anteil, den der Prompt bestellt – siehe robloxHipWords.
+/// Auf der halben Höhe war er einmal, und das war unmöglich: Mit einem
+/// Kopf von einem Viertel bleibt dann ein Rumpf von 1,25 Studs, die
+/// Doku verlangt 1,70. Zwei Fünftel halten beide Mindestmaße ein.
+const double marketplaceNormHip = 0.40;
+
+/// Wohin der Norm-Umbau die Halslinie legt: auf drei Viertel.
+///
+/// „head about one quarter of body height" – der Kopf ist, was darüber
+/// liegt.
+const double marketplaceNormNeck = 0.75;
 
 /// Der Aufschlag auf den nötigen Maßstab: ein halbes Prozent.
 ///
@@ -1640,7 +1655,8 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
             '1,4 Studs), ist es kein Saum, sondern ein Rumpf bis kurz '
             'über den Boden – bei der ersten Figur mit dem '
             'Marktplatz-Schwanz waren es „small stocky … sturdy legs". '
-            'In den Prompt: „hips at mid body height, two separate legs '
+            'In den Prompt: „hips at about two fifths of body height, two '
+            'separate legs '
             'with a gap between the thighs, opaque clothing covering '
             'upper and lower torso", ins Negativ „short legs". Nackte '
             'Oberschenkel '
@@ -1757,7 +1773,7 @@ MarketplaceImagePrompt marketplaceImagePrompt(String motif,
 /// Die verschiedenen Sätze, mit denen der Schwanz Vorgaben bestellt.
 ///
 /// Verschieden, weil mehrere Vorgaben denselben Satz benutzen:
-/// „hips at mid body height" trägt die Rumpf- **und** die Beinhöhe.
+/// Der Hüft-Satz trägt die Rumpf- **und** die Beinhöhe.
 List<String> marketplacePromptClauses() => <String>{
       for (final r in marketplaceRules)
         if (r.clause.isNotEmpty) r.clause,
