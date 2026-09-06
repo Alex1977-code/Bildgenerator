@@ -1146,9 +1146,20 @@ Future<RepairResult> repairForMarketplace(
       notiere(
           repairStepFaceSculpt,
           r.before.hasFace ? 'Höhlen da' : 'keine Höhlen',
+          // Die Zahlen, auf denen das Urteil beruht - nicht andere.
+          //
+          // Hier standen leftEyeDepth und mouthDepth: die Ring-Messung
+          // (Rand minus Mitte). Entschieden wird aber über eyeBulge
+          // und mouthBulge, den Rest gegen die an das Gesicht
+          // angepasste Fläche. An einer echten Figur stand deshalb in
+          // einer **grünen** Zeile „Höhlen -0,66 tief" - eine negative
+          // Tiefe, also ein Augapfel, in einer Zeile, die Höhlen
+          // bescheinigt. Zwei Messungen in einem Satz, und der Leser
+          // konnte nicht wissen, welche zählt. eyeBulge ist bei einer
+          // Höhle negativ, deshalb das Minus.
           r.after.hasFace
-              ? 'Höhlen ${r.after.leftEyeDepth.toStringAsFixed(2)} / '
-                  '${r.after.mouthDepth.toStringAsFixed(2)} tief'
+              ? 'Höhlen ${(-r.after.eyeBulge).toStringAsFixed(2)} / '
+                  '${(-r.after.mouthBulge).toStringAsFixed(2)} tief'
               : 'zu flach',
           r.after.hasFace ? RepairOrigin.app : RepairOrigin.prompt,
           '+${r.addedTriangles} Dreiecke in ${r.passes} Durchgängen. '

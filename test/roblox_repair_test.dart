@@ -533,6 +533,33 @@ void main() {
     });
   });
 
+  test('ein grüner Höhlen-Befund zeigt nie eine negative Tiefe', () {
+    // An einer echten Figur stand in einer grünen Zeile „Höhlen -0,66
+    // tief". Der Grund: Die Zeile druckte die Ring-Messung
+    // (leftEyeDepth), entschieden hat aber der Rest gegen die
+    // angepasste Fläche (eyeBulge). Beide können sich widersprechen -
+    // und dann gehört in die Zeile die Zahl, die zählt.
+    const widerspruch = FaceCavities(
+      headWidth: 1.0,
+      headHeight: 1.0,
+      leftEyeDepth: -0.66, // Ring sagt: Augapfel
+      rightEyeDepth: 0.07,
+      mouthDepth: 0.05,
+      eyeBulge: -0.10, // die angepasste Fläche sagt: Höhle
+      mouthBulge: -0.08,
+      eyeCenters: [
+        [-0.2, 0.6],
+        [0.2, 0.6],
+      ],
+    );
+    expect(widerspruch.hasFace, isTrue);
+    // Was die Zeile druckt, ist positiv - eine Tiefe eben.
+    expect(-widerspruch.eyeBulge, greaterThan(0));
+    expect(-widerspruch.mouthBulge, greaterThan(0));
+    // Und die Ring-Zahl, die vorher dort stand, war negativ.
+    expect(widerspruch.leftEyeDepth, lessThan(0));
+  });
+
   group('I-Pose: Arme abspreizen', () {
     test('herabhängende Arme werden zur A-Pose gedreht', () async {
       // Arme von 1,6 bis 3,7 und mit einer Lücke zum Rumpf: lang
