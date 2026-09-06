@@ -3155,15 +3155,24 @@ gut. Der Fehler wurde also belohnt statt bestraft. Jetzt geht die
 Deckung der Umrisse mit ein (`silhouetteWeight = 2.0`): Bei halber
 Größe ist sie 0,25, der Fehler verdreifacht sich.
 
-**Was damit belegt ist und was nicht.** Belegt ist die Winkelgrenze
-(Tabelle oben, an echten Dateien gemessen) und dass ein senkrechter
-Verlauf im Ausgangsbild nach der Kalibrierung über die volle Höhe der
-Frontkachel wiederkommt (Test). **Nicht** belegt ist, dass die beiden
-Änderungen das zweite Gesicht an genau dieser Figur beseitigen: Dazu
-fehlt das Ausgangsbild des Laufs, und ohne das lässt sich die
-Kalibrierung nicht nachstellen. Der synthetische Test unterscheidet
-alte und neue Fassung an dieser Stelle nicht — das prüft erst ein
-neuer Lauf.
+**Nachgerechnet mit dem echten Ausgangsbild.** Der Nutzer hat die
+generierte Frontansicht nachgereicht (1024×1024, Figur bei x 261–761,
+y 52–973, sauberer Alphakanal). Damit ließ sich die Textur-Stufe an
+der unbearbeiteten Datei einmal mit der alten und einmal mit der neuen
+Fassung durchrechnen. Gezählt wurden Texel in Hautfarbe **außerhalb**
+der Hautflächen des Modells – das ist genau das zweite Gesicht:
+
+| Fassung | Haut außerhalb | Deckung mit dem Original |
+| --- | --- | --- |
+| unbearbeitet | 0 | 100 % |
+| alte Fassung | **688** | 82,6 % |
+| neue Fassung | **92** | 78,0 % |
+
+Der Fehler ist damit um das Siebeneinhalbfache kleiner, und im
+Bildvergleich sitzt das Gesicht in der neuen Fassung dort, wo es
+hingehört. Die verbleibenden 92 Texel sind der Saum am Kinn, wo das
+schärfere Bild die Hautfläche etwas anders begrenzt als die weiche
+Anbieter-Textur.
 
 ### Aus dem Text eine Marktplatz-Figur
 
