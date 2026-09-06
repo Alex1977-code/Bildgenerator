@@ -2964,32 +2964,47 @@ An der Figur des Nutzers geprüft: vorher `uvs = null`, nachher 11.546
 UV-Paare und die 1024×1024-Textur; die Gesichtsteile landen auf
 (0,491 / 0,708).
 
-**Was die App nicht behebt: die doppelten Kacheln im Atlas.** Der
-Atlas ist ein 3×3-Raster aus Projektionen, und die Zuordnung
-Kachel → mittlere Flächennormale sieht so aus:
+**Die „doppelten" Kacheln sind keine.** Der Atlas ist ein 3×3-Raster
+aus Projektionen, und die Zuordnung Kachel → mittlere Flächennormale
+sieht so aus:
 
 | Kachel | Fläche | mittlere Normale | Richtung |
 | --- | --- | --- | --- |
-| unten links | 23,6 % | (0,01 / −0,03 / **−0,88**) | vorn |
-| unten mitte | 25,4 % | (0,00 / 0,11 / **+0,84**) | hinten |
-| unten rechts | 12,1 % | (**+0,87** / 0,03 / −0,02) | rechts |
-| mitte links | 12,1 % | (**−0,88** / 0,01 / −0,03) | links |
-| mitte mitte | 4,5 % | (0,00 / **−0,88** / 0,04) | unten |
-| mitte rechts | 5,3 % | (−0,01 / **+0,84** / −0,03) | oben |
-| oben links | 6,9 % | (**−0,80** / −0,13 / 0,05) | links (nochmal) |
-| oben mitte | 7,4 % | (**+0,74** / −0,09 / 0,01) | rechts (nochmal) |
-| oben rechts | 2,8 % | (0,07 / −0,22 / −0,08) | Reste |
+| unten links | 23,3 % | (0,00 / 0,10 / **−1,00**) | vorn |
+| unten mitte | 22,5 % | (0,00 / −0,04 / **+1,00**) | hinten |
+| unten rechts | 11,9 % | (**+1,00** / 0,05 / 0,05) | rechts |
+| mitte links | 12,2 % | (**−1,00** / 0,06 / 0,04) | links |
+| mitte mitte | 5,5 % | (0,00 / **−1,00** / −0,04) | unten |
+| mitte rechts | 5,5 % | (0,01 / **+1,00** / 0,03) | oben |
+| oben links | 6,9 % | (**−0,97** / −0,22 / −0,08) | links (nochmal) |
+| oben mitte | 8,0 % | (**+1,00** / −0,07 / −0,04) | rechts (nochmal) |
+| oben rechts | 4,2 % | (0,05 / **−0,99** / 0,13) | unten (nochmal) |
 
-Links und rechts stehen also **je zweimal** im Atlas — das ist die
-Verdopplung, die in der Galerie auffällt. Falsch dargestellt wird
-deswegen nichts: Nur 0,1 % der Dreiecke reichen über eine Kachelgrenze,
-jedes Dreieck holt seine Farbe aus genau einer Kachel. Es kostet
-Auflösung, weil ein Fünftel des 1024er-Budgets doppelt belegt ist.
+Das sah nach Verschwendung aus — links und rechts je zweimal. Die
+Messung sagt das Gegenteil: Legt man die Dreiecke beider „links"-Kacheln
+auf dieselbe Ebene, **überdecken sie sich zu 85,5 %**, und sie liegen
+bei verschiedenen Tiefen (Mittelwert −0,015 gegen −0,135 in X). Es sind
+also **zwei Tiefenschichten** derselben Blickrichtung — Rumpfflanke und
+Arminnenseite —, die eine einzige ebene Projektion aufeinanderwerfen
+würde. Rechts genauso (85,4 %). Zusammenlegen hieße die eine Schicht
+mit den Farben der anderen überschreiben.
 
-Das Raster stammt aus dem UV-Aufbau des 3D-Servers, nicht aus der App —
-die App skaliert den Atlas nur auf die 1024 des Marktplatz-Presets. Es
-zu beheben hieße, die Figur neu auszulegen und die Textur neu zu
-backen; das ist eine eigene Aufgabe und steht hier als offener Punkt.
+**Und neu packen bringt fast nichts.** Die 16.352 Dreiecke bilden 1.193
+UV-Inseln, deren Rechtecke zusammen bereits 61,7 % des Atlas belegen.
+Damit steht die Obergrenze für *jeden* Rechteck-Packer fest:
+√(1/0,617) = **1,27× linear**, und ein Regal-Packer erreicht davon
+1,077× — 16 % mehr Texel für ein komplettes Neu-Auslegen und
+Neu-Backen der Textur. Der Rest der freien Fläche liegt **innerhalb**
+der Inseln (die Charts sind Silhouetten, keine Rechtecke) und ist mit
+Rechtecken nicht zu holen.
+
+**Der Hebel ist die Atlasgröße, nicht die Anordnung.** Das
+Marktplatz-Preset skaliert auf 1024 (`target: 1024, hardCap: 2048`);
+Roblox' Doku nennt 1024×1024 als empfohlene Grenze, der Importer nimmt
+mehr. 2048 wären 4× so viele Texel — mehr als das Doppelte dessen, was
+ein perfekter Packer je hergäbe. Das ist eine Preset-Entscheidung gegen
+eine ausgesprochene Empfehlung und steht deshalb hier, statt still
+geändert zu werden.
 
 ### Zwei Sätze, die zweimal nicht ankamen
 
