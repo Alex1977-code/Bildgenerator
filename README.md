@@ -3106,6 +3106,65 @@ Roblox-Paket bei, die FBX kommt grau herein. Was auf dem Körper zu
 sehen ist, ist also das PNG, das in Studio zugewiesen wurde — und
 damit derselbe Atlas.
 
+### Das zweite Gesicht: die Kalibrierung durfte schrumpfen
+
+Der Nutzer hat geliefert, was zum Messen fehlte: dieselbe Figur einmal
+**mit** und einmal **ohne** den Schalter. Beide Atlanten sind bis auf
+das, was der Schalter tut, identisch (mittlere Abweichung 9,9 von 765).
+
+Erstens: **Die Winkelgrenze wirkt.** Für jedes Texel den Winkel der
+Fläche bestimmt, der es gehört, und gegen die Änderung zwischen den
+beiden Dateien gehalten:
+
+| Fläche steht bei | Texel | davon geändert | mittlere Änderung |
+| --- | --- | --- | --- |
+| flacher als 57° (cos < 0,55) | 236.277 | 0,6–1,2 % | 2,5–3,3 |
+| 0,55 … 0,75 | 19.253 | 13,3 % | 13,6 |
+| 0,75 … 0,90 | 16.061 | 53,3 % | 67,6 |
+| 0,90 … 1,00 (frontal) | 22.927 | 68,2 % | 106,3 |
+
+Die Schlieren auf den Flanken sind weg; angefasst wird nur noch, was
+vorn steht.
+
+Zweitens, und das war der eigentliche Befund: In der **Frontkachel**
+saß ein zweites, kleineres Gesicht auf dem ersten. Zwei Gründe im
+Code, beide behoben:
+
+**Der Perspektiv-Faktor durfte bis 0,6.** Er teilt die Projektion
+durch `1 + p·(z − Mitte)/Ausdehnung`, verkleinert also genau das, was
+der Kamera am nächsten ist — bei einer Figur das Gesicht. Bei 0,6 sind
+das 1/1,6: Das Gesicht landet um 38 % geschrumpft und verschoben auf
+der Wange. Jetzt sind 0,0 und 0,15 die Kandidaten; die erzeugten
+Ansichten sind ohnehin nahezu orthografisch.
+
+**Ein zu kleiner Maßstab war gratis.** Die Bewertung verglich nur
+Farben, und Stichproben, die auf den durchsichtigen Hintergrund
+fielen, zählten gar nicht:
+
+```dart
+if (src[o + 3] <= 128) continue;   // zählt nicht
+…
+if (hit < sampleX.length * 0.6) return double.infinity;
+return sum / hit / 3;
+```
+
+Eine zu klein gerechnete Projektion landet komplett **innerhalb** der
+Figur: Jede Stichprobe trifft etwas (100 % Treffer), und bei einer
+Figur in einer Farbe — grauer Anzug — passen die Farben überall gleich
+gut. Der Fehler wurde also belohnt statt bestraft. Jetzt geht die
+Deckung der Umrisse mit ein (`silhouetteWeight = 2.0`): Bei halber
+Größe ist sie 0,25, der Fehler verdreifacht sich.
+
+**Was damit belegt ist und was nicht.** Belegt ist die Winkelgrenze
+(Tabelle oben, an echten Dateien gemessen) und dass ein senkrechter
+Verlauf im Ausgangsbild nach der Kalibrierung über die volle Höhe der
+Frontkachel wiederkommt (Test). **Nicht** belegt ist, dass die beiden
+Änderungen das zweite Gesicht an genau dieser Figur beseitigen: Dazu
+fehlt das Ausgangsbild des Laufs, und ohne das lässt sich die
+Kalibrierung nicht nachstellen. Der synthetische Test unterscheidet
+alte und neue Fassung an dieser Stelle nicht — das prüft erst ein
+neuer Lauf.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

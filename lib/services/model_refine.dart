@@ -369,6 +369,16 @@ Uint8List _replaceBaseColorImage(Uint8List glb, Uint8List pngBytes) {
   return _writeGlb(json, newBin);
 }
 
+/// Wie stark die Umriss-Übereinstimmung in die Bewertung eingeht.
+///
+/// Der Farbabgleich allein ist bei einer einfarbigen Figur fast
+/// maßstabsblind: Ein zu kleiner Maßstab landet innerhalb der
+/// Silhouette, trifft überall Figur und bekommt dieselbe gute Note.
+/// Der Faktor bestraft eine Projektion, deren Umriss nicht auf den
+/// deckenden Bereich des Ausgangsbilds passt - bei halber Größe ist
+/// die Deckung 0,25, der Fehler wird also verdreifacht.
+const double silhouetteWeight = 2.0;
+
 /// Ab welchem Blickwinkel eine Fläche das Ausgangsbild bekommt.
 ///
 /// Der Wert ist der Kosinus zwischen Flächennormale und Blickrichtung:
@@ -519,11 +529,18 @@ Future<Uint8List?> reprojectSourceImageTexture(
     double evaluate(double scale, double ox, double oy, double p) {
       var sum = 0.0;
       var hit = 0;
+      // Die Umrisse der Projektion, für den Silhouetten-Anteil unten.
+      var pMnX = double.infinity, pMxX = double.negativeInfinity;
+      var pMnY = double.infinity, pMxY = double.negativeInfinity;
       for (var i = 0; i < sampleX.length; i++) {
         final persp = 1.0 + p * (sampleZ[i] - czm) / extent;
         if (persp <= 0.2) return double.infinity;
         final u = ox + (sampleX[i] - cxm) * scale / persp;
         final v = oy - (sampleY[i] - cym) * scale / persp;
+        if (u < pMnX) pMnX = u;
+        if (u > pMxX) pMxX = u;
+        if (v < pMnY) pMnY = v;
+        if (v > pMxY) pMxY = v;
         final xi = u.round(), yi = v.round();
         if (xi < 0 || yi < 0 || xi >= sw || yi >= sh) continue;
         final o = (yi * sw + xi) * 4;
@@ -534,7 +551,25 @@ Future<Uint8List?> reprojectSourceImageTexture(
             (src[o + 2] - sampleB[i]).abs();
       }
       if (hit < sampleX.length * 0.6) return double.infinity;
-      return sum / hit / 3;
+      // Nicht nur die Farben, auch die Umrisse müssen zusammenpassen.
+      //
+      // Ohne diesen Anteil ist ein **zu kleiner** Maßstab gratis: Die
+      // Projektion landet dann komplett innerhalb der Figur, jede
+      // Stichprobe trifft etwas (hit = 100 %), und bei einer Figur in
+      // einer Farbe - grauer Anzug - passen die Farben überall gleich
+      // gut. Genau daraus wurde an einer echten Figur ein zweites,
+      // kleineres Gesicht mitten auf dem ersten.
+      final schnittX = math.min(pMxX, sMxX.toDouble()) -
+          math.max(pMnX, sMnX.toDouble());
+      final schnittY = math.min(pMxY, sMxY.toDouble()) -
+          math.max(pMnY, sMnY.toDouble());
+      if (schnittX <= 0 || schnittY <= 0) return double.infinity;
+      final schnitt = schnittX * schnittY;
+      final vereinigung = (pMxX - pMnX) * (pMxY - pMnY) +
+          (sMxX - sMnX) * (sMxY - sMnY) -
+          schnitt;
+      final deckung = vereinigung <= 0 ? 0.0 : schnitt / vereinigung;
+      return sum / hit / 3 * (1 + silhouetteWeight * (1 - deckung));
     }
 
     void search(List<double> scales, List<double> oxs, List<double> oys,
@@ -561,8 +596,16 @@ Future<Uint8List?> reprojectSourceImageTexture(
           for (var i = 0; i <= steps; i++)
             center - radius + 2 * radius * i / steps,
         ];
+    // Der Perspektiv-Faktor stand hier bis 0,6. Er teilt die
+    // Projektion durch (1 + p·(z − Mitte)/Ausdehnung), verkleinert
+    // also genau das, was der Kamera am nächsten ist - bei einer Figur
+    // das Gesicht. Bei 0,6 sind das 1/1,6, und das Gesicht landet um
+    // 38 % geschrumpft und verschoben auf der Wange. Angeschaut hat
+    // sich das wie ein zweites Gesicht auf dem ersten. Die erzeugten
+    // Ansichten sind ohnehin nahezu orthografisch; mehr als ein Hauch
+    // Perspektive ist hier nicht zu holen.
     search(around(scale0, scale0 * 0.15, 4), around(ox0, sw * 0.06, 4),
-        around(oy0, sh * 0.06, 4), const [0.0, 0.2, 0.4, 0.6]);
+        around(oy0, sh * 0.06, 4), const [0.0, 0.15]);
     search(
         around(bestScale, bestScale * 0.05, 4),
         around(bestOx, sw * 0.02, 4),

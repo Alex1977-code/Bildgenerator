@@ -37,6 +37,26 @@ Uint8List _prisma(Uint8List textur) {
   return buildGlb(m, pngTexture: textur);
 }
 
+/// Ein Bild mit senkrechtem Verlauf im Blau-Kanal: oben 200, unten 60.
+///
+/// Damit hat die Kalibrierung ein echtes Signal für **Maßstab und
+/// Lage** und nicht nur für die Farbe – und hinterher verrät der
+/// Blau-Wert einer Kachel, welche Bildhöhe dort gelandet ist.
+Future<Uint8List> _verlauf(int w, int h) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  for (var y = 0; y < h; y++) {
+    final blau = (200 - 140 * y / (h - 1)).round();
+    canvas.drawRect(
+        ui.Rect.fromLTWH(0, y.toDouble(), w.toDouble(), 1),
+        ui.Paint()..color = ui.Color.fromARGB(255, 200, 60, blau));
+  }
+  final bild = await recorder.endRecording().toImage(w, h);
+  final daten = await bild.toByteData(format: ui.ImageByteFormat.png);
+  bild.dispose();
+  return daten!.buffer.asUint8List();
+}
+
 Future<Uint8List> _einfarbig(int w, int h, ui.Color farbe) async {
   final recorder = ui.PictureRecorder();
   ui.Canvas(recorder).drawRect(
@@ -46,6 +66,24 @@ Future<Uint8List> _einfarbig(int w, int h, ui.Color farbe) async {
   final daten = await bild.toByteData(format: ui.ImageByteFormat.png);
   bild.dispose();
   return daten!.buffer.asUint8List();
+}
+
+/// Der Blau-Anteil in Kachel [i] bei [anteil] ihrer Höhe (0 = oben).
+Future<int> _blauInKachelBei(Uint8List glb, int i, double anteil) async {
+  final mesh = await parseGlbForPreview(glb);
+  try {
+    final tex = mesh.texture!;
+    final daten =
+        (await tex.toByteData(format: ui.ImageByteFormat.rawRgba))!
+            .buffer
+            .asUint8List();
+    final x = (((i % 4) * 0.25 + 0.125) * tex.width).round();
+    final y = (((i ~/ 4) * 0.25 + 0.04 + 0.17 * anteil) * tex.height)
+        .round();
+    return daten[(y * tex.width + x) * 4 + 2];
+  } finally {
+    mesh.dispose();
+  }
 }
 
 /// Der Blau-Anteil in der Mitte der Kachel [i].
@@ -109,6 +147,28 @@ void main() {
       final teil = await _blauInKachel(neu!, 2);
       expect(teil, greaterThan(65));
       expect(teil, lessThan(110));
+    });
+
+    test('die Kalibrierung trifft den Maßstab, nicht nur die Farbe',
+        () async {
+      // Das Ausgangsbild hat einen senkrechten Verlauf: oben Blau 200,
+      // unten 60. Sitzt die Abbildung richtig, findet sich derselbe
+      // Verlauf über die Höhe der Frontkachel wieder. Eine zu klein
+      // oder verschoben gerechnete Projektion staucht ihn zur Mitte -
+      // und genau so entstand an einer echten Figur ein zweites,
+      // kleineres Gesicht auf dem ersten.
+      final glb = _prisma(await _einfarbig(128, 128, grund));
+      final neu =
+          await reprojectSourceImageTexture(glb, await _verlauf(256, 256));
+      expect(neu, isNotNull);
+      final oben = await _blauInKachelBei(neu!, 0, 0.08);
+      final unten = await _blauInKachelBei(neu, 0, 0.92);
+      expect(oben, greaterThan(160),
+          reason: 'Oben in der Kachel gehört der obere Bildrand hin.');
+      expect(unten, lessThan(100),
+          reason: 'Unten in der Kachel gehört der untere Bildrand hin.');
+      // Der volle Verlauf, nicht ein gestauchter Ausschnitt.
+      expect(oben - unten, greaterThan(90));
     });
   });
 }
