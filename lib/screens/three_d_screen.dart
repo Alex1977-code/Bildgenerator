@@ -7396,6 +7396,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             'ersetzt dort die weiche Stability-Textur – '
                             'mit automatischer Kalibrierung; verdeckte '
                             'und abgewandte Flächen bleiben unberührt. '
+                            'Übernommen wird nur, was der Kamera '
+                            'innerhalb von 57° zugewandt ist. '
                             'Greift nur, wenn Bild und Modell '
                             'zusammenpassen; komplett lokal, keine '
                             'Zusatzkosten.'),
@@ -7497,10 +7499,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                             '(lokale Veredelung)'),
                         subtitle: const Text(
                             'Projiziert das scharfe Ausgangsbild '
-                            'zurück auf die sichtbare Modellseite – '
-                            'greift nur, wenn die automatische '
-                            'Kalibrierung Bild und Modell sicher '
-                            'zusammenbringt; ohne Ausgangsbild '
+                            'zurück auf die sichtbare Modellseite, so '
+                            'weit sie der Kamera innerhalb von 57° '
+                            'zugewandt ist – greift nur, wenn die '
+                            'automatische Kalibrierung Bild und Modell '
+                            'sicher zusammenbringt; ohne Ausgangsbild '
                             '(natives Text→3D) ohne Wirkung. Komplett '
                             'lokal, keine Zusatzkosten.'),
                         value: _refineProjectTexture,
@@ -7550,11 +7553,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                         '(lokale Veredelung)'),
                     subtitle: const Text(
                         'Projiziert das scharfe Ausgangsbild zurück auf '
-                        'die sichtbare Modellseite – greift nur, wenn '
-                        'die automatische Kalibrierung Bild und Modell '
-                        'sicher zusammenbringt (die Ausrichtung dieser '
-                        'Modelle variiert je nach Anbieter). '
-                        'Komplett lokal, keine Zusatzkosten.'),
+                        'die sichtbare Modellseite, so weit sie der '
+                        'Kamera innerhalb von 57° zugewandt ist – '
+                        'greift nur, wenn die automatische Kalibrierung '
+                        'Bild und Modell sicher zusammenbringt (die '
+                        'Ausrichtung dieser Modelle variiert je nach '
+                        'Anbieter). Komplett lokal, keine Zusatzkosten.'),
                     value: _refineProjectTexture,
                     onChanged: _running
                         ? null

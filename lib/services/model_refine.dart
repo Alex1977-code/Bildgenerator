@@ -369,6 +369,29 @@ Uint8List _replaceBaseColorImage(Uint8List glb, Uint8List pngBytes) {
   return _writeGlb(json, newBin);
 }
 
+/// Ab welchem Blickwinkel eine Fläche das Ausgangsbild bekommt.
+///
+/// Der Wert ist der Kosinus zwischen Flächennormale und Blickrichtung:
+/// 1,0 heißt frontal, 0,0 heißt parallel zum Blick.
+///
+/// Hier stand 0,25 - das sind **75°**, also fast die ganze Silhouette.
+/// Eine Fläche in diesem Winkel bekommt einen Bildstreifen von wenigen
+/// Pixeln über ihre ganze Breite gezogen: Aus dem Gesicht wird ein
+/// Schlieren-Band auf der Flanke. Im Atlas der ersten Frankenstein-Figur
+/// war das an drei Kacheln zu sehen, die das Gesicht verschmiert
+/// wiederholten - von vorn sieht man die Vorderseite dann ein zweites
+/// Mal auf der Seite des Körpers.
+///
+/// 0,55 sind 57°. Was flacher steht, behält die Textur des Anbieters;
+/// dort ist sie unscharf, aber sie sitzt richtig.
+const double reprojectMinFacing = 0.55;
+
+/// Über welchen Winkelbereich das Bild eingeblendet wird.
+///
+/// Voll ab 0,55 + 0,35 = 0,90, also 26°. Dazwischen wird gemischt,
+/// damit an der Grenze keine Kante entsteht.
+const double reprojectFacingRamp = 0.35;
+
 /// Textur-Stufe der Veredelung: projiziert das scharfe Ausgangsbild
 /// zurück auf die der Kamera zugewandte Seite des Modells und ersetzt
 /// dort die weiche, generierte Textur. Die Abbildung (Maßstab,
@@ -596,8 +619,9 @@ Future<Uint8List?> reprojectSourceImageTexture(
     final depthTolerance = extent * 0.02;
     for (var t = 0; t < triCount; t++) {
       final facing = -faceNz[t];
-      if (facing < 0.25) continue;
-      final blend = ((facing - 0.25) / 0.35).clamp(0.0, 1.0);
+      if (facing < reprojectMinFacing) continue;
+      final blend = ((facing - reprojectMinFacing) / reprojectFacingRamp)
+          .clamp(0.0, 1.0);
       final a = indices[t * 3], b = indices[t * 3 + 1], c = indices[t * 3 + 2];
       final ua = uvs[a * 2] * (tw - 1), va = uvs[a * 2 + 1] * (th - 1);
       final ub = uvs[b * 2] * (tw - 1), vb = uvs[b * 2 + 1] * (th - 1);

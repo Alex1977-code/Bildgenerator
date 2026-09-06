@@ -3058,6 +3058,54 @@ das sagt der Bericht jetzt auch: Der Abstand ist die Armlänge mal
 cos 45°, diese Arme sind dafür schlicht zu kurz. Das ist keine Frage
 der Pose mehr, sondern der Figur.
 
+### „Textur aus Originalbild schärfen" malte auf die Flanken
+
+Der Verdacht kam vom Nutzer, und er stimmte. Die Textur-Stufe der
+Veredelung projiziert das scharfe Ausgangsbild zurück auf die
+kamerazugewandte Seite. Wer als „zugewandt" gilt, entschied diese
+Zeile:
+
+```dart
+if (facing < 0.25) continue;
+final blend = ((facing - 0.25) / 0.35).clamp(0.0, 1.0);
+```
+
+`facing` ist der Kosinus zwischen Flächennormale und Blickrichtung.
+0,25 sind **75°** — also fast die ganze Silhouette. Eine Fläche, die
+so flach zur Kamera steht, sieht im Bild nur wenige Pixel breit aus;
+die werden über ihre volle Breite gezogen. Aus dem Gesicht wird ein
+Schlieren-Band auf der Flanke, und weil die Flanken im Atlas eigene
+Kacheln haben, steht die Vorderseite hinterher **mehrfach** darin —
+verschmiert. Von vorn sieht man sie dann ein zweites Mal seitlich am
+Körper.
+
+Jetzt: `reprojectMinFacing = 0.55` (57°), Rampe unverändert 0,35, voll
+ab 0,90 (26°). Was flacher steht, behält die Textur des Anbieters —
+unscharf, aber an der richtigen Stelle.
+
+Gemessen an einem Prisma mit 16 Seitenflächen, jede mit eigener
+Atlas-Kachel; Vorlage und Ausgangsbild unterscheiden sich nur im
+Blau-Kanal (60 → 120), also verrät der Blau-Wert je Kachel, wer etwas
+abbekommen hat:
+
+| Fläche steht bei | Kosinus | vorher | jetzt |
+| --- | --- | --- | --- |
+| 0° (frontal) | 1,00 | 120 | 120 |
+| 45° | 0,71 | 120 | 87 |
+| 67,5° | 0,38 | 97 | 60 (unberührt) |
+| 90° | 0,00 | 60 | 60 |
+
+Der Text der drei Schalter nennt die 57° jetzt.
+
+**Was die FBX angeht**, an der das aufgefallen ist: Die trägt gar keine
+Textur. Gemessen an der hochgeladenen Datei — unter `Objects` stehen
+genau `Geometry` und `Model`, kein `Material`, kein `Texture`, kein
+`Video`, und `Connections` hat nur `Geometry → Model → root`. Das ist
+so gewollt und steht in `fbx_writer.dart`: Das PNG liegt dem
+Roblox-Paket bei, die FBX kommt grau herein. Was auf dem Körper zu
+sehen ist, ist also das PNG, das in Studio zugewiesen wurde — und
+damit derselbe Atlas.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und
