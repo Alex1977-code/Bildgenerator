@@ -560,6 +560,29 @@ void main() {
     expect(widerspruch.leftEyeDepth, lessThan(0));
   });
 
+  test('abstehende Arme verschieben die Hüftlinie nicht', () async {
+    // Der Kern des Ganzen. Die Messung sucht den Schritt als
+    // „höchstes Band, in dem die Mitte frei ist" - und „die Mitte"
+    // waren drei Rasterzellen. Das Raster spannt sich über die
+    // Modellbreite, also wächst eine Zelle mit der Armspanne, und mit
+    // ihr das Fenster: Bei abgespreizten Armen ragten die Schenkel
+    // hinein, das Band fiel aus, der Schritt rutschte nach unten.
+    //
+    // An einer echten Figur las die Reparatur danach „Rumpf +0,20,
+    // Beine −0,20" und meldete „Beine 1,30 von mindestens 1,4" - an
+    // Beinen, die niemand angefasst hatte. Dieselben Beine, zweimal
+    // gemessen, müssen dieselbe Zahl ergeben.
+    final eng = await miss(figur());
+    final weit = await miss(figur(armLuecke: 0.6));
+    expect(weit.width - weit.spanTorsoWidth,
+        greaterThan(eng.width - eng.spanTorsoWidth),
+        reason: 'Die Vorlage mit Lücke muss weiter abstehen.');
+    expect(weit.legHeight, closeTo(eng.legHeight, 0.01),
+        reason: 'Die Beine sind dieselben - also auch die Zahl.');
+    expect(weit.torsoHeight, closeTo(eng.torsoHeight, 0.01));
+    expect(weit.headHeight, closeTo(eng.headHeight, 0.01));
+  });
+
   group('I-Pose: Arme abspreizen', () {
     test('herabhängende Arme werden zur A-Pose gedreht', () async {
       // Arme von 1,6 bis 3,7 und mit einer Lücke zum Rumpf: lang
@@ -583,10 +606,11 @@ void main() {
           greaterThan(vorher.width - vorher.spanTorsoWidth));
     });
 
-    test('was dabei schlechter würde, wird zurückgenommen', () async {
-      // Bei kurzen Armen hebt dieselbe Drehung die breiteste Stelle
-      // auf Schulterhöhe – aus einer Warnung („I-Pose") würde ein
-      // Fehler („T-Pose"). Dann bleibt der Schritt aus.
+    test('was die Vorgabe nicht erfüllt, wird zurückgenommen', () async {
+      // Entweder ganz oder gar nicht: Bei anliegenden Armen kommt
+      // keine Drehung auf die geforderten 2,12 Studs, und eine
+      // Verbesserung von 0,00 auf 0,05 Studs ist keine Reparatur -
+      // verformt wäre die Figur, und die Warnung stünde weiter da.
       final vorher = await miss(figur());
       final r = await repairForMarketplace(figur(),
           addFace: false, sculptFace: false, decimate: false);

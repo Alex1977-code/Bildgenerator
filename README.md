@@ -3189,6 +3189,65 @@ hingehört. Die verbleibenden 92 Texel sind der Saum am Kinn, wo das
 schärfere Bild die Hautfläche etwas anders begrenzt als die weiche
 Anbieter-Textur.
 
+### Die Arme: erst die Messung, dann die Reparatur
+
+„Du kennst alle Randbedingungen und tust das einfach nicht." Zutreffend.
+Der Bericht hat bei jeder Figur „Arme stehen nur 1,38 statt 2,12 Studs
+ab" gemeldet und auf den Prompt gezeigt — während die Reparatur Beine,
+Rumpf und Hals ohne Zögern umformt. Die Arme waren die einzige Vorgabe,
+für die es keinen Schritt gab.
+
+Jetzt gibt es ihn: **drehen und, wenn nötig, strecken.** Der geforderte
+Abstand ist Armlänge × cos 45°; reicht Drehen nicht, sind die Arme zu
+kurz, und dann werden sie länger — derselbe Eingriff wie an Beinen und
+Rumpf. An zwei echten Figuren:
+
+| Figur | Arme vorher | nachher | offen danach |
+| --- | --- | --- | --- |
+| `modell_1788675118893` | 1,40 Studs | **2,76** | **nichts** |
+| `figur_1788630008906` | 1,03 Studs | **2,36** | **nichts** |
+
+Beide kommen zum ersten Mal ohne einen einzigen offenen Punkt heraus.
+
+Der Weg dahin waren vier Fehlversuche, und jeder hat etwas
+Grundsätzliches aufgedeckt.
+
+**Der Zähler statt der Regeln.** Der erste Schutz verglich die *Anzahl*
+offener Vorgaben vorher und nachher. Das Abspreizen schloss `arme_frei`
+und riss `bein_hoehe` auf — eine offen, eine offen, „gleich geblieben".
+Verglichen werden jetzt die Namen: Eine Regel, die vorher hielt, darf
+nicht brechen.
+
+**Das Lineal wuchs mit.** Die Messung sucht den Schritt als „höchstes
+Band, in dem die Mitte frei ist und der Querschnitt in Inseln
+zerfällt". „Die Mitte" waren **drei Rasterzellen** — und das Raster
+spannt sich über die Modellbreite. Bei abgespreizten Armen ist eine
+Zelle 0,065 statt 0,037 Studs breit, das Fenster also fast doppelt so
+weit; die Schenkel ragten hinein, das Band fiel als Schritt aus, die
+Suche lief weiter nach unten. Ergebnis: Rumpf +0,20, Beine −0,20 an
+Beinen, die niemand angefasst hatte.
+
+Das Fenster ist jetzt eine feste Breite in Studs
+(`marketplaceCenterWindow`, 2,2 % der Höhe — genau so breit wie die
+drei Zellen an einer Figur ohne abstehende Arme), und das Raster hat
+statt 64 nun 192 Zellen, damit es bei 4 Studs Armspanne noch auflöst.
+Ein Test hält fest: dieselben Beine, einmal mit anliegenden und einmal
+mit abstehenden Armen gemessen, ergeben dieselbe Zahl.
+
+**Der Arm stieg über die Schulter.** Die Drehung um die Achsel hebt die
+Oberseite des Arms mit, und dort sucht die Messung die Kopfunterkante —
+der Kopf wanderte von 1,20 auf 0,90 Studs. Ein hängender Arm, der
+abgespreizt wird, gehört ohnehin nicht über die Schulter; die neue
+Position wird dort gedeckelt.
+
+**Verformung ohne Gegenwert.** Ein Zwischenstand nahm jede
+Verbesserung mit, auch 0,00 → 0,05 Studs: verformt, und die Warnung
+stand hinterher genauso da. Jetzt gilt entweder-oder — der Schritt
+läuft nur, wenn er die Vorgabe wirklich erfüllt, und nimmt die
+**kleinste** Bewegung, die dafür reicht (Kandidaten nach steigender
+Verformung, erster Treffer gewinnt, höchstens das 1,35-fache des
+Geforderten). An der echten Figur waren das 20° ohne jede Streckung.
+
 ### Aus dem Text eine Marktplatz-Figur
 
 Bis hierher lieferte der Text eine Tripo-Figur in A-Pose, und

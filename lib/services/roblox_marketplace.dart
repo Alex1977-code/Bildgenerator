@@ -1139,9 +1139,23 @@ MarketplaceMeasurement measureMarketplaceFigure(
   // neben dem Rumpf sind auch Inseln, und dann läge der Schritt auf
   // Schulterhöhe. Zwischen zwei Beinen ist die Mitte leer. Zerfällt
   // kein Band, gilt die Beinzone als Schritt.
+  // Das Fenster für die Mitte: feste Breite in Studs, in Zellen
+  // umgerechnet. [marketplaceCenterWindow] ist so breit, wie drei
+  // Zellen bei einer Figur ohne abstehende Arme waren – die Zahl
+  // ändert sich also nicht, nur ihre Abhängigkeit von der Armspanne
+  // fällt weg.
+  final zelleStuds = achseSpanne * scale / _zellen;
+  final halbeZellen = zelleStuds <= 0
+      ? 1
+      : math.max(
+          1,
+          ((maxY - minY) * scale * marketplaceCenterWindow / 2 / zelleStuds)
+              .round());
   var schrittBand = beinZone;
   for (var b = (bands * 0.6).floor(); b >= 0; b--) {
-    if (breiten[b] > 0 && _mitteFrei(belegt[b]) && _inseln(belegt[b]) >= 2) {
+    if (breiten[b] > 0 &&
+        _mitteFrei(belegt[b], halbeZellen) &&
+        _inseln(belegt[b]) >= 2) {
       schrittBand = b + 1;
       break;
     }
@@ -1185,7 +1199,7 @@ MarketplaceMeasurement measureMarketplaceFigure(
     // zusammenhängen, sagt nichts über ein Bein aus – dort steckt fast
     // immer ein Saum. Und ein Band mit belegter Mitte über dem
     // Schritt ist der Rumpf, dessen Inseln die hängenden Arme sind.
-    if (inseln >= 2 && b < schrittBand && _mitteFrei(belegt[b])) {
+    if (inseln >= 2 && b < schrittBand && _mitteFrei(belegt[b], halbeZellen)) {
       beinBreite = math.max(beinBreite,
           _breitesteInsel(belegt[b]) / _zellen * achseSpanne * scale);
     }
@@ -1217,9 +1231,22 @@ MarketplaceMeasurement measureMarketplaceFigure(
 ///
 /// Zwischen zwei Beinen ist sie leer; im Rumpf, auch mit hängenden
 /// Armen daneben, ist sie belegt.
-bool _mitteFrei(List<bool> band) {
+/// Ob die Mitte des Querschnitts frei ist – die Lücke zwischen den
+/// Schenkeln.
+///
+/// [halbeZellen] ist die halbe Fensterbreite in Rasterzellen; sie
+/// wird am Aufrufer aus einer **festen Breite in Studs** gerechnet.
+///
+/// Hier standen feste drei Zellen. Das Raster spannt sich über die
+/// ganze Modellbreite, also wächst eine Zelle mit der Armspanne – und
+/// mit ihr das Fenster. Beim Abspreizen der Arme ragten die Schenkel
+/// dadurch in die „Mitte", das Band fiel als Schritt aus, die Suche
+/// lief weiter nach unten: Rumpf +0,20, Beine −0,20 an einer echten
+/// Figur, ohne dass sich am Bein etwas geändert hätte. Die Beine
+/// wurden nicht kürzer; das Lineal wurde breiter.
+bool _mitteFrei(List<bool> band, int halbeZellen) {
   final m = band.length ~/ 2;
-  for (var z = m - 1; z <= m + 1; z++) {
+  for (var z = m - halbeZellen; z <= m + halbeZellen; z++) {
     if (z >= 0 && z < band.length && band[z]) return false;
   }
   return true;
@@ -1251,7 +1278,22 @@ int _mittelInsel(List<bool> band) {
 /// 64 ist fein genug, um zwei Beine mit einem Spalt von 3 % der Breite
 /// zu trennen, und grob genug, dass ein einzelner Ausreißer keine
 /// dritte Insel erfindet.
-const int _zellen = 64;
+/// Wie breit die „Mitte" ist, die zwischen den Schenkeln frei sein
+/// muss – als Anteil der Figurhöhe.
+///
+/// 2,2 % sind bei 5,00 Studs 0,11 Studs, und genau so breit waren die
+/// drei Rasterzellen, mit denen früher gemessen wurde, an einer Figur
+/// ohne abstehende Arme. Der Wert ist also derselbe; neu ist nur, dass
+/// er nicht mehr mit der Armspanne mitwächst.
+const double marketplaceCenterWindow = 0.022;
+
+/// Zellen je Band. Hier standen 64.
+///
+/// Bei 64 Zellen über eine Figur mit abgespreizten Armen (4,16 Studs
+/// Spanne) ist eine Zelle 0,065 Studs breit, und ein Fenster von 0,11
+/// Studs lässt sich damit nicht mehr auflösen. 192 Zellen sind auch
+/// dort noch 0,022 Studs fein.
+const int _zellen = 192;
 
 /// Die Zellenzahl der breitesten zusammenhängenden Insel in einem
 /// Band – bei zwei Beinen also die Breite des dickeren.

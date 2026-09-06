@@ -79,6 +79,13 @@ const double repairArmDrop = 45;
 /// degrees down", und genau dorthin bringt der Schritt eine I-Pose.
 const double repairArmSpread = 45;
 
+/// Wie weit die Arme höchstens gestreckt werden.
+///
+/// 1,6 ist die Grenze, ab der aus einer Figur ein Gibbon wird. Was
+/// damit nicht zu erreichen ist, ist keine Frage der Pose mehr,
+/// sondern der Figur - und das sagt der Bericht dann auch.
+const double repairArmStretchMax = 1.6;
+
 /// Dreiecksziel nach der Dezimierung – etwas unter der Grenze, damit
 /// die Gesichtsteile noch hineinpassen.
 const int repairTriangleGoal = 6800;
@@ -438,6 +445,56 @@ void _beinBreite(Float32List pos, double hueftY, List<double> beinMitten,
 /// Gedreht wird um das Schultergelenk, jede Seite um ihre eigene
 /// Achse, mit weichem Übergang über [weich] Studs zum Rumpf hin –
 /// sonst reißt die Schulter.
+/// Spannt die Arme auf: drehen und strecken in einem Zug.
+///
+/// Der geforderte Abstand ist Armlänge × cos 45° - für die 2,12 Studs
+/// aus Auto Setup 6 braucht es Arme von 1,5 Studs. Reicht Drehen
+/// allein nicht, sind die Arme zu kurz, und dann werden sie länger:
+/// derselbe Eingriff, den die Reparatur an Beinen und Rumpf ohne
+/// Zögern macht, wenn ein Mindestmaß reißt.
+///
+/// Zwei Dinge, die beim ersten Anlauf gefehlt haben:
+///
+/// **Nur der Oberkörper.** Ohne Fenster in Y hat die Auswahl „alles
+/// außerhalb der Achsel" an einer echten Figur die Beine mitgedreht -
+/// hinterher stand „Beine 0,60 hoch von mindestens 1,4". Das Fenster
+/// reicht von etwas unter der Hüfte (dort enden die Hände) bis über
+/// die Schulter.
+///
+/// **Radial, in X und Y.** Ein abgespreizter Arm zeigt schräg nach
+/// unten; nur eine radiale Streckung verlängert ihn, statt ihn breit
+/// zu quetschen.
+void _armeAufspannen(Float32List pos, double schulterY, double untenY,
+    double achsel, double grad, double faktor, double weich) {
+  final rad = -grad * math.pi / 180;
+  for (var i = 0; i + 2 < pos.length; i += 3) {
+    final y = pos[i + 1];
+    if (y < untenY || y > schulterY + weich) continue;
+    final x = pos[i];
+    final seite = x < 0 ? -1.0 : 1.0;
+    final ausserhalb = x.abs() - achsel;
+    if (ausserhalb <= 0) continue;
+    // Weicher Anlauf: an der Achsel fast nichts, weiter außen ganz.
+    final t = (ausserhalb / weich).clamp(0.0, 1.0);
+    final w = rad * t;
+    final k = 1 + (faktor - 1) * t;
+    final gx = seite * achsel;
+    final dx = (x - gx) * k;
+    final dy = (y - schulterY) * k;
+    final c = math.cos(w), s = math.sin(w);
+    pos[i] = gx + dx * c + seite * dy * s;
+    // Nichts steigt über die Schulter.
+    //
+    // Die Drehung hebt die Oberseite des Arms mit, und dort sucht die
+    // Messung die Kopfunterkante: An einer Testfigur wanderte der Kopf
+    // dadurch von 1,20 auf 0,90 Studs, ohne dass am Kopf etwas
+    // geschehen wäre. Ein hängender Arm, der abgespreizt wird, gehört
+    // ohnehin nicht über die Schulter.
+    pos[i + 1] =
+        math.min(schulterY, schulterY + dy * c - seite * dx * s);
+  }
+}
+
 void _armeSenken(Float32List pos, double schulterY, double schulterHalb,
     double grad, double weich) {
   final rad = grad * math.pi / 180;
@@ -1018,9 +1075,18 @@ Future<RepairResult> repairForMarketplace(
     // den Schritt gibt: Bei einer I-Pose steht eben nichts ab (0,04
     // Studs an der echten Figur).
     if (!davor.armsFree && davor.spanTorsoWidth > 0) {
+      // Die offenen Regeln, nicht ihre **Anzahl**.
+      //
+      // Gezählt wurde einmal, und das ging so aus: Das Abspreizen
+      // schloss „arme_frei" und riss dafür „bein_hoehe" auf - eine
+      // offene Vorgabe vorher, eine nachher, der Zähler sagte „gleich
+      // geblieben", und die Figur kam mit einem neuen Fehler heraus.
+      // Verglichen werden deshalb die Namen: Eine Regel, die vorher
+      // hielt, darf nicht brechen.
       final offenVorher = checkMarketplaceFigure(davor, scale: scale)
           .where((f) => f.level != MarketplaceLevel.ok)
-          .length;
+          .map((f) => f.id)
+          .toSet();
       final urzustand = Float32List.fromList(pos);
       // Zwei Drehpunkte, gemessen statt geraten.
       //
@@ -1031,34 +1097,90 @@ Future<RepairResult> repairForMarketplace(
       // Kopfbreite (wie beim Senken einer T-Pose), der andere nimmt
       // die halbe gemessene Rumpfbreite. Welcher passt, entscheidet
       // die Nachmessung.
+      // Die **kleinste** Bewegung, die die Regel erfüllt.
+      //
+      // Derselbe Grundsatz wie beim Norm-Umbau: Die Regel gilt
+      // eingehalten oder nicht; darüber hinaus zu verformen bringt
+      // nichts und kostet das Aussehen. Der erste Anlauf nahm die
+      // größte Reichweite und kam an einer echten Figur auf 4,98 statt
+      // der nötigen 2,12 Studs - eine Armspanne von 6,38 bei 5,00
+      // Studs Höhe.
+      //
+      // Die Kandidaten stehen deshalb nach steigender Verformung, und
+      // genommen wird der erste, der reicht: erst kleine Winkel ohne
+      // Streckung, dann größere, dann Streckung dazu.
+      final noetig = 2 * specMinArmLength / math.sqrt2;
+      final untenY = zonen.hipY - zonen.height * 0.10;
       Float32List? bestes;
       var besteReichweite = steht;
       var besteAchsel = 0.0;
+      var besteWinkel = 0.0;
+      var besteStreckung = 1.0;
       var besteOffen = offenVorher;
-      for (final achsel in <double>{
-        zonen.headWidth * 0.9,
-        davor.spanTorsoWidth / 2,
-      }) {
-        pos.setAll(0, urzustand);
-        _armeSenken(pos, zonen.shoulderY, achsel, -repairArmSpread,
-            zonen.height * 0.03);
-        if (countFlippedTriangles(urzustand, pos, idx) > flipGrenze()) {
-          continue;
+      var reicht = false;
+      for (final streckung in const <double>[1.0, 1.2, repairArmStretchMax]) {
+        for (final grad in const <double>[20.0, 30.0, repairArmSpread]) {
+          for (final achsel in <double>{
+            davor.spanTorsoWidth / 2,
+            zonen.headWidth * 0.9,
+          }) {
+            pos.setAll(0, urzustand);
+            _armeAufspannen(pos, zonen.shoulderY, untenY, achsel, grad,
+                streckung, zonen.height * 0.03);
+            if (countFlippedTriangles(urzustand, pos, idx) > flipGrenze()) {
+              continue;
+            }
+            final n = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+            final reichweite = n.width - n.spanTorsoWidth;
+            final offen = checkMarketplaceFigure(n, scale: scale)
+                .where((f) => f.level != MarketplaceLevel.ok)
+                .map((f) => f.id)
+                .toSet();
+            // Eine Warnung weniger ist keinen neuen Fehler wert: Das
+            // Abspreizen hebt die Arme, und damit wandert das
+            // breiteste Band nach oben - an Testfiguren aus Quadern
+            // wurde daraus eine T-Pose.
+            // Drei Bedingungen, alle aus Fehlversuchen gelernt.
+            //
+            // **Keine neue offene Regel.** Gezählt wurde einmal nur
+            // die Anzahl, und das ging so aus: „arme_frei" ging zu,
+            // „bein_hoehe" auf, der Zähler sagte „gleich geblieben".
+            //
+            // **Kopf, Rumpf und Beine bleiben, wo sie sind.** Die
+            // Bänder-Messung verliert den Faden, sobald die Arme die
+            // Silhouette beherrschen: Bei 7,87 Studs Armspanne las sie
+            // direkt nach dem Schritt „Beine 2,20" und nach der
+            // Dezimierung „Beine 0,40" - dieselbe Geometrie. Wo die
+            // drei Zahlen wandern, ist die Messung nicht mehr zu
+            // gebrauchen, und dann ist der Schritt zu groß.
+            //
+            // **Nicht über das Ziel hinaus.** Gefordert sind 2,12
+            // Studs; 6,39 sind keine Reparatur, sondern ein Gibbon.
+            // **Entweder ganz oder gar nicht.** Hier stand „besser
+            // als bisher", und damit nahm der Schritt an einer
+            // Testfigur eine Verbesserung von 0,00 auf 0,05 Studs mit:
+            // verformt, und die Warnung stand hinterher genauso da.
+            // Erfüllt ist die Vorgabe erst bei [noetig].
+            if (offen.difference(offenVorher).isNotEmpty ||
+                reichweite < noetig ||
+                reichweite > noetig * 1.35 ||
+                (n.legHeight - davor.legHeight).abs() > hoehe * 0.03 ||
+                (n.torsoHeight - davor.torsoHeight).abs() > hoehe * 0.03 ||
+                (n.headHeight - davor.headHeight).abs() > hoehe * 0.03) {
+              continue;
+            }
+            besteReichweite = reichweite;
+            besteAchsel = achsel;
+            besteWinkel = grad;
+            besteStreckung = streckung;
+            besteOffen = offen;
+            bestes = Float32List.fromList(pos);
+            reicht = true;
+            break;
+          }
+          if (reicht) break;
         }
-        final n = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
-        final reichweite = n.width - n.spanTorsoWidth;
-        final offen = checkMarketplaceFigure(n, scale: scale)
-            .where((f) => f.level != MarketplaceLevel.ok)
-            .length;
-        // Eine Warnung weniger ist keinen neuen Fehler wert: Das
-        // Abspreizen hebt die Arme, und damit wandert das breiteste
-        // Band nach oben - an Testfiguren aus Quadern wurde daraus
-        // eine T-Pose.
-        if (offen > offenVorher || reichweite <= besteReichweite) continue;
-        besteReichweite = reichweite;
-        besteAchsel = achsel;
-        besteOffen = offen;
-        bestes = Float32List.fromList(pos);
+        if (reicht) break;
       }
       if (bestes == null) {
         pos.setAll(0, urzustand);
@@ -1075,22 +1197,27 @@ Future<RepairResult> repairForMarketplace(
                 'hilft nur ein neuer Lauf.');
       } else {
         pos.setAll(0, bestes);
-        final noetig = 2 * specMinArmLength / math.sqrt2;
         notiere(
             repairStepArmsApart,
             '${steht.toStringAsFixed(2)} Studs',
             '${besteReichweite.toStringAsFixed(2)} Studs',
             RepairOrigin.app,
-            'Um ${repairArmSpread.round()}° um die Achsel bei '
+            'Um ${besteWinkel.round()}° um die Achsel bei '
                 '${besteAchsel.toStringAsFixed(2)} Studs nach außen '
-                'gedreht, weicher Anlauf zum Rumpf; offene Vorgaben '
-                '$offenVorher → $besteOffen. '
+                'gedreht'
+                '${besteStreckung > 1.0 ? ' und um das '
+                    '${besteStreckung.toStringAsFixed(2)}-fache '
+                    'gestreckt' : ''}; offene Vorgaben '
+                '${offenVorher.length} → ${besteOffen.length}, '
+                'keine neue. '
                 '${besteReichweite >= noetig ? 'Damit steht der geforderte '
                     'Abstand von ${noetig.toStringAsFixed(2)} Studs.' : 'Nötig '
                     'wären ${noetig.toStringAsFixed(2)} Studs. Weiter geht '
                     'es nicht: Der Abstand ist die Armlänge mal cos 45°, '
-                    'und diese Arme sind dafür zu kurz. Das ist keine '
-                    'Frage der Pose mehr, sondern der Figur - im Bild '
+                    'und selbst um das '
+                    '${repairArmStretchMax.toStringAsFixed(1)}-fache '
+                    'gestreckt reichen diese Arme nicht. Weiter zu '
+                    'strecken macht aus der Figur einen Gibbon; im Bild '
                     'müssen die Arme länger werden.'}',
             fixed: besteReichweite >= noetig);
       }
