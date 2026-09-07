@@ -185,6 +185,14 @@ class FacePartsResult {
   final FacePartsReport report;
 }
 
+/// Was die fünf Teile zusammen an Dreiecken kosten – als Rückstellung
+/// im Budget.
+///
+/// Gemessen an einer echten Figur: 240 + 240 + 36 + 36 + 108 Indizes,
+/// also 220 Dreiecke. 400 lässt Luft für feinere Kugeln, ohne dass die
+/// Dezimierung davor unnötig hart würde.
+const int facePartsTriangleBudget = 400;
+
 /// Die Namen, unter denen die Teile in der Datei stehen.
 const List<String> faceMeshNames = [
   'LeftEye',
@@ -193,6 +201,97 @@ const List<String> faceMeshNames = [
   'LowerTeeth',
   'Tongue',
 ];
+
+/// Nimmt die fünf Gesichtsteile samt ihrer Knoten wieder heraus.
+///
+/// Gebraucht **vor** jedem erneuten Einbau. Der Export-Weg hat die
+/// Teile bisher blind angehängt: Wer eine schon vorbereitete Figur ein
+/// zweites Mal exportierte – und genau das tut jeder, der erst
+/// repariert und dann das Paket schreibt –, bekam sie doppelt.
+/// Gemessen an einer echten Figur: zehn Netze statt fünf, `LeftEye`
+/// zweimal. Auto Setup sucht die Teile an ihren Namen; zwei gleich
+/// benannte Netze ineinander sind keine Grundlage für einen
+/// dynamischen Kopf.
+///
+/// Anders als [withoutFaceMeshes], das für die **Messung** nur die
+/// Primitive leert und die Namen stehen lässt: Hier verschwinden
+/// Netze und Knoten wirklich, samt aller Verweise darauf.
+Uint8List removeFaceParts(Uint8List glb) {
+  final teile = splitGlb(glb);
+  final json = teile.json;
+  final meshes = ((json['meshes'] as List?) ?? const []).cast<Map>();
+  final wegMesh = <int>{
+    for (var i = 0; i < meshes.length; i++)
+      if (faceMeshNames.contains(meshes[i]['name'])) i,
+  };
+  if (wegMesh.isEmpty) return glb;
+  final nodes = ((json['nodes'] as List?) ?? const []).cast<Map>();
+  final wegNode = <int>{
+    for (var i = 0; i < nodes.length; i++)
+      if (wegMesh.contains((nodes[i]['mesh'] as num?)?.toInt() ?? -1)) i,
+  };
+
+  final meshNeu = <int, int>{};
+  var n = 0;
+  for (var i = 0; i < meshes.length; i++) {
+    if (!wegMesh.contains(i)) meshNeu[i] = n++;
+  }
+  final nodeNeu = <int, int>{};
+  n = 0;
+  for (var i = 0; i < nodes.length; i++) {
+    if (!wegNode.contains(i)) nodeNeu[i] = n++;
+  }
+
+  json['meshes'] = [
+    for (var i = 0; i < meshes.length; i++)
+      if (!wegMesh.contains(i)) meshes[i],
+  ];
+  final bleiben = [
+    for (var i = 0; i < nodes.length; i++)
+      if (!wegNode.contains(i)) nodes[i],
+  ];
+  for (final node in bleiben) {
+    final mesh = (node['mesh'] as num?)?.toInt();
+    if (mesh != null) node['mesh'] = meshNeu[mesh];
+    final kinder = (node['children'] as List?)?.cast<num>();
+    if (kinder != null) {
+      node['children'] = [
+        for (final k in kinder)
+          if (nodeNeu[k.toInt()] != null) nodeNeu[k.toInt()],
+      ];
+    }
+  }
+  json['nodes'] = bleiben;
+  for (final scene in ((json['scenes'] as List?) ?? const []).cast<Map>()) {
+    final liste = (scene['nodes'] as List?)?.cast<num>();
+    if (liste == null) continue;
+    scene['nodes'] = [
+      for (final k in liste)
+        if (nodeNeu[k.toInt()] != null) nodeNeu[k.toInt()],
+    ];
+  }
+  // Skins und Animationen zeigen ebenfalls auf Knotennummern. Auf dem
+  // Marktplatz-Weg gibt es beides nicht – wer aber eine geriggte Datei
+  // hereinreicht, soll sie heil zurückbekommen.
+  for (final skin in ((json['skins'] as List?) ?? const []).cast<Map>()) {
+    final joints = (skin['joints'] as List?)?.cast<num>();
+    if (joints != null) {
+      skin['joints'] = [
+        for (final j in joints) nodeNeu[j.toInt()] ?? 0,
+      ];
+    }
+    final wurzel = (skin['skeleton'] as num?)?.toInt();
+    if (wurzel != null) skin['skeleton'] = nodeNeu[wurzel] ?? 0;
+  }
+  for (final anim in ((json['animations'] as List?) ?? const []).cast<Map>()) {
+    for (final kanal in ((anim['channels'] as List?) ?? const []).cast<Map>()) {
+      final ziel = kanal['target'] as Map?;
+      final knoten = (ziel?['node'] as num?)?.toInt();
+      if (ziel != null && knoten != null) ziel['node'] = nodeNeu[knoten] ?? 0;
+    }
+  }
+  return joinGlb(json, teile.bin);
+}
 
 /// Hängt die fünf Gesichtsteile an eine Figur.
 ///

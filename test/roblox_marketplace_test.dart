@@ -9,6 +9,8 @@ import 'package:bildgenerator/services/roblox_face_parts.dart'
     show headBottomBand;
 import 'package:bildgenerator/services/roblox_marketplace.dart';
 import 'package:bildgenerator/services/roblox_preflight.dart';
+import 'package:bildgenerator/services/roblox_spec.dart'
+    show specBodyTotalTriangles;
 import 'package:bildgenerator/services/roblox_specs_config.dart';
 import 'package:bildgenerator/services/roblox_prompt.dart'
     show
@@ -113,6 +115,40 @@ void main() {
       expect(m.widthAxis, 0);
       expect(m.width, greaterThan(m.depth));
       expect(m.height, marketplaceFigureStuds);
+    });
+
+    test('das Dreiecksbudget ist eine eigene Vorgabe', () {
+      // Der Fund hinter „der Marktplatz-Export muss funktionieren":
+      // Die Prüfung hatte gar keine Dreiecksregel. Der Export-Weg
+      // schrieb deshalb eine Figur mit 17.972 Dreiecken heraus - bei
+      // einem Budget von 10.742 - und meldete „nichts zu
+      // beanstanden". Auto Setup zerlegt in 15 Teile und reduziert
+      // dabei nicht; was insgesamt zu viel ist, ist in jedem Teil zu
+      // viel.
+      final b = _guteFigur();
+      final m = measureMarketplaceFigure(b.positions, b.i);
+      expect(m.triangles, b.i.length ~/ 3);
+      expect(_finde(checkMarketplaceFigure(m), 'dreiecke').level,
+          MarketplaceLevel.ok);
+
+      // Dieselbe Messung, nur mit einer Dreieckszahl über dem Budget.
+      final zuViel = MarketplaceMeasurement(
+        height: m.height,
+        width: m.width,
+        depth: m.depth,
+        widthAxis: m.widthAxis,
+        headWidth: m.headWidth,
+        neckWidth: m.neckWidth,
+        shoulderWidth: m.shoulderWidth,
+        legSeparation: m.legSeparation,
+        legWidth: m.legWidth,
+        scale: m.scale,
+        triangles: specBodyTotalTriangles + 1,
+      );
+      final befund = _finde(checkMarketplaceFigure(zuViel), 'dreiecke');
+      expect(befund.blocks, isTrue);
+      expect(befund.origin, MarketplaceOrigin.export,
+          reason: 'Das behebt die App selbst – durch Dezimieren.');
     });
 
     test('eine um 90° gedrehte Figur wird trotzdem richtig gemessen', () {

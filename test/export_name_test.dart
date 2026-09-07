@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// Modellen im Arbeitsbereich weiß danach niemand mehr, welches
 /// welches ist.
 void main() {
+  _anleitungsTests();
   Uint8List figur() {
     final m = LocalMesh();
     void quader(double x0, double y0, double z0, double x1, double y1,
@@ -109,6 +110,76 @@ void main() {
       final b = nachher.positions.toList();
       nachher.dispose();
       expect(b, a);
+    });
+  });
+}
+
+
+/// Die Anleitung im Paket – sie darf nicht behaupten, was nicht
+/// stimmt.
+String _anleitung({required bool marketplace}) => robloxReadme(
+      glbFile: 'figur.glb',
+      fbxFile: 'figur.fbx',
+      scriptFile: 'figur_blender_fbx.py',
+      luaFile: 'figur_studio.lua',
+      autoSetupFile: 'figur_auto_setup.lua',
+      missingBones: const [],
+      repairs: const ['Auf 5 Studs gebracht', 'Dreiecke 16352 -> 8842'],
+      fbxIncluded: false,
+      marketplace: marketplace,
+    );
+
+void _anleitungsTests() {
+  group('Die Anleitung im Paket', () {
+    test('sagt auf dem Marktplatz-Weg nichts von einem Skelett', () {
+      // Auf diesem Weg geht die Datei **ohne** Skelett heraus – Auto
+      // Setup verlangt genau das. Die Anleitung behauptete trotzdem
+      // „Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als
+      // StarterCharacter": Der Satz stand dort, weil die Liste der
+      // **fehlenden** Gelenke leer ist, wenn gar keine gesucht wurden.
+      final text = _anleitung(marketplace: true);
+      expect(text, isNot(contains('Alle 15 R15-Gelenke sind vorhanden')));
+      expect(text, contains('absichtlich KEIN Skelett'));
+      expect(text, isNot(contains('Knochen bereits auf R15 benannt')));
+      // Und schickt nicht über Blender: Auto Setup nimmt das Netz.
+      expect(text, contains('Avatar -> 3D-Importer -> figur.glb'));
+      expect(text, contains('Auto Setup laufen lassen'));
+    });
+
+    test('nennt auf dem Rig-Weg weiter den FBX-Weg', () {
+      final text = _anleitung(marketplace: false);
+      expect(text, contains('Alle 15 R15-Gelenke sind vorhanden'));
+      expect(text, contains('Schritt 1 - FBX'));
+      expect(text, isNot(contains('absichtlich KEIN Skelett')));
+    });
+
+    test('druckt die Änderungen, nicht ihren Quelltext', () {
+      // Der Abschnitt stand als verschachtelter Ausdruck im Textblock
+      // und war mit einem Dollar-Escape maskiert. In der
+      // ausgelieferten Datei stand deshalb wörtlich
+      // „\${repairs.isEmpty ? '' : …" – und was die App geändert
+      // hatte, erfuhr niemand.
+      for (final marktplatz in [true, false]) {
+        final text = _anleitung(marketplace: marktplatz);
+        expect(text, contains('Was die App an der Datei geaendert hat'));
+        expect(text, contains('  * Auf 5 Studs gebracht'));
+        expect(text, contains('  * Dreiecke 16352 -> 8842'));
+        expect(text, isNot(contains(r'${repairs')));
+        expect(text, isNot(contains(r'${marketplace')));
+        expect(text, isNot(contains(r'${missingBones')));
+      }
+    });
+
+    test('ohne Änderungen bleibt der Abschnitt weg', () {
+      final text = robloxReadme(
+        glbFile: 'figur.glb',
+        fbxFile: 'figur.fbx',
+        scriptFile: 'figur_blender_fbx.py',
+        luaFile: 'figur_studio.lua',
+        missingBones: const [],
+        marketplace: true,
+      );
+      expect(text, isNot(contains('Was die App an der Datei geaendert')));
     });
   });
 }

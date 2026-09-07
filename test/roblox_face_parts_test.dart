@@ -359,6 +359,57 @@ void main() {
     expect(nachher.degenerateTriangles, vorher.degenerateTriangles,
         reason: 'die Gesichtsteile bringen entartete Dreiecke mit');
   });
+
+  test('Zweimal angehängt heißt nicht doppelt', () {
+    // Der Fund hinter „der Marktplatz-Export muss funktionieren": Der
+    // Export-Weg hat die Teile blind angehängt. Wer erst repariert und
+    // dann das Paket schreibt - der übliche Ablauf -, bekam sie
+    // doppelt. An einer echten Figur gemessen: zehn Netze statt fünf,
+    // `LeftEye` zweimal. Auto Setup sucht die Teile an ihren Namen.
+    final einmal = addFaceParts(_figur()).glb;
+    expect(_namen(einmal).where(faceMeshNames.contains).length,
+        faceMeshNames.length);
+
+    final zweimal = addFaceParts(einmal).glb;
+    expect(_namen(zweimal).where(faceMeshNames.contains).length,
+        faceMeshNames.length * 2,
+        reason: 'Ohne Abräumen entstehen sie ein zweites Mal - genau '
+            'das ist der Fehler, den removeFaceParts verhindert.');
+
+    final sauber = addFaceParts(removeFaceParts(einmal)).glb;
+    expect(_namen(sauber).where(faceMeshNames.contains).length,
+        faceMeshNames.length);
+  });
+
+  test('Abräumen lässt die Figur selbst unberührt', () {
+    final roh = _figur();
+    final mitTeilen = addFaceParts(roh).glb;
+    final ohne = removeFaceParts(mitTeilen);
+    // Keine Gesichtsteile mehr - und der Körper steht noch da.
+    expect(_namen(ohne).where(faceMeshNames.contains), isEmpty);
+    final teil = splitGlb(ohne);
+    final meshes = (teil.json['meshes'] as List).cast<Map>();
+    expect(meshes.length, 1);
+    // Jeder Knoten zeigt auf ein Netz, das es gibt.
+    for (final node in ((teil.json['nodes'] as List?) ?? const [])
+        .cast<Map>()) {
+      final mesh = (node['mesh'] as num?)?.toInt();
+      if (mesh != null) expect(mesh, lessThan(meshes.length));
+    }
+    // Und die Szene zeigt auf Knoten, die es gibt.
+    final knoten = ((teil.json['nodes'] as List?) ?? const []).length;
+    for (final scene in (teil.json['scenes'] as List).cast<Map>()) {
+      for (final k in ((scene['nodes'] as List?) ?? const []).cast<num>()) {
+        expect(k.toInt(), lessThan(knoten));
+      }
+    }
+  });
+
+  test('Ohne Gesichtsteile ändert Abräumen nichts', () {
+    final roh = _figur();
+    expect(identical(removeFaceParts(roh), roh), isTrue);
+  });
+
 }
 
 /// Positionen und Indizes der fünf Gesichtsteile, roh aus der Datei.
@@ -379,3 +430,10 @@ List<(String, List<double>, List<int>)> _teile(Uint8List glb) {
   expect(out.length, faceMeshNames.length);
   return out;
 }
+
+
+/// Die Namen aller Netze in der Datei.
+List<String> _namen(Uint8List glb) => [
+      for (final mesh in (splitGlb(glb).json['meshes'] as List).cast<Map>())
+        (mesh['name'] as String?) ?? '',
+    ];

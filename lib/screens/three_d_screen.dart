@@ -4848,10 +4848,45 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   Future<_MarketplacePrep> _prepareMarketplace(Uint8List kleinerGlb) async {
     final repairs = <String>[];
     var befunde = <MarketplaceFinding>[];
-    final vorbereitet = prepareForAutoSetup(kleinerGlb,
+    // Alte Gesichtsteile zuerst heraus.
+    //
+    // Der Weg hat sie bisher blind angehängt. Wer erst repariert und
+    // dann das Paket schreibt – der übliche Ablauf –, bekam sie
+    // doppelt: zehn Netze statt fünf, `LeftEye` zweimal, an einer
+    // echten Figur gemessen. Auto Setup sucht die Teile an ihren
+    // Namen; zwei gleich benannte Netze ineinander sind keine
+    // Grundlage für einen dynamischen Kopf. Die Reparatur macht es an
+    // ihrer ersten Zeile genauso.
+    final ohneAlte = removeFaceParts(kleinerGlb);
+    if (!identical(ohneAlte, kleinerGlb)) {
+      repairs.add('Vorhandene Gesichtsteile entfernt – sie werden gleich '
+          'neu gesetzt. Ohne diesen Schritt stünden sie doppelt in der '
+          'Datei.');
+    }
+    final vorbereitet = prepareForAutoSetup(ohneAlte,
         targetStuds: _studsValue ?? robloxCharacterStuds);
     repairs.addAll(vorbereitet.report.steps);
     var glb = vorbereitet.glb;
+
+    // Auf das Dreiecksbudget des Marktplatzes.
+    //
+    // Auto Setup zerlegt den Körper in 15 Teile und **reduziert dabei
+    // nicht**. Der Export hat lange geliefert, was der Anbieter gab:
+    // 17.972 Dreiecke bei einem Budget von $specBodyTotalTriangles,
+    // ohne eine Zeile dazu. Dezimiert wird vor dem Gesicht – hinterher
+    // glättete es die Höhlen wieder weg – und mit Platz für die
+    // Gesichtsteile.
+    final trisVorher = await glbTriangleCount(glb);
+    final trisZiel = specBodyTotalTriangles -
+        (_sculptFace ? faceSculptTriangleBudget : 0) -
+        (_addFaceParts ? facePartsTriangleBudget : 0);
+    if (trisVorher > trisZiel) {
+      glb = await decimateGlb(glb, trisZiel);
+      repairs.add('Dreiecke $trisVorher → ${await glbTriangleCount(glb)} '
+          '(Budget $specBodyTotalTriangles für den ganzen Körper, davon '
+          'zurückgelegt für Gesicht und Gesichtsteile). Auto Setup '
+          'reduziert nicht selbst.');
+    }
 
         // Erst das Gesicht ins Kopfnetz: Höhlen und Grate. Danach die
         // Teile – in dieser Reihenfolge, sonst verschmölzen die Teile
@@ -4936,6 +4971,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
   Future<void> _prepareForRoblox(ThreeDResult result) async {
     RobloxPrepareResult? rig;
     Uint8List? marktplatzGlb;
+    // Was die Marktplatz-Prüfung an der fertigen Datei findet.
+    //
+    // Die Liste wurde bisher weggeworfen: Die Befunde standen nur als
+    // je eine Zeile unter „Dafür geändert", zwischen zwanzig anderen.
+    // Eine Figur mit einem blockierenden Fehler („Kein erkennbarer
+    // Hals") ging so ins Paket, ohne dass es jemand sah.
+    var marktBefunde = const <MarketplaceFinding>[];
     final repairs = <String>[];
     try {
       // Erst die Geometrie, dann die Textur, dann das Skelett: Löcher
@@ -4975,6 +5017,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         final markt = await _prepareMarketplace(kleinerGlb);
         repairs.addAll(markt.repairs);
         marktplatzGlb = markt.glb;
+        marktBefunde = markt.befunde;
         rig = null;
       } else {
         rig = prepareRigForRoblox(
@@ -5003,7 +5046,13 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     var hipHeight = (rig?.report.hipStuds ?? 0) > 0.2
         ? double.parse(rig!.report.hipStuds.toStringAsFixed(1))
         : 2.0;
-    final saved = await showDialog<bool>(
+    // Drei Ausgänge statt zwei: abbrechen, reparieren, speichern.
+    //
+    // „Erst reparieren" gibt es, seit der Dialog sagt, was der
+    // Validator ablehnen wird. Ohne den Knopf müsste man den Dialog
+    // schließen, das Menü wieder öffnen und „Marktplatz-Reparatur …"
+    // suchen – und genau das hat niemand getan.
+    final saved = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setLocal) {
@@ -5019,6 +5068,70 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (report == null) ...[
+                      // Was der Validator ablehnen wird, steht **oben**.
+                      //
+                      // Die Befunde standen bisher nur als je eine
+                      // Zeile unter „Dafür geändert", zwischen zwanzig
+                      // anderen. Eine Figur mit „Kein erkennbarer
+                      // Hals" ging so ins Paket, und der Fehler kam
+                      // erst in Roblox' Validierung heraus – nach der
+                      // Hochladegebühr.
+                      if (marktBefunde.any((f) => f.blocks)) ...[
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.error_outline,
+                                  size: 20,
+                                  color: theme.colorScheme.onErrorContainer),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Roblox’ Validator wird diese Figur '
+                                      'ablehnen:',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: theme.colorScheme
+                                                  .onErrorContainer),
+                                    ),
+                                    for (final f in marktBefunde
+                                        .where((f) => f.blocks))
+                                      Text('• ${f.title}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                  color: theme.colorScheme
+                                                      .onErrorContainer)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Das Paket lässt sich trotzdem '
+                                      'schreiben. Was die App selbst '
+                                      'beheben kann, behebt '
+                                      '„Export/Roblox → '
+                                      'Marktplatz-Reparatur …" – erst '
+                                      'dort, dann hier.',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                              color: theme.colorScheme
+                                                  .onErrorContainer),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       // Der Marktplatz-Weg: kein Skelett, und das ist
                       // richtig so.
                       Row(
@@ -5222,7 +5335,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
+                onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Abbrechen'),
               ),
               if (install.found)
@@ -5231,8 +5344,15 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
                   icon: const Icon(Icons.folder_open, size: 18),
                   label: const Text('Studio-Ordner'),
                 ),
+              if (marktBefunde.any((f) => f.blocks))
+                TextButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context).pop('reparieren'),
+                  icon: const Icon(Icons.build_outlined, size: 18),
+                  label: const Text('Erst reparieren'),
+                ),
               FilledButton.icon(
-                onPressed: () => Navigator.of(context).pop(true),
+                onPressed: () => Navigator.of(context).pop('speichern'),
                 icon: const Icon(Icons.save_alt, size: 18),
                 label: const Text('Paket speichern'),
               ),
@@ -5241,7 +5361,11 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         },
       ),
     );
-    if (saved != true || !mounted) return;
+    if (saved == 'reparieren' && mounted) {
+      await _repairForMarketplace(result);
+      return;
+    }
+    if (saved != 'speichern' || !mounted) return;
 
     // Das Ergebnis übernimmt die vorbereitete Datei.
     //
@@ -5330,6 +5454,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
           scriptFile: scriptFile,
           luaFile: luaFile,
           autoSetupFile: autoSetupFile,
+          marketplace: rig == null,
           missingBones: rig?.report.rig.missing ?? const [],
           repairs: repairs.map(_ohneUmlaute).toList(),
           fbxIncluded: fbxBytes != null,

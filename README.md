@@ -3547,6 +3547,75 @@ läuft auf dem Export-Puffer, nicht auf einer Arbeitskopie.
 von 5,00 Studs mit den Zehen auf +Z; in Bändern von 2 % der Höhe misst
 man sonst etwas anderes, als man glaubt.
 
+#### Der Export-Weg selbst, grundlegend nachgemessen
+
+Auf die Bitte „der Roblox-Marktplatz-Export muss dringend
+funktionieren" ist der ganze Weg **3D-Bereich → Export/Roblox → Ziel
+„Marktplatz-Avatar"** einmal Ende zu Ende durchgespielt worden, an
+drei echten Figuren, mit einem unabhängigen glTF-Leser über jeder
+erzeugten Datei. Vier Befunde, alle reproduzierbar:
+
+**1. Der Export hielt das Dreiecksbudget nicht ein.** Gemessen:
+16.352 Dreiecke herein, **17.972 hinaus** – bei einem Budget von
+10.742 für den ganzen Körper (die Summe der sechs Teile:
+DynamicHead 4.000, Torso 1.750, je Arm und Bein 1.248). Die
+Dezimierung lief nur in der Marktplatz-Reparatur, nicht im Export.
+Auto Setup zerlegt ein Netz in 15 Teile und **reduziert dabei
+nicht** – was insgesamt zu viel ist, ist in jedem Teil zu viel.
+Jetzt dezimiert der Export selbst, vor dem Gesicht und mit
+Rückstellung für Gesicht (1.500) und Gesichtsteile (400). Dieselben
+Figuren kommen mit 10.501 / 8.985 / 9.058 Dreiecken heraus.
+
+**2. Die Prüfung hatte gar keine Dreiecksregel.** Deshalb hat sie zu
+den 17.972 nichts gesagt. `dreiecke` ist jetzt eine Vorgabe wie jede
+andere, mit Herkunft „Export" – das behebt die App selbst.
+
+**3. Ein zweiter Lauf verdoppelte die Gesichtsteile.** Wer erst
+repariert und dann das Paket schreibt – der übliche Ablauf –, bekam
+zehn Netze statt fünf: `LeftEye` zweimal, `Tongue` zweimal. Auto
+Setup sucht die Teile an ihren Namen. Der Export räumt vorhandene
+Teile jetzt ab (`removeFaceParts`, samt Knoten und allen Verweisen
+darauf), bevor er neue setzt – genauso, wie es die Reparatur an ihrer
+ersten Zeile tut.
+
+**4. Blockierende Fehler gingen unbemerkt ins Paket.** Die Befunde
+der Marktplatz-Prüfung wurden nach dem Herrichten weggeworfen und
+standen nur als je eine Zeile unter „Dafür geändert", zwischen zwanzig
+anderen. Alle drei Figuren hatten „Kein erkennbarer Hals" – ein
+Fehler, den Roblox' Validator ablehnt, und den man erst nach der
+Hochladegebühr gesehen hätte. Jetzt steht er rot **oben** im Dialog,
+und daneben liegt ein Knopf **„Erst reparieren"**, der direkt in die
+Marktplatz-Reparatur führt.
+
+Dazu drei Falschaussagen in der beiliegenden `_ANLEITUNG.txt`, alle
+auf dem Marktplatz-Weg:
+
+- „Alle 15 R15-Gelenke sind vorhanden – die Figur taugt als
+  StarterCharacter." Die Datei hat **kein** Skelett; Auto Setup
+  verlangt genau das. Der Satz entstand daraus, dass die Liste der
+  *fehlenden* Gelenke leer ist, wenn gar keine gesucht wurden.
+- „Das Modell, Knochen bereits auf R15 benannt" – dieselbe Datei.
+- „Schritt 1 – FBX: Roblox importiert Meshes mit Rig über .fbx" und
+  der Weg über Blender. Auto Setup nimmt das ungeriggte Netz aus dem
+  Workspace; Studio liest glTF.
+
+Und ein vierter, der noch peinlicher ist: Der Abschnitt „Was die App
+an der Datei geändert hat" war im Textblock mit einem Dollar-Escape
+maskiert. In der ausgelieferten Datei stand deshalb wörtlich der
+**Dart-Quelltext** `${repairs.isEmpty ? '' : 'Was die App an der
+Datei geaendert hat…` – und was die App geändert hatte, erfuhr
+niemand. Die Anleitung hat jetzt für jeden der beiden Wege eigene,
+durchnummerierte Schritte, und vier Tests halten fest, dass sie nichts
+mehr behauptet, was auf ihrem Weg nicht stimmt.
+
+**Was hier nicht geprüft werden konnte:** Die Roblox-Dokumentation
+ist aus der Entwicklungsumgebung nicht erreichbar. Geprüft wurde
+gegen die Zahlen und Namen, die `roblox_spec.dart` aus
+`Roblox/creator-docs` festhält, und gegen das, was der Export
+tatsächlich erzeugt. Ob Studios 3D-Importer glTF in jedem Fall
+annimmt und ob Auto Setup die Gesichtsteile ohne UVs und Material
+akzeptiert, sagt erst ein Lauf in Studio.
+
 #### Arme abspreizen: gemessen statt geraten
 
 Auto Setup nennt die I-Pose ausdrücklich schlechter („Character bodies

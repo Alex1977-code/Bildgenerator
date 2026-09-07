@@ -254,6 +254,30 @@ print("Als Startfigur einsetzen: Modell in 'StarterCharacter' "
 ''';
 
 /// Kurzanleitung, die dem Paket beiliegt.
+/// Der Abschnitt „Was die App an der Datei geändert hat".
+///
+/// Als eigene Funktion, weil er im Textblock nicht funktioniert hat:
+/// Dort stand er als verschachtelter Ausdruck, mit `\$` maskiert – und
+/// damit landete der **Quelltext** in der Anleitung statt der Liste.
+/// In der ausgelieferten Datei stand wörtlich
+/// `${repairs.isEmpty ? '' : 'Was die App an der Datei geaendert hat`,
+/// und was die App geändert hatte, erfuhr niemand.
+String _aenderungen(List<String> repairs) => repairs.isEmpty
+    ? ''
+    : 'Was die App an der Datei geaendert hat\n'
+        '--------------------------------------\n'
+        '${repairs.map((e) => '  * $e').join('\n')}\n';
+
+/// Die Kurzanleitung im Paket.
+///
+/// [marketplace] schaltet auf den Auto-Setup-Weg um. Ohne diesen
+/// Schalter hat die Datei auf dem Marktplatz-Weg drei Dinge behauptet,
+/// die dort nicht stimmen: Die GLB trage "Knochen bereits auf R15
+/// benannt" (sie tragt gar keine - Auto Setup verlangt ein ungeriggtes
+/// Netz), "Alle 15 R15-Gelenke sind vorhanden" (dieselbe Datei, kein
+/// Skelett; der Satz entstand daraus, dass die Liste der **fehlenden**
+/// Gelenke leer ist, wenn gar keine gesucht wurden) und Schritt 1
+/// schickte uber Blender zur FBX, die Auto Setup nicht braucht.
 String robloxReadme({
   required String glbFile,
   required String fbxFile,
@@ -264,6 +288,7 @@ String robloxReadme({
   String autoSetupFile = '',
   bool fbxIncluded = false,
   String textureFile = '',
+  bool marketplace = false,
 }) =>
     '''
 Roblox-Paket
@@ -271,14 +296,13 @@ Roblox-Paket
 
 Diese Dateien gehoeren zusammen:
 
-  $glbFile      Das Modell, Knochen bereits auf R15 benannt
+  $glbFile      ${marketplace ? 'Das Modell, ungeriggt - so will es Auto Setup' : 'Das Modell, Knochen bereits auf R15 benannt'}
 ${fbxIncluded ? '  $fbxFile      Dasselbe Modell als FBX - das nimmt Studio fuer Rigs\n' : ''}${textureFile.isEmpty ? '' : '  $textureFile      Die Textur; FBX verweist auf sie, statt sie zu tragen\n'}  $scriptFile   Blender-Skript: GLB zu FBX${fbxIncluded ? ' (Rueckfallweg)' : ''}
   $luaFile      Luau-Skript fuer die Befehlsleiste in Roblox Studio
 ${autoSetupFile.isEmpty ? '' : '  $autoSetupFile  Luau-Skript fuer Roblox Auto Setup (Marktplatz-Weg)\n'}
 Zwei Wege, und sie fuehren nicht zum selben Ziel
 ------------------------------------------------
-STARTFIGUR im eigenen Erlebnis: Schritte 1 bis 3 unten. Die Datei
-traegt bereits ein R15-Skelett; Studio nimmt sie als StarterCharacter.
+STARTFIGUR im eigenen Erlebnis: ${marketplace ? 'Dafuer braucht es eine Datei MIT Skelett -\nin der App unter Ziel "Startfigur/Rig" exportieren. Diese hier hat\nabsichtlich keines.' : 'Schritte 1 bis 3 unten. Die Datei\ntraegt bereits ein R15-Skelett; Studio nimmt sie als StarterCharacter.'}
 
 MARKTPLATZ: dafuer reicht das nicht. Der Marktplatz verlangt einen
 dynamischen Kopf mit FACS-Posen ("FACS controls for at least 17
@@ -300,12 +324,36 @@ absolut in Studs, nicht relativ zur Hoehe (Doku: Character body
 specifications). Mindestmasse fuer alle Skalen: Rumpf 1,7 hoch, Bein
 1,4, Arm 1,5 - seit dem 17. August 2026 prueft der Validator darauf.
 
-${missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als StarterCharacter.' : 'Achtung: Diese R15-Gelenke fehlen noch:\n  ${missingBones.join(', ')}\nOhne sie laesst sich das Modell nur mit der Import-Einstellung\n"Custom" verwenden (Katalog-Animationen laufen, Startfigur nicht).'}
+${marketplace ? 'In dieser Datei steckt absichtlich KEIN Skelett. Auto Setup baut\nRig, Skinning, Cages und Attachments selbst und verwirft ein\nmitgebrachtes - deshalb ist hier auch nichts zu Gelenken zu sagen.' : missingBones.isEmpty ? 'Alle 15 R15-Gelenke sind vorhanden - die Figur taugt als StarterCharacter.' : 'Achtung: Diese R15-Gelenke fehlen noch:\n  ${missingBones.join(', ')}\nOhne sie laesst sich das Modell nur mit der Import-Einstellung\n"Custom" verwenden (Katalog-Animationen laufen, Startfigur nicht).'}
 
-\${repairs.isEmpty ? '' : 'Was die App an der Datei geaendert hat\n'
-    '--------------------------------------\n'
-    '\${repairs.map((e) => '  * \$e').join('\n')}\n'}
-Schritt 1 - FBX
+${_aenderungen(repairs)}
+${marketplace ? """Schritt 1 - Netz in Studio importieren
+--------------------------------------
+Avatar -> 3D-Importer -> $glbFile. Studio liest glTF; eine FBX
+braucht dieser Weg nicht - Auto Setup will ein ungeriggtes Netz, und
+genau das steht in der Datei. Das Blender-Skript liegt nur als
+Rueckfallweg dabei, falls der Importer die Datei nicht mag.
+
+Das importierte Modell muss im Workspace genauso heissen wie die
+Datei ohne Endung - so sucht es das Auto-Setup-Skript.
+
+Schritt 2 - Auto Setup laufen lassen
+------------------------------------
+Playtest starten (F5; der Aufruf braucht einen echten Player), dann
+den Inhalt von $autoSetupFile in die Befehlsleiste kopieren. Das
+Skript baut Zerlegung in 15 Teile, R15-Rig, Skinning, Cages,
+Attachments und den dynamischen Kopf, setzt das Ergebnis in die Welt
+und laesst Roblox gleich selbst validieren.
+
+Schritt 3 - Hochladen
+---------------------
+Erst wenn in der Ausgabe "Validierung BESTANDEN" steht, lohnt der Weg
+ueber das Creator-Dashboard. Eine durchgefallene Figur kostet die
+Hochladegebuehr trotzdem.
+
+Das Studio-Skript $luaFile gehoert nicht zu diesem Weg - es setzt
+eine geriggte Figur als Startfigur in ein eigenes Erlebnis ein.
+""" : """Schritt 1 - FBX
 ---------------
 Roblox importiert Meshes mit Rig ueber .fbx, nicht ueber .glb.
 ${fbxIncluded ? '''
@@ -351,6 +399,7 @@ Kollision vom Mesh und legt sie auf den HumanoidRootPart, sichert eine
 vorhandene Startfigur nach ServerStorage und setzt die neue ein.
 
 Danach Playtest starten.
+"""}
 
 Schritt 4 - Mit Freunden teilen
 -------------------------------

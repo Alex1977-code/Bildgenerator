@@ -25,6 +25,7 @@ import 'dart:typed_data';
 import 'auto_rig.dart' show estimateFrontSignal;
 import 'glb_preview.dart' show splitGlb, joinGlb, readGltfFloats;
 import 'roblox_face_parts.dart' show headBottomBand;
+import 'roblox_spec.dart' show specBodyTotalTriangles;
 
 /// Das Datum, an dem diese Werte am Validator gemessen wurden.
 const String marketplaceMeasuredOn = '2026-08-31';
@@ -282,8 +283,19 @@ class MarketplaceMeasurement {
     this.torsoHeight = 0,
     this.legHeight = 0,
     this.armLength = 0,
+    this.triangles = 0,
     required this.scale,
   });
+
+  /// Dreiecke im ganzen Netz, Gesichtsteile eingerechnet.
+  ///
+  /// Gemessen wird sie schon lange – geprüft wurde sie hier nicht. Der
+  /// Export-Weg schrieb deshalb Figuren mit 17.972 Dreiecken heraus,
+  /// bei einem Marktplatz-Budget von $specBodyTotalTriangles, und
+  /// keine Zeile sagte etwas dazu: Auto Setup zerlegt in 15 Teile und
+  /// reduziert dabei **nicht**, jedes Teil reißt sein Budget, und der
+  /// Validator lehnt ab.
+  final int triangles;
 
   /// Höhe des Kopfs: vom Halsband bis zum Scheitel, Studs.
   final double headHeight;
@@ -717,6 +729,17 @@ const List<MarketplaceRule> marketplaceRules = [
           'dagegen gibt Roblox nicht vor – „ohne eingezogene Taille" '
           'wäre eine Verneinung, und die liest ein Text→3D-Modell nicht '
           'als Ausschluss.'),
+  MarketplaceRule(
+      id: 'dreiecke',
+      demand: 'Der ganze Körper bleibt unter '
+          '$specBodyTotalTriangles Dreiecken',
+      repairStep: repairStepDecimate,
+      source: 'Character body specifications, Tabelle „Triangle budget"',
+      note: 'Die Summe der sechs Teil-Budgets '
+          '(DynamicHead 4.000, Torso 1.750, je Arm und Bein 1.248). '
+          'Auto Setup zerlegt ein Netz in 15 Teile und reduziert dabei '
+          'nicht – was oben zu viel ist, ist unten in jedem Teil zu '
+          'viel.'),
   MarketplaceRule(
       id: 'keine_geometrie',
       demand: 'Es muss überhaupt eine Geometrie geben',
@@ -1231,6 +1254,7 @@ MarketplaceMeasurement measureMarketplaceFigure(
     torsoHeight: rumpfHoehe,
     legHeight: beinHoehe,
     armLength: armLaenge,
+    triangles: indices.length ~/ 3,
   );
 }
 
@@ -1483,6 +1507,36 @@ List<MarketplaceFinding> checkMarketplaceFigure(MarketplaceMeasurement m,
     add('keine_geometrie', MarketplaceLevel.warnung, 'Nichts zu messen',
         'In der Datei stehen keine Punkte.');
     return out;
+  }
+
+  // Dreiecke.
+  //
+  // Der Export-Weg hat lange keine Zahl dazu gesagt, weil es die Regel
+  // nicht gab: Eine Figur ging mit 17.972 Dreiecken heraus, und die
+  // Prüfung meldete „nichts zu beanstanden". Auto Setup zerlegt das
+  // Netz in 15 Teile und **reduziert dabei nicht** – was insgesamt zu
+  // viel ist, ist in jedem Teil zu viel, und der Validator lehnt ab.
+  if (m.triangles > 0) {
+    if (m.triangles > specBodyTotalTriangles) {
+      add(
+          'dreiecke',
+          MarketplaceLevel.fehler,
+          '${m.triangles} Dreiecke von höchstens $specBodyTotalTriangles',
+          'Das Budget ist die Summe der sechs Teile, in die der '
+              'Marktplatz einen Körper zerlegt: DynamicHead 4.000, '
+              'Torso 1.750, je Arm und Bein 1.248. Auto Setup reduziert '
+              'nicht selbst. Das Herrichten dezimiert deshalb auf das '
+              'Budget; steht die Zahl trotzdem hier, ist die '
+              'Dezimierung nicht gelaufen.',
+          origin: MarketplaceOrigin.export);
+    } else {
+      add(
+          'dreiecke',
+          MarketplaceLevel.ok,
+          '${m.triangles} Dreiecke (Budget $specBodyTotalTriangles)',
+          '',
+          origin: MarketplaceOrigin.export);
+    }
   }
 
   final tiefeProzent = (m.depth / m.height * 100).round();
