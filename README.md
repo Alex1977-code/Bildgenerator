@@ -3608,8 +3608,13 @@ niemand. Die Anleitung hat jetzt für jeden der beiden Wege eigene,
 durchnummerierte Schritte, und vier Tests halten fest, dass sie nichts
 mehr behauptet, was auf ihrem Weg nicht stimmt.
 
-**Was hier nicht geprüft werden konnte:** Die Roblox-Dokumentation
-ist aus der Entwicklungsumgebung nicht erreichbar. Geprüft wurde
+**Was hier nicht geprüft werden konnte** — und der Auftrag dazu: Die
+Roblox-Dokumentation ist aus der Entwicklungsumgebung nicht
+erreichbar. Was offen bleibt, steht Punkt für Punkt in
+[`docs/roblox-doku-pruefung.md`](docs/roblox-doku-pruefung.md): zwölf
+Fragen, nach Dringlichkeit sortiert, jede mit Fundort im Code und der
+Doku-Datei, in der die Antwort stehen müsste. Diese Datei ist der
+Arbeitsauftrag für eine Sitzung, die Roblox erreicht. Geprüft wurde
 gegen die Zahlen und Namen, die `roblox_spec.dart` aus
 `Roblox/creator-docs` festhält, und gegen das, was der Export
 tatsächlich erzeugt. Ob Studios 3D-Importer glTF in jedem Fall
