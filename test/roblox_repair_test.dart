@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -23,6 +24,7 @@ Uint8List figur({
   double beinBreite = 0.45,
   double armUnten = 2.6,
   double armLuecke = 0.0,
+  double mantel = 0.0,
   Uint8List? textur,
 }) {
   final m = LocalMesh();
@@ -71,6 +73,16 @@ Uint8List figur({
     final ai = 1.1 + armLuecke;
     quader(-ai - 0.7, armUnten, -0.2, -ai, 3.7, 0.2);
     quader(ai, armUnten, -0.2, ai + 0.7, 3.7, 0.2);
+  }
+  // Ein Mantelsaum, breiter als der Rumpf und tiefer als die Arme.
+  //
+  // Der Fall, an dem der erste Anlauf zerbrach: An einer echten Figur
+  // im langen Mantel war der Saum breiter als die Arme, die geratene
+  // Achsel lag mitten darin, und er drehte samt Streckung mit - aus
+  // dem Mantel wurde eine Glocke. Über die Tiefe ist er hier
+  // wiederzufinden: ± 0,6 gegen ± 0,2 an den Armen.
+  if (mantel > 0) {
+    quader(-mantel, 2.05, -0.6, mantel, 2.6, 0.6);
   }
   // Beine, mit Schienbeinring für die Zehen-Heuristik.
   final b = beinBreite;
@@ -622,6 +634,61 @@ void main() {
       expect(nachher.width, closeTo(vorher.width, 0.02));
     });
 
+    test('der Mantelsaum bleibt stehen, wo er steht', () async {
+      // Der eigentliche Fehler des ersten Anlaufs, als Prüfung: Die
+      // Achsel war geraten (halbe Rumpfbreite bzw. Kopfbreite mal 0,9),
+      // und alles außerhalb drehte und streckte mit. Bei einem Saum,
+      // der breiter ist als die Arme, war das der halbe Mantel. Und
+      // weil der Rumpf mit auseinanderging, wuchs die gemessene
+      // Rumpfbreite genauso schnell wie die Spanne - die Suche
+      // eskalierte auf 45° samt 1,6-facher Streckung, und die Arme
+      // standen hinterher als Splitter ab.
+      const wie = (armUnten: 2.7, armLuecke: 0.3, mantel: 2.0);
+      final roh = figur(
+          armUnten: wie.armUnten,
+          armLuecke: wie.armLuecke,
+          mantel: wie.mantel);
+      final saumVorher = await _saumBreite(roh);
+      expect(saumVorher, closeTo(2.0 / 5.0, 0.01),
+          reason: 'Der Saum steht bei ± 2,0 einer 5,00 hohen Figur.');
+
+      final r = await repairForMarketplace(
+          figur(
+              armUnten: wie.armUnten,
+              armLuecke: wie.armLuecke,
+              mantel: wie.mantel),
+          addFace: false,
+          sculptFace: false,
+          decimate: false);
+      final schritt =
+          r.report.steps.firstWhere((s) => s.rule == repairStepArmsApart);
+      expect(schritt.origin, RepairOrigin.app,
+          reason: 'Ein Saum darf das Abspreizen nicht verhindern.');
+      expect(await _saumBreite(r.glb), closeTo(saumVorher, 0.01),
+          reason: 'Der Saum trägt kein Armgewicht – er darf sich keinen '
+              'Millimeter bewegen.');
+    });
+
+    test('der Riss-Wächter zählt gedehnte Kanten, keine gedrehten',
+        () async {
+      // Der Umstülp-Wächter allein hat nicht gereicht: Beim ersten
+      // Abspreizen wurde die Schulter flachgeklemmt und der
+      // Mantelsaum mitgezogen. Kein Dreieck drehte sich dabei um - die
+      // Zählung stand bei null -, und trotzdem standen die Arme
+      // hinterher als Splitter ab.
+      final a = Float32List.fromList(
+          [0, 0, 0, 1, 0, 0, 0, 1, 0]);
+      // Verschoben: jede Kante gleich lang.
+      final verschoben = Float32List.fromList(
+          [5, 7, 0, 6, 7, 0, 5, 8, 0]);
+      const idx = <int>[0, 1, 2];
+      expect(countStretchedEdges(a, verschoben, idx), 0);
+      // Ein Punkt weit weggezogen: zwei Kanten reißen auf.
+      final gerissen = Float32List.fromList(
+          [0, 0, 0, 1, 0, 0, 0, 9, 0]);
+      expect(countStretchedEdges(a, gerissen, idx), 2);
+    });
+
     test('die Gesichtsteile kosten die Figur nicht ihre Textur',
         () async {
       // Der Fund hinter „im 3D-Viewer sieht die Textur anders aus als
@@ -645,6 +712,35 @@ void main() {
       mitGesicht.dispose();
     });
   });
+}
+
+/// Wie weit der Mantelsaum absteht – als Anteil der Figurhöhe, damit
+/// ein Maßstab-Schritt das Ergebnis nicht verfälscht.
+///
+/// Wiedergefunden wird er über die Tiefe: Der Saum reicht bis ± 0,6,
+/// die Arme nur bis ± 0,2. Nach dem Abspreizen stehen die Arme weiter
+/// außen als er – über die Breite allein wäre er nicht mehr zu finden.
+Future<double> _saumBreite(Uint8List glb) async {
+  final mesh = await parseGlbForPreview(glb);
+  try {
+    var minY = double.infinity, maxY = double.negativeInfinity;
+    for (var i = 1; i < mesh.positions.length; i += 3) {
+      minY = math.min(minY, mesh.positions[i]);
+      maxY = math.max(maxY, mesh.positions[i]);
+    }
+    final hoehe = maxY - minY;
+    var weit = 0.0;
+    for (var i = 0; i + 2 < mesh.positions.length; i += 3) {
+      if ((mesh.positions[i + 2] / hoehe).abs() < 0.08) continue;
+      // Nur die Höhe des Saums, nicht Kopf und Füße.
+      final y = (mesh.positions[i + 1] - minY) / hoehe;
+      if (y < 0.40 || y > 0.55) continue;
+      weit = math.max(weit, (mesh.positions[i] / hoehe).abs());
+    }
+    return weit;
+  } finally {
+    mesh.dispose();
+  }
 }
 
 /// Ein 2x2-PNG als Textur – der Inhalt ist egal, es geht um ihr

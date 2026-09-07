@@ -85,7 +85,11 @@ class HistoryService extends ChangeNotifier {
 
   /// Speichert ein generiertes 3D-Modell (GLB) samt Vorschaubild im
   /// Verlauf – erscheint in der Galerie neben den Bildern.
-  Future<void> addModel({
+  ///
+  /// Gibt die Kennung des Eintrags zurück – über sie schreibt der
+  /// 3D-Bereich später eine nachbearbeitete Fassung zurück. Null,
+  /// wenn das Ablegen fehlgeschlagen ist.
+  Future<String?> addModel({
     required Uint8List glbBytes,
     Uint8List? thumbnail,
     required String label,
@@ -112,10 +116,42 @@ class HistoryService extends ChangeNotifier {
         await _store.writeImage(_thumbProxy(entry), thumbnail);
       }
       _entries.insert(0, entry);
+      _rememberInCache(id, glbBytes);
       await _store.saveIndex(_entries);
       notifyListeners();
+      return id;
     } catch (_) {
       // Verlauf ist optional – Fehler beim Speichern nicht eskalieren.
+      return null;
+    }
+  }
+
+  /// Ersetzt die Datei eines vorhandenen Modell-Eintrags.
+  ///
+  /// Der 3D-Bereich arbeitet nach dem Lauf weiter am Modell: Der
+  /// Marktplatz-Weg richtet her, die Reparatur baut um, der Rig-Editor
+  /// setzt Gelenke. Ohne diesen Weg blieb in der Galerie die rohe
+  /// Fassung liegen – dieselbe Figur sah im Viewer aus dem 3D-Bereich
+  /// anders aus als in der Galerie, und der Download dort lieferte ein
+  /// anderes Modell als der Export hier.
+  ///
+  /// Der Eintrag behält seine Kennung, seinen Platz und seinen Namen;
+  /// nur die Datei und die ergänzten Angaben ändern sich.
+  Future<bool> replaceModel(
+      String id, Uint8List glbBytes, Map<String, String> mehr) async {
+    final index = _entries.indexWhere((e) => e.id == id);
+    if (index < 0) return false;
+    final entry =
+        mehr.isEmpty ? _entries[index] : _entries[index].withParams(mehr);
+    try {
+      await _store.writeImage(entry, glbBytes);
+      _entries[index] = entry;
+      _rememberInCache(id, glbBytes);
+      await _store.saveIndex(_entries);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

@@ -2418,6 +2418,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       _running = false;
       _stage = null;
     });
+    await _inDieGalerie(result, markt.glb, 'Marktplatz: hergerichtet');
     if (fehler.isEmpty) {
       _showSnack(warnungen.isEmpty
           ? 'Marktplatz-Figur hergerichtet und vermessen: nichts zu '
@@ -2600,6 +2601,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       result.glbBytes = reparatur.glb;
       if (gewachsen) _studsCtrl.text = neueHoehe.toStringAsFixed(2);
     });
+    await _inDieGalerie(
+        result, reparatur.glb, 'Marktplatz-Reparatur');
     _showSnack(gewachsen
         ? 'Reparierte Figur übernommen. Die Höhe steht jetzt auf '
             '${neueHoehe.toStringAsFixed(2)} statt '
@@ -3006,26 +3009,22 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Lua-Skript für Roblox. Der Gegenstand heißt nach seiner Art; der
     // Prompt bleibt als Angabe daneben erhalten.
     final anzeige = itemKind == null ? label : itemKind.label;
-    setState(() {
-      _results.insert(
-        0,
-        ThreeDResult(
-          glbBytes: glbBytes,
-          label: anzeige,
-          providerLabel: providerLabel,
-          thumbnailBytes: thumbnail,
-          rigged: rigged,
-          textured: textured,
-          unriggedGlb: unriggedGlb,
-          rigTypeUsed: rigTypeUsed,
-          format: format,
-          limitNote: limitNote,
-          rigNote: rigNote,
-          providerTaskId: providerTaskId,
-          itemKindId: itemKindId,
-        ),
-      );
-    });
+    final result = ThreeDResult(
+      glbBytes: glbBytes,
+      label: anzeige,
+      providerLabel: providerLabel,
+      thumbnailBytes: thumbnail,
+      rigged: rigged,
+      textured: textured,
+      unriggedGlb: unriggedGlb,
+      rigTypeUsed: rigTypeUsed,
+      format: format,
+      limitNote: limitNote,
+      rigNote: rigNote,
+      providerTaskId: providerTaskId,
+      itemKindId: itemKindId,
+    );
+    setState(() => _results.insert(0, result));
     // Eine Marktplatz-Figur aus Text wird gleich hergerichtet und
     // vermessen – das ist der Weg, den der Nutzer bestellt hat: Aus
     // dem Text soll eine hochladbare Figur werden, nicht ein Rohling
@@ -3037,7 +3036,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // kam die erste Figur mit dem Marktplatz-Schwanz roh in die Liste
     // – 0,93 Studs, ohne Gesichtsteile –, und niemand hat es gesehen.
     if (_marketplaceText && itemKind == null && format == ModelFormat.glb) {
-      _pendingMarketplace = _results.first;
+      _pendingMarketplace = result;
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _flushPendingMarketplace());
     }
@@ -3046,7 +3045,12 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     // Fehlschlag darf das Ergebnis nicht aufhalten.
     unawaited(_recordRun(glbBytes, providerLabel, format));
     // Auch in der Galerie ablegen (auf nativen Plattformen dauerhaft).
-    context.read<HistoryService>().addModel(
+    //
+    // Die Kennung bleibt am Ergebnis hängen: Alles, was der 3D-Bereich
+    // danach noch am Modell tut, schreibt über sie in die Galerie
+    // zurück – sonst zeigt der Viewer aus dem 3D-Bereich eine andere
+    // Figur als die Galerie.
+    unawaited(context.read<HistoryService>().addModel(
       glbBytes: glbBytes,
       thumbnail: thumbnail,
       label: anzeige,
@@ -3061,7 +3065,38 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         if (rigNote.isNotEmpty) 'Rigging-Hinweis': rigNote,
       },
       project: context.read<SettingsService>().currentProject,
-    );
+    ).then((id) {
+      if (id != null) result.historyId = id;
+    }));
+  }
+
+  /// Übernimmt eine neue Fassung des Modells – im Ergebnis **und** in
+  /// der Galerie.
+  ///
+  /// Die Galerie hielt bisher fest, was der Anbieter geliefert hat.
+  /// Alles, was der 3D-Bereich danach tat – herrichten, reparieren,
+  /// riggen, Texturen verkleinern –, stand nur im Ergebnis. Dieselbe
+  /// Figur sah deshalb im Viewer aus dem 3D-Bereich anders aus als in
+  /// der Galerie: dort 16.352 Dreiecke in I-Pose, hier 7.117 mit
+  /// abgespreizten Armen. Und der Download in der Galerie lieferte
+  /// eine andere Datei als der Export hier.
+  Future<void> _uebernimm(
+      ThreeDResult result, Uint8List bytes, String schritt) async {
+    if (!mounted) {
+      result.glbBytes = bytes;
+      return;
+    }
+    setState(() => result.glbBytes = bytes);
+    await _inDieGalerie(result, bytes, schritt);
+  }
+
+  /// Schreibt eine bereits übernommene Fassung in die Galerie nach.
+  Future<void> _inDieGalerie(
+      ThreeDResult result, Uint8List bytes, String schritt) async {
+    if (result.historyId.isEmpty || !mounted) return;
+    await context
+        .read<HistoryService>()
+        .replaceModel(result.historyId, bytes, {'Nachbearbeitet': schritt});
   }
 
   /// Schreibt den eben abgeschlossenen Lauf mit: Motivklasse,
@@ -4096,7 +4131,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         onGlbUpdated: (bytes) {
           // Ergebnis (und damit der GLB-Export) übernimmt das im
           // Rig-Editor angepasste Modell.
-          if (mounted) setState(() => result.glbBytes = bytes);
+          unawaited(_uebernimm(result, bytes, 'Rig-Editor'));
         },
       ),
     ));
@@ -5221,7 +5256,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     var vorbereitet = rig?.glb ?? marktplatzGlb;
     final frisch = vorbereitet;
     if (frisch != null && !identical(frisch, result.glbBytes)) {
-      setState(() => result.glbBytes = frisch);
+      await _uebernimm(result, frisch, 'Für den Export hergerichtet');
     }
 
     // Ein Name für alles: Datei, Netz und Knoten.
@@ -5255,7 +5290,7 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
       try {
         final benannt = applyExportName(vorbereitet, base);
         vorbereitet = benannt;
-        setState(() => result.glbBytes = benannt);
+        await _uebernimm(result, benannt, 'Export-Name „$base“');
       } catch (_) {
         // Ein Name ist kein Grund, den Export scheitern zu lassen.
       }
@@ -5747,7 +5782,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
             '– das Ergebnis bleibt unverändert.');
         return;
       }
-      setState(() => result.glbBytes = bytes);
+      await _uebernimm(result, bytes, 'Beim Anbieter neu gerechnet');
+      if (!mounted) return;
       _showSnack('Neu gerechnet – die Prüfung öffnet sich gleich.');
       await _showRobloxCheck(result);
     } on GenerationException catch (e) {
@@ -5820,7 +5856,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
         _showSnack('Es war nichts zu richten.');
         return;
       }
-      setState(() => result.glbBytes = bytes);
+      await _uebernimm(result, bytes, 'Für Roblox gerichtet');
+      if (!mounted) return;
       _showSnack('Erledigt: ${done.join(', ')}.');
       await _showRobloxCheck(result);
     } catch (e) {
@@ -5860,7 +5897,8 @@ class _ThreeDScreenState extends State<ThreeDScreen> {
     }
     final first = shrunk.changed.first;
     String mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
-    setState(() => result.glbBytes = shrunk.glb);
+    await _uebernimm(result, shrunk.glb, 'Texturen verkleinert');
+    if (!mounted) return;
     _showSnack('${shrunk.changed.length} Textur(en) verkleinert '
         '(z. B. ${first.fromWidth}×${first.fromHeight} auf '
         '${first.toWidth}×${first.toHeight}), Datei '

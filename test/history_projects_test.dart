@@ -44,6 +44,43 @@ Future<HistoryService> _serviceWith(
 }
 
 void main() {
+  test('Ein nachbearbeitetes Modell ersetzt seine Datei in der Galerie',
+      () async {
+    // Der Fund hinter „3D-Viewer aus dem 3D-Bereich und Galerie-Ansicht
+    // zeigen bei gleicher Figur Verschiedenes": Der 3D-Bereich richtet
+    // nach dem Lauf her, repariert und riggt weiter; die Galerie behielt
+    // die Fassung, die der Anbieter geliefert hat. Dieselbe Figur stand
+    // dort mit 16.352 Dreiecken in I-Pose, hier mit 7.117 und
+    // abgespreizten Armen - und der Download dort lieferte eine andere
+    // Datei als der Export hier.
+    final service = HistoryService(store: MemoryHistoryStore());
+    await service.init();
+    final id = await service.addModel(
+      glbBytes: Uint8List.fromList([1, 2, 3]),
+      label: 'Figur',
+      providerLabel: 'Test',
+      params: const {'Texturiert': 'ja'},
+    );
+    expect(id, isNotNull, reason: 'addModel gibt die Kennung zurück.');
+
+    final ersetzt = await service.replaceModel(
+        id!, Uint8List.fromList([9, 9, 9, 9]), {'Nachbearbeitet': 'Reparatur'});
+    expect(ersetzt, isTrue);
+    final entry = service.entries.single;
+    // Kennung, Platz und Name bleiben – es ist derselbe Eintrag.
+    expect(entry.id, id);
+    expect(entry.params['Texturiert'], 'ja');
+    expect(entry.params['Nachbearbeitet'], 'Reparatur');
+    expect(await service.readImage(entry), [9, 9, 9, 9]);
+  });
+
+  test('Ohne passenden Eintrag wird nichts ersetzt', () async {
+    final service = HistoryService(store: MemoryHistoryStore());
+    await service.init();
+    expect(await service.replaceModel('gibtesnicht', Uint8List(1), const {}),
+        isFalse);
+  });
+
   test('Einträge wandern in ein Projekt und wieder heraus', () async {
     final service = await _serviceWith([_entry('a'), _entry('b')]);
     await service.moveToProject([service.entries.first], 'Burgenspiel/Türme');

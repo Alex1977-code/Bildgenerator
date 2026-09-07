@@ -539,6 +539,13 @@ class MarketplaceRule {
 /// Gesichtsfläche gesetzt hat statt Augen **in** eine Höhle: Ohne
 /// „carved into the head" und „set back inside" liest ein Bildmodell
 /// „socket" als Ring um ein aufgesetztes Auge.
+/// Die Regel, die eine I-Pose aufdeckt: Stehen die Arme weit genug
+/// vom Rumpf ab?
+///
+/// Als Konstante, weil die Reparatur genau diese Regel schließen will
+/// und ihren Erfolg daran misst.
+const String marketplaceRuleArmsFree = 'arme_frei';
+
 const String marketplaceFaceClause =
     'two eye sockets carved into the head, each holding a half-sphere '
     'eye set back inside, an open mouth cavity';
@@ -596,7 +603,7 @@ const List<MarketplaceRule> marketplaceRules = [
           '(aPoseSuffix), ausführlicher als dieser Satz – zweimal '
           'dieselbe Anweisung widerspricht sich leicht.'),
   MarketplaceRule(
-      id: 'arme_frei',
+      id: marketplaceRuleArmsFree,
       demand: 'Von vorn verdeckt keine Gliedmaße eine andere',
       clause: marketplaceArmsClause,
       repairStep: repairStepArmsApart,

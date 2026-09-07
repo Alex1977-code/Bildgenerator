@@ -282,6 +282,22 @@ class HistoryEntry {
   /// Was in der Galerie über dem Bild steht.
   String get title => name.isNotEmpty ? name : prompt;
 
+  /// Derselbe Eintrag mit ergänzten Angaben – etwa „Marktplatz:
+  /// hergerichtet", wenn der 3D-Bereich das Modell nachbearbeitet hat.
+  HistoryEntry withParams(Map<String, String> mehr) => HistoryEntry(
+        id: id,
+        prompt: prompt,
+        providerLabel: providerLabel,
+        createdAt: createdAt,
+        params: {...params, ...mehr},
+        format: format,
+        fileName: fileName,
+        kind: kind,
+        thumbFileName: thumbFileName,
+        name: name,
+        project: project,
+      );
+
   /// Dieselbe Datei in einem anderen Projekt.
   HistoryEntry withProject(String path) => HistoryEntry(
         id: id,
@@ -379,6 +395,17 @@ class ThreeDResult {
   });
 
   Uint8List glbBytes;
+
+  /// Kennung des Galerie-Eintrags zu diesem Ergebnis – leer, solange
+  /// keiner angelegt wurde.
+  ///
+  /// Der 3D-Bereich verändert [glbBytes] nach dem Lauf noch: Der
+  /// Marktplatz-Weg richtet her, die Reparatur baut um, der Rig-Editor
+  /// setzt Gelenke. Die Galerie behielt dabei die rohe Fassung, und
+  /// dieselbe Figur sah im Viewer aus dem 3D-Bereich anders aus als in
+  /// der Galerie. Über diese Kennung schreibt jede Übernahme auch
+  /// dorthin zurück.
+  String historyId = '';
 
   /// Was der Marktplatz-Weg nach dem Lauf festgestellt hat – leer,
   /// wenn es kein Marktplatz-Lauf war. Änderbar, weil die Vorbereitung

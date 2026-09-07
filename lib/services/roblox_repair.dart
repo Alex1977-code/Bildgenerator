@@ -79,13 +79,6 @@ const double repairArmDrop = 45;
 /// degrees down", und genau dorthin bringt der Schritt eine I-Pose.
 const double repairArmSpread = 45;
 
-/// Wie weit die Arme höchstens gestreckt werden.
-///
-/// 1,6 ist die Grenze, ab der aus einer Figur ein Gibbon wird. Was
-/// damit nicht zu erreichen ist, ist keine Frage der Pose mehr,
-/// sondern der Figur - und das sagt der Bericht dann auch.
-const double repairArmStretchMax = 1.6;
-
 /// Dreiecksziel nach der Dezimierung – etwas unter der Grenze, damit
 /// die Gesichtsteile noch hineinpassen.
 const int repairTriangleGoal = 6800;
@@ -440,59 +433,397 @@ void _beinBreite(Float32List pos, double hueftY, List<double> beinMitten,
   }
 }
 
-/// Dreht die Arme aus der Waagerechten nach unten.
+/// Wie fein der Querschnitt für die Armsuche gerastert wird.
+const int _armBaender = 50;
+const int _armZellen = 192;
+
+/// Wo die Arme stecken – Band für Band **gemessen**, mit weichem
+/// Übergang zur Schulter.
 ///
-/// Gedreht wird um das Schultergelenk, jede Seite um ihre eigene
-/// Achse, mit weichem Übergang über [weich] Studs zum Rumpf hin –
-/// sonst reißt die Schulter.
-/// Spannt die Arme auf: drehen und strecken in einem Zug.
+/// Der erste Anlauf hat die Achsel geraten (halbe Rumpfbreite oder
+/// Kopfbreite mal 0,9) und alles außerhalb gedreht und gestreckt. An
+/// einer Figur im langen Mantel war das der halbe Mantel: Der Saum
+/// ist dort breiter als die Arme, er drehte mit und wurde zur Glocke.
+/// Und weil der Rumpf mit auseinanderging, wuchs die gemessene
+/// Rumpfbreite genauso schnell wie die Spanne – der Abstand blieb
+/// klein, die Suche eskalierte auf 45° samt 1,6-facher Streckung, und
+/// die Arme standen hinterher als Splitter ab.
 ///
-/// Der geforderte Abstand ist Armlänge × cos 45° - für die 2,12 Studs
-/// aus Auto Setup 6 braucht es Arme von 1,5 Studs. Reicht Drehen
-/// allein nicht, sind die Arme zu kurz, und dann werden sie länger:
-/// derselbe Eingriff, den die Reparatur an Beinen und Rumpf ohne
-/// Zögern macht, wenn ein Mindestmaß reißt.
-///
-/// Zwei Dinge, die beim ersten Anlauf gefehlt haben:
-///
-/// **Nur der Oberkörper.** Ohne Fenster in Y hat die Auswahl „alles
-/// außerhalb der Achsel" an einer echten Figur die Beine mitgedreht -
-/// hinterher stand „Beine 0,60 hoch von mindestens 1,4". Das Fenster
-/// reicht von etwas unter der Hüfte (dort enden die Hände) bis über
-/// die Schulter.
-///
-/// **Radial, in X und Y.** Ein abgespreizter Arm zeigt schräg nach
-/// unten; nur eine radiale Streckung verlängert ihn, statt ihn breit
-/// zu quetschen.
-void _armeAufspannen(Float32List pos, double schulterY, double untenY,
-    double achsel, double grad, double faktor, double weich) {
-  final rad = -grad * math.pi / 180;
-  for (var i = 0; i + 2 < pos.length; i += 3) {
-    final y = pos[i + 1];
-    if (y < untenY || y > schulterY + weich) continue;
-    final x = pos[i];
-    final seite = x < 0 ? -1.0 : 1.0;
-    final ausserhalb = x.abs() - achsel;
-    if (ausserhalb <= 0) continue;
-    // Weicher Anlauf: an der Achsel fast nichts, weiter außen ganz.
-    final t = (ausserhalb / weich).clamp(0.0, 1.0);
-    final w = rad * t;
-    final k = 1 + (faktor - 1) * t;
-    final gx = seite * achsel;
-    final dx = (x - gx) * k;
-    final dy = (y - schulterY) * k;
-    final c = math.cos(w), s = math.sin(w);
-    pos[i] = gx + dx * c + seite * dy * s;
-    // Nichts steigt über die Schulter.
-    //
-    // Die Drehung hebt die Oberseite des Arms mit, und dort sucht die
-    // Messung die Kopfunterkante: An einer Testfigur wanderte der Kopf
-    // dadurch von 1,20 auf 0,90 Studs, ohne dass am Kopf etwas
-    // geschehen wäre. Ein hängender Arm, der abgespreizt wird, gehört
-    // ohnehin nicht über die Schulter.
-    pos[i + 1] =
-        math.min(schulterY, schulterY + dy * c - seite * dx * s);
+/// Hier wird stattdessen im Querschnitt nachgesehen. Wo der Arm als
+/// **eigene Insel** neben dem Rumpf steht, ist die Kante messbar, und
+/// der Schnitt läuft durch die Lücke – durch leeren Raum, kein
+/// Dreieck geht darüber. Weiter oben, wo Arm und Rumpf verschmelzen,
+/// ist keine Kante zu messen; dort entsteht das Gewicht durch
+/// **Diffusion**: Arm 1, Rumpf 0, und dazwischen glättet sich das
+/// Feld über das Blech, das beide verbindet. Das ist derselbe
+/// Kunstgriff, mit dem eine Skinning-Gewichtung entsteht, und er
+/// verteilt den Übergang über die ganze Schulter statt über ein Band.
+class _Armfeld {
+  _Armfeld({
+    required this.minY,
+    required this.minX,
+    required this.hoehe,
+    required this.breite,
+    required this.mitteX,
+    required this.gewichte,
+    required this.belegt,
+    required this.schulterY,
+    required this.drehpunktL,
+    required this.drehpunktR,
+    required this.armOben,
+    required this.armUnten,
+  });
+
+  final double minY;
+  final double minX;
+  final double hoehe;
+  final double breite;
+  final double mitteX;
+
+  /// Das geglättete Gewichtsfeld über dem Raster: 0 = Rumpf, 1 = Arm.
+  final List<List<double>> gewichte;
+
+  /// Welche Rasterzellen überhaupt Material enthalten.
+  final List<List<bool>> belegt;
+
+  final double schulterY;
+  final double drehpunktL;
+  final double drehpunktR;
+
+  /// Ober- und Unterkante des gemessenen Armstücks, für den Bericht.
+  final double armOben;
+  final double armUnten;
+
+  /// Wie stark ein Punkt der Drehung folgt – bilinear aus dem Raster,
+  /// aber **nur über belegte Zellen**.
+  ///
+  /// Leere Zellen fließen nicht ein. Zählten sie als 0, sackte das
+  /// Gewicht an jeder dünnen Stelle ab - Finger, Handkante -, und die
+  /// Hand blieb hinter dem Unterarm zurück: aus den Fingern wurden
+  /// Spitzen. Zählten sie mit dem Wert des Nachbarn (so stand es hier
+  /// einen Anlauf lang), trug der leere Raum neben einem Arm dessen
+  /// Gewicht in die Nachbarschaft und zog einen Mantelsaum mit, der
+  /// eine Zelle darunter lag.
+  double gewicht(double x, double y) {
+    if (hoehe <= 0 || breite <= 0) return 0;
+    final fb = ((y - minY) / hoehe) * _armBaender - 0.5;
+    final fz = ((x - minX) / breite) * (_armZellen - 1);
+    final b0 = fb.floor(), z0 = fz.floor();
+    final tb = fb - b0, tz = fz - z0;
+    var summe = 0.0, anteil = 0.0;
+    void nimm(int b, int z, double c) {
+      if (b < 0 || b >= _armBaender || z < 0 || z >= _armZellen) return;
+      if (!belegt[b][z]) return;
+      summe += c * gewichte[b][z];
+      anteil += c;
+    }
+
+    nimm(b0, z0, (1 - tb) * (1 - tz));
+    nimm(b0, z0 + 1, (1 - tb) * tz);
+    nimm(b0 + 1, z0, tb * (1 - tz));
+    nimm(b0 + 1, z0 + 1, tb * tz);
+    if (anteil > 0.001) return summe / anteil;
+    // Kein belegter Nachbar – dann die eigene Zelle, falls es sie gibt.
+    final b = (fb + 0.5).floor().clamp(0, _armBaender - 1);
+    final z = fz.round().clamp(0, _armZellen - 1);
+    return belegt[b][z] ? gewichte[b][z] : 0;
   }
+}
+
+/// Die zusammenhängenden belegten Bereiche eines Bandes.
+///
+/// Einzelne leere Zellen zwischen zwei belegten werden vorher
+/// geschlossen – sonst reißt ein schräger Rand eine Insel entzwei.
+List<List<int>> _inselListe(List<bool> band) {
+  final geglaettet = List<bool>.from(band);
+  for (var i = 1; i < band.length - 1; i++) {
+    if (!band[i] && band[i - 1] && band[i + 1]) geglaettet[i] = true;
+  }
+  final out = <List<int>>[];
+  var i = 0;
+  while (i < geglaettet.length) {
+    if (!geglaettet[i]) {
+      i++;
+      continue;
+    }
+    var j = i;
+    while (j + 1 < geglaettet.length && geglaettet[j + 1]) {
+      j++;
+    }
+    out.add([i, j]);
+    i = j + 1;
+  }
+  return out;
+}
+
+/// Sucht die Arme im Querschnitt und baut das Gewichtsfeld.
+///
+/// Gibt null zurück, wenn auf einer Seite kein Arm als eigene Insel
+/// zu sehen ist. Dann wird nicht gedreht: Was hier nicht zu messen
+/// ist, lässt sich auch nicht sauber bewegen.
+_Armfeld? _findeArme(Float32List pos, List<int> idx, double schulterY) {
+  var minY = double.infinity, maxY = double.negativeInfinity;
+  var minX = double.infinity, maxX = double.negativeInfinity;
+  for (var i = 0; i + 2 < pos.length; i += 3) {
+    minY = math.min(minY, pos[i + 1]);
+    maxY = math.max(maxY, pos[i + 1]);
+    minX = math.min(minX, pos[i]);
+    maxX = math.max(maxX, pos[i]);
+  }
+  final hoehe = maxY - minY, breite = maxX - minX;
+  if (!(hoehe > 0) || !(breite > 0)) return null;
+
+  // Rastern über **Dreiecke**: Ein Kasten hat zwischen Ober- und
+  // Unterkante keine Punkte, punktweise bliebe das Band dort leer.
+  final belegt =
+      List.generate(_armBaender, (_) => List<bool>.filled(_armZellen, false));
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    var yLo = double.infinity, yHi = double.negativeInfinity;
+    var xLo = double.infinity, xHi = double.negativeInfinity;
+    for (var k = 0; k < 3; k++) {
+      final v = idx[t + k] * 3;
+      if (v + 2 >= pos.length) continue;
+      yLo = math.min(yLo, pos[v + 1]);
+      yHi = math.max(yHi, pos[v + 1]);
+      xLo = math.min(xLo, pos[v]);
+      xHi = math.max(xHi, pos[v]);
+    }
+    if (!yLo.isFinite || !xLo.isFinite) continue;
+    final b0 =
+        (((yLo - minY) / hoehe) * _armBaender).floor().clamp(0, _armBaender - 1);
+    final b1 =
+        (((yHi - minY) / hoehe) * _armBaender).ceil().clamp(1, _armBaender);
+    final z0 = (((xLo - minX) / breite) * (_armZellen - 1))
+        .floor()
+        .clamp(0, _armZellen - 1);
+    final z1 = (((xHi - minX) / breite) * (_armZellen - 1))
+        .ceil()
+        .clamp(0, _armZellen - 1);
+    for (var b = b0; b < math.max(b1, b0 + 1); b++) {
+      for (var z = z0; z <= z1; z++) {
+        belegt[b][z] = true;
+      }
+    }
+  }
+
+  final mitteZelle = (_armZellen - 1) ~/ 2;
+  final schulterBand = (((schulterY - minY) / hoehe) * _armBaender)
+      .floor()
+      .clamp(0, _armBaender - 1);
+  // Je Band die Kante des Rumpfes zu jeder Seite – gesetzt nur dort,
+  // wo daneben wirklich eine eigene Insel steht.
+  final kanteL = List<double>.filled(_armBaender, double.nan);
+  final kanteR = List<double>.filled(_armBaender, double.nan);
+  final inselnJeBand = <List<List<int>>>[];
+  for (var b = 0; b < _armBaender; b++) {
+    final inseln = _inselListe(belegt[b]);
+    inselnJeBand.add(inseln);
+    if (b > schulterBand) continue;
+    final k = inseln.indexWhere((i) => i[0] <= mitteZelle && mitteZelle <= i[1]);
+    if (k < 0) continue;
+    if (k > 0) kanteL[b] = inseln[k][0].toDouble();
+    if (k < inseln.length - 1) kanteR[b] = inseln[k][1].toDouble();
+  }
+  var obenL = -1, untenL = -1, obenR = -1, untenR = -1;
+  for (var b = 0; b < _armBaender; b++) {
+    if (!kanteL[b].isNaN) {
+      if (untenL < 0) untenL = b;
+      obenL = b;
+    }
+    if (!kanteR[b].isNaN) {
+      if (untenR < 0) untenR = b;
+      obenR = b;
+    }
+  }
+  // Auf beiden Seiten muss ein Arm über mindestens vier Bänder frei
+  // stehen; ein einzelnes Band ist Rauschen.
+  if (obenL - untenL < 3 || obenR - untenR < 3) return null;
+
+  final gewichte =
+      List.generate(_armBaender, (_) => List<double>.filled(_armZellen, 0));
+  final fest =
+      List.generate(_armBaender, (_) => List<bool>.filled(_armZellen, false));
+  void setze(int b, int z, double w) {
+    gewichte[b][z] = w;
+    fest[b][z] = true;
+  }
+
+  for (var b = 0; b < _armBaender; b++) {
+    for (final insel in inselnJeBand[b]) {
+      for (var z = insel[0]; z <= insel[1]; z++) {
+        if (!belegt[b][z]) continue;
+        if (b > schulterBand) {
+          setze(b, z, 0);
+        } else if (!kanteL[b].isNaN && z < kanteL[b]) {
+          setze(b, z, 1);
+        } else if (!kanteR[b].isNaN && z > kanteR[b]) {
+          setze(b, z, 1);
+        } else if (!kanteL[b].isNaN || !kanteR[b].isNaN) {
+          setze(b, z, 0);
+        }
+      }
+    }
+  }
+  // Der Kern bleibt der Kern.
+  //
+  // Was näher an der Achse liegt als die **schmalste** gemessene
+  // Rumpfkante, ist kein Arm - Beine, Füße, Rumpf, der innere Teil
+  // eines Mantelsaums. Ohne diese Festlegung hängt an einer Figur mit
+  // Saum die ganze untere Hälfte frei in der Ausgleichsrechnung: Sie
+  // ist über den Saum mit dem Arm verbunden, hat aber nach unten
+  // nichts, was sie auf null hält, und wandert mit hoch. An einer
+  // Testfigur drehten sich so die Beine mit.
+  var kernHalb = double.infinity;
+  for (var b = 0; b < _armBaender; b++) {
+    if (!kanteL[b].isNaN) {
+      kernHalb = math.min(kernHalb, (mitteZelle - kanteL[b]).abs());
+    }
+    if (!kanteR[b].isNaN) {
+      kernHalb = math.min(kernHalb, (kanteR[b] - mitteZelle).abs());
+    }
+  }
+  if (kernHalb.isFinite) {
+    for (var b = 0; b <= schulterBand && b < _armBaender; b++) {
+      for (var z = 0; z < _armZellen; z++) {
+        if (!belegt[b][z] || fest[b][z]) continue;
+        if ((z - mitteZelle).abs() < kernHalb) setze(b, z, 0);
+      }
+    }
+  }
+
+  // Unter dem tiefsten gemessenen Band hängen noch Hände: Bänder
+  // unterhalb des Schritts zerfallen in Beine, die Mitte ist frei,
+  // und dann ist keine Rumpfkante zu messen. Was dort **deutlich**
+  // außerhalb der letzten Kante liegt, gehört zum Arm.
+  void handNachUnten(int unten, double kante, bool links) {
+    final marge = _armZellen * 0.03;
+    for (var b = unten - 1; b >= 0; b--) {
+      var etwas = false;
+      for (final insel in inselnJeBand[b]) {
+        final drin = links
+            ? insel[1] < kante - marge
+            : insel[0] > kante + marge;
+        if (!drin) continue;
+        etwas = true;
+        for (var z = insel[0]; z <= insel[1]; z++) {
+          if (belegt[b][z]) setze(b, z, 1);
+        }
+      }
+      if (!etwas) break;
+    }
+  }
+
+  handNachUnten(untenL, kanteL[untenL], true);
+  handNachUnten(untenR, kanteR[untenR], false);
+
+  // Diffusion über das Blech: Wo nichts festgesetzt ist – die
+  // verschmolzene Schulter –, mittelt sich das Gewicht aus den
+  // Nachbarn. Leere Zellen leiten nicht; über die Lücke zwischen Arm
+  // und Rumpf kann also nichts überspringen. Der Übergang entsteht so
+  // über die ganze Höhe, über die beide zusammenhängen.
+  var feld = gewichte;
+  for (var runde = 0; runde < 400; runde++) {
+    final neu = List.generate(
+        _armBaender, (b) => List<double>.from(feld[b]));
+    for (var b = 0; b < _armBaender; b++) {
+      for (var z = 0; z < _armZellen; z++) {
+        if (fest[b][z] || !belegt[b][z]) continue;
+        var summe = 0.0;
+        var n = 0;
+        void nimm(int bb, int zz) {
+          if (bb < 0 || bb >= _armBaender || zz < 0 || zz >= _armZellen) return;
+          if (!belegt[bb][zz]) return;
+          summe += feld[bb][zz];
+          n++;
+        }
+
+        nimm(b - 1, z);
+        nimm(b + 1, z);
+        nimm(b, z - 1);
+        nimm(b, z + 1);
+        if (n > 0) neu[b][z] = summe / n;
+      }
+    }
+    feld = neu;
+  }
+
+  double xVon(double zelle) => minX + zelle / (_armZellen - 1) * breite;
+  double yVon(int band) => minY + (band + 0.5) / _armBaender * hoehe;
+  return _Armfeld(
+    minY: minY,
+    minX: minX,
+    hoehe: hoehe,
+    breite: breite,
+    mitteX: (minX + maxX) / 2,
+    gewichte: feld,
+    belegt: belegt,
+    schulterY: schulterY,
+    drehpunktL: xVon(kanteL[obenL]),
+    drehpunktR: xVon(kanteR[obenR]),
+    armOben: yVon(math.max(obenL, obenR)),
+    armUnten: yVon(math.min(untenL, untenR)),
+  );
+}
+
+/// Spreizt die gefundenen Arme um [grad] nach außen ab.
+///
+/// Gedreht wird um das Schultergelenk – für jede Seite um ihren
+/// eigenen Punkt –, und zwar anteilig nach dem Gewichtsfeld. Am Rumpf
+/// ist das Gewicht null: Dort bleibt jeder Punkt, wo er ist. Genau
+/// darauf kommt es an, denn gemessen wird der Abstand als Spanne
+/// **minus Rumpfbreite**; geht der Rumpf mit auseinander, bringt das
+/// Drehen nichts.
+///
+/// Ohne Klemme und ohne Streckung. Beides stand hier: Die Klemme
+/// („nichts steigt über die Schulter") legte alles, was sich hob, auf
+/// eine Ebene und machte aus dem Arm ein Blatt; die Streckung sollte
+/// nachhelfen, was nur nötig schien, weil der Rumpf mitging.
+void _armeAbspreizen(Float32List pos, _Armfeld feld, double grad) {
+  final theta = grad * math.pi / 180;
+  for (var i = 0; i + 2 < pos.length; i += 3) {
+    final x = pos[i], y = pos[i + 1];
+    final w = feld.gewicht(x, y);
+    if (w <= 0.001) continue;
+    final links = x < feld.mitteX;
+    final px = links ? feld.drehpunktL : feld.drehpunktR;
+    final phi = (links ? -1 : 1) * theta * w;
+    final dx = x - px, dy = y - feld.schulterY;
+    final c = math.cos(phi), s = math.sin(phi);
+    pos[i] = px + dx * c - dy * s;
+    pos[i + 1] = feld.schulterY + dx * s + dy * c;
+  }
+}
+
+/// Zählt die Kanten, die eine Verformung über [faktor] gedehnt hat.
+///
+/// Der Umstülp-Wächter allein hat nicht gereicht: Beim ersten
+/// Abspreizen wurde die Schulter flachgeklemmt und der Mantelsaum
+/// mitgezogen. Kein Dreieck drehte sich dabei um – die Zählung stand
+/// bei null –, und trotzdem standen die Arme hinterher als Splitter
+/// ab. Eine gerissene Stelle ist an den Kanten zu sehen, die dabei
+/// lang werden.
+int countStretchedEdges(
+    Float32List vorher, Float32List nachher, List<int> idx,
+    {double faktor = 3.0}) {
+  var n = 0;
+  final grenze = math.min(vorher.length, nachher.length);
+  double laenge(Float32List p, int a, int b) {
+    final dx = p[b] - p[a];
+    final dy = p[b + 1] - p[a + 1];
+    final dz = p[b + 2] - p[a + 2];
+    return math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    for (var e = 0; e < 3; e++) {
+      final a = idx[t + e] * 3, b = idx[t + (e + 1) % 3] * 3;
+      if (a + 2 >= grenze || b + 2 >= grenze) continue;
+      final vor = laenge(vorher, a, b);
+      if (vor <= 0) continue;
+      if (laenge(nachher, a, b) > vor * faktor) n++;
+    }
+  }
+  return n;
 }
 
 void _armeSenken(Float32List pos, double schulterY, double schulterHalb,
@@ -1088,15 +1419,16 @@ Future<RepairResult> repairForMarketplace(
           .map((f) => f.id)
           .toSet();
       final urzustand = Float32List.fromList(pos);
-      // Zwei Drehpunkte, gemessen statt geraten.
+      // Erst suchen, dann drehen.
       //
-      // Wo die Achsel liegt, ist bei einer I-Pose gerade nicht zu
-      // messen: Arm und Rumpf bilden eine einzige Insel, und die
-      // „Rumpfbreite im breitesten Band" ist deshalb die ganze
-      // Silhouette. Der eine Kandidat schätzt die Achsel über die
-      // Kopfbreite (wie beim Senken einer T-Pose), der andere nimmt
-      // die halbe gemessene Rumpfbreite. Welcher passt, entscheidet
-      // die Nachmessung.
+      // Wo die Achsel liegt, wurde hier zweimal **geraten** – halbe
+      // Rumpfbreite oder Kopfbreite mal 0,9 – und alles außerhalb
+      // gedreht. Bei einer I-Pose ist die gemessene Rumpfbreite aber
+      // die ganze Silhouette, weil Arm und Rumpf eine Insel bilden;
+      // beide Schätzungen lagen deshalb mitten im Mantel. [_findeArme]
+      // sieht stattdessen im Querschnitt nach, wo der Arm als eigene
+      // Insel steht, und baut daraus ein Gewichtsfeld.
+      final feld = _findeArme(pos, idx, zonen.shoulderY);
       // Die **kleinste** Bewegung, die die Regel erfüllt.
       //
       // Derselbe Grundsatz wie beim Norm-Umbau: Die Regel gilt
@@ -1105,82 +1437,77 @@ Future<RepairResult> repairForMarketplace(
       // größte Reichweite und kam an einer echten Figur auf 4,98 statt
       // der nötigen 2,12 Studs - eine Armspanne von 6,38 bei 5,00
       // Studs Höhe.
-      //
-      // Die Kandidaten stehen deshalb nach steigender Verformung, und
-      // genommen wird der erste, der reicht: erst kleine Winkel ohne
-      // Streckung, dann größere, dann Streckung dazu.
       final noetig = 2 * specMinArmLength / math.sqrt2;
-      final untenY = zonen.hipY - zonen.height * 0.10;
       Float32List? bestes;
       var besteReichweite = steht;
-      var besteAchsel = 0.0;
       var besteWinkel = 0.0;
-      var besteStreckung = 1.0;
       var besteOffen = offenVorher;
-      var reicht = false;
-      for (final streckung in const <double>[1.0, 1.2, repairArmStretchMax]) {
-        for (final grad in const <double>[20.0, 30.0, repairArmSpread]) {
-          for (final achsel in <double>{
-            davor.spanTorsoWidth / 2,
-            zonen.headWidth * 0.9,
-          }) {
-            pos.setAll(0, urzustand);
-            _armeAufspannen(pos, zonen.shoulderY, untenY, achsel, grad,
-                streckung, zonen.height * 0.03);
-            if (countFlippedTriangles(urzustand, pos, idx) > flipGrenze()) {
-              continue;
-            }
-            final n = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
-            final reichweite = n.width - n.spanTorsoWidth;
-            final offen = checkMarketplaceFigure(n, scale: scale)
-                .where((f) => f.level != MarketplaceLevel.ok)
-                .map((f) => f.id)
-                .toSet();
-            // Eine Warnung weniger ist keinen neuen Fehler wert: Das
-            // Abspreizen hebt die Arme, und damit wandert das
-            // breiteste Band nach oben - an Testfiguren aus Quadern
-            // wurde daraus eine T-Pose.
-            // Drei Bedingungen, alle aus Fehlversuchen gelernt.
-            //
-            // **Keine neue offene Regel.** Gezählt wurde einmal nur
-            // die Anzahl, und das ging so aus: „arme_frei" ging zu,
-            // „bein_hoehe" auf, der Zähler sagte „gleich geblieben".
-            //
-            // **Kopf, Rumpf und Beine bleiben, wo sie sind.** Die
-            // Bänder-Messung verliert den Faden, sobald die Arme die
-            // Silhouette beherrschen: Bei 7,87 Studs Armspanne las sie
-            // direkt nach dem Schritt „Beine 2,20" und nach der
-            // Dezimierung „Beine 0,40" - dieselbe Geometrie. Wo die
-            // drei Zahlen wandern, ist die Messung nicht mehr zu
-            // gebrauchen, und dann ist der Schritt zu groß.
-            //
-            // **Nicht über das Ziel hinaus.** Gefordert sind 2,12
-            // Studs; 6,39 sind keine Reparatur, sondern ein Gibbon.
-            // **Entweder ganz oder gar nicht.** Hier stand „besser
-            // als bisher", und damit nahm der Schritt an einer
-            // Testfigur eine Verbesserung von 0,00 auf 0,05 Studs mit:
-            // verformt, und die Warnung stand hinterher genauso da.
-            // Erfüllt ist die Vorgabe erst bei [noetig].
-            if (offen.difference(offenVorher).isNotEmpty ||
-                reichweite < noetig ||
-                reichweite > noetig * 1.35 ||
-                (n.legHeight - davor.legHeight).abs() > hoehe * 0.03 ||
-                (n.torsoHeight - davor.torsoHeight).abs() > hoehe * 0.03 ||
-                (n.headHeight - davor.headHeight).abs() > hoehe * 0.03) {
-              continue;
-            }
-            besteReichweite = reichweite;
-            besteAchsel = achsel;
-            besteWinkel = grad;
-            besteStreckung = streckung;
-            besteOffen = offen;
-            bestes = Float32List.fromList(pos);
-            reicht = true;
-            break;
-          }
-          if (reicht) break;
+      // Der Riss-Wächter.
+      //
+      // Gemessen an der sauberen Drehung: Dort werden 0,5 % der Kanten
+      // um mehr als die Hälfte länger (die Schulter, die sich mitdreht)
+      // und **keine einzige** um mehr als das Dreifache. Ein Riss sieht
+      // anders aus - er zieht einzelne Kanten weit auf. Die Grenze
+      // liegt deshalb beim Dreifachen, und ein halbes Promille darf es
+      // sein.
+      final dehnGrenze = math.max(10, idx.length ~/ 2000);
+      for (final grad in feld == null
+          ? const <double>[]
+          : const <double>[
+              12.0,
+              16.0,
+              20.0,
+              25.0,
+              30.0,
+              35.0,
+              40.0,
+              repairArmSpread
+            ]) {
+        pos.setAll(0, urzustand);
+        _armeAbspreizen(pos, feld!, grad);
+        if (countFlippedTriangles(urzustand, pos, idx) > flipGrenze()) {
+          continue;
         }
-        if (reicht) break;
+        if (countStretchedEdges(urzustand, pos, idx) > dehnGrenze) continue;
+        final n = measureMarketplaceFigure(pos, idx, targetStuds: hoehe);
+        final reichweite = n.width - n.spanTorsoWidth;
+        final offen = checkMarketplaceFigure(n, scale: scale)
+            .where((f) => f.level != MarketplaceLevel.ok)
+            .map((f) => f.id)
+            .toSet();
+        // Drei Bedingungen, alle aus Fehlversuchen gelernt.
+        //
+        // **Keine neue offene Regel.** Gezählt wurde einmal nur die
+        // Anzahl, und das ging so aus: „arme_frei" ging zu,
+        // „bein_hoehe" auf, der Zähler sagte „gleich geblieben".
+        //
+        // **Entweder ganz oder gar nicht.** Hier stand „besser als
+        // bisher", und damit nahm der Schritt an einer Testfigur eine
+        // Verbesserung von 0,00 auf 0,05 Studs mit: verformt, und die
+        // Warnung stand hinterher genauso da. Gemessen wird deshalb an
+        // der Regel selbst - sie muss zugehen.
+        //
+        // **Der Rumpf bleibt, wie er ist.** Das war der eigentliche
+        // Fehler des ersten Anlaufs: Weil der Mantel mitging, wuchs
+        // die Rumpfbreite genauso schnell wie die Spanne, der Abstand
+        // blieb klein, und die Suche verformte immer weiter. Hier
+        // standen vorher drei Bedingungen für Kopf-, Rumpf- und
+        // Beinhöhe. Die messen inzwischen nur noch sich selbst: Was
+        // kein Armgewicht trägt, wird gar nicht angefasst, die
+        // Geometrie dort ist Byte für Byte dieselbe - nur die
+        // Bänder-Messung liest sie anders, wenn sich die Silhouette
+        // daneben ändert. An einer Testfigur verwarf das eine
+        // einwandfreie Drehung, bei der alle Regeln zugingen.
+        if (offen.difference(offenVorher).isNotEmpty ||
+            offen.contains(marketplaceRuleArmsFree) ||
+            n.spanTorsoWidth > davor.spanTorsoWidth + hoehe * 0.02) {
+          continue;
+        }
+        besteReichweite = reichweite;
+        besteWinkel = grad;
+        besteOffen = offen;
+        bestes = Float32List.fromList(pos);
+        break;
       }
       if (bestes == null) {
         pos.setAll(0, urzustand);
@@ -1189,12 +1516,24 @@ Future<RepairResult> repairForMarketplace(
             '${steht.toStringAsFixed(2)} Studs',
             'verworfen',
             RepairOrigin.prompt,
-            'Kein Drehpunkt bringt die Arme weiter vom Rumpf weg, ohne '
-                'anderswo etwas zu brechen. Was hier als Arm gedreht '
-                'würde, ist keiner - oder er ist zu kurz, um sich '
-                'freizustellen. Die A-Pose bestellt der '
-                'Marktplatz-Lauf ohnehin zweimal; hilft das nicht, '
-                'hilft nur ein neuer Lauf.');
+            feld == null
+                ? 'Im Querschnitt steht auf keiner Seite ein Arm als '
+                    'eigene Insel neben dem Rumpf – er klebt über die '
+                    'ganze Höhe daran, oder es ist keiner. Was hier '
+                    'nicht zu messen ist, lässt sich auch nicht sauber '
+                    'bewegen: Der erste Anlauf hat an dieser Stelle '
+                    'geraten und den halben Mantel mitgedreht. Die '
+                    'A-Pose bestellt der Marktplatz-Lauf ohnehin '
+                    'zweimal; hilft das nicht, hilft nur ein neuer Lauf.'
+                : 'Die Arme sind gefunden (von '
+                    '${feld.armUnten.toStringAsFixed(2)} bis '
+                    '${feld.armOben.toStringAsFixed(2)} in Modellmaßen), '
+                    'aber selbst um ${repairArmSpread.round()}° '
+                    'abgespreizt bleiben sie unter den geforderten '
+                    '${noetig.toStringAsFixed(2)} Studs Abstand – oder '
+                    'die Drehung reißt anderswo etwas auf. Der Abstand '
+                    'ist die Armlänge mal cos 45°: So kurze Arme werden '
+                    'nur im Bild länger, nicht hier.');
       } else {
         pos.setAll(0, bestes);
         notiere(
@@ -1202,24 +1541,13 @@ Future<RepairResult> repairForMarketplace(
             '${steht.toStringAsFixed(2)} Studs',
             '${besteReichweite.toStringAsFixed(2)} Studs',
             RepairOrigin.app,
-            'Um ${besteWinkel.round()}° um die Achsel bei '
-                '${besteAchsel.toStringAsFixed(2)} Studs nach außen '
-                'gedreht'
-                '${besteStreckung > 1.0 ? ' und um das '
-                    '${besteStreckung.toStringAsFixed(2)}-fache '
-                    'gestreckt' : ''}; offene Vorgaben '
-                '${offenVorher.length} → ${besteOffen.length}, '
-                'keine neue. '
-                '${besteReichweite >= noetig ? 'Damit steht der geforderte '
-                    'Abstand von ${noetig.toStringAsFixed(2)} Studs.' : 'Nötig '
-                    'wären ${noetig.toStringAsFixed(2)} Studs. Weiter geht '
-                    'es nicht: Der Abstand ist die Armlänge mal cos 45°, '
-                    'und selbst um das '
-                    '${repairArmStretchMax.toStringAsFixed(1)}-fache '
-                    'gestreckt reichen diese Arme nicht. Weiter zu '
-                    'strecken macht aus der Figur einen Gibbon; im Bild '
-                    'müssen die Arme länger werden.'}',
-            fixed: besteReichweite >= noetig);
+            'Um ${besteWinkel.round()}° um das Schultergelenk nach '
+                'außen gedreht, anteilig nach einem gemessenen '
+                'Gewichtsfeld – der Rumpf bleibt dabei stehen. Offene '
+                'Vorgaben ${offenVorher.length} → ${besteOffen.length}, '
+                'keine neue. Damit steht der geforderte Abstand von '
+                '${noetig.toStringAsFixed(2)} Studs.',
+            fixed: true);
       }
     }
   }

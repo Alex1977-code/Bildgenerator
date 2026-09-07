@@ -1148,6 +1148,31 @@ wird `bld-02-bakery.png`. Ohne eigenen Namen bleibt es bei der
 Kennung. Zeichen, die Windows in Dateinamen nicht erlaubt, werden
 ersetzt.
 
+### Ein Modell, eine Fassung — auch in der Galerie
+
+Dieselbe Figur sah im Viewer aus dem **3D-Bereich** anders aus als in
+der **Galerie**: dort 16.352 Dreiecke in I-Pose, hier 7.117 mit
+abgespreizten Armen. Kein Anzeigefehler — es waren zwei verschiedene
+Dateien.
+
+Die Galerie bekam das Modell, sobald der Anbieter es geliefert hatte.
+Alles, was der 3D-Bereich danach tat, stand nur im Ergebnis:
+herrichten, Marktplatz-Reparatur, Rig-Editor, „Für Roblox richten",
+Texturen verkleinern, beim Anbieter neu rechnen, Export-Name. Der
+Download in der Galerie lieferte deshalb eine andere Datei als der
+Export im 3D-Bereich — zwei Dateien gleichen Namens mit verschiedener
+Größe.
+
+Jedes Ergebnis merkt sich jetzt die Kennung seines Galerie-Eintrags,
+und jede Übernahme schreibt über sie zurück. Der Eintrag behält dabei
+Kennung, Platz, Namen und Projekt; unter „Nachbearbeitet" steht, was
+zuletzt geschah. Eine Ausnahme bleibt die **Anprobe**: Sie legt weiter
+einen zweiten Eintrag „(angepasst)" an, damit die unangepasste Fassung
+erhalten bleibt.
+
+Das Vorschaubild der Kachel bleibt das vom Lauf — es wird beim Erzeugen
+gerendert, nicht bei jeder Änderung neu.
+
 ## Bildqualität und Detailtreue steuern (eigene GPU)
 
 Der Bild-Server nahm Schrittzahl und Prompt-Treue schon immer entgegen
@@ -3499,7 +3524,8 @@ nach. Sechs Eingriffe, alle direkt auf den Punkten:
 | Beine getrennt | löscht den Saum: Dreiecke, deren **drei** Punkte unter der Hüfte und im Mittelstreifen liegen | — |
 | Beinform | Zylinder-Klemme mit 0,75 Studs Radius um jede Beinachse | — |
 | Beinbreite | schmälert auf 1,45 | über 1,80 bliebe vom Bein nichts übrig |
-| Pose | dreht die Arme um 45° ums Schultergelenk, weicher Anlauf über 4 % der Höhe | — |
+| Pose (T) | dreht waagerechte Arme um 45° nach unten ums Schultergelenk | — |
+| Pose (I) | spreizt hängende Arme ab: 12°…45°, der **kleinste** Winkel, der reicht | wenn im Querschnitt kein Arm zu finden ist |
 
 Danach laufen Lochschluss und Wicklungskorrektur (der Schnitt
 hinterlässt Löcher), die Dezimierung auf 6.800 Dreiecke — etwas unter
@@ -3520,6 +3546,53 @@ läuft auf dem Export-Puffer, nicht auf einer Arbeitskopie.
 **Vorher wird immer hergerichtet.** Die Messungen brauchen eine Figur
 von 5,00 Studs mit den Zehen auf +Z; in Bändern von 2 % der Höhe misst
 man sonst etwas anderes, als man glaubt.
+
+#### Arme abspreizen: gemessen statt geraten
+
+Auto Setup nennt die I-Pose ausdrücklich schlechter („Character bodies
+with I-pose may yield lower quality results"), und Auto Setup 6
+verlangt, dass von vorn keine Gliedmaße eine andere verdeckt. Gefordert
+sind Armlänge × cos 45° zu jeder Seite, bei 1,5 Studs Mindestarmlänge
+also 2,12 Studs zwischen Spanne und Rumpfbreite.
+
+**Der erste Anlauf hat die Achsel geraten** — halbe Rumpfbreite oder
+Kopfbreite mal 0,9 — und alles außerhalb gedreht **und gestreckt**. Bei
+einer I-Pose ist die gemessene „Rumpfbreite" aber die ganze Silhouette,
+weil Arm und Rumpf eine einzige Insel bilden; beide Schätzungen lagen
+mitten im Mantel. Der Saum drehte mit und wurde zur Glocke, und weil
+der Rumpf mit auseinanderging, wuchs die Rumpfbreite genauso schnell
+wie die Spanne: Der Abstand blieb klein, die Suche eskalierte auf 45°
+samt 1,6-facher Streckung, und die Arme standen als Splitter ab. Kein
+Dreieck hatte sich dabei umgedreht — der Umstülp-Wächter meldete
+nichts.
+
+**Jetzt wird nachgesehen.** Im Querschnitt (50 Bänder × 192 Zellen,
+über Dreiecke gefüllt) steht der Arm in den unteren Bändern als eigene
+Insel neben dem Rumpf; dort ist die Kante messbar, und der Schnitt
+läuft durch die **Lücke** — durch leeren Raum, kein Dreieck geht
+darüber. Weiter oben, wo Arm und Rumpf verschmelzen, ist keine Kante zu
+messen; dort entsteht das Gewicht durch **Diffusion**: Arm 1, Rumpf 0,
+Kern (alles innerhalb der schmalsten gemessenen Rumpfkante) 0, und
+dazwischen glättet sich das Feld über das Blech, das beide verbindet —
+derselbe Kunstgriff, aus dem eine Skinning-Gewichtung entsteht. Leere
+Zellen leiten nicht, also kann über die Lücke nichts überspringen.
+
+Gedreht wird dann anteilig nach diesem Feld, um das Schultergelenk,
+**ohne Streckung und ohne Klemme**. Wo das Gewicht null ist, bleibt
+jeder Punkt Byte für Byte, wo er war — der Rumpf steht still, und
+deshalb misst die Spanne minus Rumpfbreite endlich die Arme.
+
+Angenommen wird der **kleinste** Winkel, bei dem die Regel `arme_frei`
+wirklich zugeht, keine andere aufgeht und die Rumpfbreite nicht wächst.
+Dazu zwei Wächter: der bekannte Umstülp-Zähler und ein **Riss-Wächter**,
+der Kanten zählt, die über das Dreifache gedehnt wurden (sauber gedreht
+sind es null; ein Riss zieht einzelne Kanten weit auf).
+
+An sieben echten Figuren gemessen: fünf repariert (1,03 → 2,36 · 1,40 →
+2,24 · 1,72 → 2,43 Studs), zwei sauber abgelehnt — bei ihnen steht im
+Querschnitt auf keiner Seite ein Arm als eigene Insel, und was nicht zu
+messen ist, lässt sich auch nicht sauber bewegen. Der Bericht sagt das
+dann so.
 
 ### Die Front war spiegelverkehrt
 
